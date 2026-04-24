@@ -143,10 +143,13 @@ struct MeetingView: View {
                 .fill(Color.secondary.opacity(0.18))
                 .frame(height: 0.5)
             recorderBar
-            Divider()
-            sectionPicker
+            MeetingTabsUnderline(
+                selection: $activeSection,
+                attachmentsCount: meeting.attachments.count,
+                hasReport: !meeting.summary.isEmpty
+            )
             sectionContent
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 28)
                 .padding(.top, 12)
                 .padding(.bottom, 16)
         }
@@ -406,20 +409,6 @@ struct MeetingView: View {
             }
         }
         .frame(width: 100, height: 6)
-    }
-
-    // MARK: - Section picker
-
-    private var sectionPicker: some View {
-        Picker("", selection: $activeSection) {
-            ForEach(MeetingSection.allCases) { s in
-                Text(s.rawValue).tag(s)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.25))
     }
 
     @ViewBuilder
