@@ -148,7 +148,8 @@ struct MeetingDetailsBlock: View {
                         .background(participantChipColor(for: p))
                         .cornerRadius(12)
                     }
-                    .menuStyle(.borderlessButton)
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
                 }
 
                 Menu {
