@@ -38,6 +38,7 @@ struct MeetingView: View {
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var saveStatusMessage: String?
+    @State private var detailsExpanded: Bool = true
 
     enum MeetingSection: String, CaseIterable, Identifiable {
         case liveNotes = "Notes live"
@@ -116,7 +117,13 @@ struct MeetingView: View {
 
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            MeetingHeaderEditorial(
+                meeting: meeting,
+                settings: settings,
+                detailsExpanded: $detailsExpanded
+            )
+            participantsSection
+                .padding(.horizontal, 28)
             Rectangle()
                 .fill(Color.secondary.opacity(0.18))
                 .frame(height: 0.5)
@@ -129,118 +136,6 @@ struct MeetingView: View {
                 .padding(.bottom, 16)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text(meeting.kind == .project ? "COPIL · PROJET" : "RÉUNION")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundColor(.secondary)
-                            .tracking(1.4)
-                        if let project = meeting.project {
-                            Text(project.code)
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.black.opacity(0.07))
-                                .clipShape(Capsule())
-                        }
-                    }
-
-                    EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
-                        .frame(height: 30)
-                        .font(.system(size: 34, weight: .semibold, design: .serif))
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    DatePicker("", selection: $meeting.date, displayedComponents: [.date, .hourAndMinute])
-                        .labelsHidden()
-                        .frame(width: 210)
-                    HStack(spacing: 8) {
-                        Button(action: { meeting.date = Date() }) {
-                            Image(systemName: "clock.arrow.2.circlepath")
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Mettre à maintenant")
-                        latestCaptureThumbnail
-                    }
-                }
-            }
-
-            HStack(spacing: 10) {
-                Text("TYPE")
-                    .font(.caption2.weight(.bold))
-                    .foregroundColor(.secondary)
-                    .tracking(1.2)
-                Picker("Type", selection: Binding(
-                    get: { meeting.kind },
-                    set: { meeting.kind = $0; saveContext() }
-                )) {
-                    ForEach(MeetingKind.allCases) { k in
-                        Label(k.label, systemImage: k.sfSymbol).tag(k)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 160)
-
-                if meeting.kind == .project {
-                    Text("PROJET")
-                        .font(.caption2.weight(.bold))
-                        .foregroundColor(.secondary)
-                        .tracking(1.2)
-                    Picker("Projet", selection: Binding(
-                        get: { meeting.project },
-                        set: { meeting.project = $0; saveContext() }
-                    )) {
-                        Text("Aucun projet").tag(nil as Project?)
-                        ForEach(projects.sorted(by: { $0.name < $1.name })) { p in
-                            Text(p.name).tag(p as Project?)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 320)
-                }
-                Spacer()
-            }
-
-            HStack(spacing: 8) {
-                Button(action: { showCustomPrompt.toggle() }) {
-                    Label(
-                        showCustomPrompt ? "Masquer le prompt" : "Prompt spécifique",
-                        systemImage: "text.bubble"
-                    )
-                    .font(.caption)
-                }
-                .buttonStyle(.bordered)
-
-                Button(action: { showCalendarImporter = true }) {
-                    Label("Importer Calendrier", systemImage: "calendar.badge.plus")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                Spacer()
-            }
-
-            if showCustomPrompt {
-                TextEditor(text: $meeting.customPrompt)
-                    .font(.body)
-                    .frame(height: 70)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
-                    .help("Instructions spécifiques pour la transcription et le résumé de cette réunion.")
-            }
-
-            participantsSection
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
     }
 
     // MARK: - Recorder bar
