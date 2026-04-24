@@ -40,6 +40,7 @@ struct MeetingView: View {
     @State private var saveStatusMessage: String?
     @State private var showPlayback: Bool = false
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
+    @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
     enum MeetingSection: String, CaseIterable, Identifiable {
         case liveNotes = "Notes live"
@@ -130,7 +131,30 @@ struct MeetingView: View {
 
             HSplitView {
                 mainPanel.frame(minWidth: 520)
-                actionsPanel.frame(minWidth: 300, maxWidth: 420)
+                MeetingActionsSidebar(
+                    meeting: meeting,
+                    settings: settings,
+                    allCollaborators: allCollaborators,
+                    currentSlides: currentSlides,
+                    collapsed: $actionsCollapsed,
+                    newTaskTitle: $newTaskTitle,
+                    selectedCollaborator: $selectedCollaborator,
+                    showNewTaskDueDate: $showNewTaskDueDate,
+                    newTaskDueDate: $newTaskDueDate,
+                    onAddTask: addTask,
+                    onDeleteTask: { task in
+                        context.delete(task)
+                        saveContext()
+                    },
+                    onToggleTaskCompletion: { task in
+                        task.isCompleted.toggle()
+                        saveContext()
+                    },
+                    onShowSlides:       { showSlidesList = true },
+                    onShowCaptureSetup: { showCaptureSetup = true },
+                    saveContext: saveContext
+                )
+                .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
             }
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
@@ -325,33 +349,6 @@ struct MeetingView: View {
         }
         if !urls.isEmpty {
             await importDocuments(result: .success(urls))
-        }
-    }
-
-    /// Vignette de la dernière slide capturée, affichée en haut à droite du header.
-    /// Cliquer ouvre le popover de la liste complète (même que le bouton "N slides").
-    @ViewBuilder
-    private var latestCaptureThumbnail: some View {
-        if let latest = currentSlides.last,
-           let nsImage = NSImage(contentsOfFile: latest.imagePath) {
-            Button(action: { showSlidesList = true }) {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 96, height: 54)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-                        )
-                    Text("Slide \(latest.index) · \(latest.capturedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .help("Dernière capture — clic pour voir toutes les slides")
         }
     }
 
@@ -680,176 +677,6 @@ struct MeetingView: View {
 
     // MARK: - Actions panel
 
-    private var actionsPanel: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            capturePreviewPanel
-
-            HStack {
-                Text("Actions").font(.headline)
-                let count = meeting.tasks.filter { !$0.isCompleted }.count
-                if count > 0 {
-                    Text("\(count)").font(.caption2.bold())
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.blue).foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 8)
-
-            List {
-                ForEach(meeting.tasks) { task in
-                    taskRow(task)
-                }
-                .onDelete(perform: deleteTasks)
-            }
-            .listStyle(.plain)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            VStack(spacing: 8) {
-                EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle).frame(height: 24)
-                HStack(spacing: 8) {
-                    Picker("Assigné à", selection: $selectedCollaborator) {
-                        Text("Non assigné").tag(nil as Collaborator?)
-                        ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
-                    }
-                    .pickerStyle(.menu)
-                    Toggle(isOn: $showNewTaskDueDate) {
-                        Label("Échéance", systemImage: "calendar").font(.caption)
-                    }
-                    .toggleStyle(.checkbox)
-                    if showNewTaskDueDate {
-                        DatePicker("", selection: Binding(
-                            get: { newTaskDueDate ?? Date() },
-                            set: { newTaskDueDate = $0 }
-                        ), displayedComponents: .date).labelsHidden()
-                    }
-                }
-                Button(action: addTask) {
-                    Label("Ajouter l'action", systemImage: "plus").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(newTaskTitle.isEmpty)
-            }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-        }
-    }
-
-    @ViewBuilder
-    private var capturePreviewPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Capture")
-                .font(.headline)
-
-            Group {
-                if let latest = currentSlides.last,
-                   let image = NSImage(contentsOfFile: latest.imagePath) {
-                    Button(action: { showSlidesList = true }) {
-                        ZStack(alignment: .bottomLeading) {
-                            Image(nsImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity)
-                                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                                .clipped()
-
-                            LinearGradient(
-                                colors: [.clear, .black.opacity(0.65)],
-                                startPoint: .center,
-                                endPoint: .bottom
-                            )
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Slide \(latest.index)")
-                                    .font(.caption.bold())
-                                    .foregroundColor(.white)
-                                Text(latest.capturedAt.formatted(date: .omitted, time: .shortened))
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundColor(.white.opacity(0.9))
-                            }
-                            .padding(10)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.secondary.opacity(0.08))
-                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                        .overlay {
-                            VStack(spacing: 6) {
-                                Image(systemName: "camera.viewfinder")
-                                    .font(.title3)
-                                    .foregroundColor(.secondary)
-                                Text("Aucune capture")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                }
-            }
-        }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-    }
-
-    @ViewBuilder
-    private func taskRow(_ task: ActionTask) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Button(action: { task.isCompleted.toggle(); saveContext() }) {
-                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(task.isCompleted ? .green : .secondary)
-                }
-                .buttonStyle(.plain)
-
-                EditableTextField(placeholder: "Action…", text: Bindable(task).title)
-                    .strikethrough(task.isCompleted)
-                    .frame(height: 22)
-
-                Spacer()
-                Button(action: { context.delete(task); saveContext() }) {
-                    Image(systemName: "trash").foregroundColor(.secondary)
-                }.buttonStyle(.plain)
-            }
-
-            HStack(spacing: 8) {
-                Picker("", selection: Binding(
-                    get: { task.collaborator },
-                    set: { task.collaborator = $0; saveContext() }
-                )) {
-                    Text("Non assigné").tag(nil as Collaborator?)
-                    ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
-                }
-                .pickerStyle(.menu).frame(maxWidth: 140).font(.caption)
-
-                if let dd = task.dueDate {
-                    DatePicker("", selection: Binding(
-                        get: { dd },
-                        set: { task.dueDate = $0; saveContext() }
-                    ), displayedComponents: .date).labelsHidden().font(.caption).frame(width: 100)
-                    Button(action: { task.dueDate = nil; saveContext() }) {
-                        Image(systemName: "xmark.circle.fill").foregroundColor(.secondary).font(.caption2)
-                    }.buttonStyle(.plain)
-                } else {
-                    Button(action: { task.dueDate = Date(); saveContext() }) {
-                        Label("Échéance", systemImage: "calendar.badge.plus").font(.caption).foregroundColor(.secondary)
-                    }.buttonStyle(.plain)
-                }
-            }
-            .padding(.leading, 24)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
     // MARK: - Recording actions
 
     private func startRecording() async {
@@ -1073,11 +900,6 @@ struct MeetingView: View {
         newTaskTitle = ""
         newTaskDueDate = nil
         showNewTaskDueDate = false
-        saveContext()
-    }
-
-    private func deleteTasks(offsets: IndexSet) {
-        for idx in offsets { context.delete(meeting.tasks[idx]) }
         saveContext()
     }
 
