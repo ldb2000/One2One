@@ -123,6 +123,95 @@ class ExportService {
         printOperation.run()
     }
 
+    // MARK: - Meeting exports (stub reconstructions)
+
+    struct MarkdownOptions: OptionSet {
+        let rawValue: Int
+        static let shareable = MarkdownOptions(rawValue: 1 << 0)
+    }
+
+    func exportMeetingMarkdown(meeting: Meeting, options: MarkdownOptions = []) -> String {
+        var md = "# \(meeting.title.isEmpty ? "Réunion" : meeting.title)\n"
+        md += "Date: \(meeting.date.formatted(date: .long, time: .shortened))\n"
+        if let project = meeting.project {
+            md += "Projet: \(project.name)\n"
+        }
+        md += "Type: \(meeting.kind.label)\n"
+        if !options.contains(.shareable) {
+            md += "Participants: \(meeting.participantsDescription)\n"
+        }
+        md += "\n"
+
+        if !meeting.summary.isEmpty {
+            md += "## Résumé\n\n\(meeting.summary)\n\n"
+        }
+        if !meeting.keyPoints.isEmpty {
+            md += "## Points clés\n"
+            for p in meeting.keyPoints { md += "- \(p)\n" }
+            md += "\n"
+        }
+        if !meeting.decisions.isEmpty {
+            md += "## Décisions\n"
+            for d in meeting.decisions { md += "- \(d)\n" }
+            md += "\n"
+        }
+        if !meeting.openQuestions.isEmpty {
+            md += "## Questions ouvertes\n"
+            for q in meeting.openQuestions { md += "- \(q)\n" }
+            md += "\n"
+        }
+        let openTasks = meeting.tasks.filter { !$0.isCompleted }
+        if !openTasks.isEmpty {
+            md += "## Actions\n"
+            for t in openTasks {
+                let who = t.collaborator?.name ?? "Non assigné"
+                let due = t.dueDate.map { " (échéance \($0.formatted(date: .numeric, time: .omitted)))" } ?? ""
+                md += "- [\(who)] \(t.title)\(due)\n"
+            }
+            md += "\n"
+        }
+        if !meeting.liveNotes.isEmpty {
+            md += "## Notes live\n\n\(meeting.liveNotes)\n"
+        }
+        return md
+    }
+
+    func exportMeetingPDF(meeting: Meeting, fileName: String) {
+        let markdown = exportMeetingMarkdown(meeting: meeting)
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+        textView.string = markdown
+        textView.font = .systemFont(ofSize: 11)
+        let printInfo = NSPrintInfo.shared
+        let op = NSPrintOperation(view: textView, printInfo: printInfo)
+        op.jobTitle = fileName
+        op.showsPrintPanel = true
+        op.run()
+    }
+
+    func exportMeetingMail(meeting: Meeting) {
+        let subject = meeting.title.isEmpty ? "Réunion" : meeting.title
+        let body = exportMeetingMarkdown(meeting: meeting, options: .shareable)
+        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        if let url = URL(string: "mailto:?subject=\(encodedSubject)&body=\(encodedBody)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func exportMeetingOutlookEML(meeting: Meeting) {
+        let subject = meeting.title.isEmpty ? "Réunion" : meeting.title
+        let body = exportMeetingMarkdown(meeting: meeting, options: .shareable)
+        let eml = """
+        Subject: \(subject)
+        Content-Type: text/plain; charset=utf-8
+
+        \(body)
+        """
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("\(subject).eml")
+        try? eml.write(to: tmp, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(tmp)
+    }
+
     func exportToAppleNotes(title: String, markdownContent: String) {
         let escapedTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
         let escapedBody = markdownContent.replacingOccurrences(of: "\"", with: "\\\"")

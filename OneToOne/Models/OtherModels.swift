@@ -23,11 +23,18 @@ enum InterviewType: String, CaseIterable {
 
 @Model
 final class Collaborator {
+    var stableID: UUID = UUID()
     var name: String
     var role: String
     var isArchived: Bool = false
     var photoPath: String = ""
     var photoBookmarkData: Data?
+
+    /// Pinning level in the sidebar: 0 = hidden, 1 = favourite, 2 = pinned.
+    var pinLevel: Int = 0
+
+    /// Marks a collaborator created ad-hoc from a meeting (reusable afterwards).
+    var isAdhoc: Bool = false
 
     @Relationship(deleteRule: .nullify, inverse: \Interview.collaborator)
     var interviews: [Interview] = []
@@ -188,10 +195,46 @@ final class ProjectAlert {
 
 @Model
 final class Meeting {
+    /// Stable UUID safe to expose in filenames / external IDs.
+    /// SwiftData `persistentModelID` is not usable as a string identifier.
+    var stableID: UUID = UUID()
     var title: String
     var date: Date
     var notes: String
     var project: Project?
+
+    // Meeting kind (stored as raw, exposed as MeetingKind)
+    var kindRaw: String = MeetingKind.global.rawValue
+    var kind: MeetingKind {
+        get { MeetingKind(rawValue: kindRaw) ?? .global }
+        set { kindRaw = newValue.rawValue }
+    }
+
+    // Custom prompt / live note
+    var customPrompt: String = ""
+    var liveNotes: String = ""
+
+    // Transcription
+    var rawTranscript: String = ""
+    var mergedTranscript: String = ""
+
+    // Generated report
+    var summary: String = ""
+    var keyPointsJSON: String = "[]"
+    var decisionsJSON: String = "[]"
+    var openQuestionsJSON: String = "[]"
+
+    // Audio
+    var wavFilePath: String?
+    var durationSeconds: Int = 0
+
+    // Calendar
+    var calendarEventID: String = ""
+    var calendarEventTitle: String = ""
+
+    // Participant statuses / ad-hoc attendees (JSON-encoded)
+    var participantStatusesJSON: String = "{}"
+    var adhocAttendeesJSON: String = "[]"
 
     @Relationship(deleteRule: .nullify)
     var participants: [Collaborator] = []
@@ -199,9 +242,40 @@ final class Meeting {
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.meeting)
     var tasks: [ActionTask] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \MeetingAttachment.meeting)
+    var attachments: [MeetingAttachment] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \TranscriptChunk.meeting)
+    var transcriptChunks: [TranscriptChunk] = []
+
     init(title: String = "", date: Date = Date(), notes: String = "") {
         self.title = title
         self.date = date
         self.notes = notes
+    }
+
+    // MARK: - JSON-backed arrays
+
+    var keyPoints: [String] {
+        get { (try? JSONDecoder().decode([String].self, from: Data(keyPointsJSON.utf8))) ?? [] }
+        set { keyPointsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
+    }
+
+    var decisions: [String] {
+        get { (try? JSONDecoder().decode([String].self, from: Data(decisionsJSON.utf8))) ?? [] }
+        set { decisionsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
+    }
+
+    var openQuestions: [String] {
+        get { (try? JSONDecoder().decode([String].self, from: Data(openQuestionsJSON.utf8))) ?? [] }
+        set { openQuestionsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
+    }
+
+    // MARK: - Convenience
+
+    /// Resolved URL for the recorded WAV, nil if the file path is empty.
+    var wavFileURL: URL? {
+        guard let path = wavFilePath, !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
     }
 }

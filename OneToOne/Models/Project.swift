@@ -66,7 +66,10 @@ final class Project {
 
     @Relationship(deleteRule: .cascade, inverse: \ProjectCollaboratorEntry.project)
     var collaboratorEntries: [ProjectCollaboratorEntry] = []
-    
+
+    @Relationship(deleteRule: .cascade, inverse: \ProjectMail.project)
+    var mails: [ProjectMail] = []
+
     init(code: String, name: String, domain: String, sponsor: String = "", projectType: String = "Métier", phase: String, status: String = "Unknown") {
         self.code = code
         self.name = name
