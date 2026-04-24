@@ -1,30 +1,110 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct MeetingView: View {
     @Bindable var meeting: Meeting
     @Query private var projects: [Project]
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var allCollaborators: [Collaborator]
+    @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
 
+    // MARK: - Services
+
+    @StateObject private var recorder = AudioRecorderService()
+    @StateObject private var stt = TranscriptionService.shared
+    @StateObject private var player = AudioPlayerService()
+    @StateObject private var captureService = ScreenCaptureService()
+
+    // MARK: - Local state
+
     @State private var newTaskTitle = ""
-    @State private var selectedProject: Project?
     @State private var selectedCollaborator: Collaborator?
     @State private var showNewTaskDueDate = false
     @State private var newTaskDueDate: Date? = nil
-    @State private var showMarkdownPreview = false
+    @State private var newAdhocName = ""
+    @State private var showCustomPrompt = false
+    @State private var activeSection: MeetingSection = .liveNotes
     @State private var participantsRefreshID = UUID()
+    @State private var isGeneratingReport = false
+    @State private var reportError: String?
+    @State private var transcribeError: String?
+    @State private var showDocImporter = false
+    @State private var attachmentError: String?
+    @State private var isImportingAttachment = false
+    @State private var isDraggingDoc = false
+    @State private var showCaptureSetup = false
+    @State private var showSlidesList = false
+    @State private var showCalendarImporter = false
+    @State private var calendarImportError: String?
+    @State private var saveStatusMessage: String?
+
+    enum MeetingSection: String, CaseIterable, Identifiable {
+        case liveNotes = "Notes live"
+        case transcript = "Transcription"
+        case report = "Rapport"
+        case documents = "Documents"
+        var id: String { rawValue }
+    }
+
+    private var settings: AppSettings {
+        settingsList.canonicalSettings ?? AppSettings()
+    }
+
+    // MARK: - Body
 
     var body: some View {
         HSplitView {
-            notesPanel
-                .frame(minWidth: 400)
+            mainPanel
+                .frame(minWidth: 520)
             actionsPanel
-                .frame(minWidth: 300, maxWidth: 400)
+                .frame(minWidth: 300, maxWidth: 420)
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
+        .sheet(isPresented: $showCalendarImporter) {
+            CalendarEventImportSheet(anchorDate: meeting.date) { event in
+                importCalendarEvent(event)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Button(action: {
+                        let md = ExportService().exportMeetingMarkdown(meeting: meeting)
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(md, forType: .string)
+                    }) {
+                        Label("Copier Markdown", systemImage: "doc.text")
+                    }
+                    Button(action: {
+                        let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
+                        ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
+                    }) {
+                        Label("Exporter PDF", systemImage: "doc.richtext")
+                    }
+                    Button(action: {
+                        ExportService().exportMeetingMail(meeting: meeting)
+                    }) {
+                        Label("Envoyer par mail", systemImage: "envelope")
+                    }
+                    Button(action: {
+                        ExportService().exportMeetingOutlookEML(meeting: meeting)
+                    }) {
+                        Label("Exporter Outlook (.eml)", systemImage: "envelope.badge")
+                    }
+                    Divider()
+                    Button(action: {
+                        let title = meeting.title.isEmpty ? "Réunion" : meeting.title
+                        let md = ExportService().exportMeetingMarkdown(meeting: meeting, options: .shareable)
+                        ExportService().exportToAppleNotes(title: title, markdownContent: md)
+                    }) {
+                        Label("Exporter vers Apple Notes", systemImage: "note.text")
+                    }
+                } label: {
+                    Label("Exporter", systemImage: "square.and.arrow.up")
+                }
+
                 Button(action: saveContext) {
                     Label("Enregistrer", systemImage: "checkmark.circle")
                 }
@@ -32,253 +112,1026 @@ struct MeetingView: View {
         }
     }
 
-    // MARK: - Notes Panel
+    // MARK: - Main panel
 
-    private var notesPanel: some View {
+    private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    EditableTextField(placeholder: "Titre de la réunion...", text: $meeting.title)
-                        .frame(height: 28)
-                        .font(.title2)
+            header
+            Rectangle()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(height: 0.5)
+            recorderBar
+            Divider()
+            sectionPicker
+            sectionContent
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
 
-                    DatePicker("", selection: $meeting.date, displayedComponents: [.date, .hourAndMinute])
-                        .labelsHidden()
-                        .frame(width: 200)
+    // MARK: - Header
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text(meeting.kind == .project ? "COPIL · PROJET" : "RÉUNION")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .tracking(1.4)
+                        if let project = meeting.project {
+                            Text(project.code)
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.07))
+                                .clipShape(Capsule())
+                        }
+                    }
+
+                    EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
+                        .frame(height: 30)
+                        .font(.system(size: 34, weight: .semibold, design: .serif))
                 }
 
-                HStack {
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    DatePicker("", selection: $meeting.date, displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden()
+                        .frame(width: 210)
+                    HStack(spacing: 8) {
+                        Button(action: { meeting.date = Date() }) {
+                            Image(systemName: "clock.arrow.2.circlepath")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Mettre à maintenant")
+                        latestCaptureThumbnail
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text("TYPE")
+                    .font(.caption2.weight(.bold))
+                    .foregroundColor(.secondary)
+                    .tracking(1.2)
+                Picker("Type", selection: Binding(
+                    get: { meeting.kind },
+                    set: { meeting.kind = $0; saveContext() }
+                )) {
+                    ForEach(MeetingKind.allCases) { k in
+                        Label(k.label, systemImage: k.sfSymbol).tag(k)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 160)
+
+                if meeting.kind == .project {
+                    Text("PROJET")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.secondary)
+                        .tracking(1.2)
                     Picker("Projet", selection: Binding(
                         get: { meeting.project },
                         set: { meeting.project = $0; saveContext() }
                     )) {
                         Text("Aucun projet").tag(nil as Project?)
-                        ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                        ForEach(projects.sorted(by: { $0.name < $1.name })) { p in
+                            Text(p.name).tag(p as Project?)
+                        }
                     }
                     .pickerStyle(.menu)
-                    .frame(maxWidth: 200)
+                    .frame(maxWidth: 320)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Button(action: { showCustomPrompt.toggle() }) {
+                    Label(
+                        showCustomPrompt ? "Masquer le prompt" : "Prompt spécifique",
+                        systemImage: "text.bubble"
+                    )
+                    .font(.caption)
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: { showCalendarImporter = true }) {
+                    Label("Importer Calendrier", systemImage: "calendar.badge.plus")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+
+            if showCustomPrompt {
+                TextEditor(text: $meeting.customPrompt)
+                    .font(.body)
+                    .frame(height: 70)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                    .help("Instructions spécifiques pour la transcription et le résumé de cette réunion.")
+            }
+
+            participantsSection
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+    }
+
+    // MARK: - Recorder bar
+
+    private var recorderBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                // --- GROUPE AUDIO ---
+                HStack(spacing: 8) {
+                    if recorder.isRecording {
+                        Button(action: { Task { await stopRecordingAndTranscribe() } }) {
+                            Label("Arrêter", systemImage: "stop.fill")
+                                .frame(height: 24)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+
+                        Button(action: {
+                            if recorder.isPaused { recorder.resume() } else { recorder.pause() }
+                        }) {
+                            Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
+                                .frame(width: 20)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Text(formatDuration(recorder.elapsedSeconds))
+                            .font(.system(.body, design: .monospaced).bold())
+                            .foregroundColor(.red)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(minWidth: 56, alignment: .trailing)
+
+                        vuMeter
+                    } else {
+                        Button(action: { Task { await startRecording() } }) {
+                            Label("Enregistrer", systemImage: "mic.fill")
+                                .frame(height: 24)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .disabled(stt.isTranscribing || isGeneratingReport)
+
+                        if let wav = meeting.wavFileURL, fileExists(wav) {
+                            playerControls(wavURL: wav)
+                            
+                            Button(action: { Task { await retranscribe(wavURL: wav) } }) {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Re-transcrire")
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.secondary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                Divider().frame(height: 32)
+
+                // --- GROUPE CAPTURE D'ÉCRAN ---
+                HStack(spacing: 8) {
+                    if captureService.isCapturing {
+                        Button(action: { showSlidesList.toggle() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "camera.viewfinder")
+                                Text("\(captureService.capturedSlidesCount) slides")
+                            }
+                            .padding(.horizontal, 6)
+                            .frame(height: 32)
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showSlidesList) {
+                            slidesPopover
+                        }
+
+                        Button(action: { captureService.snapshot() }) {
+                            Image(systemName: "camera.fill")
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Prendre une capture manuelle")
+
+                        Button(action: { Task { await captureService.stop() } }) {
+                            Image(systemName: "stop.fill")
+                                .foregroundColor(.red)
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Arrêter la capture")
+                    } else {
+                        Button(action: { showCaptureSetup = true }) {
+                            Label("Capture slides", systemImage: "camera.viewfinder")
+                                .frame(height: 24)
+                        }
+                        .buttonStyle(.bordered)
+                        .popover(isPresented: $showCaptureSetup) {
+                            ScreenCaptureConfigView(service: captureService, meeting: meeting)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.blue.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                Spacer()
+
+                // --- ÉTATS ---
+                if let progress = captureService.ocrProgress {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("OCR: \(progress.current)/\(progress.total)").font(.caption.monospacedDigit())
+                    }
                 }
 
-                // Participants
-                participantsSection
+                if stt.isTranscribing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("STT…").font(.caption)
+                    }
+                }
+
+                if !meeting.rawTranscript.isEmpty && !recorder.isRecording && !stt.isTranscribing {
+                    Button(action: { Task { await generateReport() } }) {
+                        if isGeneratingReport {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Rapport", systemImage: "wand.and.stars")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isGeneratingReport)
+                }
+            }
+
+            if let err = recorder.lastError ?? transcribeError ?? reportError ?? captureService.lastError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 4)
+            }
+
+            if let saveStatusMessage, !saveStatusMessage.isEmpty {
+                Text(saveStatusMessage)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    @ViewBuilder
+    private func playerControls(wavURL: URL) -> some View {
+        HStack(spacing: 6) {
+            Button(action: { togglePlay(url: wavURL) }) {
+                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help(player.isPlaying ? "Pause" : "Lire l'enregistrement")
+
+            Button(action: { player.skip(by: -15) }) {
+                Image(systemName: "gobackward.15")
+            }
+            .buttonStyle(.borderless)
+            .disabled(player.loadedURL != wavURL)
+
+            Button(action: { player.skip(by: 15) }) {
+                Image(systemName: "goforward.15")
+            }
+            .buttonStyle(.borderless)
+            .disabled(player.loadedURL != wavURL)
+
+            if player.loadedURL == wavURL && player.duration > 0 {
+                // Slider position courante / durée
+                Slider(
+                    value: Binding(
+                        get: { player.currentTime },
+                        set: { player.seek(to: $0) }
+                    ),
+                    in: 0...max(player.duration, 0.1)
+                )
+                .frame(width: 120)
+
+                Text("\(formatDuration(player.currentTime)) / \(formatDuration(player.duration))")
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            } else {
+                Text(formatDuration(TimeInterval(meeting.durationSeconds)))
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+    }
+
+    private func togglePlay(url: URL) {
+        if player.loadedURL != url {
+            do {
+                try player.load(url: url)
+            } catch {
+                transcribeError = "Lecture impossible: \(error.localizedDescription)"
+                return
+            }
+        }
+        player.toggle()
+    }
+
+    private func fileExists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
+    @MainActor
+    private func retranscribe(wavURL: URL) async {
+        transcribeError = nil
+        print("[MeetingView] retranscribe: \(wavURL.path)")
+        do {
+            let result = try await stt.transcribe(audioURL: wavURL)
+            meeting.rawTranscript = result.text
+            meeting.mergedTranscript = NoteMergeService.merge(
+                transcript: result.text,
+                liveNotes: meeting.liveNotes
+            )
+            activeSection = .transcript
+            saveContext()
+            print("[MeetingView] retranscribe OK: \(result.text.count) chars")
+        } catch {
+            transcribeError = error.localizedDescription
+            print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    private var vuMeter: some View {
+        // Mappe -60..0 dB → 0..1 largeur.
+        let level = max(0, min(1, (recorder.averagePower + 60) / 60))
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15))
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(level > 0.7 ? Color.red : (level > 0.3 ? Color.orange : Color.green))
+                    .frame(width: CGFloat(level) * geo.size.width)
+            }
+        }
+        .frame(width: 100, height: 6)
+    }
+
+    // MARK: - Section picker
+
+    private var sectionPicker: some View {
+        Picker("", selection: $activeSection) {
+            ForEach(MeetingSection.allCases) { s in
+                Text(s.rawValue).tag(s)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.25))
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch activeSection {
+        case .liveNotes:
+            MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
+        case .transcript:
+            transcriptView
+        case .report:
+            reportView
+        case .documents:
+            documentsView
+        }
+    }
+
+    private var documentsView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("\(meeting.attachments.count) document(s)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if isImportingAttachment {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Import + indexation…").font(.caption)
+                    }
+                }
+                Button(action: { showDocImporter = true }) {
+                    Label("Importer", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isImportingAttachment)
             }
             .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
+
+            if let err = attachmentError {
+                Text(err).font(.caption).foregroundColor(.red).padding(.horizontal).padding(.bottom, 8)
+            }
 
             Divider()
 
-            // Toolbar + notes
-            HStack(spacing: 4) {
-                Spacer()
-
-                if !showMarkdownPreview {
-                    MarkdownToolbar(textViewID: "meetingNotes")
-                    Divider().frame(height: 16).padding(.horizontal, 4)
+            ZStack {
+                List {
+                    ForEach(meeting.attachments.sorted(by: { $0.importedAt > $1.importedAt })) { att in
+                        attachmentRow(att)
+                    }
                 }
 
-                Button(action: { showMarkdownPreview.toggle() }) {
-                    Image(systemName: showMarkdownPreview ? "eye.fill" : "eye")
-                        .foregroundColor(showMarkdownPreview ? .accentColor : .secondary)
+                if isDraggingDoc {
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .font(.system(size: 40))
+                        Text("Déposer ici pour importer")
+                            .font(.headline)
+                    }
+                    .foregroundColor(.accentColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.accentColor.opacity(0.1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [10]))
+                            .padding(20)
+                    )
                 }
-                .buttonStyle(.plain)
-                .help(showMarkdownPreview ? "Masquer la preview" : "Afficher la preview")
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.black.opacity(0.03))
 
-            if showMarkdownPreview {
-                MarkdownTextView(markdown: meeting.notes)
-            } else {
-                MarkdownEditorView(text: $meeting.notes, textViewID: "meetingNotes")
+                if meeting.attachments.isEmpty && !isDraggingDoc {
+                    ContentUnavailableView(
+                        "Aucun document",
+                        systemImage: "doc.on.doc",
+                        description: Text("Importez des documents ou déposez-les ici.")
+                    )
+                }
             }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isDraggingDoc) { providers in
+            Task {
+                await handleFileDrop(providers)
+            }
+            return true
+        }
+        .fileImporter(
+            isPresented: $showDocImporter,
+            allowedContentTypes: [
+                .pdf, .plainText, .text, .presentation, .spreadsheet,
+                UTType(filenameExtension: "docx")!,
+                UTType(filenameExtension: "pptx")!,
+                UTType(filenameExtension: "xlsx")!,
+                .content, .item
+            ],
+            allowsMultipleSelection: true
+        ) { result in
+            Task { await importDocuments(result: result) }
+        }
+    }
+
+    private func handleFileDrop(_ providers: [NSItemProvider]) async {
+        var urls: [URL] = []
+        for provider in providers {
+            if let data = try? await provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) as? Data,
+               let url = URL(dataRepresentation: data, relativeTo: nil) {
+                urls.append(url)
+            }
+        }
+        if !urls.isEmpty {
+            await importDocuments(result: .success(urls))
+        }
+    }
+
+    /// Vignette de la dernière slide capturée, affichée en haut à droite du header.
+    /// Cliquer ouvre le popover de la liste complète (même que le bouton "N slides").
+    @ViewBuilder
+    private var latestCaptureThumbnail: some View {
+        if let latest = currentSlides.last,
+           let nsImage = NSImage(contentsOfFile: latest.imagePath) {
+            Button(action: { showSlidesList = true }) {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 96, height: 54)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                        )
+                    Text("Slide \(latest.index) · \(latest.capturedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Dernière capture — clic pour voir toutes les slides")
+            .popover(isPresented: $showSlidesList) {
+                slidesPopover
+            }
+        }
+    }
+
+    private var slidesPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Slides capturées (\(captureService.capturedSlidesCount))")
+                .font(.headline)
+                .padding()
+            
+            Divider()
+            
+            ScrollView {
+                VStack(spacing: 12) {
+                    let slides = currentSlides
+                    
+                    if slides.isEmpty {
+                        Text("Aucune slide capturée dans cette session.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding()
+                    }
+                    
+                    ForEach(slides) { slide in
+                        HStack(spacing: 12) {
+                            if let image = NSImage(contentsOfFile: slide.imagePath) {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 80, height: 60)
+                                    .background(Color.black.opacity(0.1))
+                                    .cornerRadius(4)
+                            } else {
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.1))
+                                    .frame(width: 80, height: 60)
+                                    .cornerRadius(4)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Slide \(slide.index)")
+                                    .font(.subheadline.bold())
+                                Text(slide.capturedAt.formatted(date: .omitted, time: .standard))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Button(action: { NSWorkspace.shared.open(URL(fileURLWithPath: slide.imagePath)) }) {
+                                Image(systemName: "eye")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Ouvrir dans Aperçu")
+                            
+                            Button(action: { captureService.deleteSlide(slide) }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.vertical)
+            }
+            .frame(width: 300, height: 400)
+        }
+    }
+
+    private func attachmentRow(_ att: MeetingAttachment) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon(for: att.kind))
+                .foregroundColor(.accentColor)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(att.fileName).font(.body.weight(.medium))
+                HStack(spacing: 6) {
+                    Text(att.kind.uppercased())
+                        .font(.caption2)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.18))
+                        .cornerRadius(4)
+                    Text("\(att.chunks.count) chunks indexés")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if !att.extractedText.isEmpty {
+                        Text("\(att.extractedText.count) car.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            Spacer()
+            Menu {
+                Button("Re-indexer") {
+                    Task {
+                        try? await MeetingAttachmentService.reindexAttachment(att, context: context)
+                    }
+                }
+                if att.kind == "slides" {
+                    Button("Voir les slides") {
+                        showSlidesList = true
+                    }
+                }
+                Button("Ouvrir") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: att.filePath))
+                }
+                Divider()
+                Button("Supprimer", role: .destructive) {
+                    context.delete(att)
+                    saveContext()
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle").foregroundColor(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func icon(for kind: String) -> String {
+        switch kind {
+        case "pdf":      return "doc.richtext"
+        case "pptx":     return "rectangle.on.rectangle.angled"
+        case "docx":     return "doc.text"
+        case "xlsx":     return "tablecells"
+        case "image":    return "photo"
+        case "slides":   return "camera.viewfinder"
+        case "markdown", "text": return "text.alignleft"
+        default:          return "doc"
+        }
+    }
+
+    @MainActor
+    private func importDocuments(result: Result<[URL], Error>) async {
+        attachmentError = nil
+        switch result {
+        case .success(let urls):
+            isImportingAttachment = true
+            defer { isImportingAttachment = false }
+            for url in urls {
+                do {
+                    try await MeetingAttachmentService.importDocument(
+                        url: url,
+                        into: meeting,
+                        context: context
+                    )
+                } catch {
+                    attachmentError = error.localizedDescription
+                }
+            }
+        case .failure(let error):
+            attachmentError = error.localizedDescription
+        }
+    }
+
+    private var transcriptView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if meeting.rawTranscript.isEmpty {
+                    ContentUnavailableView(
+                        "Aucune transcription",
+                        systemImage: "waveform",
+                        description: Text("Démarre un enregistrement pour voir la transcription ici.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    if !meeting.mergedTranscript.isEmpty {
+                        Text(meeting.mergedTranscript)
+                            .font(.body)
+                            .textSelection(.enabled)
+                    } else {
+                        Text(meeting.rawTranscript)
+                            .font(.body)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var reportView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if meeting.summary.isEmpty {
+                    ContentUnavailableView(
+                        "Aucun rapport",
+                        systemImage: "wand.and.stars",
+                        description: Text("Génère le rapport une fois la transcription prête.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    if !meeting.highlights.isEmpty {
+                        section("Faits marquants") {
+                            ForEach(meeting.highlights, id: \.self) { item in
+                                Label(item, systemImage: "sparkles").font(.callout)
+                            }
+                        }
+                    }
+                    section("Résumé") {
+                        Text(meeting.summary).textSelection(.enabled)
+                    }
+                    if !meeting.keyPoints.isEmpty {
+                        section("Points clés") {
+                            ForEach(meeting.keyPoints, id: \.self) { p in
+                                Label(p, systemImage: "circle.fill").labelStyle(.titleAndIcon)
+                                    .font(.callout)
+                            }
+                        }
+                    }
+                    if !meeting.decisions.isEmpty {
+                        section("Décisions") {
+                            ForEach(meeting.decisions, id: \.self) { d in
+                                Label(d, systemImage: "checkmark.seal").font(.callout)
+                            }
+                        }
+                    }
+                    if !meeting.openQuestions.isEmpty {
+                        section("Questions ouvertes") {
+                            ForEach(meeting.openQuestions, id: \.self) { q in
+                                Label(q, systemImage: "questionmark.circle").font(.callout)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding()
+        }
+    }
+
+    @ViewBuilder
+    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.headline)
+            content()
         }
     }
 
     // MARK: - Participants
 
     private var availableCollaborators: [Collaborator] {
-        let participantIDs = Set(meeting.participants.map(\.persistentModelID))
-        return allCollaborators.filter { !participantIDs.contains($0.persistentModelID) }
+        let ids = Set(meeting.participants.map(\.persistentModelID))
+        return allCollaborators
+            .filter { !ids.contains($0.persistentModelID) }
+            .sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending })
     }
 
-    private func addParticipant(_ collab: Collaborator) {
-        meeting.participants.append(collab)
+    private func addParticipant(_ c: Collaborator) {
+        meeting.participants.append(c)
+        meeting.setParticipantStatus(.participant, for: c)
         saveContext()
         participantsRefreshID = UUID()
     }
 
-    private func removeParticipant(_ participant: Collaborator) {
-        meeting.participants.removeAll { $0.persistentModelID == participant.persistentModelID }
+    private func removeParticipant(_ c: Collaborator) {
+        meeting.participants.removeAll { $0.persistentModelID == c.persistentModelID }
+        meeting.clearParticipantStatus(for: c)
         saveContext()
         participantsRefreshID = UUID()
+    }
+
+    private func setParticipantStatus(_ status: MeetingAttendanceStatus, for collaborator: Collaborator) {
+        meeting.setParticipantStatus(status, for: collaborator)
+        saveContext()
+        participantsRefreshID = UUID()
+    }
+
+    private func participantStatus(for collaborator: Collaborator) -> MeetingAttendanceStatus {
+        meeting.participantStatus(for: collaborator)
+    }
+
+    private func participantChipColor(for collaborator: Collaborator) -> Color {
+        switch participantStatus(for: collaborator) {
+        case .participant:
+            return settings.meetingParticipantColor
+        case .absent:
+            return settings.meetingAbsentColor
+        }
+    }
+
+    private var collaboratorChipColor: Color {
+        settings.meetingCollaboratorColor
+    }
+
+    /// Crée un `Collaborator` adhoc (réutilisable) et l'ajoute à la réunion.
+    private func addAdhocParticipant() {
+        let name = newAdhocName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+
+        if let existing = allCollaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+            addParticipant(existing)
+        } else {
+            let c = Collaborator(name: name, role: "Ad-hoc")
+            c.isAdhoc = true
+            c.pinLevel = 0
+            context.insert(c)
+            addParticipant(c)
+        }
+        newAdhocName = ""
+    }
+
+    private func importCalendarEvent(_ event: CalendarMeetingEvent) {
+        calendarImportError = nil
+        meeting.title = event.title
+        meeting.date = event.startDate
+        meeting.calendarEventID = event.id
+        meeting.calendarEventTitle = event.title
+
+        for attendee in event.attendees {
+            let collaborator = resolveCollaborator(for: attendee)
+            if !meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID }) {
+                meeting.participants.append(collaborator)
+            }
+            meeting.setParticipantStatus(attendee.status, for: collaborator)
+        }
+
+        saveContext()
+        participantsRefreshID = UUID()
+    }
+
+    private func resolveCollaborator(for attendee: CalendarMeetingAttendee) -> Collaborator {
+        let normalizedName = attendee.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+
+        if let existing = allCollaborators.first(where: {
+            $0.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current) == normalizedName
+        }) {
+            return existing
+        }
+
+        let collaborator = Collaborator(name: attendee.name, role: attendee.email ?? "Calendrier")
+        collaborator.isAdhoc = true
+        collaborator.pinLevel = 0
+        context.insert(collaborator)
+        return collaborator
     }
 
     private var participantsSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Participants")
-                .font(.caption.bold())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("PARTICIPANTS")
+                    .font(.caption2.weight(.bold))
+                    .foregroundColor(.secondary)
+                    .tracking(1.2)
+                Spacer()
+            }
+
+            if !meeting.calendarEventTitle.isEmpty {
+                Label(
+                    "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
+                    systemImage: "calendar"
+                )
+                .font(.caption)
                 .foregroundColor(.secondary)
+            }
 
             FlowLayout(spacing: 6) {
-                ForEach(meeting.participants) { participant in
-                    HStack(spacing: 4) {
-                        Text(participant.name)
-                            .font(.caption)
-                        Button(action: { removeParticipant(participant) }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                ForEach(meeting.participants, id: \.persistentModelID) { p in
+                    Menu {
+                        ForEach(MeetingAttendanceStatus.allCases) { status in
+                            Button(action: { setParticipantStatus(status, for: p) }) {
+                                Label(status.label, systemImage: status.sfSymbol)
+                            }
                         }
-                        .buttonStyle(.plain)
+                        Divider()
+                        Button(role: .destructive, action: { removeParticipant(p) }) {
+                            Label("Retirer", systemImage: "trash")
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: p.isAdhoc ? "person.badge.plus" : participantStatus(for: p).sfSymbol)
+                                .font(.caption2)
+                            Text(p.name).font(.caption)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(participantChipColor(for: p))
+                        .cornerRadius(12)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.1))
-                    .cornerRadius(12)
+                    .menuStyle(.borderlessButton)
                 }
 
                 Menu {
-                    ForEach(availableCollaborators) { collab in
-                        Button(collab.name) {
-                            addParticipant(collab)
-                        }
+                    ForEach(availableCollaborators) { c in
+                        Button(c.name) { addParticipant(c) }
                     }
                 } label: {
-                    Label("Ajouter", systemImage: "plus.circle")
-                        .font(.caption)
+                    Label("Ajouter", systemImage: "plus.circle").font(.caption)
                 }
                 .menuStyle(.borderlessButton)
                 .frame(width: 90)
             }
             .id(participantsRefreshID)
+
+            if !availableCollaborators.isEmpty {
+                Text("COLLABORATEURS")
+                    .font(.caption2.weight(.bold))
+                    .foregroundColor(.secondary)
+                    .tracking(1.2)
+
+                FlowLayout(spacing: 6) {
+                    ForEach(availableCollaborators, id: \.persistentModelID) { collaborator in
+                        Button(action: { addParticipant(collaborator) }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus.circle.fill").font(.caption2)
+                                Text(collaborator.name).font(.caption)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(collaboratorChipColor)
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                TextField("Ad-hoc : nom…", text: $newAdhocName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+                    .onSubmit { addAdhocParticipant() }
+                Button(action: addAdhocParticipant) {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.bordered)
+                .disabled(newAdhocName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if let calendarImportError, !calendarImportError.isEmpty {
+                Text(calendarImportError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
         }
     }
 
-    // MARK: - Actions Panel
+    // MARK: - Actions panel
 
     private var actionsPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
+            capturePreviewPanel
+
             HStack {
-                Text("Actions")
-                    .font(.headline)
-                let taskCount = meeting.tasks.filter { !$0.isCompleted }.count
-                if taskCount > 0 {
-                    Text("\(taskCount)")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                Text("Actions").font(.headline)
+                let count = meeting.tasks.filter { !$0.isCompleted }.count
+                if count > 0 {
+                    Text("\(count)").font(.caption2.bold())
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.blue).foregroundColor(.white)
                         .cornerRadius(8)
                 }
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 8)
 
             List {
                 ForEach(meeting.tasks) { task in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Button(action: {
-                                task.isCompleted.toggle()
-                                saveContext()
-                            }) {
-                                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(task.isCompleted ? .green : .gray)
-                            }
-                            .buttonStyle(.plain)
-
-                            EditableTextField(placeholder: "Action...", text: Bindable(task).title)
-                                .strikethrough(task.isCompleted)
-                                .frame(height: 20)
-
-                            Spacer()
-
-                            Button(action: {
-                                context.delete(task)
-                                saveContext()
-                            }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        HStack(spacing: 8) {
-                            Picker("", selection: Binding(
-                                get: { task.collaborator },
-                                set: { task.collaborator = $0; saveContext() }
-                            )) {
-                                Text("Non assigné").tag(nil as Collaborator?)
-                                ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(maxWidth: 140)
-                            .font(.caption)
-
-                            if let dueDate = task.dueDate {
-                                DatePicker("", selection: Binding(
-                                    get: { dueDate },
-                                    set: { task.dueDate = $0; saveContext() }
-                                ), displayedComponents: .date)
-                                .labelsHidden()
-                                .font(.caption)
-                                .frame(width: 100)
-
-                                Button(action: { task.dueDate = nil; saveContext() }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                        .font(.caption2)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                Button(action: { task.dueDate = Date(); saveContext() }) {
-                                    Label("Échéance", systemImage: "calendar.badge.plus")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.leading, 24)
-                    }
-                    .padding(.vertical, 2)
+                    taskRow(task)
                 }
                 .onDelete(perform: deleteTasks)
             }
+            .listStyle(.plain)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Add new task
             VStack(spacing: 8) {
-                EditableTextField(placeholder: "Nouvelle action...", text: $newTaskTitle)
-                    .frame(height: 24)
-
+                EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle).frame(height: 24)
                 HStack(spacing: 8) {
                     Picker("Assigné à", selection: $selectedCollaborator) {
                         Text("Non assigné").tag(nil as Collaborator?)
                         ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
                     }
                     .pickerStyle(.menu)
-
                     Toggle(isOn: $showNewTaskDueDate) {
-                        Label("Échéance", systemImage: "calendar")
-                            .font(.caption)
+                        Label("Échéance", systemImage: "calendar").font(.caption)
                     }
                     .toggleStyle(.checkbox)
-
                     if showNewTaskDueDate {
                         DatePicker("", selection: Binding(
                             get: { newTaskDueDate ?? Date() },
                             set: { newTaskDueDate = $0 }
-                        ), displayedComponents: .date)
-                        .labelsHidden()
+                        ), displayedComponents: .date).labelsHidden()
                     }
                 }
-
                 Button(action: addTask) {
                     Label("Ajouter l'action", systemImage: "plus").frame(maxWidth: .infinity)
                 }
@@ -286,18 +1139,347 @@ struct MeetingView: View {
                 .disabled(newTaskTitle.isEmpty)
             }
             .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
         }
     }
 
-    // MARK: - Actions
+    @ViewBuilder
+    private var capturePreviewPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Capture")
+                .font(.headline)
+
+            Group {
+                if let latest = currentSlides.last,
+                   let image = NSImage(contentsOfFile: latest.imagePath) {
+                    Button(action: { showSlidesList = true }) {
+                        ZStack(alignment: .bottomLeading) {
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity)
+                                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                                .clipped()
+
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.65)],
+                                startPoint: .center,
+                                endPoint: .bottom
+                            )
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Slide \(latest.index)")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.white)
+                                Text(latest.capturedAt.formatted(date: .omitted, time: .shortened))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundColor(.white.opacity(0.9))
+                            }
+                            .padding(10)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showSlidesList) {
+                        slidesPopover
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.secondary.opacity(0.08))
+                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                        .overlay {
+                            VStack(spacing: 6) {
+                                Image(systemName: "camera.viewfinder")
+                                    .font(.title3)
+                                    .foregroundColor(.secondary)
+                                Text("Aucune capture")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                }
+            }
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    @ViewBuilder
+    private func taskRow(_ task: ActionTask) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Button(action: { task.isCompleted.toggle(); saveContext() }) {
+                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(task.isCompleted ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                EditableTextField(placeholder: "Action…", text: Bindable(task).title)
+                    .strikethrough(task.isCompleted)
+                    .frame(height: 22)
+
+                Spacer()
+                Button(action: { context.delete(task); saveContext() }) {
+                    Image(systemName: "trash").foregroundColor(.secondary)
+                }.buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Picker("", selection: Binding(
+                    get: { task.collaborator },
+                    set: { task.collaborator = $0; saveContext() }
+                )) {
+                    Text("Non assigné").tag(nil as Collaborator?)
+                    ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
+                }
+                .pickerStyle(.menu).frame(maxWidth: 140).font(.caption)
+
+                if let dd = task.dueDate {
+                    DatePicker("", selection: Binding(
+                        get: { dd },
+                        set: { task.dueDate = $0; saveContext() }
+                    ), displayedComponents: .date).labelsHidden().font(.caption).frame(width: 100)
+                    Button(action: { task.dueDate = nil; saveContext() }) {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(.secondary).font(.caption2)
+                    }.buttonStyle(.plain)
+                } else {
+                    Button(action: { task.dueDate = Date(); saveContext() }) {
+                        Label("Échéance", systemImage: "calendar.badge.plus").font(.caption).foregroundColor(.secondary)
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, 24)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    // MARK: - Recording actions
+
+    private func startRecording() async {
+        do {
+            let url = try await recorder.start()
+            meeting.wavFilePath = url.path
+            saveContext()
+        } catch {
+            recorder.lastError = error.localizedDescription
+        }
+    }
+
+    private func stopRecordingAndTranscribe() async {
+        guard let stopped = recorder.stop() else { return }
+        meeting.durationSeconds = Int(stopped.duration)
+        meeting.wavFilePath = stopped.url.path
+        saveContext()
+
+        print("[MeetingView] stop → WAV=\(stopped.url.path) duration=\(stopped.duration)s")
+
+        // Laisse le FS finaliser le header WAV avant de le relire.
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        // Sanity checks : fichier existe, taille non nulle, durée > 1s.
+        let attrs = try? FileManager.default.attributesOfItem(atPath: stopped.url.path)
+        let fileSize = (attrs?[.size] as? Int) ?? 0
+        guard fileSize > 44 else {
+            transcribeError = "Fichier audio vide (\(fileSize) octets). Enregistrement échoué."
+            print("[MeetingView] WAV invalide: \(fileSize) octets")
+            return
+        }
+        guard stopped.duration >= 1.0 else {
+            transcribeError = "Enregistrement trop court (\(String(format: "%.1f", stopped.duration))s). STT désactivé."
+            print("[MeetingView] durée trop courte: \(stopped.duration)s")
+            return
+        }
+
+        transcribeError = nil
+        do {
+            print("[MeetingView] → transcribe start…")
+            let result = try await stt.transcribe(audioURL: stopped.url)
+            print("[MeetingView] ← transcribe OK: \(result.text.count) chars")
+            meeting.rawTranscript = result.text
+            meeting.mergedTranscript = NoteMergeService.merge(
+                transcript: result.text,
+                liveNotes: meeting.liveNotes
+            )
+            activeSection = .transcript
+            saveContext()
+        } catch {
+            transcribeError = error.localizedDescription
+            print("[MeetingView] transcribe FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Report generation
+
+    private func generateReport() async {
+        guard !meeting.rawTranscript.isEmpty else { return }
+
+        reportError = nil
+        isGeneratingReport = true
+        defer { isGeneratingReport = false }
+
+        // Refresh merged transcript au cas où l'utilisateur a édité les notes.
+        meeting.mergedTranscript = NoteMergeService.merge(
+            transcript: meeting.rawTranscript,
+            liveNotes: meeting.liveNotes
+        )
+
+        // Phase 8 : RAG historique — injection du contexte pré-LLM.
+        let historicalContext = await fetchHistoricalContext()
+        let attachmentsContext = await fetchAttachmentsContext()
+
+        let participantsDesc = meeting.participantsDescription
+        do {
+            let report = try await AIReportService.generate(
+                mergedTranscript: meeting.mergedTranscript,
+                meetingKind: meeting.kind,
+                durationSeconds: meeting.durationSeconds,
+                projectName: meeting.project?.name,
+                participantsDescription: participantsDesc,
+                customPrompt: meeting.customPrompt,
+                historicalContext: historicalContext,
+                attachmentsContext: attachmentsContext,
+                settings: settings
+            )
+            apply(report: report)
+            activeSection = .report
+
+            // Indexation RAG post-rapport (non bloquant pour l'UI).
+            Task.detached { @MainActor in
+                do {
+                    try await RAGIndexer.reindex(meeting: meeting, context: context)
+                } catch {
+                    print("[MeetingView] RAG reindex échoué: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            reportError = error.localizedDescription
+        }
+    }
+
+    /// Retourne un bloc texte avec les extraits pertinents des réunions précédentes.
+    /// Vide si rien à récupérer ou si l'embedding Ollama échoue.
+    private func fetchHistoricalContext() async -> String {
+        // Scope dynamique selon le type de réunion.
+        var scope = RAGQuery.Scope()
+        scope.excludeMeetingPID = meeting.persistentModelID
+
+        switch meeting.kind {
+        case .project:
+            scope.projectPID = meeting.project?.persistentModelID
+            guard scope.projectPID != nil else { return "" }
+        case .oneToOne:
+            scope.collaboratorPID = meeting.participants.first?.persistentModelID
+            guard scope.collaboratorPID != nil else { return "" }
+        case .global, .work:
+            return ""  // pas d'enrichissement historique hors scope clair
+        }
+
+        // Requête synthétique courte pour l'embedding (les 2000 premiers chars
+        // de la transcription donnent un bon résumé sémantique).
+        let query = String(meeting.mergedTranscript.prefix(2000))
+        guard !query.isEmpty else { return "" }
+
+        do {
+            let results = try await RAGQuery.search(
+                query: query,
+                topK: 5,
+                scope: scope,
+                context: context
+            )
+            guard !results.isEmpty else { return "" }
+
+            let lines = results.enumerated().map { idx, r -> String in
+                let date = r.chunk.meeting?.date.formatted(date: .abbreviated, time: .omitted) ?? "?"
+                let title = r.chunk.meeting?.title ?? "réunion sans titre"
+                return "[\(idx + 1)] \(date) — \(title) (sim=\(String(format: "%.2f", r.similarity))):\n\(r.chunk.text)"
+            }
+            return lines.joined(separator: "\n\n")
+        } catch {
+            print("[MeetingView] RAG search échoué: \(error.localizedDescription)")
+            return ""
+        }
+    }
+
+    private func fetchAttachmentsContext() async -> String {
+        let meetingPID = meeting.persistentModelID
+        let totalChars = meeting.attachments
+            .map { $0.extractedText.count }
+            .reduce(0, +)
+
+        // Seuil : < 20_000 chars total → on injecte le texte brut cap par doc.
+        // Au-delà → on bascule sur top-K chunks via RAGQuery scope attachment + meeting.
+        if totalChars < 20_000 {
+            return meeting.attachments
+                .filter { !$0.extractedText.isEmpty }
+                .map { "### \($0.fileName) (\($0.kind))\n\($0.extractedText.prefix(8000))" }
+                .joined(separator: "\n\n")
+        }
+
+        let query = String(meeting.mergedTranscript.prefix(2000))
+        let scope = RAGQuery.Scope(
+            projectPID: nil,
+            collaboratorPID: nil,
+            meetingKind: nil,
+            excludeMeetingPID: nil,
+            sourceType: "attachment",
+            meetingPID: meetingPID
+        )
+        let results = try? await RAGQuery.search(query: query, topK: 8, scope: scope, context: context)
+        return (results ?? []).map { r in
+            "### \(r.chunk.attachment?.fileName ?? "?") — extrait\n\(r.chunk.text)"
+        }.joined(separator: "\n\n")
+    }
+
+    private func apply(report: MeetingReportData) {
+        meeting.summary = report.summary
+        meeting.keyPoints = report.keyPoints
+        meeting.decisions = report.decisions
+        meeting.openQuestions = report.openQuestions
+
+        for a in report.actions {
+            let task = ActionTask(title: a.title)
+            task.meeting = meeting
+            task.project = meeting.project
+            if let iso = a.deadlineISO {
+                task.dueDate = ISO8601DateFormatter().date(from: iso)
+                    ?? DateFormatter.yyyyMMdd.date(from: iso)
+            }
+            if let assignee = a.assignee,
+               let collab = allCollaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(assignee) == .orderedSame }) {
+                task.collaborator = collab
+            }
+            context.insert(task)
+        }
+
+        for a in report.alerts {
+            let alert = ProjectAlert(title: a.title, detail: a.detail, severity: a.severity)
+            alert.project = meeting.project
+            alert.interview = nil
+            context.insert(alert)
+        }
+
+        saveContext()
+        activeSection = .report
+    }
+
+    // MARK: - Tasks
 
     private func addTask() {
-        let task = ActionTask(title: newTaskTitle, dueDate: showNewTaskDueDate ? (newTaskDueDate ?? Date()) : nil)
-        task.meeting = meeting
-        task.project = meeting.project
-        task.collaborator = selectedCollaborator
-        context.insert(task)
+        let t = ActionTask(
+            title: newTaskTitle,
+            dueDate: showNewTaskDueDate ? (newTaskDueDate ?? Date()) : nil
+        )
+        t.meeting = meeting
+        t.project = meeting.project
+        t.collaborator = selectedCollaborator
+        context.insert(t)
         newTaskTitle = ""
         newTaskDueDate = nil
         showNewTaskDueDate = false
@@ -305,54 +1487,92 @@ struct MeetingView: View {
     }
 
     private func deleteTasks(offsets: IndexSet) {
-        let tasks = meeting.tasks
-        for index in offsets {
-            context.delete(tasks[index])
-        }
+        for idx in offsets { context.delete(meeting.tasks[idx]) }
         saveContext()
+    }
+
+    // MARK: - Utils
+
+    private func formatDuration(_ s: TimeInterval) -> String {
+        let total = Int(s)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let sec = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, sec) }
+        return String(format: "%02d:%02d", m, sec)
+    }
+
+    private var currentSlides: [SlideCapture] {
+        // Pendant une session : source de vérité = service.
+        if let att = captureService.currentAttachment {
+            return att.slides.sorted(by: { $0.index < $1.index })
+        }
+        // Hors session : on affiche la dernière session "slides" de cette réunion.
+        let latest = meeting.attachments
+            .filter { $0.kind == "slides" }
+            .sorted(by: { $0.importedAt > $1.importedAt })
+            .first
+        return latest?.slides.sorted(by: { $0.index < $1.index }) ?? []
     }
 
     private func saveContext() {
         do { try context.save() } catch { print("[MeetingView] save FAILED: \(error)") }
     }
+
+    private func saveMeetingNow() {
+        saveContext()
+        saveStatusMessage = "Réunion enregistrée"
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            if saveStatusMessage == "Réunion enregistrée" {
+                saveStatusMessage = nil
+            }
+        }
+    }
 }
 
-// Simple flow layout for participant chips
+// MARK: - DateFormatter helper
+
+private extension DateFormatter {
+    static let yyyyMMdd: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
+}
+
+// MARK: - FlowLayout (inchangé)
+
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = layout(in: proposal.width ?? 0, subviews: subviews)
-        return result.size
+        layout(in: proposal.width ?? 0, subviews: subviews).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let result = layout(in: bounds.width, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+        for (i, pos) in result.positions.enumerated() {
+            subviews[i].place(at: CGPoint(x: bounds.minX + pos.x, y: bounds.minY + pos.y), proposal: .unspecified)
         }
     }
 
     private func layout(in width: CGFloat, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
         var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var maxHeight: CGFloat = 0
-        var maxWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > width && x > 0 {
-                x = 0
-                y += maxHeight + spacing
-                maxHeight = 0
+        var x: CGFloat = 0, y: CGFloat = 0, maxH: CGFloat = 0, maxW: CGFloat = 0
+        for sv in subviews {
+            let sz = sv.sizeThatFits(.unspecified)
+            if x + sz.width > width && x > 0 {
+                x = 0; y += maxH + spacing; maxH = 0
             }
             positions.append(CGPoint(x: x, y: y))
-            maxHeight = max(maxHeight, size.height)
-            x += size.width + spacing
-            maxWidth = max(maxWidth, x)
+            maxH = max(maxH, sz.height)
+            x += sz.width + spacing
+            maxW = max(maxW, x)
         }
-
-        return (CGSize(width: maxWidth, height: y + maxHeight), positions)
+        return (CGSize(width: maxW, height: y + maxH), positions)
     }
 }
