@@ -38,7 +38,7 @@ struct MeetingView: View {
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var saveStatusMessage: String?
-    @State private var detailsExpanded: Bool = true
+    @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
 
     enum MeetingSection: String, CaseIterable, Identifiable {
         case liveNotes = "Notes live"
@@ -122,8 +122,23 @@ struct MeetingView: View {
                 settings: settings,
                 detailsExpanded: $detailsExpanded
             )
-            participantsSection
-                .padding(.horizontal, 28)
+            MeetingDetailsBlock(
+                meeting: meeting,
+                settings: settings,
+                allCollaborators: allCollaborators,
+                availableCollaborators: availableCollaborators,
+                projects: projects,
+                expanded: $detailsExpanded,
+                showCustomPrompt: $showCustomPrompt,
+                newAdhocName: $newAdhocName,
+                calendarImportError: $calendarImportError,
+                addParticipant: addParticipant,
+                removeParticipant: removeParticipant,
+                setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
+                participantStatus: { c in participantStatus(for: c) },
+                addAdhoc: addAdhocParticipant,
+                saveContext: saveContext
+            )
             Rectangle()
                 .fill(Color.secondary.opacity(0.18))
                 .frame(height: 0.5)
@@ -816,19 +831,6 @@ struct MeetingView: View {
         meeting.participantStatus(for: collaborator)
     }
 
-    private func participantChipColor(for collaborator: Collaborator) -> Color {
-        switch participantStatus(for: collaborator) {
-        case .participant:
-            return settings.meetingParticipantColor
-        case .absent:
-            return settings.meetingAbsentColor
-        }
-    }
-
-    private var collaboratorChipColor: Color {
-        settings.meetingCollaboratorColor
-    }
-
     /// Crée un `Collaborator` adhoc (réutilisable) et l'ajoute à la réunion.
     private func addAdhocParticipant() {
         let name = newAdhocName.trimmingCharacters(in: .whitespaces)
@@ -879,105 +881,6 @@ struct MeetingView: View {
         collaborator.pinLevel = 0
         context.insert(collaborator)
         return collaborator
-    }
-
-    private var participantsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("PARTICIPANTS")
-                    .font(.caption2.weight(.bold))
-                    .foregroundColor(.secondary)
-                    .tracking(1.2)
-                Spacer()
-            }
-
-            if !meeting.calendarEventTitle.isEmpty {
-                Label(
-                    "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
-                    systemImage: "calendar"
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
-
-            FlowLayout(spacing: 6) {
-                ForEach(meeting.participants, id: \.persistentModelID) { p in
-                    Menu {
-                        ForEach(MeetingAttendanceStatus.allCases) { status in
-                            Button(action: { setParticipantStatus(status, for: p) }) {
-                                Label(status.label, systemImage: status.sfSymbol)
-                            }
-                        }
-                        Divider()
-                        Button(role: .destructive, action: { removeParticipant(p) }) {
-                            Label("Retirer", systemImage: "trash")
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: p.isAdhoc ? "person.badge.plus" : participantStatus(for: p).sfSymbol)
-                                .font(.caption2)
-                            Text(p.name).font(.caption)
-                        }
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(participantChipColor(for: p))
-                        .cornerRadius(12)
-                    }
-                    .menuStyle(.borderlessButton)
-                }
-
-                Menu {
-                    ForEach(availableCollaborators) { c in
-                        Button(c.name) { addParticipant(c) }
-                    }
-                } label: {
-                    Label("Ajouter", systemImage: "plus.circle").font(.caption)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 90)
-            }
-            .id(participantsRefreshID)
-
-            if !availableCollaborators.isEmpty {
-                Text("COLLABORATEURS")
-                    .font(.caption2.weight(.bold))
-                    .foregroundColor(.secondary)
-                    .tracking(1.2)
-
-                FlowLayout(spacing: 6) {
-                    ForEach(availableCollaborators, id: \.persistentModelID) { collaborator in
-                        Button(action: { addParticipant(collaborator) }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "plus.circle.fill").font(.caption2)
-                                Text(collaborator.name).font(.caption)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(collaboratorChipColor)
-                            .cornerRadius(12)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            HStack(spacing: 6) {
-                TextField("Ad-hoc : nom…", text: $newAdhocName)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
-                    .onSubmit { addAdhocParticipant() }
-                Button(action: addAdhocParticipant) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.bordered)
-                .disabled(newAdhocName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            if let calendarImportError, !calendarImportError.isEmpty {
-                Text(calendarImportError)
-                    .font(.caption)
-                    .foregroundColor(.red)
-            }
-        }
     }
 
     // MARK: - Actions panel
