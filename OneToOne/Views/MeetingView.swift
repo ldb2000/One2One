@@ -38,6 +38,7 @@ struct MeetingView: View {
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var saveStatusMessage: String?
+    @State private var showPlayback: Bool = false
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
 
     enum MeetingSection: String, CaseIterable, Identifiable {
@@ -68,7 +69,7 @@ struct MeetingView: View {
                 onStartRecording: { Task { await startRecording() } },
                 onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
                 onTogglePause:    { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
-                onTogglePlay:     { if let wav = meeting.wavFileURL { togglePlay(url: wav) } },
+                onTogglePlay:     { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
                 onRetranscribe:   { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
                 onGenerateReport: { Task { await generateReport() } },
                 onShowCaptureSetup: { showCaptureSetup = true },
@@ -94,6 +95,38 @@ struct MeetingView: View {
                 },
                 onSaveNow: saveMeetingNow
             )
+
+            MeetingContextualRecorderBar(
+                recorder: recorder,
+                stt: stt,
+                player: player,
+                captureService: captureService,
+                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+                showPlayback: showPlayback,
+                onSnapshot: { captureService.snapshot() },
+                onStopCapture: { Task { await captureService.stop() } },
+                onSeek: { player.seek(to: $0) },
+                onSkip: { player.skip(by: $0) },
+                errors: [
+                    recorder.lastError,
+                    transcribeError,
+                    reportError,
+                    captureService.lastError,
+                    attachmentError,
+                    calendarImportError
+                ].compactMap { $0 }.filter { !$0.isEmpty },
+                onDismissErrors: {
+                    recorder.lastError = nil
+                    transcribeError = nil
+                    reportError = nil
+                    captureService.lastError = nil
+                    attachmentError = nil
+                    calendarImportError = nil
+                }
+            )
+            .animation(.easeInOut(duration: 0.15), value: recorder.isRecording)
+            .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
+            .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
             HSplitView {
                 mainPanel.frame(minWidth: 520)
@@ -138,10 +171,6 @@ struct MeetingView: View {
                 addAdhoc: addAdhocParticipant,
                 saveContext: saveContext
             )
-            Rectangle()
-                .fill(Color.secondary.opacity(0.18))
-                .frame(height: 0.5)
-            recorderBar
             MeetingTabsUnderline(
                 selection: $activeSection,
                 attachmentsCount: meeting.attachments.count,
@@ -153,205 +182,6 @@ struct MeetingView: View {
                 .padding(.bottom, 16)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    // MARK: - Recorder bar
-
-    private var recorderBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 16) {
-                // --- GROUPE AUDIO ---
-                HStack(spacing: 8) {
-                    if recorder.isRecording {
-                        Button(action: { Task { await stopRecordingAndTranscribe() } }) {
-                            Label("Arrêter", systemImage: "stop.fill")
-                                .frame(height: 24)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-
-                        Button(action: {
-                            if recorder.isPaused { recorder.resume() } else { recorder.pause() }
-                        }) {
-                            Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
-                                .frame(width: 20)
-                        }
-                        .buttonStyle(.bordered)
-
-                        Text(formatDuration(recorder.elapsedSeconds))
-                            .font(.system(.body, design: .monospaced).bold())
-                            .foregroundColor(.red)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(minWidth: 56, alignment: .trailing)
-
-                        vuMeter
-                    } else {
-                        Button(action: { Task { await startRecording() } }) {
-                            Label("Enregistrer", systemImage: "mic.fill")
-                                .frame(height: 24)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .disabled(stt.isTranscribing || isGeneratingReport)
-
-                        if let wav = meeting.wavFileURL, fileExists(wav) {
-                            playerControls(wavURL: wav)
-                            
-                            Button(action: { Task { await retranscribe(wavURL: wav) } }) {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                            .buttonStyle(.bordered)
-                            .help("Re-transcrire")
-                        }
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color.secondary.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                Divider().frame(height: 32)
-
-                // --- GROUPE CAPTURE D'ÉCRAN ---
-                HStack(spacing: 8) {
-                    if captureService.isCapturing {
-                        Button(action: { showSlidesList.toggle() }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "camera.viewfinder")
-                                Text("\(captureService.capturedSlidesCount) slides")
-                            }
-                            .padding(.horizontal, 6)
-                            .frame(height: 32)
-                            .background(Color.blue.opacity(0.1))
-                            .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: { captureService.snapshot() }) {
-                            Image(systemName: "camera.fill")
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Prendre une capture manuelle")
-
-                        Button(action: { Task { await captureService.stop() } }) {
-                            Image(systemName: "stop.fill")
-                                .foregroundColor(.red)
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Arrêter la capture")
-                    } else {
-                        Button(action: { showCaptureSetup = true }) {
-                            Label("Capture slides", systemImage: "camera.viewfinder")
-                                .frame(height: 24)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color.blue.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                Spacer()
-
-                // --- ÉTATS ---
-                if let progress = captureService.ocrProgress {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("OCR: \(progress.current)/\(progress.total)").font(.caption.monospacedDigit())
-                    }
-                }
-
-                if stt.isTranscribing {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("STT…").font(.caption)
-                    }
-                }
-
-                if !meeting.rawTranscript.isEmpty && !recorder.isRecording && !stt.isTranscribing {
-                    Button(action: { Task { await generateReport() } }) {
-                        if isGeneratingReport {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Label("Rapport", systemImage: "wand.and.stars")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(isGeneratingReport)
-                }
-            }
-
-            if let err = recorder.lastError ?? transcribeError ?? reportError ?? captureService.lastError {
-                Text(err)
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .padding(.horizontal, 4)
-            }
-
-            if let saveStatusMessage, !saveStatusMessage.isEmpty {
-                Text(saveStatusMessage)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-    }
-
-    @ViewBuilder
-    private func playerControls(wavURL: URL) -> some View {
-        HStack(spacing: 6) {
-            Button(action: { togglePlay(url: wavURL) }) {
-                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.accentColor)
-            }
-            .buttonStyle(.plain)
-            .help(player.isPlaying ? "Pause" : "Lire l'enregistrement")
-
-            Button(action: { player.skip(by: -15) }) {
-                Image(systemName: "gobackward.15")
-            }
-            .buttonStyle(.borderless)
-            .disabled(player.loadedURL != wavURL)
-
-            Button(action: { player.skip(by: 15) }) {
-                Image(systemName: "goforward.15")
-            }
-            .buttonStyle(.borderless)
-            .disabled(player.loadedURL != wavURL)
-
-            if player.loadedURL == wavURL && player.duration > 0 {
-                // Slider position courante / durée
-                Slider(
-                    value: Binding(
-                        get: { player.currentTime },
-                        set: { player.seek(to: $0) }
-                    ),
-                    in: 0...max(player.duration, 0.1)
-                )
-                .frame(width: 120)
-
-                Text("\(formatDuration(player.currentTime)) / \(formatDuration(player.duration))")
-                    .font(.caption.monospaced())
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            } else {
-                Text(formatDuration(TimeInterval(meeting.durationSeconds)))
-                    .font(.caption.monospaced())
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-        }
     }
 
     private func togglePlay(url: URL) {
@@ -388,20 +218,6 @@ struct MeetingView: View {
             transcribeError = error.localizedDescription
             print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
         }
-    }
-
-    private var vuMeter: some View {
-        // Mappe -60..0 dB → 0..1 largeur.
-        let level = max(0, min(1, (recorder.averagePower + 60) / 60))
-        return GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15))
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(level > 0.7 ? Color.red : (level > 0.3 ? Color.orange : Color.green))
-                    .frame(width: CGFloat(level) * geo.size.width)
-            }
-        }
-        .frame(width: 100, height: 6)
     }
 
     @ViewBuilder
