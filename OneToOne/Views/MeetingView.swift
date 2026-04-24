@@ -55,11 +55,50 @@ struct MeetingView: View {
     // MARK: - Body
 
     var body: some View {
-        HSplitView {
-            mainPanel
-                .frame(minWidth: 520)
-            actionsPanel
-                .frame(minWidth: 300, maxWidth: 420)
+        VStack(spacing: 0) {
+            MeetingTopChromeBar(
+                meeting: meeting,
+                recorder: recorder,
+                stt: stt,
+                player: player,
+                captureService: captureService,
+                isGeneratingReport: isGeneratingReport,
+                capturedSlidesCount: currentSlides.count,
+                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+                onStartRecording: { Task { await startRecording() } },
+                onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
+                onTogglePause:    { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
+                onTogglePlay:     { if let wav = meeting.wavFileURL { togglePlay(url: wav) } },
+                onRetranscribe:   { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
+                onGenerateReport: { Task { await generateReport() } },
+                onShowCaptureSetup: { showCaptureSetup = true },
+                onShowSlides:       { showSlidesList = true },
+                onToggleCustomPrompt: { showCustomPrompt.toggle() },
+                onImportCalendar:     { showCalendarImporter = true },
+                onExportMarkdown: {
+                    let md = ExportService().exportMeetingMarkdown(meeting: meeting)
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(md, forType: .string)
+                },
+                onExportPDF: {
+                    let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
+                    ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
+                },
+                onExportMail:       { ExportService().exportMeetingMail(meeting: meeting) },
+                onExportEML:        { ExportService().exportMeetingOutlookEML(meeting: meeting) },
+                onExportAppleNotes: {
+                    let title = meeting.title.isEmpty ? "Réunion" : meeting.title
+                    let md = ExportService().exportMeetingMarkdown(meeting: meeting, options: .shareable)
+                    ExportService().exportToAppleNotes(title: title, markdownContent: md)
+                },
+                onSaveNow: saveMeetingNow
+            )
+
+            HSplitView {
+                mainPanel.frame(minWidth: 520)
+                actionsPanel.frame(minWidth: 300, maxWidth: 420)
+            }
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
         .sheet(isPresented: $showCalendarImporter) {
@@ -67,49 +106,9 @@ struct MeetingView: View {
                 importCalendarEvent(event)
             }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Menu {
-                    Button(action: {
-                        let md = ExportService().exportMeetingMarkdown(meeting: meeting)
-                        let pb = NSPasteboard.general
-                        pb.clearContents()
-                        pb.setString(md, forType: .string)
-                    }) {
-                        Label("Copier Markdown", systemImage: "doc.text")
-                    }
-                    Button(action: {
-                        let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
-                        ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
-                    }) {
-                        Label("Exporter PDF", systemImage: "doc.richtext")
-                    }
-                    Button(action: {
-                        ExportService().exportMeetingMail(meeting: meeting)
-                    }) {
-                        Label("Envoyer par mail", systemImage: "envelope")
-                    }
-                    Button(action: {
-                        ExportService().exportMeetingOutlookEML(meeting: meeting)
-                    }) {
-                        Label("Exporter Outlook (.eml)", systemImage: "envelope.badge")
-                    }
-                    Divider()
-                    Button(action: {
-                        let title = meeting.title.isEmpty ? "Réunion" : meeting.title
-                        let md = ExportService().exportMeetingMarkdown(meeting: meeting, options: .shareable)
-                        ExportService().exportToAppleNotes(title: title, markdownContent: md)
-                    }) {
-                        Label("Exporter vers Apple Notes", systemImage: "note.text")
-                    }
-                } label: {
-                    Label("Exporter", systemImage: "square.and.arrow.up")
-                }
-
-                Button(action: saveContext) {
-                    Label("Enregistrer", systemImage: "checkmark.circle")
-                }
-            }
+        .popover(isPresented: $showSlidesList) { slidesPopover }
+        .popover(isPresented: $showCaptureSetup) {
+            ScreenCaptureConfigView(service: captureService, meeting: meeting)
         }
     }
 
@@ -228,9 +227,6 @@ struct MeetingView: View {
                             .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
-                        .popover(isPresented: $showSlidesList) {
-                            slidesPopover
-                        }
 
                         Button(action: { captureService.snapshot() }) {
                             Image(systemName: "camera.fill")
@@ -252,9 +248,6 @@ struct MeetingView: View {
                                 .frame(height: 24)
                         }
                         .buttonStyle(.bordered)
-                        .popover(isPresented: $showCaptureSetup) {
-                            ScreenCaptureConfigView(service: captureService, meeting: meeting)
-                        }
                     }
                 }
                 .padding(.horizontal, 10)
@@ -543,9 +536,6 @@ struct MeetingView: View {
             }
             .buttonStyle(.plain)
             .help("Dernière capture — clic pour voir toutes les slides")
-            .popover(isPresented: $showSlidesList) {
-                slidesPopover
-            }
         }
     }
 
@@ -971,9 +961,6 @@ struct MeetingView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .popover(isPresented: $showSlidesList) {
-                        slidesPopover
-                    }
                 } else {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.secondary.opacity(0.08))
