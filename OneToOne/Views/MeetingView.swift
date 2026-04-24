@@ -520,11 +520,11 @@ struct MeetingView: View {
                 } else {
                     if !meeting.mergedTranscript.isEmpty {
                         Text(meeting.mergedTranscript)
-                            .font(.body)
+                            .font(MeetingTheme.bodySerif)
                             .textSelection(.enabled)
                     } else {
                         Text(meeting.rawTranscript)
-                            .font(.body)
+                            .font(MeetingTheme.bodySerif)
                             .textSelection(.enabled)
                     }
                 }
@@ -552,7 +552,7 @@ struct MeetingView: View {
                         }
                     }
                     section("Résumé") {
-                        Text(meeting.summary).textSelection(.enabled)
+                        Text(meeting.summary).font(MeetingTheme.bodySerif).textSelection(.enabled)
                     }
                     if !meeting.keyPoints.isEmpty {
                         section("Points clés") {
