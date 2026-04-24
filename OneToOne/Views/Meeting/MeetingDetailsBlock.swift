@@ -134,10 +134,13 @@ struct MeetingDetailsBlock: View {
                     } label: {
                         HStack(spacing: 6) {
                             AvatarMini(collaborator: p, tint: settings.meetingParticipantColor)
-                            Text(p.name).font(.caption)
+                            Text(p.name)
+                                .font(.caption)
+                                .foregroundColor(.primary)
                             if participantStatus(p) == .absent {
                                 Image(systemName: MeetingAttendanceStatus.absent.sfSymbol)
                                     .font(.caption2)
+                                    .foregroundColor(.primary)
                             }
                         }
                         .padding(.horizontal, 10)
@@ -175,6 +178,7 @@ struct MeetingDetailsBlock: View {
                             Image(systemName: "plus.circle.fill").font(.caption2)
                             Text(c.name).font(.caption)
                         }
+                        .foregroundColor(.primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(settings.meetingCollaboratorColor)

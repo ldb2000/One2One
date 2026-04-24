@@ -46,9 +46,9 @@ final class AppSettings {
     var meetingAbsentColorHex: String = AppSettings.defaultMeetingAbsentColorHex
     var meetingCollaboratorColorHex: String = AppSettings.defaultMeetingCollaboratorColorHex
 
-    static let defaultMeetingParticipantColorHex  = "#C7E8B6"
-    static let defaultMeetingAbsentColorHex       = "#F4C7C7"
-    static let defaultMeetingCollaboratorColorHex = "#C6D8F0"
+    static let defaultMeetingParticipantColorHex  = "#A8D490"
+    static let defaultMeetingAbsentColorHex       = "#E8A8A8"
+    static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
 
     var meetingParticipantColor: Color {
         Color(hex: meetingParticipantColorHex) ?? Color(hex: Self.defaultMeetingParticipantColorHex) ?? .green
