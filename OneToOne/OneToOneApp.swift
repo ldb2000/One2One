@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import Combine
 
 @main
 struct OneToOneApp: App {
@@ -78,6 +79,8 @@ struct OneToOneApp: App {
 struct ContentView: View {
     @State private var selectedTab: String? = "Dashboard"
     @Environment(\.modelContext) private var context
+    @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var router: QuickLaunchRouter
     @State private var didRunDataRepair = false
     
     var body: some View {
@@ -109,6 +112,11 @@ struct ContentView: View {
             ) { _ in
                 reindexSpotlight()
             }
+        }
+        .onReceive(router.$pendingToken.compactMap { $0 }) { token in
+            openWindow(id: "1to1-meeting", value: token)
+            // Drain so the same token doesn't fire twice on view remount.
+            _ = router.consumePendingToken()
         }
     }
 
