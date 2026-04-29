@@ -116,9 +116,24 @@ struct MeetingContextualRecorderBar: View {
     private var progressSegment: some View {
         HStack(spacing: 10) {
             if stt.isTranscribing {
-                HStack(spacing: 4) {
-                    ProgressView().controlSize(.small)
-                    Text("STT…").font(.caption.monospacedDigit())
+                HStack(spacing: 6) {
+                    if stt.progressFraction > 0 {
+                        ProgressView(value: stt.progressFraction)
+                            .progressViewStyle(.linear)
+                            .frame(width: 110)
+                        Text("\(Int(stt.progressFraction * 100)) %")
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    if !stt.progressLabel.isEmpty {
+                        Text(stt.progressLabel)
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("STT…").font(.caption.monospacedDigit())
+                    }
                 }
             }
             if let p = captureService.ocrProgress {

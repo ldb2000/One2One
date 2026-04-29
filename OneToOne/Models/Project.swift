@@ -11,6 +11,11 @@ final class Project {
     var projectType: String
     var phase: String // Cadrage, Design, Build, Run, etc.
     var status: String // Green, Yellow, Red
+    /// Chef de projet (responsable fonctionnel) — nom libre, sourcé du
+    /// portfolio externe lors de l'import xlsx.
+    var chefDeProjet: String = ""
+    /// Architecte technique — nom libre, sourcé du portfolio externe.
+    var architecte: String = ""
     var projectDeliveryDate: Date?
     var designEndDeadline: Date?
     var plannedDays: Double?
