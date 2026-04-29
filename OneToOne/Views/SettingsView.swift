@@ -44,6 +44,12 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                GroupBox {
+                    Form {
+                        SettingsHotkeysSection()
+                    }
+                }
+
                 // IA Config
                 GroupBox("Configuration IA") {
                     VStack(alignment: .leading, spacing: 10) {

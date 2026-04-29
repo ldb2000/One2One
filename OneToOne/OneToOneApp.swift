@@ -113,6 +113,16 @@ struct ContentView: View {
             ) { _ in
                 reindexSpotlight()
             }
+
+            registerHotkeys()
+
+            NotificationCenter.default.addObserver(
+                forName: .collaboratorHotkeysChanged,
+                object: nil,
+                queue: .main
+            ) { _ in
+                registerHotkeys()
+            }
         }
         .onReceive(router.$pendingToken.compactMap { $0 }) { token in
             openWindow(id: "1to1-meeting", value: token)
@@ -123,6 +133,39 @@ struct ContentView: View {
             QuickLaunchURLHandler.handle(activity: activity,
                                          router: router,
                                          context: context)
+        }
+    }
+
+    private func registerHotkeys() {
+        GlobalHotkeyService.shared.unregisterAll()
+
+        let settings: AppSettings? = (try? context.fetch(FetchDescriptor<AppSettings>()))?.canonicalSettings
+        let map = settings?.collaboratorHotkeys ?? [:]
+
+        // Overlay (default ⌃⌥⌘1 if absent)
+        let overlaySpec = HotkeySpec(serialized: map["__overlay__"] ?? "⌃⌥⌘1")
+            ?? HotkeySpec(modifiers: [.control, .option, .command], keyChar: "1")
+        _ = GlobalHotkeyService.shared.register(spec: overlaySpec) {
+            OneToOneQuickPickerWindow.shared.present()
+        }
+
+        // Per-collab
+        for (key, serialized) in map where key != "__overlay__" {
+            guard let spec = HotkeySpec(serialized: serialized),
+                  let uuid = UUID(uuidString: key) else { continue }
+            _ = GlobalHotkeyService.shared.register(spec: spec) {
+                Task { @MainActor in
+                    let descriptor = FetchDescriptor<Collaborator>(
+                        predicate: #Predicate { $0.stableID == uuid }
+                    )
+                    guard let collab = try? context.fetch(descriptor).first else { return }
+                    QuickLaunchRouter.shared.startOneToOne(
+                        collaborator: collab,
+                        autoStartRecording: true,
+                        in: context
+                    )
+                }
+            }
         }
     }
 
