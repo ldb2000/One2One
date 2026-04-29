@@ -55,24 +55,18 @@ Tous les déclencheurs externes (Spotlight handler, AppIntent perform, hotkey ca
 
 ### Modèle: tag 1:1 sur Meeting
 
-Nouveau champ ajouté à `Meeting` (dans `MeetingModels.swift`):
-
-```swift
-var isOneToOne: Bool = false
-```
-
-Migration SwiftData: nouvelle version de schéma `SchemaVN+1`, migration light (default false sur lignes existantes).
+`Meeting` possède déjà `kind: MeetingKind` (raw stocké dans `kindRaw`) avec un cas `.oneToOne` pré-existant. **On réutilise** — pas de nouveau champ.
 
 Le routeur crée:
 
 ```swift
-Meeting(
+let meeting = Meeting(
     title: "1:1 — \(collaborator.name)",
     date: .now,
     notes: ""
 )
 meeting.participants = [collaborator]
-meeting.isOneToOne = true
+meeting.kind = .oneToOne
 ```
 
 ### `MeetingView` reçoit `autoStartRecording`
@@ -254,7 +248,7 @@ Dans `Sidebar.swift`, le `NavigationLink` collab est wrappé dans `.contextMenu`
 
 Le routeur publie `listFilterCollaborator`. La nav route vers `MeetingsListView`. Cette vue observe le routeur et:
 
-1. Définit son filtre actif: `meetings.filter { $0.isOneToOne && $0.participants.contains(where: { $0.stableID == collab.stableID }) }`.
+1. Définit son filtre actif: `meetings.filter { $0.kind == .oneToOne && $0.participants.contains(where: { $0.stableID == collab.stableID }) }`.
 2. Tri date desc.
 3. Banner discret en haut: "1:1 avec \(name) — [×] retirer le filtre".
 4. Le clear bouton remet `listFilterCollaborator = nil`.
@@ -269,7 +263,7 @@ Pas de fenêtre dédiée, pas de nouvelle vue.
 [Global hotkey overlay]   ─┼──▶  QuickLaunchRouter.startOneToOne(collab, autoStart, ctx)
 [Per-collab hotkey]       ─┤         │
 [Right-click menu]        ─┘         ▼
-                                 - Crée Meeting (isOneToOne=true, participants=[collab])
+                                 - Crée Meeting (kind = .oneToOne, participants=[collab])
                                  - Active app, makeKeyAndOrderFront
                                  - Publish pendingMeeting + autoStartRecording
                                        │
@@ -296,7 +290,7 @@ Pas de fenêtre dédiée, pas de nouvelle vue.
 Cibles `OneToOneTests`:
 
 1. `QuickLaunchRouterTests`
-   - `startOneToOne` crée Meeting `isOneToOne=true`, participants contient le collab unique, title = "1:1 — Name".
+   - `startOneToOne` crée Meeting avec `kind == .oneToOne`, participants contient le collab unique, title = "1:1 — Name".
    - `autoStartRecording` propagé correctement (publié true puis flushé).
    - `showRecentOneToOnes` set le filtre, n'efface pas pendingMeeting.
 
@@ -321,7 +315,7 @@ Pas de test UI automatisé pour overlay picker / contextMenu (test manuel suffit
 
 ## Migration / Compat
 
-- Schéma SwiftData: bump version (ajouter version V+1 dans `SchemaVersions.swift`, migration `lightweight`). Champs ajoutés: `Meeting.isOneToOne` (Bool, default false) + `AppSettings.collaboratorHotkeys` ([String: String], default {}).
+- Schéma SwiftData: ajout d'un champ `AppSettings.collaboratorHotkeys: [String: String]` (default `[:]`). Default value sur Optional/typed-default → lightweight migration automatique, pas besoin de bump V2. Pas de modif sur `Meeting` (réutilisation `kind`).
 - `MeetingView` initializer rétrocompatible: `autoStartRecording` a une default value `false`. Tous les call-sites existants continuent de fonctionner.
 - `MeetingsListView` ajoute le filtre observé; sans filtre actif, comportement inchangé.
 
@@ -350,9 +344,7 @@ Pas de test UI automatisé pour overlay picker / contextMenu (test manuel suffit
 - `Tests/StartOneToOneIntentTests.swift`
 
 **Modifiés**:
-- `OneToOne/Models/MeetingModels.swift` (+ `isOneToOne`)
 - `OneToOne/Models/AppSettings.swift` (+ `collaboratorHotkeys`)
-- `OneToOne/Models/SchemaVersions.swift` (nouvelle version + migration plan)
 - `OneToOne/Services/SpotlightIndexService.swift` (indexation Collaborator)
 - `OneToOne/OneToOneApp.swift` (router env, `onContinueUserActivity`, init `GlobalHotkeyService`, `SharedModelContainer`)
 - `OneToOne/Views/MeetingView.swift` (param `autoStartRecording`)
@@ -363,7 +355,7 @@ Pas de test UI automatisé pour overlay picker / contextMenu (test manuel suffit
 ## Open questions
 
 Aucune — toutes les décisions clés sont fixées:
-- Cible = Meeting taggé `isOneToOne`, pas Interview.
+- Cible = Meeting avec `kind = .oneToOne` (enum existant, pas de nouveau champ).
 - Routeur central unique pour tous les déclencheurs.
 - Hotkey combo D (overlay + binds par collab).
 - Carbon, pas de dep externe.
