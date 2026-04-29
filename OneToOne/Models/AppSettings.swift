@@ -46,6 +46,11 @@ final class AppSettings {
     var meetingAbsentColorHex: String = AppSettings.defaultMeetingAbsentColorHex
     var meetingCollaboratorColorHex: String = AppSettings.defaultMeetingCollaboratorColorHex
 
+    /// Bindings de raccourcis clavier globaux par collaborateur.
+    /// Clé = `Collaborator.stableID.uuidString`, valeur = keyspec lisible
+    /// (ex. `"⌃⌥⌘A"`). Cf. `HotkeySpec` pour le format.
+    var collaboratorHotkeys: [String: String] = [:]
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"

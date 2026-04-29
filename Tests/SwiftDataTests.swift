@@ -238,6 +238,26 @@ struct SwiftDataTests {
         #expect(fetched.first?.provider == .anthropic)
     }
 
+    @Test("AppSettings.collaboratorHotkeys persists round-trip")
+    func appSettingsHotkeysPersist() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let settings = AppSettings()
+        context.insert(settings)
+        try context.save()
+
+        settings.collaboratorHotkeys = [
+            "11111111-1111-1111-1111-111111111111": "⌃⌥⌘A",
+            "22222222-2222-2222-2222-222222222222": "⌘F1"
+        ]
+        try context.save()
+
+        let fetched = try context.fetch(FetchDescriptor<AppSettings>())
+        #expect(fetched.first?.collaboratorHotkeys.count == 2)
+        #expect(fetched.first?.collaboratorHotkeys["11111111-1111-1111-1111-111111111111"] == "⌃⌥⌘A")
+    }
+
     // MARK: - Save without rollback preserves in-memory changes
 
     @Test("Failed save does not lose in-memory changes when no rollback")
