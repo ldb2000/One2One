@@ -30,6 +30,7 @@ struct ChatbotView: View {
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
     @Query private var interviews: [Interview]
+    @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query private var settingsList: [AppSettings]
 
     @State private var messages: [ChatMessage] = [
@@ -41,6 +42,8 @@ struct ChatbotView: View {
     @State private var isOllamaReachable: Bool?
     @State private var selectedCommandIndex: Int = 0
     @State private var showSlashMenu = false
+    @State private var pickedTemplate: PromptTemplate?
+    @State private var showSavePromptSheet = false
 
     private var settings: AppSettings {
         settingsList.canonicalSettings ?? AppSettings()
@@ -63,6 +66,11 @@ struct ChatbotView: View {
             help: "Ajouter une action collaborateur sur un projet"
         )
     ]
+
+    /// True quand seul le message de bienvenue est présent (pas encore d'interaction).
+    private var isInitialState: Bool {
+        messages.count <= 1 && messages.first?.role == .assistant
+    }
 
     private var filteredSlashCommands: [SlashCommandDef] {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -122,20 +130,30 @@ struct ChatbotView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(messages) { message in
-                                chatBubble(message)
-                                    .id(message.id)
+                Group {
+                    if isInitialState {
+                        ChatbotTemplateGallery(
+                            history: [],
+                            onSelect: { tpl in pickedTemplate = tpl },
+                            onPickHistory: { q in input = q }
+                        )
+                    } else {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                VStack(spacing: 12) {
+                                    ForEach(messages) { message in
+                                        chatBubble(message)
+                                            .id(message.id)
+                                    }
+                                }
+                                .padding(.vertical, 4)
                             }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .onChange(of: messages.count) { _, _ in
-                        if let last = messages.last {
-                            withAnimation {
-                                proxy.scrollTo(last.id, anchor: .bottom)
+                            .onChange(of: messages.count) { _, _ in
+                                if let last = messages.last {
+                                    withAnimation {
+                                        proxy.scrollTo(last.id, anchor: .bottom)
+                                    }
+                                }
                             }
                         }
                     }
@@ -154,6 +172,15 @@ struct ChatbotView: View {
             .padding(24)
         }
         .navigationTitle("Assistant IA")
+        .sheet(item: $pickedTemplate) { tpl in
+            TemplateConfigSheet(template: tpl) { rendered in
+                input = rendered
+                sendMessage()
+            }
+        }
+        .sheet(isPresented: $showSavePromptSheet) {
+            SavePromptSheet(initialPrompt: input) { _ in }
+        }
         .onChange(of: input) { _, _ in
             let shouldShow = !filteredSlashCommands.isEmpty
             if shouldShow != showSlashMenu {
@@ -225,6 +252,20 @@ struct ChatbotView: View {
                         .frame(minHeight: 76, maxHeight: 120)
                         .background(Color.clear)
                 }
+
+                Button {
+                    showSavePromptSheet = true
+                } label: {
+                    Image(systemName: "bookmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black.opacity(0.55))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 46, height: 46)
+                .background(Circle().stroke(Color.black.opacity(0.15), lineWidth: 1))
+                .help("Enregistrer ce prompt")
+                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Button(action: handleSendOrSelect) {
                     if isLoading {
@@ -443,9 +484,8 @@ struct ChatbotView: View {
                     Text("Assistant")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.black.opacity(0.55))
-                    Text(message.content)
+                    MarkdownText(markdown: message.content)
                         .foregroundColor(.black)
-                        .textSelection(.enabled)
                 }
                 .padding(14)
                 .background(Color(red: 0.985, green: 0.985, blue: 0.975))
@@ -508,15 +548,16 @@ struct ChatbotView: View {
         }
 
         let databaseContext = buildDatabaseContext()
+        let history = serializedConversationHistory(excludingLast: 1)
         let prompt = """
         Tu es l'assistant d'analyse de l'application OneToOne.
-        Reponds uniquement a partir des donnees ci-dessous. Si l'information manque, dis-le clairement.
-        Sois concret, structure et oriente pilotage.
+        Reponds uniquement a partir des donnees ci-dessous (incluant les rapports de réunion déjà générés). Si l'information manque, dis-le clairement.
+        Sois concret, structure et oriente pilotage. Tiens compte de la conversation antérieure.
 
         Base de donnees:
         \(databaseContext)
-
-        Question:
+        \(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
+        Question actuelle:
         \(question)
         """
 
@@ -571,6 +612,26 @@ struct ChatbotView: View {
             return "- Entretien \(interview.type.label) du \(interview.date.formatted(date: .abbreviated, time: .omitted)) avec \(interview.collaborator?.name ?? "Inconnu"), projet \(linkedProject), actions \(interview.tasks.filter { !$0.isCompleted }.count), alertes \(interview.alerts.filter { !$0.isResolved }.count)"
         }
 
+        // Rapports de réunion AI (last 15 with non-empty summary)
+        let reported = meetings.filter { !$0.summary.isEmpty }.prefix(15)
+        let meetingReportLines: [String] = reported.map { m in
+            let participants = m.participants.map(\.name).joined(separator: ", ")
+            var block = """
+            - Réunion "\(m.title)" du \(m.date.formatted(date: .abbreviated, time: .shortened)) [\(m.kind.label)] · participants: \(participants.isEmpty ? "—" : participants)
+              Résumé: \(m.summary)
+            """
+            if !m.keyPoints.isEmpty {
+                block += "\n  Points clés: " + m.keyPoints.joined(separator: " | ")
+            }
+            if !m.decisions.isEmpty {
+                block += "\n  Décisions: " + m.decisions.joined(separator: " | ")
+            }
+            if !m.openQuestions.isEmpty {
+                block += "\n  Questions ouvertes: " + m.openQuestions.joined(separator: " | ")
+            }
+            return block
+        }
+
         return """
         Projets:
         \(projectLines.joined(separator: "\n"))
@@ -580,7 +641,23 @@ struct ChatbotView: View {
 
         Entretiens recents:
         \(interviewLines.joined(separator: "\n"))
+
+        Rapports de réunion (générés par IA):
+        \(meetingReportLines.isEmpty ? "(aucun rapport disponible)" : meetingReportLines.joined(separator: "\n"))
         """
+    }
+
+    /// Sérialise la conversation antérieure en blocs `Utilisateur:` / `Assistant:`
+    /// pour la passer dans le prompt monolithique. Ignore le message de bienvenue.
+    /// Coupe à `maxTurns` paires user/assistant pour limiter la taille.
+    private func serializedConversationHistory(excludingLast: Int = 0, maxTurns: Int = 6) -> String {
+        let real = messages.dropFirst()  // skip welcome message
+        let trimmed = excludingLast > 0 ? Array(real.dropLast(excludingLast)) : Array(real)
+        let tail = trimmed.suffix(maxTurns * 2)
+        return tail.map { msg in
+            let role = msg.role == .user ? "Utilisateur" : "Assistant"
+            return "\(role): \(msg.content)"
+        }.joined(separator: "\n\n")
     }
 
     // MARK: - Offline Fallback
