@@ -158,7 +158,7 @@ final class SpotlightIndexService {
     }
 
     private func collaboratorIdentifier(_ collab: Collaborator) -> String {
-        "collaborator-\(collab.stableID.uuidString)"
+        "collaborator-\(collab.ensuredStableID.uuidString)"
     }
 
     /// Test hook only.

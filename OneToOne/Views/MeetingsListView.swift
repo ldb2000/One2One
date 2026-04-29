@@ -38,7 +38,7 @@ struct MeetingsListView: View {
         if let collab = router.listFilterCollaborator {
             result = result.filter { meeting in
                 meeting.kind == .oneToOne &&
-                meeting.participants.contains(where: { $0.stableID == collab.stableID })
+                meeting.participants.contains(where: { $0.ensuredStableID == collab.ensuredStableID })
             }
         }
 

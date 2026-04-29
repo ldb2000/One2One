@@ -10,7 +10,7 @@ struct SpotlightCollaboratorIndexTests {
     func itemIdentifierFormat() {
         let collab = Collaborator(name: "Alice", role: "Architecte")
         let item = SpotlightIndexService.shared.makeCollaboratorItemForTesting(collab)
-        #expect(item.uniqueIdentifier == "collaborator-\(collab.stableID.uuidString)")
+        #expect(item.uniqueIdentifier == "collaborator-\(collab.ensuredStableID.uuidString)")
         #expect(item.domainIdentifier == "collaborators")
     }
 

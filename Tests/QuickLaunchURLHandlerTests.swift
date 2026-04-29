@@ -30,7 +30,7 @@ struct QuickLaunchURLHandlerTests {
 
         let activity = NSUserActivity(activityType: CSSearchableItemActionType)
         activity.userInfo = [
-            CSSearchableItemActivityIdentifier: "collaborator-\(collab.stableID.uuidString)"
+            CSSearchableItemActivityIdentifier: "collaborator-\(collab.ensuredStableID.uuidString)"
         ]
 
         let router = QuickLaunchRouter.testInstance()

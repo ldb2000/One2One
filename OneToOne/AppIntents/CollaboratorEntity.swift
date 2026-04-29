@@ -28,11 +28,13 @@ struct CollaboratorEntityQuery: EntityQuery, EntityStringQuery {
     @MainActor
     func entities(for ids: [CollaboratorEntity.ID]) async throws -> [CollaboratorEntity] {
         let context = OneToOneApp.sharedContainer.mainContext
-        let descriptor = FetchDescriptor<Collaborator>(
-            predicate: #Predicate { ids.contains($0.stableID) }
-        )
-        let collabs = (try? context.fetch(descriptor)) ?? []
-        return collabs.map(Self.toEntity)
+        let descriptor = FetchDescriptor<Collaborator>()
+        let all = (try? context.fetch(descriptor)) ?? []
+        let idSet = Set(ids)
+        return all.filter { collab in
+            guard let sid = collab.stableID else { return false }
+            return idSet.contains(sid)
+        }.map(Self.toEntity)
     }
 
     @MainActor
@@ -58,6 +60,6 @@ struct CollaboratorEntityQuery: EntityQuery, EntityStringQuery {
     }
 
     private static func toEntity(_ c: Collaborator) -> CollaboratorEntity {
-        CollaboratorEntity(id: c.stableID, name: c.name, role: c.role)
+        CollaboratorEntity(id: c.ensuredStableID, name: c.name, role: c.role)
     }
 }

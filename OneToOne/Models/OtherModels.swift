@@ -23,12 +23,16 @@ enum InterviewType: String, CaseIterable {
 
 @Model
 final class Collaborator {
-    var stableID: UUID = UUID()
+    var stableID: UUID? = nil
     var name: String
     var role: String
     var isArchived: Bool = false
     var photoPath: String = ""
     var photoBookmarkData: Data?
+    /// Adresse email du collaborateur, utilisée pour pré-remplir les
+    /// destinataires lors de l'export d'un compte-rendu de réunion.
+    /// Renseigné automatiquement à partir des invitations Calendar.
+    var email: String = ""
 
     /// Pinning level in the sidebar: 0 = hidden, 1 = favourite, 2 = pinned.
     var pinLevel: Int = 0
@@ -46,9 +50,20 @@ final class Collaborator {
     var meetings: [Meeting] = []
 
     init(name: String, role: String = "Architecte", isArchived: Bool = false) {
+        self.stableID = UUID()
         self.name = name
         self.role = role
         self.isArchived = isArchived
+    }
+
+    /// Retourne `stableID` en backfillant un nouvel UUID si la DB contient `nil`
+    /// (cas des collabs créés avant l'ajout du champ).
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 
     func photoURL() -> URL? {
@@ -231,6 +246,12 @@ final class Meeting {
     // Calendar
     var calendarEventID: String = ""
     var calendarEventTitle: String = ""
+
+    // Report metadata
+    /// Durée de la dernière génération de rapport, en secondes (0 si jamais
+    /// généré). Utilisé pour afficher "Rapport ✓ (2:34)" et donner un repère
+    /// utilisateur sur le coût IA.
+    var reportGenerationDurationSeconds: Double = 0
 
     // Participant statuses / ad-hoc attendees (JSON-encoded)
     var participantStatusesJSON: String = "{}"

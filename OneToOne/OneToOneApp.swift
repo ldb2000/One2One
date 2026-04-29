@@ -218,6 +218,18 @@ struct ContentView: View {
                 try context.save()
                 print("Reparation SwiftData: codes projet dupliques corriges.")
             }
+
+            // Backfill Collaborator.stableID pour rows créées avant l'ajout du champ.
+            let allCollabs = try context.fetch(FetchDescriptor<Collaborator>())
+            var backfilled = 0
+            for collab in allCollabs where collab.stableID == nil {
+                collab.stableID = UUID()
+                backfilled += 1
+            }
+            if backfilled > 0 {
+                try context.save()
+                print("Reparation SwiftData: \(backfilled) Collaborator.stableID backfilles.")
+            }
         } catch {
             print("Echec reparation SwiftData: \(error)")
         }
