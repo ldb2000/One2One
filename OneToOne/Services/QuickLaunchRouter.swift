@@ -61,6 +61,13 @@ final class QuickLaunchRouter: ObservableObject {
         pendingToken = nil
         return t
     }
+
+    /// Active le filtre "1:1 avec X" dans `MeetingsListView`. Ne touche pas
+    /// au token de lancement (les deux flux peuvent coexister).
+    func showRecentOneToOnes(for collaborator: Collaborator) {
+        listFilterCollaborator = collaborator
+        NSApp?.activate(ignoringOtherApps: true)
+    }
 }
 
 // MARK: - Test helpers

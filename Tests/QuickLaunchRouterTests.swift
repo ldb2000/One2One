@@ -69,4 +69,20 @@ struct QuickLaunchRouterTests {
 
         #expect(router.pendingToken?.autoStartRecording == false)
     }
+
+    @Test("showRecentOneToOnes sets listFilterCollaborator and does not touch pendingToken")
+    func showRecent() throws {
+        let context = try makeContext()
+        let collab = Collaborator(name: "Dora")
+        context.insert(collab)
+        try context.save()
+
+        let router = QuickLaunchRouter.testInstance()
+        router.pendingToken = OneToOneLaunchToken(meetingID: UUID(), autoStartRecording: false)
+
+        router.showRecentOneToOnes(for: collab)
+
+        #expect(router.listFilterCollaborator?.stableID == collab.stableID)
+        #expect(router.pendingToken != nil)  // not cleared
+    }
 }
