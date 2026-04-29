@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
     @Query private var interviews: [Interview]
+    @Query private var meetings: [Meeting]
     @Environment(\.modelContext) private var context
 
     private var settings: AppSettings {
@@ -686,7 +687,7 @@ struct SettingsView: View {
     private func reindexSpotlight() {
         isReindexing = true
         spotlightStatus = ""
-        SpotlightIndexService.shared.indexAll(projects: projects)
+        SpotlightIndexService.shared.indexAll(projects: projects, collaborators: collaborators)
         SpotlightIndexService.shared.fetchIndexedItemCount { count in
             isReindexing = false
             spotlightStatus = "\(count) éléments indexés — OK"
@@ -701,7 +702,8 @@ struct SettingsView: View {
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
-                interviews: interviews
+                interviews: interviews,
+                meetings: meetings
             )
             guard let url = service.saveBackupPanel() else { return }
             try data.write(to: url)

@@ -5,13 +5,16 @@ import UniformTypeIdentifiers
 final class SpotlightIndexService {
     static let shared = SpotlightIndexService()
 
-    /// Re-index all projects at once (call on app startup).
-    func indexAll(projects: [Project]) {
+    /// Re-index all projects + collaborators at once (call on app startup).
+    func indexAll(projects: [Project], collaborators: [Collaborator]) {
         var items: [CSSearchableItem] = []
         for project in projects {
             items.append(makeProjectItem(project))
             items.append(contentsOf: project.infoEntries.map { makeInfoItem($0, project: project) })
             items.append(contentsOf: project.collaboratorEntries.map { makeCollaboratorEntryItem($0, project: project) })
+        }
+        for collab in collaborators where !collab.isArchived {
+            items.append(makeCollaboratorItem(collab))
         }
         guard !items.isEmpty else { return }
 
@@ -19,7 +22,7 @@ final class SpotlightIndexService {
             if let error {
                 print("[Spotlight] Bulk indexing failed: \(error)")
             } else {
-                print("[Spotlight] Indexed \(items.count) items for \(projects.count) projects")
+                print("[Spotlight] Indexed \(items.count) items (\(projects.count) projects, \(collaborators.count) collaborators)")
             }
         }
     }
@@ -28,7 +31,7 @@ final class SpotlightIndexService {
     func fetchIndexedItemCount(completion: @escaping (Int) -> Void) {
         let queryContext = CSSearchQueryContext()
         queryContext.fetchAttributes = ["displayName"]
-        let query = CSSearchQuery(queryString: "domainIdentifier == 'projects' || domainIdentifier == 'project-info' || domainIdentifier == 'project-collaborator-info'", queryContext: queryContext)
+        let query = CSSearchQuery(queryString: "domainIdentifier == 'projects' || domainIdentifier == 'project-info' || domainIdentifier == 'project-collaborator-info' || domainIdentifier == 'collaborators'", queryContext: queryContext)
         var count = 0
         query.foundItemsHandler = { items in
             count += items.count
@@ -137,5 +140,42 @@ final class SpotlightIndexService {
 
     private func collaboratorEntryIdentifier(_ entry: ProjectCollaboratorEntry) -> String {
         "project-collaborator-entry-\(entry.persistentModelID)"
+    }
+
+    private func makeCollaboratorItem(_ collab: Collaborator) -> CSSearchableItem {
+        let attributes = CSSearchableItemAttributeSet(contentType: .contact)
+        attributes.title = "OneToOne — 1:1 avec \(collab.name)"
+        attributes.displayName = collab.name
+        attributes.contentDescription = collab.role
+        var keywords = ["OneToOne", "1:1", "entretien", collab.name]
+        if !collab.role.isEmpty { keywords.append(collab.role) }
+        attributes.keywords = keywords
+        return CSSearchableItem(
+            uniqueIdentifier: collaboratorIdentifier(collab),
+            domainIdentifier: "collaborators",
+            attributeSet: attributes
+        )
+    }
+
+    private func collaboratorIdentifier(_ collab: Collaborator) -> String {
+        "collaborator-\(collab.stableID.uuidString)"
+    }
+
+    /// Test hook only.
+    func makeCollaboratorItemForTesting(_ collab: Collaborator) -> CSSearchableItem {
+        makeCollaboratorItem(collab)
+    }
+
+    func index(collaborator: Collaborator) {
+        let item = makeCollaboratorItem(collaborator)
+        CSSearchableIndex.default().indexSearchableItems([item]) { error in
+            if let error { print("[Spotlight] Indexing collaborator failed: \(error)") }
+        }
+    }
+
+    func remove(collaborator: Collaborator) {
+        CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: [collaboratorIdentifier(collaborator)]) { error in
+            if let error { print("[Spotlight] Delete collaborator failed: \(error)") }
+        }
     }
 }

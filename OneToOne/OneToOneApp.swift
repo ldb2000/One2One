@@ -123,9 +123,10 @@ struct ContentView: View {
     private func reindexSpotlight() {
         do {
             let allProjects = try context.fetch(FetchDescriptor<Project>())
-            SpotlightIndexService.shared.indexAll(projects: allProjects)
+            let allCollabs = try context.fetch(FetchDescriptor<Collaborator>())
+            SpotlightIndexService.shared.indexAll(projects: allProjects, collaborators: allCollabs)
         } catch {
-            print("[Spotlight] Failed to fetch projects for indexing: \(error)")
+            print("[Spotlight] Failed to fetch for indexing: \(error)")
         }
     }
 
