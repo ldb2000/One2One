@@ -7,6 +7,7 @@ struct MainSidebarView: View {
     @Query private var collaborators: [Collaborator]
     @Query private var entities: [Entity]
     @Environment(\.modelContext) private var context
+    @EnvironmentObject private var router: QuickLaunchRouter
     @State private var searchText: String = ""
     @State private var expandedEntityNames: Set<String> = []
     @State private var selectedProjectIDs: Set<PersistentIdentifier> = []
@@ -21,9 +22,17 @@ struct MainSidebarView: View {
         return entities.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
+    /// Sidebar : seuls les collaborateurs ÉPINGLÉS (pinLevel > 0) apparaissent.
+    /// Les autres restent accessibles via "Tous les Collaborateurs".
+    /// La recherche reste un raccourci global : si l'utilisateur tape un nom,
+    /// on relâche le filtre épinglé pour permettre la découverte.
     private var filteredActiveCollaborators: [Collaborator] {
-        let active = collaborators.filter { !$0.isArchived }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        guard !searchText.isEmpty else { return active }
+        let active = collaborators
+            .filter { !$0.isArchived }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        if searchText.isEmpty {
+            return active.filter { $0.pinLevel > 0 }
+        }
         return active.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.role.localizedCaseInsensitiveContains(searchText)
@@ -104,7 +113,14 @@ struct MainSidebarView: View {
                     Label("Réunions", systemImage: "person.3")
                 }
 
-                Section("Collaborateurs Actifs") {
+                Section("Collaborateurs Épinglés") {
+                    NavigationLink {
+                        AllCollaboratorsView()
+                    } label: {
+                        Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
+                            .foregroundColor(.accentColor)
+                    }
+
                     ForEach(filteredActiveCollaborators) { collaborator in
                         NavigationLink {
                             CollaboratorDetailView(collaborator: collaborator)
@@ -115,6 +131,28 @@ struct MainSidebarView: View {
                             }
                         }
                         .contextMenu {
+                            Button {
+                                router.startOneToOne(collaborator: collaborator,
+                                                     autoStartRecording: true,
+                                                     in: context)
+                            } label: {
+                                Label("Démarrer 1:1 maintenant", systemImage: "mic.circle.fill")
+                            }
+                            Button {
+                                router.startOneToOne(collaborator: collaborator,
+                                                     autoStartRecording: false,
+                                                     in: context)
+                            } label: {
+                                Label("Nouveau 1:1 (sans enregistrer)", systemImage: "doc.badge.plus")
+                            }
+                            Button {
+                                router.showRecentOneToOnes(for: collaborator)
+                            } label: {
+                                Label("Voir les derniers 1:1", systemImage: "clock.arrow.circlepath")
+                            }
+
+                            Divider()
+
                             Button("Renommer") {
                                 renamingName = collaborator.name
                                 renamingCollaborator = collaborator
@@ -652,10 +690,12 @@ struct DashboardView: View {
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @State private var showingFileImporter = false
+    @State private var showingBacklogImporter = false
     @State private var isProcessing = false
     @State private var isExportingWeekly = false
     @State private var importError: String?
     @State private var importResult: String?
+    @State private var backlogImportRunning = false
     @State private var weeklyReport: String?
     // Import prompt sheet
     @State private var showingImportPromptSheet = false
@@ -677,6 +717,113 @@ struct DashboardView: View {
         let calendar = Calendar.current
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
         return interviews.filter { $0.date >= weekAgo }
+    }
+
+    /// Début de la semaine ISO en cours (lundi 00:00 local).
+    private var currentWeekStart: Date {
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone.current
+        let now = Date()
+        let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        return calendar.date(from: comps) ?? now
+    }
+
+    /// (Nom du projet, secondes cumulées meetings de la semaine en cours).
+    /// Inclut "Sans projet" pour les meetings non rattachés.
+    /// Trié par durée décroissante.
+    private var weeklyTimePerProject: [(name: String, seconds: Int)] {
+        let weekStart = currentWeekStart
+        let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+        var totals: [String: Int] = [:]
+        for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
+            let key = meeting.project?.name ?? "Sans projet"
+            totals[key, default: 0] += max(0, meeting.durationSeconds)
+        }
+        return totals
+            .map { (name: $0.key, seconds: $0.value) }
+            .sorted { $0.seconds > $1.seconds }
+    }
+
+    private var weeklyTimeTotalSeconds: Int {
+        weeklyTimePerProject.reduce(0) { $0 + $1.seconds }
+    }
+
+    private static func formatHM(_ seconds: Int) -> String {
+        let total = max(0, seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        if h == 0 { return String(format: "%d min", m) }
+        return String(format: "%dh%02d", h, m)
+    }
+
+    private var weeklyTimeClipboard: String {
+        let week = currentWeekStart.formatted(date: .abbreviated, time: .omitted)
+        var lines = ["Temps par projet — semaine du \(week)"]
+        for entry in weeklyTimePerProject {
+            lines.append("• \(entry.name) : \(Self.formatHM(entry.seconds))")
+        }
+        lines.append("Total : \(Self.formatHM(weeklyTimeTotalSeconds))")
+        return lines.joined(separator: "\n")
+    }
+
+    @ViewBuilder
+    private var weeklyTimeSection: some View {
+        SectionView(title: "Temps passé cette semaine") {
+            if weeklyTimePerProject.isEmpty {
+                Text("Aucune réunion enregistrée cette semaine.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("Semaine du \(currentWeekStart.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button {
+                            let pb = NSPasteboard.general
+                            pb.clearContents()
+                            pb.setString(weeklyTimeClipboard, forType: .string)
+                        } label: {
+                            Label("Copier", systemImage: "doc.on.doc")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Copier le récapitulatif au presse-papiers")
+                    }
+
+                    let maxSec = max(1, weeklyTimePerProject.first?.seconds ?? 1)
+                    ForEach(weeklyTimePerProject, id: \.name) { entry in
+                        HStack(spacing: 10) {
+                            Text(entry.name)
+                                .font(.subheadline)
+                                .frame(maxWidth: 220, alignment: .leading)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .textSelection(.enabled)
+                            ProgressView(value: Double(entry.seconds), total: Double(maxSec))
+                                .progressViewStyle(.linear)
+                            Text(Self.formatHM(entry.seconds))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 70, alignment: .trailing)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    Divider()
+                    HStack {
+                        Text("Total").font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(Self.formatHM(weeklyTimeTotalSeconds))
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .textSelection(.enabled)
+                    }
+                }
+                .textSelection(.enabled)
+            }
+        }
     }
 
     private var riskyProjects: [Project] {
@@ -739,6 +886,20 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isProcessing)
+
+                    Button(action: { showingBacklogImporter = true }) {
+                        if backlogImportRunning {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Import en cours…")
+                            }
+                        } else {
+                            Label("Importer Backlog Projets", systemImage: "tablecells.badge.ellipsis")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(backlogImportRunning)
+                    .help("Importer / mettre à jour les projets depuis l'export xlsx (feuille Backlog_2025).")
                 }
 
                 if isProcessing {
@@ -800,6 +961,9 @@ struct DashboardView: View {
                     StatCard(title: "Risques Élevés", value: "\(projects.filter { $0.riskLevel == "Élevé" }.count)", color: .orange)
                     StatCard(title: "DAT Manquantes", value: "\(projects.filter { !$0.hasDAT }.count)", color: .purple)
                 }
+
+                // Time spent per project — current ISO week
+                weeklyTimeSection
 
                 // Risks & alerts
                 if !riskyProjects.isEmpty {
@@ -962,6 +1126,7 @@ struct DashboardView: View {
             }
             .padding()
         }
+        .textSelection(.enabled)
         .warmBackground()
         .fileImporter(
             isPresented: $showingFileImporter,
@@ -969,6 +1134,13 @@ struct DashboardView: View {
             allowsMultipleSelection: false
         ) { result in
             handleImport(result: result)
+        }
+        .fileImporter(
+            isPresented: $showingBacklogImporter,
+            allowedContentTypes: [.spreadsheet, .item],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { await runBacklogImport(result: result) }
         }
         .sheet(isPresented: $showingImportPromptSheet) {
             ImportPromptSheet(
@@ -984,6 +1156,57 @@ struct DashboardView: View {
                 }
             )
         }
+    }
+
+    /// Lance l'import du backlog projets depuis un xlsx. Idempotent :
+    /// les projets dont le code existe déjà sont mis à jour (phase, CP, AT,
+    /// domaine, nom, entité). Les nouveaux sont créés. Aucune suppression.
+    private func runBacklogImport(result: Result<[URL], Error>) async {
+        guard case let .success(urls) = result, let xlsx = urls.first else { return }
+        backlogImportRunning = true
+        importError = nil
+        importResult = nil
+        canRollback = false
+        defer { backlogImportRunning = false }
+
+        let needsScope = xlsx.startAccessingSecurityScopedResource()
+        defer { if needsScope { xlsx.stopAccessingSecurityScopedResource() } }
+
+        // Le script vit dans le repo à côté de l'app. On le résout par
+        // rapport au binaire en cours d'exécution (.build/.../OneToOne) →
+        // remonter à la racine repo puis Scripts/import_projects_xlsx.py.
+        let scriptURL = backlogImportScriptURL()
+
+        do {
+            let summary = try await ProjectBacklogImportService.importBacklog(
+                xlsxURL: xlsx,
+                scriptURL: scriptURL,
+                context: context
+            )
+            importResult = "Backlog importé : \(summary.inserted) créé(s), \(summary.updated) mis à jour, \(summary.unchanged) inchangé(s), \(summary.entitiesCreated) entité(s) créée(s) sur \(summary.rowsParsed) lignes."
+        } catch {
+            importError = error.localizedDescription
+        }
+    }
+
+    /// Cherche `Scripts/import_projects_xlsx.py` en remontant l'arborescence
+    /// depuis l'exécutable, puis fallback sur quelques chemins absolus
+    /// connus (clone du repo dans Documents).
+    private func backlogImportScriptURL() -> URL {
+        let fm = FileManager.default
+        // 1. Repo cloné — `Bundle.main.bundleURL` pointe sur le binaire en
+        //    debug `.build/.../OneToOne` ; on remonte jusqu'à trouver Scripts/.
+        var dir = Bundle.main.bundleURL
+        for _ in 0..<8 {
+            let candidate = dir.appendingPathComponent("Scripts/import_projects_xlsx.py")
+            if fm.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        // 2. Fallback : chemin absolu user (à adapter si le repo est ailleurs).
+        let fallback = URL(fileURLWithPath: "/Users/laurent.deberti/Documents/dev/perso/OneToOne/Scripts/import_projects_xlsx.py")
+        return fallback
     }
 
     private func handleImport(result: Result<[URL], Error>) {
@@ -1035,7 +1258,8 @@ struct DashboardView: View {
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
-                interviews: interviews
+                interviews: interviews,
+                meetings: meetings
             )
             let backupDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("OneToOne/backups", isDirectory: true)
@@ -1305,7 +1529,7 @@ struct SidebarCollaboratorAvatar: View {
 
 struct SectionView<Content: View>: View {
     let title: String
-    let content: () -> Content
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading) {
