@@ -4,32 +4,72 @@ import AppKit
 
 @main
 struct OneToOneApp: App {
+    /// Container partagé pour les déclencheurs hors hiérarchie SwiftUI
+    /// (AppIntent perform, Carbon hotkey callback). Initialisé dans `init()`.
+    static var sharedContainer: ModelContainer!
+
     let container: ModelContainer
 
     init() {
-        let schema = Schema([Project.self, ProjectInfoEntry.self, ProjectCollaboratorEntry.self, ProjectAttachment.self, Collaborator.self, Interview.self, ActionTask.self, ProjectAlert.self, AppSettings.self, Entity.self, InterviewAttachment.self, Meeting.self])
+        // Store dédié sous `Application Support/OneToOne/OneToOne.store` :
+        // évite la collision avec `default.store` (utilisé par d'autres libs
+        // CoreData qui partagent ce nom par défaut) et garantit la persistance
+        // continue des données métier (Project, Meeting, Interview…).
+        let storeDir = URL.applicationSupportDirectory.appending(path: "OneToOne", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        let storeURL = storeDir.appending(path: "OneToOne.store")
+
+        let schema = Schema(versionedSchema: CurrentSchema.self)
+        let configuration = ModelConfiguration(schema: schema, url: storeURL)
+
         do {
-            container = try ModelContainer(for: schema)
+            container = try ModelContainer(
+                for: schema,
+                migrationPlan: OneToOneMigrationPlan.self,
+                configurations: configuration
+            )
+            Self.sharedContainer = container
         } catch {
-            // Schema incompatible — delete old store and retry
-            print("SwiftData schema migration failed, resetting store: \(error)")
-            let url = URL.applicationSupportDirectory.appending(path: "default.store")
+            // Migration impossible — sauvegarde le store cassé puis recrée
+            // un store vide. ⚠️ destructif, n'arrive que si la migration
+            // SwiftData échoue (schéma fondamentalement incompatible).
+            print("SwiftData schema migration failed, backing up store: \(error)")
+            let backupURL = storeDir.appending(path: "OneToOne.store.broken-\(Int(Date().timeIntervalSince1970))")
             for suffix in ["", "-wal", "-shm"] {
-                let fileURL = suffix.isEmpty ? url : url.deletingLastPathComponent().appending(path: "default.store\(suffix)")
-                try? FileManager.default.removeItem(at: fileURL)
+                let fileURL = suffix.isEmpty
+                    ? storeURL
+                    : storeURL.deletingLastPathComponent().appending(path: "OneToOne.store\(suffix)")
+                let dst = suffix.isEmpty
+                    ? backupURL
+                    : backupURL.deletingLastPathComponent().appending(path: "\(backupURL.lastPathComponent)\(suffix)")
+                try? FileManager.default.moveItem(at: fileURL, to: dst)
             }
             do {
-                container = try ModelContainer(for: schema)
+                container = try ModelContainer(
+                    for: schema,
+                    migrationPlan: OneToOneMigrationPlan.self,
+                    configurations: configuration
+                )
+                Self.sharedContainer = container
             } catch {
                 fatalError("Could not create ModelContainer: \(error)")
             }
         }
     }
 
+    @StateObject private var router = QuickLaunchRouter.shared
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .preferredColorScheme(.light)
+                .environmentObject(router)
+        }
+        .modelContainer(container)
+
+        WindowGroup(id: "1to1-meeting", for: OneToOneLaunchToken.self) { $token in
+            OneToOneMeetingWindowContent(token: token)
+                .environmentObject(router)
         }
         .modelContainer(container)
     }
@@ -123,5 +163,35 @@ struct ContentView: View {
         } catch {
             print("Echec reparation SwiftData: \(error)")
         }
+    }
+}
+
+/// Contenu de la fenêtre `1to1-meeting`. Résout le token vers un `Meeting`
+/// via `stableID`, présente `MeetingView` avec `autoStartRecording`.
+struct OneToOneMeetingWindowContent: View {
+    let token: OneToOneLaunchToken?
+    @Environment(\.modelContext) private var context
+    @State private var resolved: Meeting?
+
+    var body: some View {
+        Group {
+            if let resolved {
+                MeetingView(meeting: resolved, autoStartRecording: token?.autoStartRecording ?? false)
+            } else {
+                ProgressView()
+                    .frame(minWidth: 600, minHeight: 400)
+            }
+        }
+        .onAppear { resolveIfNeeded() }
+        .onChange(of: token) { _, _ in resolveIfNeeded() }
+    }
+
+    private func resolveIfNeeded() {
+        guard resolved == nil, let token else { return }
+        let target = token.meetingID
+        let descriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate { $0.stableID == target }
+        )
+        resolved = try? context.fetch(descriptor).first
     }
 }
