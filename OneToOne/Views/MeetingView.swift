@@ -1,9 +1,14 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import AVFoundation
 
 struct MeetingView: View {
     @Bindable var meeting: Meeting
+    /// Démarre automatiquement le recorder à `onAppear` (déclenché par
+    /// quick-launch 1:1). Consommé une seule fois grâce à `didAutoStart`.
+    var autoStartRecording: Bool = false
+
     @Query private var projects: [Project]
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var allCollaborators: [Collaborator]
     @Query private var settingsList: [AppSettings]
@@ -37,8 +42,13 @@ struct MeetingView: View {
     @State private var showSlidesList = false
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
+    @State private var showWavImporter = false
+    @State private var wavImportError: String?
+    @State private var reportProgressChars: Int = 0
+    @State private var reportElapsedSeconds: Int = 0
     @State private var saveStatusMessage: String?
     @State private var showPlayback: Bool = false
+    @State private var didAutoStart = false
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
     @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
@@ -65,6 +75,8 @@ struct MeetingView: View {
                 player: player,
                 captureService: captureService,
                 isGeneratingReport: isGeneratingReport,
+                reportProgressChars: reportProgressChars,
+                reportElapsedSeconds: reportElapsedSeconds,
                 capturedSlidesCount: currentSlides.count,
                 hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
                 onStartRecording: { Task { await startRecording() } },
@@ -77,6 +89,7 @@ struct MeetingView: View {
                 onShowSlides:       { showSlidesList = true },
                 onToggleCustomPrompt: { showCustomPrompt.toggle() },
                 onImportCalendar:     { showCalendarImporter = true },
+                onImportExistingWAV:  { showWavImporter = true },
                 onExportMarkdown: {
                     let md = ExportService().exportMeetingMarkdown(meeting: meeting)
                     let pb = NSPasteboard.general
@@ -87,12 +100,10 @@ struct MeetingView: View {
                     let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
                     ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
                 },
-                onExportMail:       { ExportService().exportMeetingMail(meeting: meeting) },
-                onExportEML:        { ExportService().exportMeetingOutlookEML(meeting: meeting) },
-                onExportAppleNotes: {
-                    let title = meeting.title.isEmpty ? "Réunion" : meeting.title
-                    let md = ExportService().exportMeetingMarkdown(meeting: meeting, options: .shareable)
-                    ExportService().exportToAppleNotes(title: title, markdownContent: md)
+                onExportMail:        { opts in ExportService().exportMeetingMail(meeting: meeting, options: opts) },
+                onExportOutlook:     { opts in ExportService().exportMeetingOutlook(meeting: meeting, options: opts) },
+                onExportAppleNotes: { opts in
+                    ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts)
                 },
                 onSaveNow: saveMeetingNow
             )
@@ -114,7 +125,8 @@ struct MeetingView: View {
                     reportError,
                     captureService.lastError,
                     attachmentError,
-                    calendarImportError
+                    calendarImportError,
+                    wavImportError
                 ].compactMap { $0 }.filter { !$0.isEmpty },
                 onDismissErrors: {
                     recorder.lastError = nil
@@ -123,6 +135,7 @@ struct MeetingView: View {
                     captureService.lastError = nil
                     attachmentError = nil
                     calendarImportError = nil
+                    wavImportError = nil
                 }
             )
             .animation(.easeInOut(duration: 0.15), value: recorder.isRecording)
@@ -158,6 +171,7 @@ struct MeetingView: View {
             }
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
+        .textSelection(.enabled)
         .sheet(isPresented: $showCalendarImporter) {
             CalendarEventImportSheet(anchorDate: meeting.date) { event in
                 importCalendarEvent(event)
@@ -166,6 +180,18 @@ struct MeetingView: View {
         .popover(isPresented: $showSlidesList) { slidesPopover }
         .popover(isPresented: $showCaptureSetup) {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
+        }
+        .fileImporter(
+            isPresented: $showWavImporter,
+            allowedContentTypes: [.audio, .wav, .mp3, .mpeg4Audio, .aiff],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { await importExistingWAV(result: result) }
+        }
+        .onAppear {
+            guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
+            didAutoStart = true
+            Task { await startRecording() }
         }
     }
 
@@ -665,10 +691,15 @@ struct MeetingView: View {
         if let existing = allCollaborators.first(where: {
             $0.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current) == normalizedName
         }) {
+            // Compléter l'email s'il était vide.
+            if existing.email.isEmpty, let email = attendee.email, !email.isEmpty {
+                existing.email = email
+            }
             return existing
         }
 
-        let collaborator = Collaborator(name: attendee.name, role: attendee.email ?? "Calendrier")
+        let collaborator = Collaborator(name: attendee.name, role: "Calendrier")
+        collaborator.email = attendee.email ?? ""
         collaborator.isAdhoc = true
         collaborator.pinLevel = 0
         context.insert(collaborator)
@@ -686,6 +717,49 @@ struct MeetingView: View {
             saveContext()
         } catch {
             recorder.lastError = error.localizedDescription
+        }
+    }
+
+    /// Attache un WAV/audio déjà présent sur disque au meeting courant.
+    /// Si le fichier vit déjà sous `recordings/`, on pointe dessus directement.
+    /// Sinon on copie sous `recordings/<UUID>.<ext>` pour stabiliser le chemin.
+    /// La durée est lue via `AVAudioFile` puis stockée dans `meeting.durationSeconds`.
+    private func importExistingWAV(result: Result<[URL], Error>) async {
+        wavImportError = nil
+        do {
+            guard let src = try result.get().first else { return }
+
+            let needsScope = src.startAccessingSecurityScopedResource()
+            defer { if needsScope { src.stopAccessingSecurityScopedResource() } }
+
+            let fm = FileManager.default
+            let recordingsDir = URL.applicationSupportDirectory
+                .appending(path: "OneToOne", directoryHint: .isDirectory)
+                .appending(path: "recordings", directoryHint: .isDirectory)
+            try fm.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
+
+            let target: URL
+            if src.deletingLastPathComponent().standardized == recordingsDir.standardized {
+                target = src
+            } else {
+                let ext = src.pathExtension.isEmpty ? "wav" : src.pathExtension
+                target = recordingsDir.appending(path: "\(UUID().uuidString).\(ext)")
+                if fm.fileExists(atPath: target.path) {
+                    try fm.removeItem(at: target)
+                }
+                try fm.copyItem(at: src, to: target)
+            }
+
+            let file = try AVAudioFile(forReading: target)
+            let durationSeconds = Double(file.length) / file.processingFormat.sampleRate
+
+            meeting.wavFilePath = target.path
+            meeting.durationSeconds = Int(durationSeconds.rounded())
+            saveContext()
+            print("[MeetingView] importWAV → \(target.path) duration=\(durationSeconds)s")
+        } catch {
+            wavImportError = error.localizedDescription
+            print("[MeetingView] importWAV failed: \(error)")
         }
     }
 
@@ -739,7 +813,26 @@ struct MeetingView: View {
 
         reportError = nil
         isGeneratingReport = true
-        defer { isGeneratingReport = false }
+        reportProgressChars = 0
+        reportElapsedSeconds = 0
+
+        // Tick toutes les secondes pour afficher le temps écoulé pendant la
+        // génération (le LLM ne renvoie rien tant que les poids ne sont pas
+        // chargés — le compteur évite l'impression d'un freeze).
+        let elapsedTimer = Task { @MainActor in
+            let start = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { break }
+                self.reportElapsedSeconds = Int(Date().timeIntervalSince(start))
+            }
+        }
+        defer {
+            elapsedTimer.cancel()
+            isGeneratingReport = false
+            reportProgressChars = 0
+            reportElapsedSeconds = 0
+        }
 
         // Refresh merged transcript au cas où l'utilisateur a édité les notes.
         meeting.mergedTranscript = NoteMergeService.merge(
@@ -752,6 +845,7 @@ struct MeetingView: View {
         let attachmentsContext = await fetchAttachmentsContext()
 
         let participantsDesc = meeting.participantsDescription
+        let generationStart = Date()
         do {
             let report = try await AIReportService.generate(
                 mergedTranscript: meeting.mergedTranscript,
@@ -762,9 +856,17 @@ struct MeetingView: View {
                 customPrompt: meeting.customPrompt,
                 historicalContext: historicalContext,
                 attachmentsContext: attachmentsContext,
-                settings: settings
+                settings: settings,
+                onProgress: { partial in
+                    let count = partial.count
+                    await MainActor.run {
+                        self.reportProgressChars = count
+                    }
+                }
             )
             apply(report: report)
+            meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
+            saveContext()
             activeSection = .report
 
             // Indexation RAG post-rapport (non bloquant pour l'UI).
