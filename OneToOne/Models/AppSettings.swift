@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum AIProvider: String, Codable, CaseIterable {
     case claudeOAuth = "Claude OAuth (setup-token)"
@@ -39,6 +40,32 @@ final class AppSettings {
     var importPrompt: String = AppSettings.defaultImportPrompt
     var reformulatePrompt: String = AppSettings.defaultReformulatePrompt
     var weeklyExportPrompt: String = AppSettings.defaultWeeklyExportPrompt
+
+    // Meeting chip colors (stored as hex, displayed as Color)
+    var meetingParticipantColorHex: String = AppSettings.defaultMeetingParticipantColorHex
+    var meetingAbsentColorHex: String = AppSettings.defaultMeetingAbsentColorHex
+    var meetingCollaboratorColorHex: String = AppSettings.defaultMeetingCollaboratorColorHex
+
+    /// Bindings de raccourcis clavier globaux par collaborateur.
+    /// Clé = `Collaborator.stableID.uuidString`, valeur = keyspec lisible
+    /// (ex. `"⌃⌥⌘A"`). Cf. `HotkeySpec` pour le format.
+    var collaboratorHotkeys: [String: String] = [:]
+
+    static let defaultMeetingParticipantColorHex  = "#A8D490"
+    static let defaultMeetingAbsentColorHex       = "#E8A8A8"
+    static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
+
+    var meetingParticipantColor: Color {
+        Color(hex: meetingParticipantColorHex) ?? Color(hex: Self.defaultMeetingParticipantColorHex) ?? .green
+    }
+
+    var meetingAbsentColor: Color {
+        Color(hex: meetingAbsentColorHex) ?? Color(hex: Self.defaultMeetingAbsentColorHex) ?? .red
+    }
+
+    var meetingCollaboratorColor: Color {
+        Color(hex: meetingCollaboratorColorHex) ?? Color(hex: Self.defaultMeetingCollaboratorColorHex) ?? .blue
+    }
 
     init(cloudToken: String = "", apiEndpoint: String = "https://api.anthropic.com/v1", modelName: String = "claude-sonnet-4-5", provider: AIProvider = .claudeOAuth) {
         self.cloudToken = cloudToken

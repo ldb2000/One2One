@@ -1,5 +1,21 @@
 import Foundation
 import AppKit
+import PDFKit
+
+/// Options pour l'export mail d'une réunion.
+/// `includeTranscript` ajoute la transcription brute en bas du corps.
+/// `includeSlidesPDF` génère un PDF des slides capturées et l'attache.
+struct MeetingMailExportOptions: OptionSet {
+    let rawValue: Int
+    init(rawValue: Int) { self.rawValue = rawValue }
+    static let includeTranscript = MeetingMailExportOptions(rawValue: 1 << 0)
+    static let includeSlidesPDF  = MeetingMailExportOptions(rawValue: 1 << 1)
+}
+
+enum MeetingMailClient {
+    case mail        // Apple Mail
+    case outlook     // Microsoft Outlook
+}
 
 class ExportService {
     func exportToMarkdown(interview: Interview) -> String {
@@ -123,24 +139,489 @@ class ExportService {
         printOperation.run()
     }
 
-    func exportToAppleNotes(title: String, markdownContent: String) {
-        let escapedTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
-        let escapedBody = markdownContent.replacingOccurrences(of: "\"", with: "\\\"")
+    // MARK: - Meeting exports (stub reconstructions)
 
-        let scriptSource = """
-        tell application "Notes"
+    struct MarkdownOptions: OptionSet {
+        let rawValue: Int
+        static let shareable = MarkdownOptions(rawValue: 1 << 0)
+    }
+
+    func exportMeetingMarkdown(meeting: Meeting, options: MarkdownOptions = []) -> String {
+        var md = "# \(meeting.title.isEmpty ? "Réunion" : meeting.title)\n"
+        md += "Date: \(meeting.date.formatted(date: .long, time: .shortened))\n"
+        if let project = meeting.project {
+            md += "Projet: \(project.name)\n"
+        }
+        md += "Type: \(meeting.kind.label)\n"
+        if !options.contains(.shareable) {
+            md += "Participants: \(meeting.participantsDescription)\n"
+        }
+        md += "\n"
+
+        if !meeting.summary.isEmpty {
+            md += "## Résumé\n\n\(meeting.summary)\n\n"
+        }
+        if !meeting.keyPoints.isEmpty {
+            md += "## Points clés\n"
+            for p in meeting.keyPoints { md += "- \(p)\n" }
+            md += "\n"
+        }
+        if !meeting.decisions.isEmpty {
+            md += "## Décisions\n"
+            for d in meeting.decisions { md += "- \(d)\n" }
+            md += "\n"
+        }
+        if !meeting.openQuestions.isEmpty {
+            md += "## Questions ouvertes\n"
+            for q in meeting.openQuestions { md += "- \(q)\n" }
+            md += "\n"
+        }
+        let openTasks = meeting.tasks.filter { !$0.isCompleted }
+        if !openTasks.isEmpty {
+            md += "## Actions\n"
+            for t in openTasks {
+                let who = t.collaborator?.name ?? "Non assigné"
+                let due = t.dueDate.map { " (échéance \($0.formatted(date: .numeric, time: .omitted)))" } ?? ""
+                md += "- [\(who)] \(t.title)\(due)\n"
+            }
+            md += "\n"
+        }
+        if !meeting.liveNotes.isEmpty {
+            md += "## Notes live\n\n\(meeting.liveNotes)\n"
+        }
+        return md
+    }
+
+    func exportMeetingPDF(meeting: Meeting, fileName: String) {
+        let markdown = exportMeetingMarkdown(meeting: meeting)
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+        textView.string = markdown
+        textView.font = .systemFont(ofSize: 11)
+        let printInfo = NSPrintInfo.shared
+        let op = NSPrintOperation(view: textView, printInfo: printInfo)
+        op.jobTitle = fileName
+        op.showsPrintPanel = true
+        op.run()
+    }
+
+    /// Ouvre une fenêtre de composition dans Apple Mail avec le rapport
+    /// formaté en HTML. Compatible avec les options transcript / slides PDF.
+    func exportMeetingMail(meeting: Meeting, options: MeetingMailExportOptions = []) {
+        composeMeetingMail(meeting: meeting, client: .mail, options: options)
+    }
+
+    /// Ouvre une fenêtre de composition dans Microsoft Outlook (Mac) avec
+    /// le même rapport HTML. L'app Outlook doit être installée — sinon
+    /// fallback sur Mail.
+    func exportMeetingOutlook(meeting: Meeting, options: MeetingMailExportOptions = []) {
+        composeMeetingMail(meeting: meeting, client: .outlook, options: options)
+    }
+
+    /// Conservé pour rétro-compat avec d'anciens callers : redirige vers
+    /// Outlook (compose direct, pas .eml fichier).
+    func exportMeetingOutlookEML(meeting: Meeting) {
+        composeMeetingMail(meeting: meeting, client: .outlook, options: [])
+    }
+
+    // MARK: - Mail compose (Apple Mail / Outlook)
+
+    private func composeMeetingMail(
+        meeting: Meeting,
+        client: MeetingMailClient,
+        options: MeetingMailExportOptions
+    ) {
+        let subject = meetingMailSubject(meeting: meeting)
+        let html = buildMeetingHTML(
+            meeting: meeting,
+            includeTranscript: options.contains(.includeTranscript)
+        )
+        var attachmentPaths: [String] = []
+        if options.contains(.includeSlidesPDF), let pdfURL = makeMeetingSlidesPDF(meeting: meeting) {
+            attachmentPaths.append(pdfURL.path)
+        }
+
+        // Tous les participants (présents + absents) avec une adresse mail
+        // valide. Pas de doublon, comparaison case-insensitive.
+        let recipients = meeting.participants
+            .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { isLikelyEmail($0) }
+            .reduce(into: [String]()) { acc, email in
+                if !acc.contains(where: { $0.lowercased() == email.lowercased() }) {
+                    acc.append(email)
+                }
+            }
+
+        switch client {
+        case .outlook:
+            if !runOutlookCompose(subject: subject, html: html, attachments: attachmentPaths, recipients: recipients) {
+                _ = runMailCompose(subject: subject, html: html, attachments: attachmentPaths, recipients: recipients)
+            }
+        case .mail:
+            _ = runMailCompose(subject: subject, html: html, attachments: attachmentPaths, recipients: recipients)
+        }
+    }
+
+    private func isLikelyEmail(_ s: String) -> Bool {
+        guard !s.isEmpty else { return false }
+        guard let at = s.firstIndex(of: "@") else { return false }
+        let dot = s[at...].firstIndex(of: ".")
+        return dot != nil && s.firstIndex(of: " ") == nil
+    }
+
+    private func meetingMailSubject(meeting: Meeting) -> String {
+        let dateStr = meeting.date.formatted(date: .abbreviated, time: .shortened)
+        let title = meeting.title.isEmpty ? "Réunion" : meeting.title
+        if let project = meeting.project {
+            return "CR-Auto: [\(project.code)] \(title) — \(dateStr)"
+        }
+        return "CR-Auto: \(title) — \(dateStr)"
+    }
+
+    @discardableResult
+    private func runOutlookCompose(subject: String, html: String, attachments: [String], recipients: [String]) -> Bool {
+        // AppleScript Outlook for Mac : create + open new message with HTML content.
+        let escSubject = appleScriptEscape(subject)
+        let escHTML = appleScriptEscape(html)
+
+        var attachmentLines = ""
+        for path in attachments {
+            let escPath = appleScriptEscape(path)
+            attachmentLines += "\n        make new attachment with properties {file:POSIX file \"\(escPath)\"}"
+        }
+
+        var recipientLines = ""
+        for email in recipients {
+            let escEmail = appleScriptEscape(email)
+            recipientLines += "\n        make new recipient with properties {email address:{address:\"\(escEmail)\"}}"
+        }
+
+        let script = """
+        tell application "Microsoft Outlook"
             activate
-            make new note at folder "Notes" with properties {name: "\(escapedTitle)", body: "\(escapedBody)"}
+            set newMsg to make new outgoing message with properties {subject:"\(escSubject)", content:"\(escHTML)"}
+            tell newMsg\(recipientLines)\(attachmentLines)
+            end tell
+            open newMsg
         end tell
         """
 
-        if let script = NSAppleScript(source: scriptSource) {
-            var error: NSDictionary?
-            script.executeAndReturnError(&error)
-            if let err = error {
-                print("AppleScript Error: \(err)")
+        return runAppleScript(source: script)
+    }
+
+    @discardableResult
+    private func runMailCompose(subject: String, html: String, attachments: [String], recipients: [String]) -> Bool {
+        // Apple Mail : AppleScript ne supporte pas l'HTML directement dans
+        // `content`. On passe par un fichier .eml multipart avec body
+        // text/html UTF-8 + pièces jointes base64. Mail.app ouvre l'EML
+        // comme un brouillon éditable.
+        let eml = buildMultipartEML(subject: subject, html: html, attachmentPaths: attachments, recipients: recipients)
+        let safeName = subject.replacingOccurrences(of: "/", with: "-")
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("\(safeName).eml")
+        do {
+            try eml.write(to: tmp, options: .atomic)
+        } catch {
+            return false
+        }
+        // Forcer l'ouverture dans Mail (au cas où l'utilisateur a Outlook
+        // configuré comme client par défaut).
+        let cfg = NSWorkspace.OpenConfiguration()
+        let mailURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.mail")
+        if let mailURL {
+            NSWorkspace.shared.open([tmp], withApplicationAt: mailURL, configuration: cfg)
+        } else {
+            NSWorkspace.shared.open(tmp)
+        }
+        return true
+    }
+
+    private func buildMultipartEML(subject: String, html: String, attachmentPaths: [String], recipients: [String]) -> Data {
+        let boundary = "----=_OneToOne_\(UUID().uuidString)"
+        var raw = ""
+        raw += "Subject: =?UTF-8?B?\(Data(subject.utf8).base64EncodedString())?=\r\n"
+        if !recipients.isEmpty {
+            raw += "To: \(recipients.joined(separator: ", "))\r\n"
+        }
+        raw += "MIME-Version: 1.0\r\n"
+        raw += "X-Unsent: 1\r\n"  // Mail.app reconnaît X-Unsent comme draft.
+        raw += "Content-Type: multipart/mixed; boundary=\"\(boundary)\"\r\n"
+        raw += "\r\n"
+
+        // Partie HTML
+        raw += "--\(boundary)\r\n"
+        raw += "Content-Type: text/html; charset=UTF-8\r\n"
+        raw += "Content-Transfer-Encoding: 8bit\r\n"
+        raw += "\r\n"
+        raw += html
+        raw += "\r\n"
+
+        var data = Data(raw.utf8)
+
+        // Pièces jointes en base64
+        for path in attachmentPaths {
+            guard let attachData = try? Data(contentsOf: URL(fileURLWithPath: path)) else { continue }
+            let fileName = (path as NSString).lastPathComponent
+            let mime = mimeType(forPathExtension: (fileName as NSString).pathExtension)
+            var part = ""
+            part += "--\(boundary)\r\n"
+            part += "Content-Type: \(mime); name=\"\(fileName)\"\r\n"
+            part += "Content-Transfer-Encoding: base64\r\n"
+            part += "Content-Disposition: attachment; filename=\"\(fileName)\"\r\n"
+            part += "\r\n"
+            data.append(contentsOf: part.utf8)
+            // base64 wrap à 76 caractères pour conformité MIME.
+            let b64 = attachData.base64EncodedString(options: .lineLength76Characters)
+            data.append(contentsOf: b64.utf8)
+            data.append(contentsOf: "\r\n".utf8)
+        }
+        data.append(contentsOf: "--\(boundary)--\r\n".utf8)
+        return data
+    }
+
+    private func mimeType(forPathExtension ext: String) -> String {
+        switch ext.lowercased() {
+        case "pdf":  return "application/pdf"
+        case "png":  return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif":  return "image/gif"
+        case "txt":  return "text/plain; charset=UTF-8"
+        case "html", "htm": return "text/html; charset=UTF-8"
+        default:     return "application/octet-stream"
+        }
+    }
+
+    @discardableResult
+    private func runAppleScript(source: String) -> Bool {
+        guard let script = NSAppleScript(source: source) else { return false }
+        var error: NSDictionary?
+        script.executeAndReturnError(&error)
+        if let err = error {
+            print("[ExportService] AppleScript erreur: \(err)")
+            return false
+        }
+        return true
+    }
+
+    private func appleScriptEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
+         .replacingOccurrences(of: "\n", with: "\\n")
+         .replacingOccurrences(of: "\r", with: "")
+    }
+
+    // MARK: - Slides → PDF
+
+    /// Génère un PDF à partir de toutes les slides capturées de la réunion
+    /// (issues des `MeetingAttachment.slides`). Une slide par page.
+    /// Retourne nil si aucune slide.
+    private func makeMeetingSlidesPDF(meeting: Meeting) -> URL? {
+        let slides = meeting.attachments
+            .flatMap { $0.slides }
+            .sorted { $0.index < $1.index }
+        guard !slides.isEmpty else { return nil }
+
+        let pdfDoc = PDFDocument()
+        var pageIndex = 0
+        for slide in slides {
+            guard FileManager.default.fileExists(atPath: slide.imagePath),
+                  let image = NSImage(contentsOfFile: slide.imagePath),
+                  let page = PDFPage(image: image)
+            else { continue }
+            pdfDoc.insert(page, at: pageIndex)
+            pageIndex += 1
+        }
+        guard pageIndex > 0 else { return nil }
+
+        let safeTitle = (meeting.title.isEmpty ? "reunion" : meeting.title)
+            .replacingOccurrences(of: "/", with: "-")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(safeTitle)-slides-\(UUID().uuidString.prefix(6)).pdf")
+        guard pdfDoc.write(to: url) else { return nil }
+        return url
+    }
+
+    // MARK: - HTML report builder
+
+    /// Génère un HTML formaté du rapport de réunion : entête (titre, date,
+    /// projet, participants) + résumé + points clés + décisions + questions
+    /// ouvertes + actions + notes live + (optionnel) transcript intégral.
+    private func buildMeetingHTML(meeting: Meeting, includeTranscript: Bool) -> String {
+        let dateStr = meeting.date.formatted(date: .long, time: .shortened)
+        let title = meeting.title.isEmpty ? "Réunion" : meeting.title
+        let projectLine = meeting.project.map { p in
+            "<div class=\"meta-line\"><strong>Projet</strong> · \(escapeHTML(p.code)) — \(escapeHTML(p.name))</div>"
+        } ?? ""
+        let participants = meeting.participants.map(\.name).sorted().joined(separator: ", ")
+        let participantsLine = participants.isEmpty ? "" :
+            "<div class=\"meta-line\"><strong>Participants</strong> · \(escapeHTML(participants))</div>"
+
+        let summaryHTML = htmlParagraphs(from: meeting.summary)
+        let keyPointsHTML = htmlList(meeting.keyPoints.map { escapeHTML($0) })
+        let decisionsHTML = htmlList(meeting.decisions.map { escapeHTML($0) })
+        let questionsHTML = htmlList(meeting.openQuestions.map { escapeHTML($0) })
+
+        let openTasks = meeting.tasks.filter { !$0.isCompleted }
+        let actionsHTML = htmlList(openTasks.map { task in
+            let who = task.collaborator?.name ?? "Non assigné"
+            let due = task.dueDate.map { " <span class=\"muted\">(échéance \($0.formatted(date: .numeric, time: .omitted)))</span>" } ?? ""
+            return "<strong>\(escapeHTML(who))</strong> — \(escapeHTML(task.title))\(due)"
+        })
+
+        let liveNotesHTML: String
+        if meeting.liveNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            liveNotesHTML = ""
+        } else {
+            liveNotesHTML = """
+            <h2>Notes prises en live</h2>
+            \(htmlParagraphs(from: meeting.liveNotes))
+            """
+        }
+
+        let transcriptSection: String
+        if includeTranscript, !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            transcriptSection = """
+            <h2>Transcription complète</h2>
+            <div class="transcript">\(htmlParagraphs(from: meeting.rawTranscript))</div>
+            """
+        } else {
+            transcriptSection = ""
+        }
+
+        return """
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+        <meta charset="utf-8">
+        <style>
+        body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1f2937; font-size: 13px; line-height: 1.55; margin: 0; }
+        .header { width: 100%; border-bottom: 2px solid #d71920; padding-bottom: 16px; margin-bottom: 18px; }
+        .header td { vertical-align: top; }
+        .logo { font-size: 26px; font-weight: 800; color: #d71920; letter-spacing: 1px; }
+        .meta { text-align: right; }
+        .meta .date { font-size: 14px; font-weight: 700; color: #111827; }
+        .title { font-size: 22px; font-weight: 750; color: #111827; margin: 0 0 4px 0; }
+        .meta-line { color: #374151; margin: 2px 0; font-size: 12px; }
+        h2 { font-size: 14px; color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-top: 22px; margin-bottom: 10px; }
+        p { margin: 0 0 8px 0; }
+        ul { margin: 0; padding-left: 18px; }
+        li { margin-bottom: 6px; }
+        .muted { color: #6b7280; }
+        .empty { color: #9ca3af; font-style: italic; }
+        .transcript { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; font-size: 12px; color: #374151; white-space: normal; }
+        </style>
+        </head>
+        <body>
+            <table class="header" cellspacing="0" cellpadding="0" width="100%">
+                <tr>
+                    <td>\(logoHTML())</td>
+                    <td class="meta">
+                        <div class="date">\(escapeHTML(dateStr))</div>
+                        <div class="muted">Type · \(escapeHTML(meeting.kind.label))</div>
+                        <div class="muted">Laurent DE BERTI</div>
+                    </td>
+                </tr>
+            </table>
+
+            <div class="title">\(escapeHTML(title))</div>
+            \(projectLine)
+            \(participantsLine)
+
+            <h2>Résumé</h2>
+            \(summaryHTML)
+
+            <h2>Points clés</h2>
+            \(keyPointsHTML)
+
+            <h2>Décisions</h2>
+            \(decisionsHTML)
+
+            <h2>Questions ouvertes</h2>
+            \(questionsHTML)
+
+            <h2>Actions</h2>
+            \(actionsHTML)
+
+            \(liveNotesHTML)
+
+            \(transcriptSection)
+        </body>
+        </html>
+        """
+    }
+
+    /// Exporte une réunion vers Apple Notes en HTML formaté avec les mêmes
+    /// options que les exports mail : transcript intégral facultatif et
+    /// slides intégrées en base64 (Notes rend les `<img data:>` inline).
+    func exportMeetingToAppleNotes(meeting: Meeting, options: MeetingMailExportOptions = []) {
+        let title = meetingMailSubject(meeting: meeting)
+        var html = buildMeetingHTML(
+            meeting: meeting,
+            includeTranscript: options.contains(.includeTranscript)
+        )
+        if options.contains(.includeSlidesPDF) {
+            let slidesHTML = buildInlineSlidesHTML(meeting: meeting)
+            if !slidesHTML.isEmpty {
+                // Insère les slides juste avant la fermeture du body
+                if let bodyClose = html.range(of: "</body>") {
+                    html.replaceSubrange(bodyClose, with: "\(slidesHTML)\n</body>")
+                } else {
+                    html.append(slidesHTML)
+                }
             }
         }
+
+        let escapedTitle = appleScriptEscape(title)
+        let escapedBody = appleScriptEscape(html)
+        let script = """
+        tell application "Notes"
+            activate
+            make new note at folder "Notes" with properties {name:"\(escapedTitle)", body:"\(escapedBody)"}
+        end tell
+        """
+        runAppleScript(source: script)
+    }
+
+    /// Conserve l'ancienne API pour quelques callers ; redirige vers la
+    /// version riche si on identifie le contenu comme un meeting markdown
+    /// (sinon on retombe sur le comportement legacy plain-text).
+    func exportToAppleNotes(title: String, markdownContent: String) {
+        let escapedTitle = appleScriptEscape(title)
+        let escapedBody = appleScriptEscape(markdownContent)
+        let script = """
+        tell application "Notes"
+            activate
+            make new note at folder "Notes" with properties {name:"\(escapedTitle)", body:"\(escapedBody)"}
+        end tell
+        """
+        runAppleScript(source: script)
+    }
+
+    /// Génère un bloc HTML avec toutes les slides capturées en base64
+    /// (data URI). Notes rend les `<img>` inline. Une slide par "page".
+    private func buildInlineSlidesHTML(meeting: Meeting) -> String {
+        let slides = meeting.attachments
+            .flatMap { $0.slides }
+            .sorted { $0.index < $1.index }
+        guard !slides.isEmpty else { return "" }
+
+        var html = "<h2>Slides capturées</h2>\n"
+        for slide in slides {
+            guard FileManager.default.fileExists(atPath: slide.imagePath),
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: slide.imagePath))
+            else { continue }
+            let mime: String
+            switch (slide.imagePath as NSString).pathExtension.lowercased() {
+            case "png":          mime = "image/png"
+            case "jpg", "jpeg":  mime = "image/jpeg"
+            case "gif":          mime = "image/gif"
+            default:             mime = "image/png"
+            }
+            let b64 = data.base64EncodedString()
+            html += "<div style=\"margin: 12px 0;\"><img src=\"data:\(mime);base64,\(b64)\" style=\"max-width:100%;border:1px solid #e5e7eb;border-radius:6px;\" /></div>\n"
+            if !slide.ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                html += "<p class=\"muted\">\(escapeHTML(slide.ocrText))</p>\n"
+            }
+        }
+        return html
     }
 
     func exportProjectsOverview(projects: [Project], entities: [Entity]) -> String {

@@ -9,11 +9,18 @@ let package = Package(
     products: [
         .executable(name: "OneToOne", targets: ["OneToOne"])
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", branch: "main"),
+        .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.30.6"),
+    ],
     targets: [
         .executableTarget(
             name: "OneToOne",
-            dependencies: [],
+            dependencies: [
+                .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
+                .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
+                .product(name: "MLX", package: "mlx-swift"),
+            ],
             path: "OneToOne",
             resources: [
                 .process("Resources")

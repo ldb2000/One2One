@@ -11,6 +11,10 @@ final class BackupService {
         var projects: [ProjectDTO]
         var collaborators: [CollaboratorDTO]
         var interviews: [InterviewDTO]
+        /// Optionnel pour rester rétro-compatible avec les anciens backups
+        /// (sans réunions). Ajouté en avril 2026 — le backup inclut désormais
+        /// transcript, rapport, notes live, WAV, documents joints et slides.
+        var meetings: [MeetingDTO]?
     }
 
     struct SettingsDTO: Codable {
@@ -129,6 +133,64 @@ final class BackupService {
         var projectCode: String?
     }
 
+    struct SlideCaptureDTO: Codable {
+        var index: Int
+        var capturedAt: Date
+        var imagePath: String
+        var imageFileName: String
+        var imageData: Data?
+        var ocrText: String
+        var perceptualHash: String
+    }
+
+    struct MeetingAttachmentDTO: Codable {
+        var fileName: String
+        var filePath: String
+        var bookmarkData: Data?
+        var fileData: Data?
+        var kind: String
+        var extractedText: String
+        var importedAt: Date
+        var slides: [SlideCaptureDTO]
+    }
+
+    struct TranscriptChunkDTO: Codable {
+        var chunkId: UUID
+        var text: String
+        var orderIndex: Int
+        var sourceType: String
+        var createdAt: Date
+    }
+
+    struct MeetingDTO: Codable {
+        var stableID: UUID
+        var title: String
+        var date: Date
+        var notes: String
+        var kindRaw: String
+        var customPrompt: String
+        var liveNotes: String
+        var rawTranscript: String
+        var mergedTranscript: String
+        var summary: String
+        var keyPointsJSON: String
+        var decisionsJSON: String
+        var openQuestionsJSON: String
+        var wavFileName: String?
+        var wavFilePath: String?
+        var wavData: Data?
+        var durationSeconds: Int
+        var calendarEventID: String
+        var calendarEventTitle: String
+        var reportGenerationDurationSeconds: Double
+        var participantStatusesJSON: String
+        var adhocAttendeesJSON: String
+        var projectCode: String?
+        var participantNames: [String]
+        var attachments: [MeetingAttachmentDTO]
+        var transcriptChunks: [TranscriptChunkDTO]
+    }
+
     struct InterviewDTO: Codable {
         var date: Date
         var collaboratorName: String?
@@ -160,7 +222,8 @@ final class BackupService {
         entities: [Entity],
         projects: [Project],
         collaborators: [Collaborator],
-        interviews: [Interview]
+        interviews: [Interview],
+        meetings: [Meeting] = []
     ) throws -> Data {
         let payload = BackupPayload(
             exportedAt: Date(),
@@ -299,6 +362,69 @@ final class BackupService {
                         )
                     }
                 )
+            },
+            meetings: meetings.map { meeting in
+                let wavURL = meeting.wavFilePath.map { URL(fileURLWithPath: $0) }
+                return MeetingDTO(
+                    stableID: meeting.stableID,
+                    title: meeting.title,
+                    date: meeting.date,
+                    notes: meeting.notes,
+                    kindRaw: meeting.kindRaw,
+                    customPrompt: meeting.customPrompt,
+                    liveNotes: meeting.liveNotes,
+                    rawTranscript: meeting.rawTranscript,
+                    mergedTranscript: meeting.mergedTranscript,
+                    summary: meeting.summary,
+                    keyPointsJSON: meeting.keyPointsJSON,
+                    decisionsJSON: meeting.decisionsJSON,
+                    openQuestionsJSON: meeting.openQuestionsJSON,
+                    wavFileName: wavURL?.lastPathComponent,
+                    wavFilePath: meeting.wavFilePath,
+                    wavData: meeting.wavFilePath.flatMap { fileData(fromPath: $0) },
+                    durationSeconds: meeting.durationSeconds,
+                    calendarEventID: meeting.calendarEventID,
+                    calendarEventTitle: meeting.calendarEventTitle,
+                    reportGenerationDurationSeconds: meeting.reportGenerationDurationSeconds,
+                    participantStatusesJSON: meeting.participantStatusesJSON,
+                    adhocAttendeesJSON: meeting.adhocAttendeesJSON,
+                    projectCode: meeting.project?.code,
+                    participantNames: meeting.participants.map(\.name),
+                    attachments: meeting.attachments.map { att in
+                        MeetingAttachmentDTO(
+                            fileName: att.fileName,
+                            filePath: att.filePath,
+                            bookmarkData: att.bookmarkData,
+                            fileData: fileData(fromPath: att.filePath),
+                            kind: att.kind,
+                            extractedText: att.extractedText,
+                            importedAt: att.importedAt,
+                            slides: att.slides.map { slide in
+                                let slideURL = URL(fileURLWithPath: slide.imagePath)
+                                return SlideCaptureDTO(
+                                    index: slide.index,
+                                    capturedAt: slide.capturedAt,
+                                    imagePath: slide.imagePath,
+                                    imageFileName: slideURL.lastPathComponent,
+                                    imageData: fileData(fromPath: slide.imagePath),
+                                    ocrText: slide.ocrText,
+                                    perceptualHash: slide.perceptualHash
+                                )
+                            }
+                        )
+                    },
+                    transcriptChunks: meeting.transcriptChunks
+                        .sorted { $0.orderIndex < $1.orderIndex }
+                        .map { chunk in
+                            TranscriptChunkDTO(
+                                chunkId: chunk.chunkId,
+                                text: chunk.text,
+                                orderIndex: chunk.orderIndex,
+                                sourceType: chunk.sourceType,
+                                createdAt: chunk.createdAt
+                            )
+                        }
+                )
             }
         )
 
@@ -319,7 +445,9 @@ final class BackupService {
         let existingInterviews = try context.fetch(FetchDescriptor<Interview>())
         let existingEntities = try context.fetch(FetchDescriptor<Entity>())
         let existingSettings = try context.fetch(FetchDescriptor<AppSettings>())
+        let existingMeetings = try context.fetch(FetchDescriptor<Meeting>())
 
+        for meeting in existingMeetings { context.delete(meeting) }
         for interview in existingInterviews { context.delete(interview) }
         for project in existingProjects { context.delete(project) }
         for collaborator in existingCollaborators { context.delete(collaborator) }
@@ -517,6 +645,92 @@ final class BackupService {
                 alert.project = alertDTO.projectCode.flatMap { projectMap[$0] }
                 alert.interview = interview
                 context.insert(alert)
+            }
+        }
+
+        // MARK: - Meetings (live notes, transcript, rapport, WAV, attachments, slides)
+
+        for meetingDTO in payload.meetings ?? [] {
+            let meeting = Meeting(
+                title: meetingDTO.title,
+                date: meetingDTO.date,
+                notes: meetingDTO.notes
+            )
+            meeting.stableID = meetingDTO.stableID
+            meeting.kindRaw = meetingDTO.kindRaw
+            meeting.customPrompt = meetingDTO.customPrompt
+            meeting.liveNotes = meetingDTO.liveNotes
+            meeting.rawTranscript = meetingDTO.rawTranscript
+            meeting.mergedTranscript = meetingDTO.mergedTranscript
+            meeting.summary = meetingDTO.summary
+            meeting.keyPointsJSON = meetingDTO.keyPointsJSON
+            meeting.decisionsJSON = meetingDTO.decisionsJSON
+            meeting.openQuestionsJSON = meetingDTO.openQuestionsJSON
+            meeting.durationSeconds = meetingDTO.durationSeconds
+            meeting.calendarEventID = meetingDTO.calendarEventID
+            meeting.calendarEventTitle = meetingDTO.calendarEventTitle
+            meeting.reportGenerationDurationSeconds = meetingDTO.reportGenerationDurationSeconds
+            meeting.participantStatusesJSON = meetingDTO.participantStatusesJSON
+            meeting.adhocAttendeesJSON = meetingDTO.adhocAttendeesJSON
+            meeting.project = meetingDTO.projectCode.flatMap { projectMap[$0] }
+            meeting.participants = meetingDTO.participantNames.compactMap { collaboratorMap[$0] }
+
+            if meetingDTO.wavData != nil || meetingDTO.wavFilePath != nil {
+                let restoredWav = try restoredFileURL(
+                    fileName: meetingDTO.wavFileName ?? "audio.wav",
+                    filePath: meetingDTO.wavFilePath ?? "",
+                    fileData: meetingDTO.wavData,
+                    in: restoredFilesDirectory
+                )
+                meeting.wavFilePath = restoredWav.path
+            }
+            context.insert(meeting)
+
+            for attachmentDTO in meetingDTO.attachments {
+                let restoredURL = try restoredFileURL(
+                    fileName: attachmentDTO.fileName,
+                    filePath: attachmentDTO.filePath,
+                    fileData: attachmentDTO.fileData,
+                    in: restoredFilesDirectory
+                )
+                let attachment = MeetingAttachment(url: restoredURL, kind: attachmentDTO.kind)
+                attachment.fileName = attachmentDTO.fileName
+                attachment.filePath = restoredURL.path
+                attachment.bookmarkData = attachmentDTO.bookmarkData
+                attachment.extractedText = attachmentDTO.extractedText
+                attachment.importedAt = attachmentDTO.importedAt
+                attachment.meeting = meeting
+                context.insert(attachment)
+
+                for slideDTO in attachmentDTO.slides {
+                    let restoredSlideURL = try restoredFileURL(
+                        fileName: slideDTO.imageFileName,
+                        filePath: slideDTO.imagePath,
+                        fileData: slideDTO.imageData,
+                        in: restoredFilesDirectory
+                    )
+                    let slide = SlideCapture(
+                        index: slideDTO.index,
+                        capturedAt: slideDTO.capturedAt,
+                        imagePath: restoredSlideURL.path
+                    )
+                    slide.ocrText = slideDTO.ocrText
+                    slide.perceptualHash = slideDTO.perceptualHash
+                    slide.attachment = attachment
+                    context.insert(slide)
+                }
+            }
+
+            for chunkDTO in meetingDTO.transcriptChunks {
+                let chunk = TranscriptChunk(
+                    text: chunkDTO.text,
+                    orderIndex: chunkDTO.orderIndex,
+                    sourceType: chunkDTO.sourceType
+                )
+                chunk.chunkId = chunkDTO.chunkId
+                chunk.createdAt = chunkDTO.createdAt
+                chunk.meeting = meeting
+                context.insert(chunk)
             }
         }
 
