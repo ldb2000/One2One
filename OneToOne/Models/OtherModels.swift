@@ -49,6 +49,9 @@ final class Collaborator {
     @Relationship(deleteRule: .nullify, inverse: \Meeting.participants)
     var meetings: [Meeting] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \Note.collaborator)
+    var notes: [Note] = []
+
     init(name: String, role: String = "Architecte", isArchived: Bool = false) {
         self.stableID = UUID()
         self.name = name

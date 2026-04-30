@@ -38,7 +38,8 @@ enum SchemaV1: VersionedSchema {
             MeetingAttachment.self,
             TranscriptChunk.self,
             SlideCapture.self,
-            SavedPrompt.self
+            SavedPrompt.self,
+            Note.self
         ]
     }
 }

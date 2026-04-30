@@ -31,6 +31,7 @@ struct ChatbotView: View {
     @Query private var collaborators: [Collaborator]
     @Query private var interviews: [Interview]
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
+    @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
     @Query private var settingsList: [AppSettings]
 
     @State private var messages: [ChatMessage] = [
@@ -632,6 +633,19 @@ struct ChatbotView: View {
             return block
         }
 
+        // Notes (last 20 par updatedAt desc, body tronqué à 400 chars)
+        let noteLines: [String] = notes.prefix(20).map { n in
+            let target: String
+            if let p = n.project { target = "Projet \(p.name)" }
+            else if let c = n.collaborator { target = "Collab \(c.name)" }
+            else { target = "—" }
+            let title = n.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let titlePart = title.isEmpty ? "" : "« \(title) » "
+            let body = n.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let truncated = body.count > 400 ? body.prefix(400) + "…" : body[...]
+            return "- [\(target)] \(titlePart)(\(n.updatedAt.formatted(date: .abbreviated, time: .omitted))) : \(truncated)"
+        }
+
         return """
         Projets:
         \(projectLines.joined(separator: "\n"))
@@ -644,6 +658,9 @@ struct ChatbotView: View {
 
         Rapports de réunion (générés par IA):
         \(meetingReportLines.isEmpty ? "(aucun rapport disponible)" : meetingReportLines.joined(separator: "\n"))
+
+        Notes (récentes):
+        \(noteLines.isEmpty ? "(aucune note)" : noteLines.joined(separator: "\n"))
         """
     }
 

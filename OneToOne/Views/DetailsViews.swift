@@ -553,6 +553,8 @@ struct ProjectDetailView: View {
                         }
                     }
                 }
+
+                NotesSection(target: .project(project))
             }
             .padding()
         }
@@ -856,6 +858,8 @@ struct CollaboratorDetailView: View {
                         }
                     }
                 }
+
+                NotesSection(target: .collaborator(collaborator))
             }
             .padding()
         }

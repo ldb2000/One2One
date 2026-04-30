@@ -75,6 +75,9 @@ final class Project {
     @Relationship(deleteRule: .cascade, inverse: \ProjectMail.project)
     var mails: [ProjectMail] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \Note.project)
+    var notes: [Note] = []
+
     init(code: String, name: String, domain: String, sponsor: String = "", projectType: String = "Métier", phase: String, status: String = "Unknown") {
         self.code = code
         self.name = name

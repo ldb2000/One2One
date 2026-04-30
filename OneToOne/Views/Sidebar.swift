@@ -33,46 +33,51 @@ struct MainSidebarView: View {
         if searchText.isEmpty {
             return active.filter { $0.pinLevel > 0 }
         }
-        return active.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.role.localizedCaseInsensitiveContains(searchText)
-        }
+        return active.filter { collabMatches($0, searchText) }
     }
 
     private var filteredArchivedCollaborators: [Collaborator] {
         let archived = collaborators.filter { $0.isArchived }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         guard !searchText.isEmpty else { return archived }
-        return archived.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return archived.filter { collabMatches($0, searchText) }
     }
 
     private func filteredProjectsFor(entity: Entity) -> [Project] {
         let entityProjects = entity.projects.filter { !$0.isArchived }.sorted(by: { $0.name < $1.name })
         guard !searchText.isEmpty else { return entityProjects }
-        return entityProjects.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.code.localizedCaseInsensitiveContains(searchText) ||
-            $0.domain.localizedCaseInsensitiveContains(searchText)
-        }
+        return entityProjects.filter { projectMatches($0, searchText) }
     }
 
     private var filteredOrphanProjects: [Project] {
         let orphans = projects.filter { $0.entity == nil && !$0.isArchived }.sorted(by: { $0.name < $1.name })
         guard !searchText.isEmpty else { return orphans }
-        return orphans.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.code.localizedCaseInsensitiveContains(searchText) ||
-            $0.domain.localizedCaseInsensitiveContains(searchText)
-        }
+        return orphans.filter { projectMatches($0, searchText) }
     }
 
     private var filteredArchivedProjects: [Project] {
         let archived = projects.filter { $0.isArchived }.sorted(by: { $0.name < $1.name })
         guard !searchText.isEmpty else { return archived }
-        return archived.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.code.localizedCaseInsensitiveContains(searchText) ||
-            $0.domain.localizedCaseInsensitiveContains(searchText)
-        }
+        return archived.filter { projectMatches($0, searchText) }
+    }
+
+    // MARK: - Match helpers (incluent les notes)
+
+    private func projectMatches(_ p: Project, _ q: String) -> Bool {
+        p.name.localizedCaseInsensitiveContains(q) ||
+        p.code.localizedCaseInsensitiveContains(q) ||
+        p.domain.localizedCaseInsensitiveContains(q) ||
+        p.notes.contains(where: { noteMatches($0, q) })
+    }
+
+    private func collabMatches(_ c: Collaborator, _ q: String) -> Bool {
+        c.name.localizedCaseInsensitiveContains(q) ||
+        c.role.localizedCaseInsensitiveContains(q) ||
+        c.notes.contains(where: { noteMatches($0, q) })
+    }
+
+    private func noteMatches(_ n: Note, _ q: String) -> Bool {
+        n.title.localizedCaseInsensitiveContains(q) ||
+        n.body.localizedCaseInsensitiveContains(q)
     }
 
     // MARK: - Body
