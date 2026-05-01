@@ -37,6 +37,11 @@ final class CalendarMeetingImportService: ObservableObject {
         let calendar = Calendar.current
         let start = calendar.date(byAdding: .day, value: -daysBefore, to: anchorDate) ?? anchorDate
         let end = calendar.date(byAdding: .day, value: daysAfter, to: anchorDate) ?? anchorDate
+        return fetchEvents(start: start, end: end)
+    }
+
+    /// Fetch events between explicit bounds, sorted chronologically (ascending).
+    func fetchEvents(start: Date, end: Date) -> [CalendarMeetingEvent] {
         let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: eventStore.calendars(for: .event))
 
         return eventStore.events(matching: predicate)

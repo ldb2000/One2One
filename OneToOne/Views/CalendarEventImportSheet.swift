@@ -111,7 +111,10 @@ struct CalendarEventImportSheet: View {
             isLoading = true
             let granted = await service.requestAccess()
             if granted {
-                events = service.fetchEvents(around: anchorDate)
+                let cal = Calendar.current
+                let yesterdayStart = cal.startOfDay(for: cal.date(byAdding: .day, value: -1, to: Date()) ?? Date())
+                let end = cal.date(byAdding: .day, value: 30, to: yesterdayStart) ?? Date()
+                events = service.fetchEvents(start: yesterdayStart, end: end)
                 accessDenied = false
             } else {
                 accessDenied = true

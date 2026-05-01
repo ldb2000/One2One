@@ -14,6 +14,7 @@ struct MeetingTopChromeBar: View {
 
     let onStartRecording: () -> Void
     let onStopRecording: () -> Void
+    let onAppendRecording: () -> Void
     let onTogglePause: () -> Void
     let onTogglePlay: () -> Void
     let onRetranscribe: () -> Void
@@ -128,6 +129,13 @@ struct MeetingTopChromeBar: View {
             Text("\(formatDuration(player.currentTime)) / \(formatDuration(max(player.duration, TimeInterval(meeting.durationSeconds))))")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.white)
+            Button(action: onAppendRecording) {
+                Image(systemName: "plus.circle.fill")
+                    .foregroundColor(.white).font(.caption2)
+            }
+            .buttonStyle(.plain)
+            .help("Reprendre l'enregistrement (concaténation)")
+            .disabled(stt.isTranscribing || isGeneratingReport)
             Button(action: onRetranscribe) {
                 Image(systemName: "arrow.clockwise")
                     .foregroundColor(.white).font(.caption2)

@@ -244,7 +244,11 @@ final class Meeting {
 
     // Audio
     var wavFilePath: String?
+    /// Durée d'enregistrement audio (≠ durée réelle de la réunion).
     var durationSeconds: Int = 0
+    /// Durée réelle de la réunion en secondes (event Calendar end-start).
+    /// Sert au calcul du temps passé. Fallback sur `durationSeconds` si 0.
+    var meetingDurationSeconds: Int = 0
 
     // Calendar
     var calendarEventID: String = ""

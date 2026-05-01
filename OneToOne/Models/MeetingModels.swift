@@ -16,7 +16,7 @@ enum MeetingKind: String, CaseIterable, Identifiable {
         case .global:   return "Globale"
         case .project:  return "Projet"
         case .oneToOne: return "One-to-One"
-        case .work:     return "Travail"
+        case .work:     return "Architecture"
         }
     }
 

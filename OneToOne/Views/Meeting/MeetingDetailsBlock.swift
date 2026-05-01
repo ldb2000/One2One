@@ -217,14 +217,28 @@ struct MeetingDetailsBlock: View {
     }
 
     private var collaboratorsBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("COLLABORATEURS")
-                .font(MeetingTheme.sectionLabel)
-                .tracking(1.2)
-                .foregroundColor(.secondary)
+        let ranked = availableCollaborators.sorted { lhs, rhs in
+            let l = lhs.interviews.count + lhs.meetings.count
+            let r = rhs.interviews.count + rhs.meetings.count
+            if l != r { return l > r }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        let topN = Array(ranked.prefix(6))
+        let rest = Array(ranked.dropFirst(6))
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("COLLABORATEURS")
+                    .font(MeetingTheme.sectionLabel)
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+                Text("(top 6)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
 
             FlowLayout(spacing: 8) {
-                ForEach(availableCollaborators, id: \.persistentModelID) { c in
+                ForEach(topN, id: \.persistentModelID) { c in
                     Button(action: { addParticipant(c) }) {
                         HStack(spacing: 4) {
                             Image(systemName: "plus.circle.fill").font(.caption2)
@@ -237,6 +251,19 @@ struct MeetingDetailsBlock: View {
                         .cornerRadius(12)
                     }
                     .buttonStyle(.plain)
+                }
+
+                if !rest.isEmpty {
+                    Menu {
+                        ForEach(rest, id: \.persistentModelID) { c in
+                            Button(c.name) { addParticipant(c) }
+                        }
+                    } label: {
+                        Label("Plus (\(rest.count))", systemImage: "ellipsis.circle")
+                            .font(.caption)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 110)
                 }
             }
         }

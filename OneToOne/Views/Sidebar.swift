@@ -14,6 +14,10 @@ struct MainSidebarView: View {
     @State private var isMultiSelectMode = false
     @State private var renamingCollaborator: Collaborator?
     @State private var renamingName: String = ""
+    @AppStorage("sidebar.collabsExpanded") private var collabsExpanded: Bool = true
+    @AppStorage("sidebar.projectsExpanded") private var projectsExpanded: Bool = true
+    @AppStorage("sidebar.archivesExpanded") private var archivesExpanded: Bool = false
+    @AppStorage("sidebar.archivedProjectsExpanded") private var archivedProjectsExpanded: Bool = false
 
     // MARK: - Filtered data
 
@@ -118,7 +122,14 @@ struct MainSidebarView: View {
                     Label("Réunions", systemImage: "person.3")
                 }
 
-                Section("Collaborateurs Épinglés") {
+                NavigationLink {
+                    AllNotesView()
+                } label: {
+                    Label("Notes", systemImage: "note.text")
+                }
+
+                Section {
+                    DisclosureGroup(isExpanded: $collabsExpanded) {
                     NavigationLink {
                         AllCollaboratorsView()
                     } label: {
@@ -180,10 +191,15 @@ struct MainSidebarView: View {
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.plain)
+                    } label: {
+                        Label("Collaborateurs Épinglés", systemImage: "pin.fill")
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
 
                 if !filteredArchivedCollaborators.isEmpty {
-                    Section("Archives") {
+                    Section {
+                        DisclosureGroup(isExpanded: $archivesExpanded) {
                         ForEach(filteredArchivedCollaborators) { collaborator in
                             NavigationLink {
                             CollaboratorDetailView(collaborator: collaborator)
@@ -211,10 +227,15 @@ struct MainSidebarView: View {
                             }
                         }
                         .onDelete(perform: deleteCollaborators)
+                        } label: {
+                            Label("Archives", systemImage: "archivebox")
+                                .font(.subheadline.weight(.semibold))
+                        }
                     }
                 }
 
-                Section("Projets par Entité") {
+                Section {
+                    DisclosureGroup(isExpanded: $projectsExpanded) {
                     ForEach(filteredEntities.sorted(by: { $0.name < $1.name })) { entity in
                         let entityProjects = filteredProjectsFor(entity: entity)
                         if !entityProjects.isEmpty || searchText.isEmpty {
@@ -273,15 +294,24 @@ struct MainSidebarView: View {
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.plain)
+                    } label: {
+                        Label("Projets par Entité", systemImage: "folder.fill")
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
 
                 if !filteredArchivedProjects.isEmpty {
-                    Section("Projets Archivés") {
+                    Section {
+                        DisclosureGroup(isExpanded: $archivedProjectsExpanded) {
                         ForEach(filteredArchivedProjects) { project in
                             projectRow(project)
                                 .foregroundColor(.secondary)
                         }
                         .onDelete(perform: deleteArchivedProjects)
+                        } label: {
+                            Label("Projets Archivés", systemImage: "archivebox")
+                                .font(.subheadline.weight(.semibold))
+                        }
                     }
                 }
 
@@ -322,6 +352,12 @@ struct MainSidebarView: View {
                 .frame(minWidth: 350)
             }
             .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button(action: toggleSidebar) {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .help("Afficher / masquer la sidebar")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button(action: {
                         isMultiSelectMode.toggle()
@@ -602,6 +638,11 @@ struct MainSidebarView: View {
             print("Erreur de sauvegarde SwiftData: \(error)")
         }
     }
+
+    private func toggleSidebar() {
+        NSApp.keyWindow?.firstResponder?.tryToPerform(
+            #selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
+    }
 }
 
 // MARK: - Entity Detail View
@@ -733,24 +774,67 @@ struct DashboardView: View {
         return calendar.date(from: comps) ?? now
     }
 
-    /// (Nom du projet, secondes cumulées meetings de la semaine en cours).
-    /// Inclut "Sans projet" pour les meetings non rattachés.
-    /// Trié par durée décroissante.
-    private var weeklyTimePerProject: [(name: String, seconds: Int)] {
-        let weekStart = currentWeekStart
+    /// Renvoie la durée à comptabiliser pour un meeting : durée de réunion
+    /// (calendar event), avec fallback sur la durée d'enregistrement audio.
+    private func meetingTrackedSeconds(_ meeting: Meeting) -> Int {
+        if meeting.meetingDurationSeconds > 0 { return meeting.meetingDurationSeconds }
+        return max(0, meeting.durationSeconds)
+    }
+
+    private var previousWeekStart: Date {
+        Calendar.current.date(byAdding: .day, value: -7, to: currentWeekStart) ?? currentWeekStart
+    }
+
+    /// Liste agrégée des meetings d'une semaine, regroupés par "ligne" :
+    /// - Réunions Projet → 1 ligne par projet
+    /// - 1:1 → 1 ligne agrégée "1:1 (cumul)"
+    /// - Architecture (work) → 1 ligne agrégée
+    /// - Globale → 1 ligne agrégée
+    /// - Sans rattachement → "Sans projet"
+    private func weeklyTimeBreakdown(weekStart: Date) -> [(name: String, seconds: Int, symbol: String)] {
         let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
-        var totals: [String: Int] = [:]
+        var totals: [String: (seconds: Int, symbol: String)] = [:]
         for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
-            let key = meeting.project?.name ?? "Sans projet"
-            totals[key, default: 0] += max(0, meeting.durationSeconds)
+            let secs = meetingTrackedSeconds(meeting)
+            guard secs > 0 else { continue }
+            let key: String
+            let symbol: String
+            switch meeting.kind {
+            case .project:
+                key = meeting.project?.name ?? "Sans projet"
+                symbol = MeetingKind.project.sfSymbol
+            case .oneToOne:
+                key = "1:1 (cumul)"
+                symbol = MeetingKind.oneToOne.sfSymbol
+            case .work:
+                key = "Architecture"
+                symbol = MeetingKind.work.sfSymbol
+            case .global:
+                key = "Globale"
+                symbol = MeetingKind.global.sfSymbol
+            }
+            let prev = totals[key] ?? (0, symbol)
+            totals[key] = (prev.seconds + secs, symbol)
         }
         return totals
-            .map { (name: $0.key, seconds: $0.value) }
+            .map { (name: $0.key, seconds: $0.value.seconds, symbol: $0.value.symbol) }
             .sorted { $0.seconds > $1.seconds }
+    }
+
+    private var weeklyTimePerProject: [(name: String, seconds: Int, symbol: String)] {
+        weeklyTimeBreakdown(weekStart: currentWeekStart)
+    }
+
+    private var previousWeeklyTimePerProject: [(name: String, seconds: Int, symbol: String)] {
+        weeklyTimeBreakdown(weekStart: previousWeekStart)
     }
 
     private var weeklyTimeTotalSeconds: Int {
         weeklyTimePerProject.reduce(0) { $0 + $1.seconds }
+    }
+
+    private var previousWeeklyTimeTotalSeconds: Int {
+        previousWeeklyTimePerProject.reduce(0) { $0 + $1.seconds }
     }
 
     private static func formatHM(_ seconds: Int) -> String {
@@ -761,74 +845,95 @@ struct DashboardView: View {
         return String(format: "%dh%02d", h, m)
     }
 
-    private var weeklyTimeClipboard: String {
-        let week = currentWeekStart.formatted(date: .abbreviated, time: .omitted)
-        var lines = ["Temps par projet — semaine du \(week)"]
-        for entry in weeklyTimePerProject {
+    private func weeklyTimeClipboard(weekStart: Date, breakdown: [(name: String, seconds: Int, symbol: String)], total: Int) -> String {
+        let week = weekStart.formatted(date: .abbreviated, time: .omitted)
+        var lines = ["Temps par réunion — semaine du \(week)"]
+        for entry in breakdown {
             lines.append("• \(entry.name) : \(Self.formatHM(entry.seconds))")
         }
-        lines.append("Total : \(Self.formatHM(weeklyTimeTotalSeconds))")
+        lines.append("Total : \(Self.formatHM(total))")
         return lines.joined(separator: "\n")
     }
 
     @ViewBuilder
     private var weeklyTimeSection: some View {
-        SectionView(title: "Temps passé cette semaine") {
-            if weeklyTimePerProject.isEmpty {
-                Text("Aucune réunion enregistrée cette semaine.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+        SectionView(title: "Temps passé en réunions") {
+            VStack(alignment: .leading, spacing: 16) {
+                weekBreakdownView(
+                    title: "Semaine en cours",
+                    weekStart: currentWeekStart,
+                    breakdown: weeklyTimePerProject,
+                    total: weeklyTimeTotalSeconds
+                )
+                Divider()
+                weekBreakdownView(
+                    title: "Semaine précédente",
+                    weekStart: previousWeekStart,
+                    breakdown: previousWeeklyTimePerProject,
+                    total: previousWeeklyTimeTotalSeconds
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func weekBreakdownView(title: String, weekStart: Date, breakdown: [(name: String, seconds: Int, symbol: String)], total: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text("· du \(weekStart.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption).foregroundColor(.secondary)
+                Spacer()
+                if !breakdown.isEmpty {
+                    Button {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(weeklyTimeClipboard(weekStart: weekStart, breakdown: breakdown, total: total), forType: .string)
+                    } label: {
+                        Label("Copier", systemImage: "doc.on.doc").font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Copier le récapitulatif au presse-papiers")
+                }
+            }
+
+            if breakdown.isEmpty {
+                Text("Aucune réunion sur cette semaine.")
+                    .font(.caption).foregroundColor(.secondary)
                     .padding(.vertical, 4)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text("Semaine du \(currentWeekStart.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.caption)
+                let maxSec = max(1, breakdown.first?.seconds ?? 1)
+                ForEach(breakdown, id: \.name) { entry in
+                    HStack(spacing: 10) {
+                        Image(systemName: entry.symbol)
+                            .foregroundColor(.accentColor)
+                            .frame(width: 18)
+                        Text(entry.name)
+                            .font(.subheadline)
+                            .frame(maxWidth: 220, alignment: .leading)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .textSelection(.enabled)
+                        ProgressView(value: Double(entry.seconds), total: Double(maxSec))
+                            .progressViewStyle(.linear)
+                        Text(Self.formatHM(entry.seconds))
+                            .font(.caption.monospacedDigit())
                             .foregroundColor(.secondary)
-                        Spacer()
-                        Button {
-                            let pb = NSPasteboard.general
-                            pb.clearContents()
-                            pb.setString(weeklyTimeClipboard, forType: .string)
-                        } label: {
-                            Label("Copier", systemImage: "doc.on.doc")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Copier le récapitulatif au presse-papiers")
-                    }
-
-                    let maxSec = max(1, weeklyTimePerProject.first?.seconds ?? 1)
-                    ForEach(weeklyTimePerProject, id: \.name) { entry in
-                        HStack(spacing: 10) {
-                            Text(entry.name)
-                                .font(.subheadline)
-                                .frame(maxWidth: 220, alignment: .leading)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .textSelection(.enabled)
-                            ProgressView(value: Double(entry.seconds), total: Double(maxSec))
-                                .progressViewStyle(.linear)
-                            Text(Self.formatHM(entry.seconds))
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                                .frame(width: 70, alignment: .trailing)
-                                .textSelection(.enabled)
-                        }
-                    }
-
-                    Divider()
-                    HStack {
-                        Text("Total").font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text(Self.formatHM(weeklyTimeTotalSeconds))
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .frame(width: 70, alignment: .trailing)
                             .textSelection(.enabled)
                     }
                 }
-                .textSelection(.enabled)
+                Divider()
+                HStack {
+                    Text("Total").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(Self.formatHM(total))
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .textSelection(.enabled)
+                }
             }
         }
+        .textSelection(.enabled)
     }
 
     private var riskyProjects: [Project] {

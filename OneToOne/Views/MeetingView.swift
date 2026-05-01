@@ -16,7 +16,7 @@ struct MeetingView: View {
 
     // MARK: - Services
 
-    @StateObject private var recorder = AudioRecorderService()
+    @StateObject private var recorder = AudioRecorderService.shared
     @StateObject private var stt = TranscriptionService.shared
     @StateObject private var player = AudioPlayerService()
     @StateObject private var captureService = ScreenCaptureService()
@@ -49,6 +49,8 @@ struct MeetingView: View {
     @State private var saveStatusMessage: String?
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
+    /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
+    @State private var pendingAppendBaseURL: URL?
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
     @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
@@ -81,6 +83,7 @@ struct MeetingView: View {
                 hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
                 onStartRecording: { Task { await startRecording() } },
                 onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
+                onAppendRecording: { Task { await startAppendRecording() } },
                 onTogglePause:    { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
                 onTogglePlay:     { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
                 onRetranscribe:   { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
@@ -672,6 +675,7 @@ struct MeetingView: View {
         meeting.date = event.startDate
         meeting.calendarEventID = event.id
         meeting.calendarEventTitle = event.title
+        meeting.meetingDurationSeconds = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
 
         for attendee in event.attendees {
             let collaborator = resolveCollaborator(for: attendee)
@@ -711,11 +715,41 @@ struct MeetingView: View {
     // MARK: - Recording actions
 
     private func startRecording() async {
+        if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
+            recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
+            return
+        }
         do {
-            let url = try await recorder.start()
+            let url = try await recorder.start(meetingID: meeting.stableID)
             meeting.wavFilePath = url.path
             saveContext()
         } catch {
+            recorder.lastError = error.localizedDescription
+        }
+    }
+
+    /// Démarre un enregistrement complémentaire qui sera concaténé au WAV
+    /// existant lors du `stop()`. Le WAV courant est conservé et fusionné
+    /// avec le nouveau pour produire un fichier unique.
+    private func startAppendRecording() async {
+        guard let existing = meeting.wavFileURL, fileExists(existing) else {
+            await startRecording()
+            return
+        }
+        if recorder.isRecording {
+            recorder.lastError = "Un enregistrement est déjà en cours."
+            return
+        }
+        pendingAppendBaseURL = existing
+        do {
+            let url = try await recorder.start(meetingID: meeting.stableID)
+            // On laisse meeting.wavFilePath pointer sur l'ancien jusqu'à la
+            // concaténation post-stop ; en cas d'arrêt anormal, l'utilisateur
+            // garde son enregistrement initial. La nouvelle URL est conservée
+            // par le recorder via currentFileURL.
+            _ = url
+        } catch {
+            pendingAppendBaseURL = nil
             recorder.lastError = error.localizedDescription
         }
     }
@@ -764,34 +798,61 @@ struct MeetingView: View {
     }
 
     private func stopRecordingAndTranscribe() async {
+        guard recorder.activeMeetingID == nil || recorder.activeMeetingID == meeting.stableID else {
+            recorder.lastError = "Cet enregistrement appartient à une autre réunion."
+            return
+        }
         guard let stopped = recorder.stop() else { return }
-        meeting.durationSeconds = Int(stopped.duration)
-        meeting.wavFilePath = stopped.url.path
-        saveContext()
-
-        print("[MeetingView] stop → WAV=\(stopped.url.path) duration=\(stopped.duration)s")
 
         // Laisse le FS finaliser le header WAV avant de le relire.
         try? await Task.sleep(nanoseconds: 400_000_000)
 
+        // Concaténation si on était en mode "ajout d'un enregistrement".
+        var finalURL = stopped.url
+        var totalDuration = stopped.duration
+        if let baseURL = pendingAppendBaseURL, fileExists(baseURL) {
+            do {
+                let mergedURL = AudioRecorderService.recordingsDirectory
+                    .appending(path: "\(UUID().uuidString).wav")
+                try AudioRecorderService.concatenateWAVs(first: baseURL, second: stopped.url, output: mergedURL)
+                let mergedFile = try AVAudioFile(forReading: mergedURL)
+                totalDuration = Double(mergedFile.length) / mergedFile.processingFormat.sampleRate
+                // Nettoyage : on supprime le base et le segment 2 (gardés en log mais inutiles).
+                try? FileManager.default.removeItem(at: baseURL)
+                try? FileManager.default.removeItem(at: stopped.url)
+                finalURL = mergedURL
+                print("[MeetingView] append → concat OK \(mergedURL.path) duration=\(totalDuration)s")
+            } catch {
+                transcribeError = "Concaténation échouée : \(error.localizedDescription). Le nouvel enregistrement remplace l'ancien."
+                print("[MeetingView] concat FAILED: \(error)")
+            }
+            pendingAppendBaseURL = nil
+        }
+
+        meeting.durationSeconds = Int(totalDuration.rounded())
+        meeting.wavFilePath = finalURL.path
+        saveContext()
+
+        print("[MeetingView] stop → WAV=\(finalURL.path) duration=\(totalDuration)s")
+
         // Sanity checks : fichier existe, taille non nulle, durée > 1s.
-        let attrs = try? FileManager.default.attributesOfItem(atPath: stopped.url.path)
+        let attrs = try? FileManager.default.attributesOfItem(atPath: finalURL.path)
         let fileSize = (attrs?[.size] as? Int) ?? 0
         guard fileSize > 44 else {
             transcribeError = "Fichier audio vide (\(fileSize) octets). Enregistrement échoué."
             print("[MeetingView] WAV invalide: \(fileSize) octets")
             return
         }
-        guard stopped.duration >= 1.0 else {
-            transcribeError = "Enregistrement trop court (\(String(format: "%.1f", stopped.duration))s). STT désactivé."
-            print("[MeetingView] durée trop courte: \(stopped.duration)s")
+        guard totalDuration >= 1.0 else {
+            transcribeError = "Enregistrement trop court (\(String(format: "%.1f", totalDuration))s). STT désactivé."
+            print("[MeetingView] durée trop courte: \(totalDuration)s")
             return
         }
 
         transcribeError = nil
         do {
             print("[MeetingView] → transcribe start…")
-            let result = try await stt.transcribe(audioURL: stopped.url)
+            let result = try await stt.transcribe(audioURL: finalURL)
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars")
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(

@@ -21,6 +21,11 @@ private let audioLog = Logger(subsystem: "com.onetoone.app", category: "audio")
 @MainActor
 final class AudioRecorderService: NSObject, ObservableObject {
 
+    /// Singleton partagé : permet à l'enregistrement de survivre à la
+    /// destruction de la `MeetingView` quand on navigue ailleurs (Actions,
+    /// Collaborateur…). La même instance est récupérée au retour.
+    static let shared = AudioRecorderService()
+
     // MARK: - Config
 
     /// Format cible STT : WAV PCM linéaire 16-bit 16 kHz mono.
@@ -39,6 +44,9 @@ final class AudioRecorderService: NSObject, ObservableObject {
     @Published private(set) var averagePower: Float = -160   // dB, pour VU-mètre
     @Published private(set) var peakPower: Float = -160      // dB
     @Published var lastError: String?
+    /// Identifiant stable du meeting actuellement enregistré. Permet à
+    /// `MeetingView` de savoir si l'enregistrement courant lui appartient.
+    @Published private(set) var activeMeetingID: UUID?
 
     // MARK: - Internals
 
@@ -67,6 +75,38 @@ final class AudioRecorderService: NSObject, ObservableObject {
 
     // MARK: - Storage
 
+    /// Concatène deux WAV PCM linéaires dans un nouveau fichier.
+    /// Les deux fichiers doivent partager le même format audio (sample rate,
+    /// nb de canaux). Utilisé pour ajouter un enregistrement supplémentaire
+    /// à une réunion déjà enregistrée.
+    static func concatenateWAVs(first: URL, second: URL, output: URL) throws {
+        let f1 = try AVAudioFile(forReading: first)
+        let f2 = try AVAudioFile(forReading: second)
+
+        let outFile = try AVAudioFile(
+            forWriting: output,
+            settings: f1.fileFormat.settings,
+            commonFormat: f1.processingFormat.commonFormat,
+            interleaved: f1.processingFormat.isInterleaved
+        )
+
+        try copyAudio(from: f1, to: outFile)
+        try copyAudio(from: f2, to: outFile)
+    }
+
+    private static func copyAudio(from input: AVAudioFile, to output: AVAudioFile) throws {
+        let format = input.processingFormat
+        let bufferSize: AVAudioFrameCount = 4096
+        while input.framePosition < input.length {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: bufferSize) else {
+                throw AudioError.startFailed
+            }
+            try input.read(into: buffer)
+            if buffer.frameLength == 0 { break }
+            try output.write(from: buffer)
+        }
+    }
+
     static var recordingsDirectory: URL {
         let base = URL.applicationSupportDirectory
             .appending(path: "OneToOne", directoryHint: .isDirectory)
@@ -78,9 +118,11 @@ final class AudioRecorderService: NSObject, ObservableObject {
     // MARK: - Lifecycle
 
     /// Démarre un nouvel enregistrement. Le fichier WAV est créé immédiatement.
+    /// - Parameter meetingID: stable ID du meeting cible (sert à l'UI pour
+    ///   savoir si l'enregistrement courant la concerne).
     /// - Returns: URL du WAV créé.
     @discardableResult
-    func start() async throws -> URL {
+    func start(meetingID: UUID? = nil) async throws -> URL {
         guard !isRecording else { throw AudioError.alreadyRecording }
 
         let granted = await requestMicrophonePermission()
@@ -116,6 +158,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
             self.pausedAccumulated = 0
             self.pauseStartDate = nil
             self.startDate = Date()
+            self.activeMeetingID = meetingID
             startTimers()
             audioLog.info("AudioRecorder: start \(fileURL.path, privacy: .public)")
             print("[Audio] start → \(fileURL.path)")
@@ -184,6 +227,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
         currentFileURL = nil
         isRecording = false
         isPaused = false
+        activeMeetingID = nil
         stopTimers()
         averagePower = -160
         peakPower = -160
