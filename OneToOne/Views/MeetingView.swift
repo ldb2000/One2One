@@ -957,6 +957,9 @@ struct MeetingView: View {
         case .oneToOne:
             scope.collaboratorPID = meeting.participants.first?.persistentModelID
             guard scope.collaboratorPID != nil else { return "" }
+        case .manager:
+            scope.collaboratorPID = meeting.participants.first?.persistentModelID
+            guard scope.collaboratorPID != nil else { return "" }
         case .global, .work:
             return ""  // pas d'enrichissement historique hors scope clair
         }

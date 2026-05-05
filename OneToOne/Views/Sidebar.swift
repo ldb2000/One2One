@@ -806,6 +806,9 @@ struct DashboardView: View {
             case .oneToOne:
                 key = "1:1 (cumul)"
                 symbol = MeetingKind.oneToOne.sfSymbol
+            case .manager:
+                key = "1:1 Manager (cumul)"
+                symbol = MeetingKind.manager.sfSymbol
             case .work:
                 key = "Architecture"
                 symbol = MeetingKind.work.sfSymbol
