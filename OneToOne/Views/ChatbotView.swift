@@ -35,7 +35,7 @@ struct ChatbotView: View {
     @Query private var settingsList: [AppSettings]
 
     @State private var messages: [ChatMessage] = [
-        ChatMessage(role: .assistant, content: "Je peux repondre a partir des projets, collaborateurs, entretiens, actions et alertes presents dans l'application.\n\nTapez / pour voir les commandes disponibles.")
+        ChatMessage(role: .assistant, content: "Je peux repondre a partir des projets, collaborateurs, entretiens, actions, alertes, rapports et transcriptions de reunion.\n\nTapez / pour voir les commandes (notamment /cherche pour fouiller les rapports & transcriptions).")
     ]
     @State private var input: String = ""
     @State private var isLoading = false
@@ -51,6 +51,11 @@ struct ChatbotView: View {
     }
 
     private let slashCommands: [SlashCommandDef] = [
+        SlashCommandDef(
+            name: "/cherche",
+            args: ["<mot-cle>", "[| projet:<nom>]", "[| collab:<nom>]", "[| type:1:1|projet|archi|globale]"],
+            help: "Rechercher dans les rapports / transcriptions / notes de réunion"
+        ),
         SlashCommandDef(
             name: "/ajout-projet",
             args: ["<Nom du projet>", "| <votre information>"],
@@ -723,6 +728,9 @@ struct ChatbotView: View {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("/") else { return nil }
 
+        if let response = handleSearchCommand(trimmed) {
+            return response
+        }
         if let response = handleProjectInfoCommand(trimmed) {
             return response
         }
@@ -735,10 +743,137 @@ struct ChatbotView: View {
 
         // Unknown slash command
         if trimmed.hasPrefix("/") && !trimmed.contains(" ") {
-            return "Commande inconnue: \(trimmed)\n\nCommandes disponibles:\n- /ajout-projet <Nom du projet> | <information>\n- /ajout-info-collab-projet <Nom du projet> | <Nom collaborateur> | <information>\n- /ajout-action-collab-projet <Nom du projet> | <Nom collaborateur> | <action>"
+            return "Commande inconnue: \(trimmed)\n\nCommandes disponibles:\n- /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale]\n- /ajout-projet <Nom du projet> | <information>\n- /ajout-info-collab-projet <Nom du projet> | <Nom collaborateur> | <information>\n- /ajout-action-collab-projet <Nom du projet> | <Nom collaborateur> | <action>"
         }
 
         return nil
+    }
+
+    // MARK: - /cherche
+
+    /// Recherche mot-clé sur le corpus réunion : titre, rapport (résumé /
+    /// points clés / décisions / questions), transcription brute & fusionnée,
+    /// notes live & post-réunion, prompt custom, calendrier. Filtres optionnels :
+    /// `| projet:<nom>` `| collab:<nom>` `| type:1:1|projet|archi|globale`.
+    private func handleSearchCommand(_ question: String) -> String? {
+        let lowered = question.lowercased()
+        guard lowered.hasPrefix("/cherche") else { return nil }
+
+        guard question.count > "/cherche".count else {
+            return "Usage: /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale]"
+        }
+
+        let payload = String(question.dropFirst("/cherche".count)).trimmingCharacters(in: .whitespaces)
+        let parts = payload.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let needle = parts.first, !needle.isEmpty else {
+            return "Usage: /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale]"
+        }
+
+        // Parse filtres
+        var projectFilter: Project?
+        var collabFilter: Collaborator?
+        var kindFilter: MeetingKind?
+        for raw in parts.dropFirst() {
+            let lower = raw.lowercased()
+            if let value = stripPrefix(raw, prefix: "projet:") {
+                projectFilter = projects.first(where: { $0.name.localizedCaseInsensitiveCompare(value) == .orderedSame })
+                    ?? projects.first(where: { $0.name.localizedCaseInsensitiveContains(value) || $0.code.localizedCaseInsensitiveContains(value) })
+            } else if let value = stripPrefix(raw, prefix: "collab:") {
+                collabFilter = collaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(value) == .orderedSame })
+                    ?? collaborators.first(where: { $0.name.localizedCaseInsensitiveContains(value) })
+            } else if let value = stripPrefix(raw, prefix: "type:") {
+                switch value.lowercased() {
+                case "1:1", "11", "one", "onetoone", "one-to-one": kindFilter = .oneToOne
+                case "projet", "project": kindFilter = .project
+                case "archi", "architecture", "work": kindFilter = .work
+                case "globale", "global": kindFilter = .global
+                default: break
+                }
+            } else if !lower.isEmpty {
+                // tolérance : ignorer fragments inconnus
+            }
+        }
+
+        let filtered = meetings.filter { m in
+            if let p = projectFilter, m.project?.persistentModelID != p.persistentModelID { return false }
+            if let c = collabFilter, !m.participants.contains(where: { $0.persistentModelID == c.persistentModelID }) { return false }
+            if let k = kindFilter, m.kind != k { return false }
+            return true
+        }
+
+        let hits = filtered.compactMap { m -> (Meeting, [(field: String, snippet: String)])? in
+            var matches: [(field: String, snippet: String)] = []
+            func check(_ label: String, _ text: String) {
+                if let s = snippet(text, around: needle) { matches.append((label, s)) }
+            }
+            check("titre", m.title)
+            check("rapport", m.summary)
+            for kp in m.keyPoints { check("point clé", kp) }
+            for d in m.decisions { check("décision", d) }
+            for q in m.openQuestions { check("question", q) }
+            check("notes", m.notes)
+            check("notes live", m.liveNotes)
+            check("transcription", m.mergedTranscript.isEmpty ? m.rawTranscript : m.mergedTranscript)
+            check("prompt", m.customPrompt)
+            check("calendrier", m.calendarEventTitle)
+            for p in m.participants where p.name.localizedCaseInsensitiveContains(needle) {
+                matches.append(("participant", p.name))
+            }
+            return matches.isEmpty ? nil : (m, matches)
+        }
+        .sorted { $0.0.date > $1.0.date }
+
+        guard !hits.isEmpty else {
+            var msg = "Aucune réunion ne contient « \(needle) »"
+            var filters: [String] = []
+            if let p = projectFilter { filters.append("projet \(p.name)") }
+            if let c = collabFilter { filters.append("collab \(c.name)") }
+            if let k = kindFilter { filters.append("type \(k.label)") }
+            if !filters.isEmpty { msg += " (filtres: \(filters.joined(separator: ", ")))" }
+            return msg + "."
+        }
+
+        let total = hits.count
+        let topHits = hits.prefix(20)
+        var out = "**\(total) réunion(s) contenant « \(needle) »**"
+        var filterDesc: [String] = []
+        if let p = projectFilter { filterDesc.append("projet: \(p.name)") }
+        if let c = collabFilter { filterDesc.append("collab: \(c.name)") }
+        if let k = kindFilter { filterDesc.append("type: \(k.label)") }
+        if !filterDesc.isEmpty { out += " · " + filterDesc.joined(separator: ", ") }
+        out += "\n\n"
+
+        for (m, matches) in topHits {
+            let date = m.date.formatted(date: .abbreviated, time: .shortened)
+            let title = m.title.isEmpty ? "Réunion sans titre" : m.title
+            let proj = m.project.map { " · \($0.name)" } ?? ""
+            out += "- **\(title)** · \(date) [\(m.kind.label)]\(proj)\n"
+            for (field, snip) in matches.prefix(3) {
+                out += "  • _\(field)_ : \(snip)\n"
+            }
+        }
+        if total > topHits.count {
+            out += "\n_(\(total - topHits.count) résultat(s) supplémentaire(s) tronqué(s))_"
+        }
+        return out
+    }
+
+    private func stripPrefix(_ raw: String, prefix: String) -> String? {
+        guard raw.lowercased().hasPrefix(prefix.lowercased()) else { return nil }
+        return String(raw.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Renvoie un extrait ~140 chars centré sur la première occurrence (case-insensitive)
+    /// du needle, ou nil si le needle n'apparaît pas. Préserve la casse d'origine.
+    private func snippet(_ text: String, around needle: String, window: Int = 70) -> String? {
+        guard let range = text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else { return nil }
+        let lower = max(text.startIndex, text.index(range.lowerBound, offsetBy: -window, limitedBy: text.startIndex) ?? text.startIndex)
+        let upper = min(text.endIndex, text.index(range.upperBound, offsetBy: window, limitedBy: text.endIndex) ?? text.endIndex)
+        var snip = String(text[lower..<upper]).replacingOccurrences(of: "\n", with: " ")
+        snip = snip.trimmingCharacters(in: .whitespacesAndNewlines)
+        if lower != text.startIndex { snip = "…" + snip }
+        if upper != text.endIndex { snip += "…" }
+        return snip
     }
 
     private func handleProjectInfoCommand(_ question: String) -> String? {

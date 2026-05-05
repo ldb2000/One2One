@@ -238,7 +238,7 @@ struct MeetingsListView: View {
                 }
             }
         }
-        .searchable(text: $searchText, prompt: "Rechercher une réunion...")
+        .searchable(text: $searchText, prompt: "Rechercher (titre, rapport, transcription, notes…)")
         .navigationTitle("Réunions")
     }
 
@@ -453,11 +453,37 @@ private struct MeetingsProjectFilterPicker: View {
 struct MeetingRowView: View {
     let meeting: Meeting
 
+    private var hasReport: Bool {
+        !meeting.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !meeting.keyPoints.isEmpty ||
+        !meeting.decisions.isEmpty ||
+        !meeting.openQuestions.isEmpty
+    }
+
+    private var hasTranscript: Bool {
+        !meeting.mergedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(meeting.title.isEmpty ? "Réunion sans titre" : meeting.title)
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(meeting.title.isEmpty ? "Réunion sans titre" : meeting.title)
+                        .font(.headline)
+                    if hasReport {
+                        Image(systemName: "doc.text.fill")
+                            .font(.caption)
+                            .foregroundColor(.accentColor)
+                            .help("Rapport disponible")
+                    }
+                    if hasTranscript {
+                        Image(systemName: "waveform")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .help("Transcription disponible")
+                    }
+                }
 
                 HStack(spacing: 8) {
                     Label(meeting.date.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")

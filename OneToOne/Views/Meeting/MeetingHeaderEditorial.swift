@@ -85,6 +85,8 @@ struct MeetingHeaderEditorial: View {
 
     private var dateLabel: String {
         let df = DateFormatter()
+        df.locale = Locale(identifier: "fr_FR")
+        df.timeZone = .current
         df.dateFormat = "dd/MM/yyyy · HH:mm"
         return df.string(from: meeting.date)
     }

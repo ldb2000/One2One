@@ -295,6 +295,8 @@ struct MeetingActionsSidebar: View {
 
     private func shortDate(_ d: Date) -> String {
         let df = DateFormatter()
+        df.locale = Locale(identifier: "fr_FR")
+        df.timeZone = .current
         df.dateFormat = "dd/MM/yyyy"
         return df.string(from: d)
     }
