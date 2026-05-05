@@ -39,7 +39,9 @@ enum SchemaV1: VersionedSchema {
             TranscriptChunk.self,
             SlideCapture.self,
             SavedPrompt.self,
-            Note.self
+            Note.self,
+            ManagerReportItem.self,
+            ManagerMeetingReport.self
         ]
     }
 }
