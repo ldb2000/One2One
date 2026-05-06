@@ -48,7 +48,7 @@ final class QuickLaunchRouter: ObservableObject {
         NSApp?.activate(ignoringOtherApps: true)
 
         pendingToken = OneToOneLaunchToken(
-            meetingID: meeting.stableID,
+            meetingID: meeting.ensuredStableID,
             autoStartRecording: autoStartRecording
         )
         return meeting

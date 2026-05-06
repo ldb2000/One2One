@@ -215,7 +215,7 @@ final class ProjectAlert {
 final class Meeting {
     /// Stable UUID safe to expose in filenames / external IDs.
     /// SwiftData `persistentModelID` is not usable as a string identifier.
-    var stableID: UUID = UUID()
+    var stableID: UUID? = nil
     var title: String
     var date: Date
     var notes: String
@@ -277,9 +277,20 @@ final class Meeting {
     var transcriptChunks: [TranscriptChunk] = []
 
     init(title: String = "", date: Date = Date(), notes: String = "") {
+        self.stableID = UUID()
         self.title = title
         self.date = date
         self.notes = notes
+    }
+
+    /// Retourne `stableID` en backfillant un nouvel UUID si la DB contient `nil`
+    /// (cas des meetings créés avant l'ajout du champ).
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 
     // MARK: - JSON-backed arrays
