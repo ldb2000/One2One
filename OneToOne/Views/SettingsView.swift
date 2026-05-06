@@ -41,6 +41,12 @@ struct SettingsView: View {
     @State private var spotlightStatus: String = ""
     @State private var isReindexing = false
 
+    // Manager section
+    @State private var managerName: String = ""
+    @State private var managerEmail: String = ""
+    @State private var managerCategories: [String] = []
+    @State private var managerReportPrompt: String = ""
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -360,6 +366,49 @@ struct SettingsView: View {
                     .padding(.vertical, 5)
                 }
 
+                GroupBox("Manager (1:1 manager)") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Nom du manager :")
+                            TextField("ex. Alice Dupont", text: $managerName)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { saveSettings() }
+                        }
+                        HStack {
+                            Text("Email du manager (optionnel) :")
+                            TextField("alice@example.com", text: $managerEmail)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { saveSettings() }
+                        }
+
+                        Divider()
+
+                        Text("Catégories de classification")
+                            .font(.caption.bold())
+                        ManagerCategoriesEditor(categories: $managerCategories)
+                            .onChange(of: managerCategories) { _, _ in saveSettings() }
+
+                        Divider()
+
+                        HStack {
+                            Text("Prompt CR manager (instructions personnalisées)")
+                                .font(.caption.bold())
+                            Spacer()
+                            Button("Réinitialiser") {
+                                managerReportPrompt = AppSettings.defaultManagerReportPrompt
+                                saveSettings()
+                            }
+                            .font(.caption)
+                        }
+                        EditableTextEditor(text: $managerReportPrompt)
+                            .frame(minHeight: 80)
+
+                        Button("Enregistrer") { saveSettings() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.vertical, 5)
+                }
+
                 GroupBox("Entités") {
                     VStack(alignment: .leading, spacing: 10) {
                         if entities.isEmpty {
@@ -483,6 +532,10 @@ struct SettingsView: View {
             importPrompt = settings.importPrompt
             reformulatePrompt = settings.reformulatePrompt
             weeklyExportPrompt = settings.weeklyExportPrompt
+            managerName = settings.managerName
+            managerEmail = settings.managerEmail
+            managerCategories = settings.managerCategories
+            managerReportPrompt = settings.managerReportPrompt
 
             // Check if claude CLI is available for the setup-token provider
             if selectedProvider == .claudeOAuth {
@@ -648,6 +701,10 @@ struct SettingsView: View {
         settings.importPrompt = importPrompt
         settings.reformulatePrompt = reformulatePrompt
         settings.weeklyExportPrompt = weeklyExportPrompt
+        settings.managerName = managerName
+        settings.managerEmail = managerEmail
+        settings.managerCategories = managerCategories
+        settings.managerReportPrompt = managerReportPrompt
         do {
             try context.save()
             backupStatus = ""
