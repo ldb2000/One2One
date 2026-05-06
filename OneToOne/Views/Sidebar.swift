@@ -128,6 +128,12 @@ struct MainSidebarView: View {
                     Label("Notes", systemImage: "note.text")
                 }
 
+                NavigationLink {
+                    ManagerTrackingView()
+                } label: {
+                    Label("Suivi manager", systemImage: "person.crop.square.filled.and.at.rectangle")
+                }
+
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
                     NavigationLink {
