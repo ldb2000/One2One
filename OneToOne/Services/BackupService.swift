@@ -17,6 +17,7 @@ final class BackupService {
         var meetings: [MeetingDTO]?
         var managerReportItems: [ManagerReportItemDTO]?    // V3 — sub-projet C
         var managerMeetingReports: [ManagerMeetingReportDTO]?
+        var managerActions: [ManagerActionTaskDTO]?     // V3 — sub-projet C
     }
 
     struct SettingsDTO: Codable {
@@ -257,6 +258,14 @@ final class BackupService {
         var meetingStableID: UUID?
     }
 
+    struct ManagerActionTaskDTO: Codable {
+        var title: String
+        var dueDate: Date?
+        var isCompleted: Bool
+        var reminderID: String?
+        var managerMeetingStableID: UUID?
+    }
+
     func backup(
         settings: AppSettings,
         entities: [Entity],
@@ -265,7 +274,8 @@ final class BackupService {
         interviews: [Interview],
         meetings: [Meeting] = [],
         managerReportItems: [ManagerReportItem] = [],
-        managerMeetingReports: [ManagerMeetingReport] = []
+        managerMeetingReports: [ManagerMeetingReport] = [],
+        managerActions: [ActionTask] = []
     ) throws -> Data {
         let payload = BackupPayload(
             exportedAt: Date(),
@@ -507,6 +517,16 @@ final class BackupService {
                     meetingStableID: report.meeting?.stableID
                 )
             }
+            ,
+            managerActions: managerActions.map { task in
+                ManagerActionTaskDTO(
+                    title: task.title,
+                    dueDate: task.dueDate,
+                    isCompleted: task.isCompleted,
+                    reminderID: task.reminderID,
+                    managerMeetingStableID: task.managerMeeting?.stableID
+                )
+            }
         )
 
         let encoder = JSONEncoder()
@@ -531,6 +551,12 @@ final class BackupService {
         let existingMgrReports = try context.fetch(FetchDescriptor<ManagerMeetingReport>())
         for item in existingMgrItems { context.delete(item) }
         for report in existingMgrReports { context.delete(report) }
+
+        // Also clear pre-existing manager-extracted actions (those with fromManager=true).
+        let existingMgrActions = (try? context.fetch(FetchDescriptor<ActionTask>(
+            predicate: #Predicate { $0.fromManager == true }
+        ))) ?? []
+        for action in existingMgrActions { context.delete(action) }
 
         for meeting in existingMeetings { context.delete(meeting) }
         for interview in existingInterviews { context.delete(interview) }
@@ -863,6 +889,15 @@ final class BackupService {
             report.itemsSnapshotJSON = reportDTO.itemsSnapshotJSON
             report.extractedActionsJSON = reportDTO.extractedActionsJSON
             context.insert(report)
+        }
+
+        for actionDTO in payload.managerActions ?? [] {
+            let task = ActionTask(title: actionDTO.title, dueDate: actionDTO.dueDate)
+            task.isCompleted = actionDTO.isCompleted
+            task.reminderID = actionDTO.reminderID
+            task.fromManager = true
+            task.managerMeeting = actionDTO.managerMeetingStableID.flatMap { meetingByStableID[$0] }
+            context.insert(task)
         }
 
         try context.save()

@@ -1374,6 +1374,9 @@ struct DashboardView: View {
             let backupService = BackupService()
             let mgrItems = (try? context.fetch(FetchDescriptor<ManagerReportItem>())) ?? []
             let mgrReports = (try? context.fetch(FetchDescriptor<ManagerMeetingReport>())) ?? []
+            let mgrActions = (try? context.fetch(FetchDescriptor<ActionTask>(
+                predicate: #Predicate { $0.fromManager == true }
+            ))) ?? []
             let backupData = try backupService.backup(
                 settings: settings,
                 entities: entities,
@@ -1382,7 +1385,8 @@ struct DashboardView: View {
                 interviews: interviews,
                 meetings: meetings,
                 managerReportItems: mgrItems,
-                managerMeetingReports: mgrReports
+                managerMeetingReports: mgrReports,
+                managerActions: mgrActions
             )
             let backupDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("OneToOne/backups", isDirectory: true)

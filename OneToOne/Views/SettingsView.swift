@@ -762,6 +762,9 @@ struct SettingsView: View {
         do {
             let mgrItems = (try? context.fetch(FetchDescriptor<ManagerReportItem>())) ?? []
             let mgrReports = (try? context.fetch(FetchDescriptor<ManagerMeetingReport>())) ?? []
+            let mgrActions = (try? context.fetch(FetchDescriptor<ActionTask>(
+                predicate: #Predicate { $0.fromManager == true }
+            ))) ?? []
             let data = try service.backup(
                 settings: settings,
                 entities: entities,
@@ -770,7 +773,8 @@ struct SettingsView: View {
                 interviews: interviews,
                 meetings: meetings,
                 managerReportItems: mgrItems,
-                managerMeetingReports: mgrReports
+                managerMeetingReports: mgrReports,
+                managerActions: mgrActions
             )
             guard let url = service.saveBackupPanel() else { return }
             try data.write(to: url)

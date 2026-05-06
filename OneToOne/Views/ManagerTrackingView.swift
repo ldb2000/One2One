@@ -259,7 +259,7 @@ struct ManagerTrackingView: View {
                             .font(.caption2).foregroundColor(.secondary)
                     }
                 }
-                Text(item.rawSnippet).font(.callout)
+                Text(item.rawSnippet).font(.callout).lineLimit(3)
                 if !item.userNotes.isEmpty {
                     Text(item.userNotes).font(.caption).foregroundColor(.secondary)
                 }
