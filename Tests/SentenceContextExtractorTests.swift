@@ -71,8 +71,35 @@ struct SentenceContextExtractorTests {
         let text = "Some text here."
         let range = NSRange(location: 5, length: 0)
         let result = SentenceContextExtractor.extractContext(text: text, range: range)
+        #expect(result.before.contains("Some"))
+        #expect(result.after.contains("here"))
         #expect(result.before.count <= 400)
         #expect(result.after.count <= 400)
+    }
+
+    @Test("Backward terminator immediately before selection does not double-count")
+    func backwardTerminatorImmediatelyBeforeSelection() {
+        // Regression guard for the backward `sawContentSinceTerminator` fix in
+        // walkBackward. The character immediately before range.location is a
+        // sentence terminator + space — without the guard, that boundary "."
+        // would be miscounted as a sentence before any body has been read,
+        // truncating the context one sentence too early.
+        //
+        // Algorithm collects characters until it has crossed `targetSentences`
+        // terminators that each had non-whitespace content between them. With
+        // the guard active, the "." right before SELECTED does not count, so
+        // we walk back through "Third.", "Second.", and into "First." before
+        // hitting the start of the string. Without the guard, that same "."
+        // would consume one of the two sentence credits and the walk would
+        // stop after only "Second. Third." — losing "First.".
+        let text = "First. Second. Third. SELECTED."
+        let nsText = text as NSString
+        let range = nsText.range(of: "SELECTED.")
+        let result = SentenceContextExtractor.extractContext(text: text, range: range)
+        #expect(result.before.contains("Third."))
+        #expect(result.before.contains("Second."))
+        // Load-bearing: present only when the backward guard is active.
+        #expect(result.before.contains("First."))
     }
 
     @Test("Range past text length returns empty contexts safely")
