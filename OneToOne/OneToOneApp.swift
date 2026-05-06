@@ -230,6 +230,18 @@ struct ContentView: View {
                 try context.save()
                 print("Reparation SwiftData: \(backfilled) Collaborator.stableID backfilles.")
             }
+
+            // Backfill Meeting.stableID pour rows créées avant l'ajout du champ.
+            let allMeetings = try context.fetch(FetchDescriptor<Meeting>())
+            var backfilledMeetings = 0
+            for meeting in allMeetings where meeting.stableID == nil {
+                meeting.stableID = UUID()
+                backfilledMeetings += 1
+            }
+            if backfilledMeetings > 0 {
+                try context.save()
+                print("Reparation SwiftData: \(backfilledMeetings) Meeting.stableID backfilles.")
+            }
         } catch {
             print("Echec reparation SwiftData: \(error)")
         }

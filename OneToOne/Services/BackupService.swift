@@ -366,7 +366,7 @@ final class BackupService {
             meetings: meetings.map { meeting in
                 let wavURL = meeting.wavFilePath.map { URL(fileURLWithPath: $0) }
                 return MeetingDTO(
-                    stableID: meeting.stableID,
+                    stableID: meeting.ensuredStableID,
                     title: meeting.title,
                     date: meeting.date,
                     notes: meeting.notes,

@@ -51,7 +51,7 @@ struct QuickLaunchRouterTests {
                                            in: context)
 
         let token = try #require(router.pendingToken)
-        #expect(token.meetingID == meeting.stableID)
+        #expect(token.meetingID == meeting.ensuredStableID)
         #expect(token.autoStartRecording == true)
     }
 

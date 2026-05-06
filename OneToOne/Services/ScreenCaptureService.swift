@@ -214,7 +214,7 @@ final class ScreenCaptureService: NSObject, ObservableObject, SCStreamOutput {
         
         // Directory recording
         guard let meeting = attachment.meeting else { return }
-        let recordingsDir = getRecordingsDirectory().appendingPathComponent(meeting.stableID.uuidString).appendingPathComponent("slides")
+        let recordingsDir = getRecordingsDirectory().appendingPathComponent(meeting.ensuredStableID.uuidString).appendingPathComponent("slides")
         try? FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
         
         let fileURL = recordingsDir.appendingPathComponent(fileName)
