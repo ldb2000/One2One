@@ -198,4 +198,55 @@ struct ManagerCRGeneratorTests {
             )
         }
     }
+
+    @Test("generate throws if meeting kind is not .manager")
+    @MainActor
+    func generateWrongKind() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let s = AppSettings(); s.managerName = "A"; context.insert(s)
+        let m = Meeting(title: "x", date: Date(), notes: "")
+        m.kindRaw = MeetingKind.global.rawValue  // NOT .manager
+        context.insert(m)
+        let item = ManagerReportService.addManual(snippet: "t", category: "Information", tag: "", in: context)
+        item.isCompleted = true
+        try context.save()
+        let stub = StubAIClient(response: "# x")
+
+        await #expect(throws: ManagerCRGenerator.GenerationError.self) {
+            _ = try await ManagerCRGenerator.generate(
+                meeting: m, items: [item], settings: s,
+                context: context, client: stub
+            )
+        }
+    }
+
+    @Test("materializeActions creates ActionTask(fromManager: true, managerMeeting: m) with parsed deadline")
+    @MainActor
+    func materializeActionsHappyPath() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let m = Meeting(title: "1:1 Manager", date: Date(), notes: "")
+        m.kindRaw = MeetingKind.manager.rawValue
+        context.insert(m)
+        try context.save()
+
+        let actions: [ManagerCRGenerator.ExtractedAction] = [
+            ManagerCRGenerator.ExtractedAction(title: "Call X", deadlineISO: "2026-06-15"),
+            ManagerCRGenerator.ExtractedAction(title: "Email Y", deadlineISO: nil)
+        ]
+
+        let created = try ManagerCRGenerator.materializeActions(actions, in: m, context: context)
+        #expect(created.count == 2)
+        #expect(created[0].title == "Call X")
+        #expect(created[0].fromManager == true)
+        #expect(created[0].managerMeeting?.title == "1:1 Manager")
+        #expect(created[0].dueDate != nil)
+        #expect(created[1].title == "Email Y")
+        #expect(created[1].fromManager == true)
+        #expect(created[1].dueDate == nil)
+
+        let fetched = try context.fetch(FetchDescriptor<ActionTask>())
+        #expect(fetched.count == 2)
+    }
 }

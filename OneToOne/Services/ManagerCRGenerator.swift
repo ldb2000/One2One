@@ -52,7 +52,7 @@ enum ManagerCRGenerator {
     ) async throws -> ManagerMeetingReport {
         guard meeting.kind == .manager else { throw GenerationError.wrongMeetingKind }
         guard !items.isEmpty else { throw GenerationError.noItems }
-        guard !settings.managerName.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard !settings.managerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw GenerationError.missingManagerName
         }
 
@@ -77,7 +77,7 @@ enum ManagerCRGenerator {
         }
 
         try context.save()
-        crLog.info("generate: report saved, items=\(items.count) actions=\(parsed.actions.count) elapsed=\(elapsed)")
+        crLog.info("generate: report saved, items=\(items.count, privacy: .public) actions=\(parsed.actions.count, privacy: .public) elapsed=\(elapsed, privacy: .public)")
         return report
     }
 
