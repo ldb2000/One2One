@@ -15,6 +15,8 @@ final class BackupService {
         /// (sans réunions). Ajouté en avril 2026 — le backup inclut désormais
         /// transcript, rapport, notes live, WAV, documents joints et slides.
         var meetings: [MeetingDTO]?
+        var managerReportItems: [ManagerReportItemDTO]?    // V3 — sub-projet C
+        var managerMeetingReports: [ManagerMeetingReportDTO]?
     }
 
     struct SettingsDTO: Codable {
@@ -25,6 +27,11 @@ final class BackupService {
         var importPrompt: String
         var reformulatePrompt: String
         var weeklyExportPrompt: String
+        // Manager (sub-projet C)
+        var managerName: String?
+        var managerEmail: String?
+        var managerCategoriesJSON: String?
+        var managerReportPrompt: String?
     }
 
     struct EntityDTO: Codable {
@@ -217,13 +224,48 @@ final class BackupService {
         var alerts: [AlertDTO]
     }
 
+    struct ManagerReportItemDTO: Codable {
+        var stableID: UUID
+        var createdAt: Date
+        var rawSnippet: String
+        var contextBefore: String
+        var contextAfter: String
+        var sourceField: String
+        var sourceRangeStart: Int
+        var sourceRangeLength: Int
+        var category: String
+        var tag: String
+        var aiSuggestedCategory: String?
+        var userNotes: String
+        var isCompleted: Bool
+        var archivedAt: Date?
+        var manualOrder: Int
+        var isManual: Bool
+        var duplicateOfStableID: String
+        var sourceMeetingStableID: UUID?
+        var archivedInMeetingStableID: UUID?
+    }
+
+    struct ManagerMeetingReportDTO: Codable {
+        var stableID: UUID
+        var generatedAt: Date
+        var generatedSummary: String
+        var durationSeconds: Double
+        var modelUsed: String
+        var itemsSnapshotJSON: String
+        var extractedActionsJSON: String
+        var meetingStableID: UUID?
+    }
+
     func backup(
         settings: AppSettings,
         entities: [Entity],
         projects: [Project],
         collaborators: [Collaborator],
         interviews: [Interview],
-        meetings: [Meeting] = []
+        meetings: [Meeting] = [],
+        managerReportItems: [ManagerReportItem] = [],
+        managerMeetingReports: [ManagerMeetingReport] = []
     ) throws -> Data {
         let payload = BackupPayload(
             exportedAt: Date(),
@@ -234,7 +276,11 @@ final class BackupService {
                 provider: settings.provider.rawValue,
                 importPrompt: settings.importPrompt,
                 reformulatePrompt: settings.reformulatePrompt,
-                weeklyExportPrompt: settings.weeklyExportPrompt
+                weeklyExportPrompt: settings.weeklyExportPrompt,
+                managerName: settings.managerName,
+                managerEmail: settings.managerEmail,
+                managerCategoriesJSON: settings.managerCategoriesJSON,
+                managerReportPrompt: settings.managerReportPrompt
             ),
             entities: entities.map { EntityDTO(name: $0.name, summary: $0.summary) },
             projects: projects.map { project in
@@ -425,6 +471,41 @@ final class BackupService {
                             )
                         }
                 )
+            },
+            managerReportItems: managerReportItems.map { item in
+                ManagerReportItemDTO(
+                    stableID: item.stableID,
+                    createdAt: item.createdAt,
+                    rawSnippet: item.rawSnippet,
+                    contextBefore: item.contextBefore,
+                    contextAfter: item.contextAfter,
+                    sourceField: item.sourceField,
+                    sourceRangeStart: item.sourceRangeStart,
+                    sourceRangeLength: item.sourceRangeLength,
+                    category: item.category,
+                    tag: item.tag,
+                    aiSuggestedCategory: item.aiSuggestedCategory,
+                    userNotes: item.userNotes,
+                    isCompleted: item.isCompleted,
+                    archivedAt: item.archivedAt,
+                    manualOrder: item.manualOrder,
+                    isManual: item.isManual,
+                    duplicateOfStableID: item.duplicateOfStableID,
+                    sourceMeetingStableID: item.sourceMeeting?.stableID,
+                    archivedInMeetingStableID: item.archivedInMeeting?.stableID
+                )
+            },
+            managerMeetingReports: managerMeetingReports.map { report in
+                ManagerMeetingReportDTO(
+                    stableID: report.stableID,
+                    generatedAt: report.generatedAt,
+                    generatedSummary: report.generatedSummary,
+                    durationSeconds: report.durationSeconds,
+                    modelUsed: report.modelUsed,
+                    itemsSnapshotJSON: report.itemsSnapshotJSON,
+                    extractedActionsJSON: report.extractedActionsJSON,
+                    meetingStableID: report.meeting?.stableID
+                )
             }
         )
 
@@ -446,6 +527,10 @@ final class BackupService {
         let existingEntities = try context.fetch(FetchDescriptor<Entity>())
         let existingSettings = try context.fetch(FetchDescriptor<AppSettings>())
         let existingMeetings = try context.fetch(FetchDescriptor<Meeting>())
+        let existingMgrItems = try context.fetch(FetchDescriptor<ManagerReportItem>())
+        let existingMgrReports = try context.fetch(FetchDescriptor<ManagerMeetingReport>())
+        for item in existingMgrItems { context.delete(item) }
+        for report in existingMgrReports { context.delete(report) }
 
         for meeting in existingMeetings { context.delete(meeting) }
         for interview in existingInterviews { context.delete(interview) }
@@ -463,6 +548,10 @@ final class BackupService {
         restoredSettings.reformulatePrompt = payload.settings.reformulatePrompt
         restoredSettings.weeklyExportPrompt = payload.settings.weeklyExportPrompt
         context.insert(restoredSettings)
+        restoredSettings.managerName = payload.settings.managerName ?? ""
+        restoredSettings.managerEmail = payload.settings.managerEmail ?? ""
+        restoredSettings.managerCategoriesJSON = payload.settings.managerCategoriesJSON ?? AppSettings.defaultManagerCategoriesJSON
+        restoredSettings.managerReportPrompt = payload.settings.managerReportPrompt ?? AppSettings.defaultManagerReportPrompt
 
         var entityMap: [String: Entity] = [:]
         for entityDTO in payload.entities {
@@ -732,6 +821,51 @@ final class BackupService {
                 chunk.meeting = meeting
                 context.insert(chunk)
             }
+        }
+
+        // Build a stableID → Meeting map so we can rebind manager item relations.
+        let restoredMeetings = try context.fetch(FetchDescriptor<Meeting>())
+        let meetingByStableID: [UUID: Meeting] = Dictionary(uniqueKeysWithValues: restoredMeetings.map { ($0.stableID, $0) })
+
+        for itemDTO in payload.managerReportItems ?? [] {
+            let item = ManagerReportItem(
+                rawSnippet: itemDTO.rawSnippet,
+                sourceField: itemDTO.sourceField,
+                sourceRangeStart: itemDTO.sourceRangeStart,
+                sourceRangeLength: itemDTO.sourceRangeLength,
+                sourceMeeting: itemDTO.sourceMeetingStableID.flatMap { meetingByStableID[$0] }
+            )
+            item.stableID = itemDTO.stableID
+            item.createdAt = itemDTO.createdAt
+            item.contextBefore = itemDTO.contextBefore
+            item.contextAfter = itemDTO.contextAfter
+            item.category = itemDTO.category
+            item.tag = itemDTO.tag
+            item.aiSuggestedCategory = itemDTO.aiSuggestedCategory
+            item.userNotes = itemDTO.userNotes
+            item.isCompleted = itemDTO.isCompleted
+            item.archivedAt = itemDTO.archivedAt
+            item.manualOrder = itemDTO.manualOrder
+            item.isManual = itemDTO.isManual
+            item.duplicateOfStableID = itemDTO.duplicateOfStableID
+            item.archivedInMeeting = itemDTO.archivedInMeetingStableID.flatMap { meetingByStableID[$0] }
+            context.insert(item)
+        }
+
+        for reportDTO in payload.managerMeetingReports ?? [] {
+            let mtg = reportDTO.meetingStableID.flatMap { meetingByStableID[$0] }
+            let report = ManagerMeetingReport(meeting: mtg ?? Meeting(title: "", date: reportDTO.generatedAt, notes: ""))
+            // The init requires a meeting; if missing, the placeholder we created
+            // is detached. We still want to preserve the stable ID.
+            report.stableID = reportDTO.stableID
+            report.generatedAt = reportDTO.generatedAt
+            report.generatedSummary = reportDTO.generatedSummary
+            report.durationSeconds = reportDTO.durationSeconds
+            report.modelUsed = reportDTO.modelUsed
+            report.itemsSnapshotJSON = reportDTO.itemsSnapshotJSON
+            report.extractedActionsJSON = reportDTO.extractedActionsJSON
+            report.meeting = mtg
+            context.insert(report)
         }
 
         try context.save()

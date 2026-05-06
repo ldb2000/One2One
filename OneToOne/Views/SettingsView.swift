@@ -760,13 +760,17 @@ struct SettingsView: View {
     private func createBackup() {
         let service = BackupService()
         do {
+            let mgrItems = (try? context.fetch(FetchDescriptor<ManagerReportItem>())) ?? []
+            let mgrReports = (try? context.fetch(FetchDescriptor<ManagerMeetingReport>())) ?? []
             let data = try service.backup(
                 settings: settings,
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
                 interviews: interviews,
-                meetings: meetings
+                meetings: meetings,
+                managerReportItems: mgrItems,
+                managerMeetingReports: mgrReports
             )
             guard let url = service.saveBackupPanel() else { return }
             try data.write(to: url)

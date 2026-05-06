@@ -1372,13 +1372,17 @@ struct DashboardView: View {
         // Auto-backup before import
         do {
             let backupService = BackupService()
+            let mgrItems = (try? context.fetch(FetchDescriptor<ManagerReportItem>())) ?? []
+            let mgrReports = (try? context.fetch(FetchDescriptor<ManagerMeetingReport>())) ?? []
             let backupData = try backupService.backup(
                 settings: settings,
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
                 interviews: interviews,
-                meetings: meetings
+                meetings: meetings,
+                managerReportItems: mgrItems,
+                managerMeetingReports: mgrReports
             )
             let backupDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("OneToOne/backups", isDirectory: true)
