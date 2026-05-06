@@ -49,7 +49,15 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
             tv.string = text
         }
         tv.isEditable = isEditable
-        applyHighlights(to: tv)
+
+        // Spec 7.3: re-apply highlights only when ranges or text length changed.
+        let total = (tv.string as NSString).length
+        let coord = context.coordinator
+        if coord.lastAppliedRanges != highlightedRanges || coord.lastAppliedTextLength != total {
+            applyHighlights(to: tv)
+            coord.lastAppliedRanges = highlightedRanges
+            coord.lastAppliedTextLength = total
+        }
     }
 
     private func applyHighlights(to tv: NSTextView) {
@@ -72,6 +80,12 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         let parent: MeetingHighlightableTextView
         weak var textView: NSTextView?
+
+        // Cache to enforce spec 7.3 "re-render uniquement quand la liste change".
+        // Without this, every SwiftUI invalidation pass walks the whole NSTextStorage
+        // even when nothing relevant changed.
+        var lastAppliedRanges: [NSRange] = []
+        var lastAppliedTextLength: Int = -1
 
         init(_ parent: MeetingHighlightableTextView) {
             self.parent = parent
