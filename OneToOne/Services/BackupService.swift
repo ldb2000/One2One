@@ -854,9 +854,7 @@ final class BackupService {
 
         for reportDTO in payload.managerMeetingReports ?? [] {
             let mtg = reportDTO.meetingStableID.flatMap { meetingByStableID[$0] }
-            let report = ManagerMeetingReport(meeting: mtg ?? Meeting(title: "", date: reportDTO.generatedAt, notes: ""))
-            // The init requires a meeting; if missing, the placeholder we created
-            // is detached. We still want to preserve the stable ID.
+            let report = ManagerMeetingReport(meeting: mtg)
             report.stableID = reportDTO.stableID
             report.generatedAt = reportDTO.generatedAt
             report.generatedSummary = reportDTO.generatedSummary
@@ -864,7 +862,6 @@ final class BackupService {
             report.modelUsed = reportDTO.modelUsed
             report.itemsSnapshotJSON = reportDTO.itemsSnapshotJSON
             report.extractedActionsJSON = reportDTO.extractedActionsJSON
-            report.meeting = mtg
             context.insert(report)
         }
 

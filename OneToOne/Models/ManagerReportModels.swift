@@ -96,7 +96,7 @@ final class ManagerMeetingReport {
 
     var meeting: Meeting?
 
-    init(meeting: Meeting) {
+    init(meeting: Meeting? = nil) {
         self.meeting = meeting
     }
 }
