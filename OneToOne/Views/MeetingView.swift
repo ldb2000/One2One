@@ -147,30 +147,35 @@ struct MeetingView: View {
 
             HSplitView {
                 mainPanel.frame(minWidth: 520)
-                MeetingActionsSidebar(
-                    meeting: meeting,
-                    settings: settings,
-                    allCollaborators: allCollaborators,
-                    currentSlides: currentSlides,
-                    collapsed: $actionsCollapsed,
-                    newTaskTitle: $newTaskTitle,
-                    selectedCollaborator: $selectedCollaborator,
-                    showNewTaskDueDate: $showNewTaskDueDate,
-                    newTaskDueDate: $newTaskDueDate,
-                    onAddTask: addTask,
-                    onDeleteTask: { task in
-                        context.delete(task)
-                        saveContext()
-                    },
-                    onToggleTaskCompletion: { task in
-                        task.isCompleted.toggle()
-                        saveContext()
-                    },
-                    onShowSlides:       { showSlidesList = true },
-                    onShowCaptureSetup: { showCaptureSetup = true },
-                    saveContext: saveContext
-                )
-                .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
+                if meeting.kind == .manager {
+                    ManagerAgendaSidebar(meeting: meeting, settings: settings)
+                        .frame(minWidth: 320, maxWidth: 460)
+                } else {
+                    MeetingActionsSidebar(
+                        meeting: meeting,
+                        settings: settings,
+                        allCollaborators: allCollaborators,
+                        currentSlides: currentSlides,
+                        collapsed: $actionsCollapsed,
+                        newTaskTitle: $newTaskTitle,
+                        selectedCollaborator: $selectedCollaborator,
+                        showNewTaskDueDate: $showNewTaskDueDate,
+                        newTaskDueDate: $newTaskDueDate,
+                        onAddTask: addTask,
+                        onDeleteTask: { task in
+                            context.delete(task)
+                            saveContext()
+                        },
+                        onToggleTaskCompletion: { task in
+                            task.isCompleted.toggle()
+                            saveContext()
+                        },
+                        onShowSlides:       { showSlidesList = true },
+                        onShowCaptureSetup: { showCaptureSetup = true },
+                        saveContext: saveContext
+                    )
+                    .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
+                }
             }
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
