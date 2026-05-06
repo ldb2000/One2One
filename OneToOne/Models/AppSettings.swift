@@ -51,9 +51,53 @@ final class AppSettings {
     /// (ex. `"⌃⌥⌘A"`). Cf. `HotkeySpec` pour le format.
     var collaboratorHotkeys: [String: String] = [:]
 
+    // MARK: - Rapport Manager (sub-projet C)
+
+    /// Nom du manager direct affiché dans le CR et dans la sidebar Suivi manager.
+    /// Vide tant que l'utilisateur n'a pas configuré la fonctionnalité.
+    var managerName: String = ""
+
+    /// Email du manager (optionnel, pour export futur — non utilisé en V1).
+    var managerEmail: String = ""
+
+    /// Liste des catégories de classification utilisateur (éditable).
+    /// Stockée en JSON pour rester migration-friendly.
+    var managerCategoriesJSON: String = AppSettings.defaultManagerCategoriesJSON
+
+    /// Prompt utilisateur additionnel injecté en fin du prompt de génération
+    /// du CR manager (cf. ManagerCRGenerator).
+    var managerReportPrompt: String = AppSettings.defaultManagerReportPrompt
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
+
+    static let defaultManagerCategories: [String] = [
+        "Risque", "Décision", "RH", "Projet",
+        "Reconnaissance", "Blocage", "Information", "Demande"
+    ]
+
+    static var defaultManagerCategoriesJSON: String {
+        (try? String(data: JSONEncoder().encode(defaultManagerCategories), encoding: .utf8))
+            ?? "[\"Information\"]"
+    }
+
+    static let defaultManagerReportPrompt: String = """
+    Reste factuel et synthétique. Distingue clairement ce qui a été dit
+    par le manager de mes propres notes. Utilise un ton neutre.
+    """
+
+    /// Catégories décodées (avec fallback aux défauts si JSON corrompu).
+    var managerCategories: [String] {
+        get {
+            (try? JSONDecoder().decode([String].self,
+                from: Data(managerCategoriesJSON.utf8))) ?? Self.defaultManagerCategories
+        }
+        set {
+            managerCategoriesJSON = (try? String(data: JSONEncoder().encode(newValue),
+                encoding: .utf8)) ?? Self.defaultManagerCategoriesJSON
+        }
+    }
 
     var meetingParticipantColor: Color {
         Color(hex: meetingParticipantColorHex) ?? Color(hex: Self.defaultMeetingParticipantColorHex) ?? .green

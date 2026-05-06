@@ -185,6 +185,15 @@ final class ActionTask {
     var isCompleted: Bool = false
     var reminderID: String?
 
+    /// True when the task was extracted from a 1:1 manager CR.
+    /// Surfaces a "manager" badge in `ActionsListView` and lets
+    /// `ManagerTrackingView` filter to manager-requested actions.
+    var fromManager: Bool = false
+
+    /// The 1:1 manager meeting where this action was requested.
+    /// Distinct from `meeting` (which can be any meeting source).
+    var managerMeeting: Meeting?
+
     init(title: String, dueDate: Date? = nil) {
         self.title = title
         self.dueDate = dueDate

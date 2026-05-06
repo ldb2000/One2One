@@ -8,6 +8,7 @@ enum MeetingKind: String, CaseIterable, Identifiable {
     case project  = "project"    // liée à un projet
     case oneToOne = "oneToOne"   // 1:1 avec un collaborateur
     case work     = "work"       // réunion de travail (équipe)
+    case manager  = "manager"    // 1:1 avec le manager direct
 
     var id: String { rawValue }
 
@@ -17,6 +18,7 @@ enum MeetingKind: String, CaseIterable, Identifiable {
         case .project:  return "Projet"
         case .oneToOne: return "One-to-One"
         case .work:     return "Architecture"
+        case .manager:  return "1:1 Manager"
         }
     }
 
@@ -26,6 +28,7 @@ enum MeetingKind: String, CaseIterable, Identifiable {
         case .project:  return "folder.fill"
         case .oneToOne: return "person.2.fill"
         case .work:     return "briefcase.fill"
+        case .manager:  return "person.crop.square.filled.and.at.rectangle"
         }
     }
 }

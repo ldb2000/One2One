@@ -128,6 +128,12 @@ struct MainSidebarView: View {
                     Label("Notes", systemImage: "note.text")
                 }
 
+                NavigationLink {
+                    ManagerTrackingView()
+                } label: {
+                    Label("Suivi manager", systemImage: "person.crop.square.filled.and.at.rectangle")
+                }
+
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
                     NavigationLink {
@@ -806,6 +812,9 @@ struct DashboardView: View {
             case .oneToOne:
                 key = "1:1 (cumul)"
                 symbol = MeetingKind.oneToOne.sfSymbol
+            case .manager:
+                key = "1:1 Manager (cumul)"
+                symbol = MeetingKind.manager.sfSymbol
             case .work:
                 key = "Architecture"
                 symbol = MeetingKind.work.sfSymbol
@@ -1363,13 +1372,21 @@ struct DashboardView: View {
         // Auto-backup before import
         do {
             let backupService = BackupService()
+            let mgrItems = (try? context.fetch(FetchDescriptor<ManagerReportItem>())) ?? []
+            let mgrReports = (try? context.fetch(FetchDescriptor<ManagerMeetingReport>())) ?? []
+            let mgrActions = (try? context.fetch(FetchDescriptor<ActionTask>(
+                predicate: #Predicate { $0.fromManager == true }
+            ))) ?? []
             let backupData = try backupService.backup(
                 settings: settings,
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
                 interviews: interviews,
-                meetings: meetings
+                meetings: meetings,
+                managerReportItems: mgrItems,
+                managerMeetingReports: mgrReports,
+                managerActions: mgrActions
             )
             let backupDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("OneToOne/backups", isDirectory: true)

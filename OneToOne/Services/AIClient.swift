@@ -332,3 +332,15 @@ enum AIClient {
         return error
     }
 }
+
+/// Production conformance to `AIClientProtocol`.
+struct LiveAIClient: AIClientProtocol {
+    func send(prompt: String, settings: AppSettings) async throws -> String {
+        try await AIClient.send(prompt: prompt, settings: settings)
+    }
+}
+
+extension AIClient {
+    /// Default live client used by services that accept an `AIClientProtocol`.
+    static let live: AIClientProtocol = LiveAIClient()
+}

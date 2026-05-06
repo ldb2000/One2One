@@ -15,6 +15,9 @@ struct MeetingHeaderEditorial: View {
             return name.isEmpty ? "1:1" : "1:1 · \(name)"
         case .work:      return "RÉUNION DE TRAVAIL"
         case .global:    return "RÉUNION"
+        case .manager:
+            let name = meeting.participants.first?.name.uppercased() ?? ""
+            return name.isEmpty ? "1:1 MANAGER" : "1:1 MANAGER · \(name)"
         }
     }
 

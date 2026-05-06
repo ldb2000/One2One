@@ -49,6 +49,11 @@ struct MeetingView: View {
     @State private var saveStatusMessage: String?
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
+    // MARK: - Manager report sheet
+    @State private var pendingMgrSelection: (range: NSRange, snippet: String, field: String)?
+    @State private var showMgrClassificationSheet = false
+    @State private var mgrSuggestedCategory: String?
+    @State private var isMgrSuggestingCategory = false
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
@@ -147,30 +152,35 @@ struct MeetingView: View {
 
             HSplitView {
                 mainPanel.frame(minWidth: 520)
-                MeetingActionsSidebar(
-                    meeting: meeting,
-                    settings: settings,
-                    allCollaborators: allCollaborators,
-                    currentSlides: currentSlides,
-                    collapsed: $actionsCollapsed,
-                    newTaskTitle: $newTaskTitle,
-                    selectedCollaborator: $selectedCollaborator,
-                    showNewTaskDueDate: $showNewTaskDueDate,
-                    newTaskDueDate: $newTaskDueDate,
-                    onAddTask: addTask,
-                    onDeleteTask: { task in
-                        context.delete(task)
-                        saveContext()
-                    },
-                    onToggleTaskCompletion: { task in
-                        task.isCompleted.toggle()
-                        saveContext()
-                    },
-                    onShowSlides:       { showSlidesList = true },
-                    onShowCaptureSetup: { showCaptureSetup = true },
-                    saveContext: saveContext
-                )
-                .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
+                if meeting.kind == .manager {
+                    ManagerAgendaSidebar(meeting: meeting, settings: settings)
+                        .frame(minWidth: 320, maxWidth: 460)
+                } else {
+                    MeetingActionsSidebar(
+                        meeting: meeting,
+                        settings: settings,
+                        allCollaborators: allCollaborators,
+                        currentSlides: currentSlides,
+                        collapsed: $actionsCollapsed,
+                        newTaskTitle: $newTaskTitle,
+                        selectedCollaborator: $selectedCollaborator,
+                        showNewTaskDueDate: $showNewTaskDueDate,
+                        newTaskDueDate: $newTaskDueDate,
+                        onAddTask: addTask,
+                        onDeleteTask: { task in
+                            context.delete(task)
+                            saveContext()
+                        },
+                        onToggleTaskCompletion: { task in
+                            task.isCompleted.toggle()
+                            saveContext()
+                        },
+                        onShowSlides:       { showSlidesList = true },
+                        onShowCaptureSetup: { showCaptureSetup = true },
+                        saveContext: saveContext
+                    )
+                    .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
+                }
             }
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
@@ -178,6 +188,24 @@ struct MeetingView: View {
         .sheet(isPresented: $showCalendarImporter) {
             CalendarEventImportSheet(anchorDate: meeting.date) { event in
                 importCalendarEvent(event)
+            }
+        }
+        .sheet(isPresented: $showMgrClassificationSheet) {
+            if let pending = pendingMgrSelection {
+                ManagerClassificationSheet(
+                    snippet: pending.snippet,
+                    projectName: meeting.project?.name,
+                    categories: settings.managerCategories,
+                    suggestedCategory: mgrSuggestedCategory,
+                    isLoadingSuggestion: isMgrSuggestingCategory,
+                    onCancel: {
+                        showMgrClassificationSheet = false
+                        pendingMgrSelection = nil
+                    },
+                    onConfirm: { category, tag, aiSuggested in
+                        confirmManagerItem(category: category, tag: tag, aiSuggested: aiSuggested)
+                    }
+                )
             }
         }
         .popover(isPresented: $showSlidesList) { slidesPopover }
@@ -548,13 +576,25 @@ struct MeetingView: View {
                     .frame(maxWidth: .infinity, minHeight: 240)
                 } else {
                     if !meeting.mergedTranscript.isEmpty {
-                        Text(meeting.mergedTranscript)
-                            .font(MeetingTheme.bodySerif)
-                            .textSelection(.enabled)
+                        MeetingHighlightableTextView(
+                            text: .constant(meeting.mergedTranscript),
+                            isEditable: false,
+                            highlightedRanges: managerHighlightedRanges(for: "mergedTranscript"),
+                            onAddToManagerReport: { range, snippet in
+                                startManagerReportFlow(range: range, snippet: snippet, field: "mergedTranscript")
+                            }
+                        )
+                        .frame(minHeight: 280)
                     } else {
-                        Text(meeting.rawTranscript)
-                            .font(MeetingTheme.bodySerif)
-                            .textSelection(.enabled)
+                        MeetingHighlightableTextView(
+                            text: .constant(meeting.rawTranscript),
+                            isEditable: false,
+                            highlightedRanges: managerHighlightedRanges(for: "transcript"),
+                            onAddToManagerReport: { range, snippet in
+                                startManagerReportFlow(range: range, snippet: snippet, field: "transcript")
+                            }
+                        )
+                        .frame(minHeight: 280)
                     }
                 }
             }
@@ -581,7 +621,15 @@ struct MeetingView: View {
                         }
                     }
                     section("Résumé") {
-                        Text(meeting.summary).font(MeetingTheme.bodySerif).textSelection(.enabled)
+                        MeetingHighlightableTextView(
+                            text: .constant(meeting.summary),
+                            isEditable: false,
+                            highlightedRanges: managerHighlightedRanges(for: "summary"),
+                            onAddToManagerReport: { range, snippet in
+                                startManagerReportFlow(range: range, snippet: snippet, field: "summary")
+                            }
+                        )
+                        .frame(minHeight: 240)
                     }
                     if !meeting.keyPoints.isEmpty {
                         section("Points clés") {
@@ -957,6 +1005,9 @@ struct MeetingView: View {
         case .oneToOne:
             scope.collaboratorPID = meeting.participants.first?.persistentModelID
             guard scope.collaboratorPID != nil else { return "" }
+        case .manager:
+            scope.collaboratorPID = meeting.participants.first?.persistentModelID
+            guard scope.collaboratorPID != nil else { return "" }
         case .global, .work:
             return ""  // pas d'enrichissement historique hors scope clair
         }
@@ -1092,6 +1143,62 @@ struct MeetingView: View {
 
     private func saveContext() {
         do { try context.save() } catch { print("[MeetingView] save FAILED: \(error)") }
+    }
+
+    private func startManagerReportFlow(range: NSRange, snippet: String, field: String) {
+        pendingMgrSelection = (range, snippet, field)
+        mgrSuggestedCategory = nil
+        isMgrSuggestingCategory = true
+        showMgrClassificationSheet = true
+
+        Task { @MainActor in
+            let suggested = await ManagerCategoryClassifier.classify(
+                snippet: snippet,
+                projectName: meeting.project?.name,
+                settings: settings
+            )
+            mgrSuggestedCategory = suggested
+            isMgrSuggestingCategory = false
+        }
+    }
+
+    private func confirmManagerItem(category: String, tag: String, aiSuggested: String?) {
+        guard let pending = pendingMgrSelection else { return }
+        let fullText: String
+        switch pending.field {
+        case "mergedTranscript": fullText = meeting.mergedTranscript
+        case "transcript":       fullText = meeting.rawTranscript
+        case "summary":          fullText = meeting.summary
+        case "notes":            fullText = meeting.notes
+        case "liveNotes":        fullText = meeting.liveNotes
+        default:                 fullText = ""
+        }
+        let ctx = SentenceContextExtractor.extractContext(text: fullText, range: pending.range)
+        do {
+            _ = try ManagerReportService.add(
+                snippet: pending.snippet,
+                sourceField: pending.field,
+                range: pending.range,
+                sourceMeeting: meeting,
+                contextBefore: ctx.before,
+                contextAfter: ctx.after,
+                category: category,
+                tag: tag,
+                aiSuggestedCategory: aiSuggested,
+                in: context
+            )
+            try context.save()
+        } catch {
+            print("[Manager] add failed: \(error)")
+        }
+        pendingMgrSelection = nil
+        showMgrClassificationSheet = false
+    }
+
+    private func managerHighlightedRanges(for field: String) -> [NSRange] {
+        ManagerReportService.itemsHighlightingSource(meeting: meeting, field: field, in: context).map {
+            NSRange(location: $0.sourceRangeStart, length: $0.sourceRangeLength)
+        }
     }
 
     private func saveMeetingNow() {
