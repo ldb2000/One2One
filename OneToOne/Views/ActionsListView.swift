@@ -139,6 +139,16 @@ struct ActionTaskRow: View {
                     .strikethrough(task.isCompleted)
                     .frame(height: 20)
 
+                if task.fromManager {
+                    Label("manager", systemImage: "person.crop.square.filled.and.at.rectangle")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption2)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15))
+                        .clipShape(Capsule())
+                        .help("Action demandée par le manager")
+                }
+
                 Spacer()
 
                 Button(action: onDelete) {
