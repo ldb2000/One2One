@@ -89,6 +89,11 @@ enum ManagerReportService {
             }
         }
         context.delete(item)
+        do {
+            try context.save()
+        } catch {
+            mgrLog.error("delete: save failed \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Archive
@@ -100,7 +105,13 @@ enum ManagerReportService {
         let descriptor = FetchDescriptor<ManagerReportItem>(
             predicate: #Predicate { $0.isCompleted == true && $0.archivedAt == nil }
         )
-        let toArchive = (try? context.fetch(descriptor)) ?? []
+        let toArchive: [ManagerReportItem]
+        do {
+            toArchive = try context.fetch(descriptor)
+        } catch {
+            mgrLog.error("archiveCheckedItems: fetch failed \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         let now = Date()
         for item in toArchive {
             item.archivedAt = now
@@ -133,7 +144,13 @@ enum ManagerReportService {
         let descriptor = FetchDescriptor<ManagerReportItem>(
             predicate: #Predicate { $0.sourceField == field && $0.archivedAt == nil }
         )
-        let all = (try? context.fetch(descriptor)) ?? []
+        let all: [ManagerReportItem]
+        do {
+            all = try context.fetch(descriptor)
+        } catch {
+            mgrLog.error("itemsHighlightingSource: fetch failed \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         return all.filter { $0.sourceMeeting?.persistentModelID == target }
     }
 
