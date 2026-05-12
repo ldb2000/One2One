@@ -15,6 +15,9 @@ struct CalendarMeetingEvent: Identifiable, Hashable {
     let endDate: Date
     let calendarTitle: String
     let attendees: [CalendarMeetingAttendee]
+    let teamsJoinURL: String?
+    let isCancelled: Bool
+    let isAllDay: Bool
 }
 
 @MainActor
@@ -63,7 +66,14 @@ final class CalendarMeetingImportService: ObservableObject {
                             email: email,
                             status: attendee.participantStatus == .declined ? .absent : .participant
                         )
-                    }
+                    },
+                    teamsJoinURL: TeamsURLExtractor.extract(
+                        url: event.url,
+                        notes: event.notes,
+                        location: event.location
+                    ),
+                    isCancelled: event.status == .canceled,
+                    isAllDay: event.isAllDay
                 )
             }
     }
