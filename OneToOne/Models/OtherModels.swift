@@ -224,7 +224,10 @@ final class ProjectAlert {
 final class Meeting {
     /// Stable UUID safe to expose in filenames / external IDs.
     /// SwiftData `persistentModelID` is not usable as a string identifier.
-    var stableID: UUID = UUID()
+    /// Optional so that lightweight migration on existing rows doesn't apply
+    /// the same `UUID()` default to every legacy row — those get `nil` and
+    /// are backfilled with unique UUIDs at startup via `repairStoreIfNeeded`.
+    var stableID: UUID? = nil
     var title: String
     var date: Date
     var notes: String
@@ -296,9 +299,20 @@ final class Meeting {
     var transcriptSegments: [TranscriptSegment] = []
 
     init(title: String = "", date: Date = Date(), notes: String = "") {
+        self.stableID = UUID()
         self.title = title
         self.date = date
         self.notes = notes
+    }
+
+    /// Returns `stableID`, backfilling a fresh UUID if the row predates the
+    /// Optional migration. Persists the backfill immediately.
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 
     // MARK: - JSON-backed arrays

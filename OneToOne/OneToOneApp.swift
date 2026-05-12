@@ -232,6 +232,23 @@ struct ContentView: View {
                 try context.save()
                 print("Reparation SwiftData: \(backfilled) Collaborator.stableID backfilles.")
             }
+
+            // Backfill Meeting.stableID — pre-Optional rows all shared the same
+            // UUID default; assign a fresh one per row to make navigation tokens
+            // unique. Detect via grouping rather than nil-check (legacy rows
+            // share a single non-nil value rather than being nil).
+            let allMeetings = try context.fetch(FetchDescriptor<Meeting>())
+            var seenIDs = Set<UUID>()
+            var meetingFilled = 0
+            for meeting in allMeetings {
+                if let id = meeting.stableID, seenIDs.insert(id).inserted { continue }
+                meeting.stableID = UUID()
+                meetingFilled += 1
+            }
+            if meetingFilled > 0 {
+                try context.save()
+                print("Reparation SwiftData: \(meetingFilled) Meeting.stableID backfilles.")
+            }
         } catch {
             print("Echec reparation SwiftData: \(error)")
         }

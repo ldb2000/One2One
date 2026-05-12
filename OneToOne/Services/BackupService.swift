@@ -231,6 +231,7 @@ final class BackupService {
         var rawSnippet: String
         var contextBefore: String
         var contextAfter: String
+        var elaboratedText: String?     // Optional pour rétro-compat backups V3.0
         var sourceField: String
         var sourceRangeStart: Int
         var sourceRangeLength: Int
@@ -422,7 +423,7 @@ final class BackupService {
             meetings: meetings.map { meeting in
                 let wavURL = meeting.wavFilePath.map { URL(fileURLWithPath: $0) }
                 return MeetingDTO(
-                    stableID: meeting.stableID,
+                    stableID: meeting.ensuredStableID,
                     title: meeting.title,
                     date: meeting.date,
                     notes: meeting.notes,
@@ -489,6 +490,7 @@ final class BackupService {
                     rawSnippet: item.rawSnippet,
                     contextBefore: item.contextBefore,
                     contextAfter: item.contextAfter,
+                    elaboratedText: item.elaboratedText,
                     sourceField: item.sourceField,
                     sourceRangeStart: item.sourceRangeStart,
                     sourceRangeLength: item.sourceRangeLength,
@@ -851,7 +853,11 @@ final class BackupService {
 
         // Build a stableID → Meeting map so we can rebind manager item relations.
         let restoredMeetings = try context.fetch(FetchDescriptor<Meeting>())
-        let meetingByStableID: [UUID: Meeting] = Dictionary(uniqueKeysWithValues: restoredMeetings.map { ($0.stableID, $0) })
+        let meetingByStableID: [UUID: Meeting] = Dictionary(
+            uniqueKeysWithValues: restoredMeetings.compactMap { meeting in
+                meeting.stableID.map { ($0, meeting) }
+            }
+        )
 
         for itemDTO in payload.managerReportItems ?? [] {
             let item = ManagerReportItem(
@@ -865,6 +871,7 @@ final class BackupService {
             item.createdAt = itemDTO.createdAt
             item.contextBefore = itemDTO.contextBefore
             item.contextAfter = itemDTO.contextAfter
+            item.elaboratedText = itemDTO.elaboratedText ?? ""
             item.category = itemDTO.category
             item.tag = itemDTO.tag
             item.aiSuggestedCategory = itemDTO.aiSuggestedCategory

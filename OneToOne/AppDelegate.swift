@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []
         guard let target = all.first(where: { $0.persistentModelID.storeIdentifier == raw }) else { return }
-        let stableID = target.stableID
+        let stableID = target.ensuredStableID
         NSApp.activate(ignoringOtherApps: true)
         QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
             meetingID: stableID,
