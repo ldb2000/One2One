@@ -48,7 +48,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         cancel(for: meeting)  // idempotent — drop any previous pending
 
         let userInfo: [AnyHashable: Any] = [
-            "meetingID": meeting.persistentModelID.storeIdentifier ?? ""
+            "meetingID": meeting.ensuredStableID.uuidString
         ]
 
         if settings.notifMeetingStart, start > Date() {
@@ -165,7 +165,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     }
 
     private func idPrefix(for meeting: Meeting) -> String {
-        "meeting.\(meeting.persistentModelID.storeIdentifier ?? UUID().uuidString)"
+        "meeting.\(meeting.ensuredStableID.uuidString)"
     }
 
     private func formatTime(_ date: Date) -> String {

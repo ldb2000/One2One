@@ -191,7 +191,7 @@ struct AgendaInspectorPanel: View {
     private func openMeeting(_ meeting: Meeting) {
         NotificationCenter.default.post(name: .openMeetingFromAgenda,
                                         object: nil,
-                                        userInfo: ["meetingID": meeting.persistentModelID.storeIdentifier ?? ""])
+                                        userInfo: ["meetingID": meeting.ensuredStableID.uuidString])
     }
 }
 

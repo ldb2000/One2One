@@ -147,8 +147,15 @@ struct ManagerTrackingView: View {
             } else {
                 List {
                     ForEach(filteredCurrent) { item in
-                        ItemRow(item: item, settings: settings)
+                        ItemRow(item: item, settings: settings, onDelete: {
+                            ManagerReportService.delete(item: item, in: context)
+                        })
                             .swipeActions {
+                                Button(role: .destructive) {
+                                    ManagerReportService.delete(item: item, in: context)
+                                } label: { Label("Supprimer", systemImage: "trash") }
+                            }
+                            .contextMenu {
                                 Button(role: .destructive) {
                                     ManagerReportService.delete(item: item, in: context)
                                 } label: { Label("Supprimer", systemImage: "trash") }
@@ -179,7 +186,19 @@ struct ManagerTrackingView: View {
             } else {
                 List {
                     ForEach(filteredHistory) { item in
-                        ItemRow(item: item, settings: settings, showArchiveDate: true)
+                        ItemRow(item: item, settings: settings, showArchiveDate: true, onDelete: {
+                            ManagerReportService.delete(item: item, in: context)
+                        })
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    ManagerReportService.delete(item: item, in: context)
+                                } label: { Label("Supprimer", systemImage: "trash") }
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    ManagerReportService.delete(item: item, in: context)
+                                } label: { Label("Supprimer définitivement", systemImage: "trash") }
+                            }
                     }
                 }
             }
@@ -235,7 +254,9 @@ struct ManagerTrackingView: View {
         let item: ManagerReportItem
         let settings: AppSettings
         var showArchiveDate: Bool = false
+        var onDelete: (() -> Void)? = nil
         @Environment(\.modelContext) private var context
+        @State private var confirmDelete = false
 
         var body: some View {
             VStack(alignment: .leading, spacing: 4) {
@@ -258,8 +279,29 @@ struct ManagerTrackingView: View {
                         Text(d.formatted(date: .abbreviated, time: .omitted))
                             .font(.caption2).foregroundColor(.secondary)
                     }
+                    if onDelete != nil {
+                        Button {
+                            confirmDelete = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundColor(.red.opacity(0.75))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Supprimer définitivement ce point")
+                        .confirmationDialog(
+                            "Supprimer ce point du rapport manager ?",
+                            isPresented: $confirmDelete
+                        ) {
+                            Button("Supprimer", role: .destructive) {
+                                onDelete?()
+                            }
+                            Button("Annuler", role: .cancel) {}
+                        } message: {
+                            Text(item.elaboratedText.isEmpty ? item.rawSnippet : item.elaboratedText)
+                        }
+                    }
                 }
-                Text(item.rawSnippet).font(.callout).lineLimit(3)
+                contextualSnippet(item: item)
                 if !item.userNotes.isEmpty {
                     Text(item.userNotes).font(.caption).foregroundColor(.secondary)
                 }
@@ -269,6 +311,37 @@ struct ManagerTrackingView: View {
                 }
             }
             .padding(.vertical, 4)
+        }
+
+        /// Display priority:
+        /// 1. `elaboratedText` (AI-rédigé / utilisateur-édité) si non-vide
+        /// 2. Sinon contextBefore + rawSnippet (medium) + contextAfter inline
+        /// 3. Sinon rawSnippet seul
+        @ViewBuilder
+        private func contextualSnippet(item: ManagerReportItem) -> some View {
+            let elaborated = item.elaboratedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !elaborated.isEmpty {
+                Text(elaborated).font(.callout).lineLimit(5)
+            } else {
+                let before = item.contextBefore.trimmingCharacters(in: .whitespacesAndNewlines)
+                let after = item.contextAfter.trimmingCharacters(in: .whitespacesAndNewlines)
+                if before.isEmpty && after.isEmpty {
+                    Text(item.rawSnippet).font(.callout).lineLimit(3)
+                } else {
+                    (
+                        (before.isEmpty
+                            ? Text("")
+                            : Text("…\(before) ").foregroundColor(.secondary))
+                        + Text(item.rawSnippet).foregroundColor(.primary)
+                            .fontWeight(.medium)
+                        + (after.isEmpty
+                            ? Text("")
+                            : Text(" \(after)…").foregroundColor(.secondary))
+                    )
+                    .font(.callout)
+                    .lineLimit(5)
+                }
+            }
         }
     }
 }

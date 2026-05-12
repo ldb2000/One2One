@@ -14,10 +14,19 @@ private let sttLog = Logger(subsystem: "com.onetoone.app", category: "stt")
 
 // MARK: - STT result
 
+struct STTSegment {
+    let startSeconds: Double
+    let endSeconds: Double
+    let text: String
+}
+
 struct STTResult {
     let text: String
     let language: String
     let durationSeconds: TimeInterval
+    /// Segments timestampés (1 par chunk de 60s par défaut). Vide pour
+    /// les chemins legacy qui n'auraient pas conservé les segments.
+    let segments: [STTSegment]
 }
 
 // MARK: - Errors
@@ -241,7 +250,9 @@ final class TranscriptionService: ObservableObject {
         // entre deux segments. La progression est publiée via `MainActor.run`
         // après chaque segment.
         var pieces: [String] = []
+        var sttSegments: [STTSegment] = []
         pieces.reserveCapacity(segmentCount)
+        sttSegments.reserveCapacity(segmentCount)
         for i in 0..<segmentCount {
             let start = i * segmentSamples
             let end = min(start + segmentSamples, sampleCount)
@@ -256,6 +267,15 @@ final class TranscriptionService: ObservableObject {
             }.value
 
             pieces.append(segText)
+            // Capture timestamped segment alongside text (60s chunks for now).
+            // Phase B (VAD) refines speaker turns within these chunks.
+            if !segText.isEmpty {
+                sttSegments.append(STTSegment(
+                    startSeconds: Double(start) / 16_000.0,
+                    endSeconds: Double(end) / 16_000.0,
+                    text: segText
+                ))
+            }
             self.progressFraction = Double(i + 1) / Double(segmentCount)
         }
 
@@ -267,7 +287,8 @@ final class TranscriptionService: ObservableObject {
         return STTResult(
             text: cleaned,
             language: lang,
-            durationSeconds: durationSec
+            durationSeconds: durationSec,
+            segments: sttSegments
         )
         #else
         throw STTError.mlxNotLinked

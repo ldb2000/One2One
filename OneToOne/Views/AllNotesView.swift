@@ -6,10 +6,29 @@ import SwiftData
 /// titre + corps + nom de la cible.
 struct AllNotesView: View {
     @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
+    @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @State private var searchText: String = ""
     @State private var editingNote: Note?
     @State private var scopeFilter: ScopeFilter = .all
+
+    // Manager report add-from-note flow (mirrors MeetingView)
+    struct PendingNoteAdd: Identifiable {
+        let id = UUID()
+        let note: Note
+    }
+    @State private var pendingNoteAdd: PendingNoteAdd?
+    @State private var noteSuggestedCategory: String?
+    @State private var noteIsClassifying = false
+    @State private var noteSuggestedElaboration: String?
+    @State private var noteIsElaborating = false
+    @State private var noteInitialElaboration: String = ""
+    @State private var noteElaborationFromAI = false
+    @State private var noteElaborationFallbackReason = ""
+
+    private var settings: AppSettings {
+        settingsList.canonicalSettings ?? AppSettings()
+    }
 
     enum ScopeFilter: String, CaseIterable, Identifiable {
         case all = "Toutes"
@@ -74,6 +93,10 @@ struct AllNotesView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
+                                Button {
+                                    startAddToManagerReport(note: note)
+                                } label: { Label("Ajouter au rapport manager", systemImage: "plus.bubble") }
+                                Divider()
                                 Button(role: .destructive) {
                                     context.delete(note)
                                     try? context.save()
@@ -91,6 +114,124 @@ struct AllNotesView: View {
         .sheet(item: $editingNote) { n in
             NoteEditorSheet(note: n)
         }
+        .sheet(item: $pendingNoteAdd) { pending in
+            ManagerClassificationSheet(
+                snippet: noteSnippetFor(pending.note),
+                projectName: pending.note.project?.name,
+                categories: settings.managerCategories,
+                suggestedCategory: noteSuggestedCategory,
+                suggestedElaboration: noteSuggestedElaboration,
+                initialElaboration: noteInitialElaboration,
+                isLoadingSuggestion: noteIsClassifying,
+                isLoadingElaboration: noteIsElaborating,
+                elaborationFromAI: noteElaborationFromAI,
+                elaborationFallbackReason: noteElaborationFallbackReason,
+                onCancel: { pendingNoteAdd = nil },
+                onConfirm: { category, tag, elaboratedText, aiSuggested in
+                    confirmAddNote(note: pending.note,
+                                   category: category,
+                                   tag: tag,
+                                   elaboratedText: elaboratedText,
+                                   aiSuggested: aiSuggested)
+                }
+            )
+        }
+    }
+
+    // MARK: - Add note to manager report
+
+    /// Stringify a note for snippet/elaboration purposes: title + body.
+    private func noteSnippetFor(_ note: Note) -> String {
+        let title = note.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = note.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.isEmpty { return body }
+        if body.isEmpty { return title }
+        return "\(title)\n\n\(body)"
+    }
+
+    private func startAddToManagerReport(note: Note) {
+        let snippet = noteSnippetFor(note)
+        noteSuggestedCategory = nil
+        noteSuggestedElaboration = nil
+        noteIsClassifying = true
+        noteIsElaborating = true
+        noteElaborationFromAI = false
+        noteElaborationFallbackReason = ""
+        // Notes have no surrounding meeting transcription, so context is empty.
+        noteInitialElaboration = ManagerSnippetElaborator.fallback(
+            contextBefore: "", snippet: snippet, contextAfter: ""
+        )
+        pendingNoteAdd = PendingNoteAdd(note: note)
+
+        let projectName = note.project?.name
+        let collaboratorName = note.collaborator?.name
+        let sourceTitle: String? = {
+            if let p = note.project { return "Note projet · \(p.name)" }
+            if let c = note.collaborator { return "Note collaborateur · \(c.name)" }
+            return "Note libre"
+        }()
+
+        Task { @MainActor in
+            let suggested = await ManagerCategoryClassifier.classify(
+                snippet: snippet,
+                projectName: projectName ?? collaboratorName,
+                settings: settings
+            )
+            noteSuggestedCategory = suggested
+            noteIsClassifying = false
+        }
+
+        Task { @MainActor in
+            let outcome = await ManagerSnippetElaborator.elaborate(
+                snippet: snippet,
+                contextBefore: "",
+                contextAfter: "",
+                projectName: projectName,
+                sourceMeetingTitle: sourceTitle,
+                sourceMeetingDate: note.updatedAt,
+                settings: settings
+            )
+            switch outcome {
+            case .ai(let text):
+                noteSuggestedElaboration = text
+                noteElaborationFromAI = true
+                noteElaborationFallbackReason = ""
+            case .fallback(let text, let reason):
+                noteSuggestedElaboration = text
+                noteElaborationFromAI = false
+                noteElaborationFallbackReason = reason
+            }
+            noteIsElaborating = false
+        }
+    }
+
+    private func confirmAddNote(note: Note,
+                                category: String,
+                                tag: String,
+                                elaboratedText: String,
+                                aiSuggested: String?) {
+        let snippet = noteSnippetFor(note)
+        do {
+            // Notes are sourceMeeting=nil; sourceField "note" gives a typed
+            // marker in case future code wants to filter highlights by source.
+            _ = try ManagerReportService.add(
+                snippet: snippet,
+                sourceField: "note",
+                range: NSRange(location: 0, length: 0),
+                sourceMeeting: nil,
+                contextBefore: "",
+                contextAfter: "",
+                elaboratedText: elaboratedText,
+                category: category,
+                tag: tag,
+                aiSuggestedCategory: aiSuggested,
+                in: context
+            )
+            try context.save()
+        } catch {
+            print("[Notes] add failed: \(error)")
+        }
+        pendingNoteAdd = nil
     }
 }
 

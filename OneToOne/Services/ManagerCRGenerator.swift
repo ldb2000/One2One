@@ -135,15 +135,27 @@ enum ManagerCRGenerator {
             let notesLine = item.userNotes.trimmingCharacters(in: .whitespaces).isEmpty
                 ? "Notes prises pendant le 1:1 : (aucune)"
                 : "Notes prises pendant le 1:1 : \(item.userNotes)"
-            itemsBlock += """
-            \(idx + 1). [\(item.category)\(tag)] \(item.rawSnippet)
-               \(sourceLine) · \(projectLine)
-               Contexte avant: \(item.contextBefore.isEmpty ? "(vide)" : item.contextBefore)
-               Contexte après: \(item.contextAfter.isEmpty ? "(vide)" : item.contextAfter)
-               \(notesLine)
-
-
-            """
+            // Prefer the elaborated/edited text (rédigé à l'ajout) when present;
+            // fallback to rawSnippet + contextes for items créés avant l'élaboration.
+            let elaborated = item.elaboratedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let coreBlock: String
+            if !elaborated.isEmpty {
+                coreBlock = """
+                \(idx + 1). [\(item.category)\(tag)] \(elaborated)
+                   Extrait original: \(item.rawSnippet)
+                   \(sourceLine) · \(projectLine)
+                   \(notesLine)
+                """
+            } else {
+                coreBlock = """
+                \(idx + 1). [\(item.category)\(tag)] \(item.rawSnippet)
+                   \(sourceLine) · \(projectLine)
+                   Contexte avant: \(item.contextBefore.isEmpty ? "(vide)" : item.contextBefore)
+                   Contexte après: \(item.contextAfter.isEmpty ? "(vide)" : item.contextAfter)
+                   \(notesLine)
+                """
+            }
+            itemsBlock += coreBlock + "\n\n\n"
         }
 
         return """
@@ -224,6 +236,7 @@ enum ManagerCRGenerator {
             let category: String
             let tag: String
             let rawSnippet: String
+            let elaboratedText: String
             let userNotes: String
             let sourceMeetingTitle: String?
         }
@@ -232,6 +245,7 @@ enum ManagerCRGenerator {
                  category: $0.category,
                  tag: $0.tag,
                  rawSnippet: $0.rawSnippet,
+                 elaboratedText: $0.elaboratedText,
                  userNotes: $0.userNotes,
                  sourceMeetingTitle: $0.sourceMeeting?.title)
         }

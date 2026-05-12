@@ -33,6 +33,7 @@ struct ManagerAgendaSidebar: View {
     @State private var manualSnippet = ""
     @State private var manualCategory = "Information"
     @State private var manualTag = ""
+    @State private var pendingDeleteItem: ManagerReportItem?
 
     private var unchecked: [ManagerReportItem] {
         items.filter { !$0.isCompleted && passesFilter($0) }
@@ -121,6 +122,22 @@ struct ManagerAgendaSidebar: View {
             .padding(20)
             .frame(minWidth: 420)
         }
+        .confirmationDialog(
+            "Supprimer ce point du rapport manager ?",
+            isPresented: Binding(
+                get: { pendingDeleteItem != nil },
+                set: { if !$0 { pendingDeleteItem = nil } }
+            ),
+            presenting: pendingDeleteItem
+        ) { item in
+            Button("Supprimer", role: .destructive) {
+                ManagerReportService.delete(item: item, in: context)
+                pendingDeleteItem = nil
+            }
+            Button("Annuler", role: .cancel) { pendingDeleteItem = nil }
+        } message: { item in
+            Text(item.elaboratedText.isEmpty ? item.rawSnippet : item.elaboratedText)
+        }
     }
 
     private var header: some View {
@@ -197,9 +214,7 @@ struct ManagerAgendaSidebar: View {
                             Text("#\(item.tag)").font(.caption2).foregroundColor(.secondary)
                         }
                     }
-                    Text(item.rawSnippet)
-                        .font(.callout)
-                        .lineLimit(expandedItemID == item.stableID ? nil : 2)
+                    contextualSnippet(item: item, expanded: expandedItemID == item.stableID)
                     if let src = item.sourceMeeting {
                         Text("• \(src.title.isEmpty ? "Réunion" : src.title) · \(src.date.formatted(date: .abbreviated, time: .omitted))")
                             .font(.caption2)
@@ -218,6 +233,13 @@ struct ManagerAgendaSidebar: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                Button {
+                    pendingDeleteItem = item
+                } label: {
+                    Image(systemName: "trash").foregroundColor(.red.opacity(0.75))
+                }
+                .buttonStyle(.plain)
+                .help("Supprimer définitivement")
             }
             if expandedItemID == item.stableID {
                 TextEditor(text: Binding(
@@ -238,6 +260,38 @@ struct ManagerAgendaSidebar: View {
         .padding(8)
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Display priority: elaboratedText > contextBefore+rawSnippet+contextAfter > rawSnippet alone.
+    @ViewBuilder
+    private func contextualSnippet(item: ManagerReportItem, expanded: Bool) -> some View {
+        let elaborated = item.elaboratedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !elaborated.isEmpty {
+            Text(elaborated)
+                .font(.callout)
+                .lineLimit(expanded ? nil : 4)
+        } else {
+            let before = item.contextBefore.trimmingCharacters(in: .whitespacesAndNewlines)
+            let after = item.contextAfter.trimmingCharacters(in: .whitespacesAndNewlines)
+            if before.isEmpty && after.isEmpty {
+                Text(item.rawSnippet)
+                    .font(.callout)
+                    .lineLimit(expanded ? nil : 2)
+            } else {
+                (
+                    (before.isEmpty
+                        ? Text("")
+                        : Text("…\(before) ").foregroundColor(.secondary))
+                    + Text(item.rawSnippet).foregroundColor(.primary)
+                        .fontWeight(.medium)
+                    + (after.isEmpty
+                        ? Text("")
+                        : Text(" \(after)…").foregroundColor(.secondary))
+                )
+                .font(.callout)
+                .lineLimit(expanded ? nil : 4)
+            }
+        }
     }
 
     @MainActor

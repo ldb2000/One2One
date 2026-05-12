@@ -50,10 +50,28 @@ struct MeetingView: View {
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
     // MARK: - Manager report sheet
-    @State private var pendingMgrSelection: (range: NSRange, snippet: String, field: String)?
-    @State private var showMgrClassificationSheet = false
+    /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
+    /// instead of `.sheet(isPresented:)` avoids a SwiftUI race where the sheet
+    /// content closure could evaluate before `pendingMgrSelection` was visible
+    /// and render an empty modal.
+    struct PendingMgrSelection: Identifiable {
+        let id = UUID()
+        let range: NSRange
+        let snippet: String
+        let field: String
+    }
+    @State private var pendingMgrSelection: PendingMgrSelection?
     @State private var mgrSuggestedCategory: String?
     @State private var isMgrSuggestingCategory = false
+    @State private var mgrSuggestedElaboration: String?
+    @State private var isMgrElaborating = false
+    @State private var mgrInitialElaboration: String = ""
+    @State private var mgrElaborationFromAI: Bool = false
+    @State private var mgrElaborationFallbackReason: String = ""
+
+    // Speaker view toggle + rename popover state
+    @State private var showSpeakersView: Bool = true
+    @State private var renamingSpeakerID: Int?
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
@@ -190,23 +208,29 @@ struct MeetingView: View {
                 importCalendarEvent(event)
             }
         }
-        .sheet(isPresented: $showMgrClassificationSheet) {
-            if let pending = pendingMgrSelection {
-                ManagerClassificationSheet(
-                    snippet: pending.snippet,
-                    projectName: meeting.project?.name,
-                    categories: settings.managerCategories,
-                    suggestedCategory: mgrSuggestedCategory,
-                    isLoadingSuggestion: isMgrSuggestingCategory,
-                    onCancel: {
-                        showMgrClassificationSheet = false
-                        pendingMgrSelection = nil
-                    },
-                    onConfirm: { category, tag, aiSuggested in
-                        confirmManagerItem(category: category, tag: tag, aiSuggested: aiSuggested)
-                    }
-                )
-            }
+        .sheet(item: $pendingMgrSelection) { pending in
+            ManagerClassificationSheet(
+                snippet: pending.snippet,
+                projectName: meeting.project?.name,
+                categories: settings.managerCategories,
+                suggestedCategory: mgrSuggestedCategory,
+                suggestedElaboration: mgrSuggestedElaboration,
+                initialElaboration: mgrInitialElaboration,
+                isLoadingSuggestion: isMgrSuggestingCategory,
+                isLoadingElaboration: isMgrElaborating,
+                elaborationFromAI: mgrElaborationFromAI,
+                elaborationFallbackReason: mgrElaborationFallbackReason,
+                onCancel: {
+                    pendingMgrSelection = nil
+                },
+                onConfirm: { category, tag, elaboratedText, aiSuggested in
+                    confirmManagerItem(pending: pending,
+                                        category: category,
+                                        tag: tag,
+                                        elaboratedText: elaboratedText,
+                                        aiSuggested: aiSuggested)
+                }
+            )
         }
         .popover(isPresented: $showSlidesList) { slidesPopover }
         .popover(isPresented: $showCaptureSetup) {
@@ -292,12 +316,33 @@ struct MeetingView: View {
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
+            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
-            print("[MeetingView] retranscribe OK: \(result.text.count) chars")
+            print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
         } catch {
             transcribeError = error.localizedDescription
             print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    /// Replaces `meeting.transcriptSegments` with fresh ones (deletes existing
+    /// rows first so a re-transcribe doesn't accumulate stale segments).
+    /// New segments default to `speakerID = 0` (non-assigned) — the diarization
+    /// pass and/or user assignment fills speakers in afterwards.
+    private func persistTranscriptSegments(_ segments: [STTSegment]) {
+        for old in meeting.transcriptSegments {
+            context.delete(old)
+        }
+        for (idx, seg) in segments.enumerated() {
+            let row = TranscriptSegment(
+                orderIndex: idx,
+                startSeconds: seg.startSeconds,
+                endSeconds: seg.endSeconds,
+                text: seg.text
+            )
+            row.meeting = meeting
+            context.insert(row)
         }
     }
 
@@ -575,7 +620,10 @@ struct MeetingView: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 240)
                 } else {
-                    if !meeting.mergedTranscript.isEmpty {
+                    transcriptToolbar
+                    if showSpeakersView && !meeting.transcriptSegments.isEmpty {
+                        transcriptSegmentsView
+                    } else if !meeting.mergedTranscript.isEmpty {
                         MeetingHighlightableTextView(
                             text: .constant(meeting.mergedTranscript),
                             isEditable: false,
@@ -616,7 +664,7 @@ struct MeetingView: View {
                     if !meeting.highlights.isEmpty {
                         section("Faits marquants") {
                             ForEach(meeting.highlights, id: \.self) { item in
-                                Label(item, systemImage: "sparkles").font(.callout)
+                                bulletRow(text: item, systemImage: "sparkles")
                             }
                         }
                     }
@@ -634,22 +682,21 @@ struct MeetingView: View {
                     if !meeting.keyPoints.isEmpty {
                         section("Points clés") {
                             ForEach(meeting.keyPoints, id: \.self) { p in
-                                Label(p, systemImage: "circle.fill").labelStyle(.titleAndIcon)
-                                    .font(.callout)
+                                bulletRow(text: p, systemImage: "circle.fill")
                             }
                         }
                     }
                     if !meeting.decisions.isEmpty {
                         section("Décisions") {
                             ForEach(meeting.decisions, id: \.self) { d in
-                                Label(d, systemImage: "checkmark.seal").font(.callout)
+                                bulletRow(text: d, systemImage: "checkmark.seal")
                             }
                         }
                     }
                     if !meeting.openQuestions.isEmpty {
                         section("Questions ouvertes") {
                             ForEach(meeting.openQuestions, id: \.self) { q in
-                                Label(q, systemImage: "questionmark.circle").font(.callout)
+                                bulletRow(text: q, systemImage: "questionmark.circle")
                             }
                         }
                     }
@@ -901,12 +948,13 @@ struct MeetingView: View {
         do {
             print("[MeetingView] → transcribe start…")
             let result = try await stt.transcribe(audioURL: finalURL)
-            print("[MeetingView] ← transcribe OK: \(result.text.count) chars")
+            print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
+            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
         } catch {
@@ -1146,11 +1194,33 @@ struct MeetingView: View {
     }
 
     private func startManagerReportFlow(range: NSRange, snippet: String, field: String) {
-        pendingMgrSelection = (range, snippet, field)
         mgrSuggestedCategory = nil
+        mgrSuggestedElaboration = nil
         isMgrSuggestingCategory = true
-        showMgrClassificationSheet = true
+        isMgrElaborating = true
 
+        // Compute deterministic context for both initial elaboration fallback
+        // (shown immediately) and the AI prompt context.
+        let fullText: String
+        switch field {
+        case "mergedTranscript": fullText = meeting.mergedTranscript
+        case "transcript":       fullText = meeting.rawTranscript
+        case "summary":          fullText = meeting.summary
+        case "notes":            fullText = meeting.notes
+        case "liveNotes":        fullText = meeting.liveNotes
+        default:                 fullText = ""
+        }
+        let ctx = SentenceContextExtractor.extractContext(text: fullText, range: range)
+        // Pre-fill the elaboration field with raw context+snippet so user has
+        // something usable instantly, even before AI returns or if AI fails.
+        mgrInitialElaboration = ManagerSnippetElaborator.fallback(
+            contextBefore: ctx.before, snippet: snippet, contextAfter: ctx.after
+        )
+
+        // Setting `pendingMgrSelection` triggers `.sheet(item:)` atomically.
+        pendingMgrSelection = PendingMgrSelection(range: range, snippet: snippet, field: field)
+
+        // Fire category classifier and snippet elaborator in parallel.
         Task { @MainActor in
             let suggested = await ManagerCategoryClassifier.classify(
                 snippet: snippet,
@@ -1160,10 +1230,36 @@ struct MeetingView: View {
             mgrSuggestedCategory = suggested
             isMgrSuggestingCategory = false
         }
+
+        Task { @MainActor in
+            let outcome = await ManagerSnippetElaborator.elaborate(
+                snippet: snippet,
+                contextBefore: ctx.before,
+                contextAfter: ctx.after,
+                projectName: meeting.project?.name,
+                sourceMeetingTitle: meeting.title,
+                sourceMeetingDate: meeting.date,
+                settings: settings
+            )
+            switch outcome {
+            case .ai(let text):
+                mgrSuggestedElaboration = text
+                mgrElaborationFromAI = true
+                mgrElaborationFallbackReason = ""
+            case .fallback(let text, let reason):
+                mgrSuggestedElaboration = text
+                mgrElaborationFromAI = false
+                mgrElaborationFallbackReason = reason
+            }
+            isMgrElaborating = false
+        }
     }
 
-    private func confirmManagerItem(category: String, tag: String, aiSuggested: String?) {
-        guard let pending = pendingMgrSelection else { return }
+    private func confirmManagerItem(pending: PendingMgrSelection,
+                                    category: String,
+                                    tag: String,
+                                    elaboratedText: String,
+                                    aiSuggested: String?) {
         let fullText: String
         switch pending.field {
         case "mergedTranscript": fullText = meeting.mergedTranscript
@@ -1182,6 +1278,7 @@ struct MeetingView: View {
                 sourceMeeting: meeting,
                 contextBefore: ctx.before,
                 contextAfter: ctx.after,
+                elaboratedText: elaboratedText,
                 category: category,
                 tag: tag,
                 aiSuggestedCategory: aiSuggested,
@@ -1192,13 +1289,201 @@ struct MeetingView: View {
             print("[Manager] add failed: \(error)")
         }
         pendingMgrSelection = nil
-        showMgrClassificationSheet = false
+    }
+
+    /// Bullet row used in the Rapport tab for each entry in
+    /// faits marquants / points clés / décisions / questions ouvertes.
+    /// Original Label + trailing "Ajouter au rapport manager" affordance.
+    @ViewBuilder
+    private func bulletRow(text: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Label {
+                Text(text).font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } icon: {
+                Image(systemName: systemImage)
+            }
+            .labelStyle(.titleAndIcon)
+
+            Button {
+                startManagerReportFlow(range: NSRange(location: 0, length: 0),
+                                       snippet: text,
+                                       field: "summary")
+            } label: {
+                Image(systemName: "plus.bubble")
+                    .foregroundColor(.accentColor.opacity(0.75))
+            }
+            .buttonStyle(.plain)
+            .help("Ajouter au rapport manager")
+        }
+        .contextMenu {
+            Button {
+                startManagerReportFlow(range: NSRange(location: 0, length: 0),
+                                       snippet: text,
+                                       field: "summary")
+            } label: { Label("Ajouter au rapport manager", systemImage: "plus.bubble") }
+        }
     }
 
     private func managerHighlightedRanges(for field: String) -> [NSRange] {
         ManagerReportService.itemsHighlightingSource(meeting: meeting, field: field, in: context).map {
             NSRange(location: $0.sourceRangeStart, length: $0.sourceRangeLength)
         }
+    }
+
+    // MARK: - Transcript / speakers UI
+
+    /// Header above the transcript: speakers toggle + diarization launcher.
+    @ViewBuilder
+    private var transcriptToolbar: some View {
+        HStack(spacing: 12) {
+            Toggle("Afficher speakers", isOn: $showSpeakersView)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .disabled(meeting.transcriptSegments.isEmpty)
+
+            if !meeting.transcriptSegments.isEmpty {
+                Text("\(meeting.transcriptSegments.count) segments")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                runDiarization()
+            } label: {
+                Label("Détecter les speakers", systemImage: "person.wave.2")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .disabled(meeting.transcriptSegments.isEmpty || (meeting.wavFilePath ?? "").isEmpty)
+            .help("Analyse l'audio (VAD) et propose une alternance de tours de parole. Reassign manuel ensuite via clic sur le label.")
+        }
+        .padding(.bottom, 4)
+    }
+
+    /// List of timestamped segments with speaker prefix + color.
+    @ViewBuilder
+    private var transcriptSegmentsView: some View {
+        let sorted = meeting.transcriptSegments.sorted { $0.orderIndex < $1.orderIndex }
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(sorted) { seg in
+                segmentRow(seg)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func segmentRow(_ seg: TranscriptSegment) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Button {
+                renamingSpeakerID = seg.speakerID
+            } label: {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(speakerColor(seg.speakerID))
+                        .frame(width: 8, height: 8)
+                    Text("[\(seg.displayLabel)]")
+                        .font(.caption.bold())
+                        .foregroundColor(speakerColor(seg.speakerID))
+                }
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(speakerColor(seg.speakerID).opacity(0.10))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: Binding(
+                get: { renamingSpeakerID == seg.speakerID },
+                set: { if !$0 { renamingSpeakerID = nil } }
+            )) {
+                speakerRenamePopover(speakerID: seg.speakerID)
+                    .padding(12)
+                    .frame(minWidth: 240)
+            }
+
+            Text(seg.formattedTimestamp)
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+
+            Text(seg.text)
+                .font(.body)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private func speakerRenamePopover(speakerID: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Speaker \(speakerID) → participant")
+                .font(.caption.bold())
+            if allCollaborators.isEmpty {
+                Text("Aucun collaborateur dans la base.").font(.caption2).foregroundColor(.secondary)
+            } else {
+                ForEach(allCollaborators.sorted(by: { $0.name < $1.name })) { c in
+                    Button {
+                        assignSpeaker(speakerID: speakerID, to: c)
+                        renamingSpeakerID = nil
+                    } label: {
+                        HStack {
+                            Image(systemName: "person.fill").foregroundColor(.accentColor)
+                            Text(c.name)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Divider()
+            }
+            Button("Annuler") { renamingSpeakerID = nil }
+                .font(.caption)
+        }
+    }
+
+    private func assignSpeaker(speakerID: Int, to collaborator: Collaborator) {
+        for seg in meeting.transcriptSegments where seg.speakerID == speakerID {
+            seg.speaker = collaborator
+        }
+        try? context.save()
+    }
+
+    /// Stable palette per speakerID. ID 0 = grey (unassigned).
+    private func speakerColor(_ id: Int) -> Color {
+        guard id > 0 else { return .secondary }
+        let palette: [Color] = [.blue, .green, .orange, .purple, .pink, .teal, .brown]
+        return palette[(id - 1) % palette.count]
+    }
+
+    /// Launch VAD diarization on the meeting's audio. Re-assigns speakerID
+    /// across all segments based on the detected turn boundaries.
+    private func runDiarization() {
+        guard let wavPath = meeting.wavFilePath, !wavPath.isEmpty else { return }
+        let url = URL(fileURLWithPath: wavPath)
+        let durationSec = TimeInterval(meeting.durationSeconds)
+        Task.detached(priority: .userInitiated) {
+            let turns = DiarizationService.detectTurns(
+                audioURL: url, totalDurationSec: max(1, durationSec)
+            )
+            await MainActor.run {
+                applySpeakerTurns(turns)
+            }
+        }
+    }
+
+    /// Maps each `TranscriptSegment` to a detected turn (whichever turn
+    /// contains the segment's midpoint) and updates `speakerID`.
+    private func applySpeakerTurns(_ turns: [(start: Double, end: Double, speakerID: Int)]) {
+        guard !turns.isEmpty else { return }
+        for seg in meeting.transcriptSegments {
+            let mid = (seg.startSeconds + seg.endSeconds) / 2
+            let match = turns.first(where: { $0.start <= mid && mid <= $0.end }) ?? turns.first!
+            seg.speakerID = match.speakerID
+        }
+        try? context.save()
     }
 
     private func saveMeetingNow() {

@@ -62,17 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleOpenMeeting(userInfo: [AnyHashable: Any]?) {
         guard let raw = userInfo?["meetingID"] as? String, !raw.isEmpty,
-              let container = OneToOneApp.sharedContainer else { return }
-        print("[AppDelegate] handleOpenMeeting raw=\(raw)")
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<Meeting>()
-        let all = (try? context.fetch(descriptor)) ?? []
-        guard let target = all.first(where: { $0.persistentModelID.storeIdentifier == raw }) else {
-            print("[AppDelegate] no Meeting found for storeIdentifier=\(raw)")
-            return
-        }
-        let stableID = target.ensuredStableID
-        print("[AppDelegate] resolved target title=\(target.title) stableID=\(stableID.uuidString)")
+              let stableID = UUID(uuidString: raw) else { return }
         NSApp.activate(ignoringOtherApps: true)
         QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
             meetingID: stableID,

@@ -376,9 +376,20 @@ struct ProjectDetailView: View {
                             .buttonStyle(.bordered)
                         }
 
+                        Text("Glissez-déposez un fichier (PDF, PPTX, …) ici pour l'ajouter au projet.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
                         if project.attachments.isEmpty {
                             Text("Aucune pièce jointe projet")
                                 .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 60)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(Color.secondary.opacity(0.3),
+                                                       style: StrokeStyle(lineWidth: 1, dash: [4]))
+                                )
                         } else {
                             ForEach(project.attachments.sorted(by: { $0.importedAt > $1.importedAt })) { attachment in
                                 VStack(alignment: .leading, spacing: 6) {
@@ -392,11 +403,17 @@ struct ProjectDetailView: View {
                                         Text(attachment.fileName)
                                             .font(.subheadline.weight(.medium))
                                         Spacer()
-                                        Button("Prévisualiser") {
-                                            previewedProjectAttachment = attachment
+                                        Button {
+                                            AttachmentImporter.openWithDefaultApp(attachment.resolvedURL())
+                                        } label: {
+                                            Label("Aperçu", systemImage: "eye")
                                         }
                                         .font(.caption)
+                                        .help("Ouvrir dans Aperçu (ou app par défaut pour ce type)")
                                         Button(role: .destructive) {
+                                            // Remove the local copy from disk before
+                                            // deleting the SwiftData record.
+                                            AttachmentImporter.deleteFromDisk(attachment.resolvedURL())
                                             context.delete(attachment)
                                             saveContext()
                                         } label: {
@@ -424,6 +441,21 @@ struct ProjectDetailView: View {
                         }
                     }
                     .padding(.vertical, 5)
+                    // Drag-drop support for files dragged from Finder.
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        var didAdd = false
+                        for provider in providers {
+                            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                                guard let url = url else { return }
+                                Task { @MainActor in
+                                    addProjectAttachment(from: url)
+                                    saveContext()
+                                }
+                            }
+                            didAdd = true
+                        }
+                        return didAdd
+                    }
                 }
 
                 // Flux Mermaid
@@ -628,18 +660,33 @@ struct ProjectDetailView: View {
         switch result {
         case .success(let urls):
             for url in urls {
-                let attachment = ProjectAttachment(url: url, category: newProjectAttachmentCategory)
-                attachment.project = project
-                context.insert(attachment)
-                if newProjectAttachmentCategory == "DAT" {
-                    project.hasDAT = true
-                } else if newProjectAttachmentCategory == "DIT" {
-                    project.hasDIT = true
-                }
+                addProjectAttachment(from: url)
             }
             saveContext()
         case .failure(let error):
             print("[ProjectDetail] attachment import failed: \(error)")
+        }
+    }
+
+    /// Copies the source URL into Application Support and creates a
+    /// `ProjectAttachment` pointing at the local copy. Used both by the
+    /// fileImporter callback and by drag-drop.
+    private func addProjectAttachment(from sourceURL: URL) {
+        do {
+            let copied = try AttachmentImporter.copyIntoAppSupport(
+                source: sourceURL,
+                bucket: .project(code: project.code)
+            )
+            let attachment = ProjectAttachment(url: copied, category: newProjectAttachmentCategory)
+            attachment.project = project
+            context.insert(attachment)
+            if newProjectAttachmentCategory == "DAT" {
+                project.hasDAT = true
+            } else if newProjectAttachmentCategory == "DIT" {
+                project.hasDIT = true
+            }
+        } catch {
+            print("[ProjectDetail] attachment copy failed: \(error)")
         }
     }
 

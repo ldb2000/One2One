@@ -190,7 +190,7 @@ final class MenuBarController: NSObject {
         NotificationCenter.default.post(
             name: .openMeetingFromAgenda,
             object: nil,
-            userInfo: ["meetingID": meeting.persistentModelID.storeIdentifier ?? ""]
+            userInfo: ["meetingID": meeting.ensuredStableID.uuidString]
         )
     }
 
@@ -205,7 +205,7 @@ final class MenuBarController: NSObject {
             NotificationCenter.default.post(
                 name: .openMeetingFromAgenda,
                 object: nil,
-                userInfo: ["meetingID": existing.persistentModelID.storeIdentifier ?? ""]
+                userInfo: ["meetingID": existing.ensuredStableID.uuidString]
             )
         } else if let event = CalendarAgendaService.shared.eventsToday.first(where: { $0.id == eventID }) {
             guard let settings = currentSettings() else { return }
@@ -215,7 +215,7 @@ final class MenuBarController: NSObject {
             NotificationCenter.default.post(
                 name: .openMeetingFromAgenda,
                 object: nil,
-                userInfo: ["meetingID": meeting.persistentModelID.storeIdentifier ?? ""]
+                userInfo: ["meetingID": meeting.ensuredStableID.uuidString]
             )
         }
     }

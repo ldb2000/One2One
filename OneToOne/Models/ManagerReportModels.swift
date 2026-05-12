@@ -12,10 +12,17 @@ final class ManagerReportItem {
     var stableID: UUID = UUID()
     var createdAt: Date = Date()
 
-    // Contenu source brut (l'enrichissement IA est différé à la génération du CR)
+    // Contenu source brut
     var rawSnippet: String = ""           // phrase exacte sélectionnée
     var contextBefore: String = ""        // ~2 phrases avant
     var contextAfter: String = ""         // ~2 phrases après
+
+    /// Texte rédigé (par IA puis éventuellement édité par l'utilisateur) au
+    /// moment de l'ajout : combine snippet + contexte + projet en un texte
+    /// autonome et lisible. Affiché dans Suivi manager / Agenda manager à la
+    /// place du `rawSnippet` quand non-vide. Utilisé en priorité par
+    /// `ManagerCRGenerator.buildPrompt` pour décrire le point.
+    var elaboratedText: String = ""
 
     // Localisation source pour le highlight jaune
     // sourceField ∈ {"transcript", "mergedTranscript", "summary", "notes", "liveNotes"}

@@ -16,6 +16,9 @@ final class Note {
     var project: Project?
     var collaborator: Collaborator?
 
+    @Relationship(deleteRule: .cascade, inverse: \NoteAttachment.note)
+    var attachments: [NoteAttachment] = []
+
     init(title: String = "",
          body: String = "",
          project: Project? = nil,
@@ -29,4 +32,24 @@ final class Note {
         self.createdAt = createdAt
         self.updatedAt = createdAt
     }
+}
+
+/// Pièce jointe d'une note. Le fichier est COPIÉ dans
+/// `~/Library/Application Support/OneToOne/notes/<noteStableID>/...` à l'import,
+/// donc `filePath` est un chemin local stable (pas de bookmark dépendant du
+/// fichier original).
+@Model
+final class NoteAttachment {
+    var stableID: UUID = UUID()
+    var fileName: String = ""
+    var filePath: String = ""        // chemin absolu inside Application Support
+    var importedAt: Date = Date()
+    var note: Note?
+
+    init(fileName: String, filePath: String) {
+        self.fileName = fileName
+        self.filePath = filePath
+    }
+
+    var url: URL { URL(fileURLWithPath: filePath) }
 }

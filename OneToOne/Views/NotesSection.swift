@@ -143,6 +143,8 @@ struct NoteEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @State private var showPreview = false
+    @State private var showAttachmentImporter = false
+    @State private var attachmentError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -170,19 +172,25 @@ struct NoteEditorSheet: View {
                 }
                 .background(Color.gray.opacity(0.05))
                 .cornerRadius(6)
-                .frame(minHeight: 280)
+                .frame(minHeight: 240)
             } else {
                 TextEditor(text: $note.body)
                     .font(.body)
                     .padding(6)
                     .background(Color.gray.opacity(0.05))
                     .cornerRadius(6)
-                    .frame(minHeight: 280)
+                    .frame(minHeight: 240)
             }
+
+            attachmentsSection
 
             HStack {
                 if !isNew {
                     Button(role: .destructive) {
+                        // Wipe attached files from disk before deleting the note.
+                        for att in note.attachments {
+                            AttachmentImporter.deleteFromDisk(att.url)
+                        }
                         context.delete(note)
                         try? context.save()
                         dismiss()
@@ -206,6 +214,135 @@ struct NoteEditorSheet: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 540, minHeight: 460)
+        .frame(minWidth: 600, minHeight: 540)
+        .fileImporter(
+            isPresented: $showAttachmentImporter,
+            allowedContentTypes: [.pdf, .presentation, .item],
+            allowsMultipleSelection: true
+        ) { result in
+            handleAttachmentImport(result)
+        }
+    }
+
+    @ViewBuilder
+    private var attachmentsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("Pièces jointes", systemImage: "paperclip")
+                    .font(.caption.bold())
+                Spacer()
+                Button {
+                    showAttachmentImporter = true
+                } label: {
+                    Label("Ajouter", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+
+            if let err = attachmentError {
+                Text(err).font(.caption2).foregroundColor(.red)
+            }
+
+            if note.attachments.isEmpty {
+                Text("Glissez-déposez un fichier (PDF, PPTX, …) ici ou cliquez Ajouter.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Color.secondary.opacity(0.3),
+                                           style: StrokeStyle(lineWidth: 1, dash: [4]))
+                    )
+            } else {
+                ForEach(note.attachments.sorted(by: { $0.importedAt > $1.importedAt })) { att in
+                    HStack(spacing: 8) {
+                        Image(systemName: iconForFile(att.fileName))
+                            .foregroundColor(.accentColor)
+                        Text(att.fileName)
+                            .font(.callout)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(att.importedAt.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption2).foregroundColor(.secondary)
+                        Button {
+                            AttachmentImporter.openWithDefaultApp(att.url)
+                        } label: {
+                            Label("Aperçu", systemImage: "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .help("Ouvrir dans Aperçu (ou app par défaut)")
+                        Button(role: .destructive) {
+                            AttachmentImporter.deleteFromDisk(att.url)
+                            context.delete(att)
+                            try? context.save()
+                        } label: {
+                            Image(systemName: "trash").foregroundColor(.red.opacity(0.75))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.06))
+                    .cornerRadius(6)
+                }
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            var anyFile = false
+            for provider in providers {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    Task { @MainActor in
+                        attachNoteFile(url)
+                    }
+                }
+                anyFile = true
+            }
+            return anyFile
+        }
+    }
+
+    private func handleAttachmentImport(_ result: Result<[URL], Error>) {
+        attachmentError = nil
+        switch result {
+        case .success(let urls):
+            for url in urls { attachNoteFile(url) }
+        case .failure(let err):
+            attachmentError = "Échec de l'import : \(err.localizedDescription)"
+        }
+    }
+
+    private func attachNoteFile(_ source: URL) {
+        guard let stableID = note.stableID else {
+            attachmentError = "Note sans identifiant stable, impossible d'attacher."
+            return
+        }
+        do {
+            let copied = try AttachmentImporter.copyIntoAppSupport(
+                source: source,
+                bucket: .note(stableID: stableID)
+            )
+            let att = NoteAttachment(fileName: copied.lastPathComponent, filePath: copied.path)
+            att.note = note
+            context.insert(att)
+            try context.save()
+        } catch {
+            attachmentError = "Échec de la copie : \(error.localizedDescription)"
+        }
+    }
+
+    private func iconForFile(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "pdf":                return "doc.richtext"
+        case "ppt", "pptx", "key": return "rectangle.on.rectangle.angled"
+        case "doc", "docx":        return "doc.text"
+        case "xls", "xlsx", "csv": return "tablecells"
+        case "png", "jpg", "jpeg", "gif", "heic": return "photo"
+        default:                   return "paperclip"
+        }
     }
 }

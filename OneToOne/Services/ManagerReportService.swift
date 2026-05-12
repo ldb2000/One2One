@@ -26,6 +26,7 @@ enum ManagerReportService {
         sourceMeeting: Meeting?,
         contextBefore: String,
         contextAfter: String,
+        elaboratedText: String = "",
         category: String,
         tag: String,
         aiSuggestedCategory: String?,
@@ -40,6 +41,7 @@ enum ManagerReportService {
         )
         item.contextBefore = contextBefore
         item.contextAfter = contextAfter
+        item.elaboratedText = elaboratedText
         item.category = category
         item.tag = tag
         item.aiSuggestedCategory = aiSuggestedCategory
