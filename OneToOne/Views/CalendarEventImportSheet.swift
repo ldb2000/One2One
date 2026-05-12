@@ -1,11 +1,14 @@
 import SwiftUI
+import SwiftData
 
 struct CalendarEventImportSheet: View {
     let anchorDate: Date
     let onImport: (CalendarMeetingEvent) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
     @StateObject private var service = CalendarMeetingImportService()
+    @Query private var allSettings: [AppSettings]
     @State private var events: [CalendarMeetingEvent] = []
     @State private var searchText = ""
     @State private var isLoading = false
@@ -87,6 +90,8 @@ struct CalendarEventImportSheet: View {
                             .buttonStyle(.borderedProminent)
                         }
 
+                        suggestionBadge(for: event)
+
                         if !event.attendees.isEmpty {
                             Text(event.attendees.map { attendee in
                                 attendee.status == .absent ? "\(attendee.name) (absent)" : attendee.name
@@ -122,5 +127,31 @@ struct CalendarEventImportSheet: View {
             }
             isLoading = false
         }
+    }
+
+    @ViewBuilder
+    private func suggestionBadge(for event: CalendarMeetingEvent) -> some View {
+        let settings = allSettings.first ?? AppSettings()
+        let s = ProjectMatchService.suggestKind(for: event, context: context, settings: settings)
+        HStack(spacing: 8) {
+            Image(systemName: s.kind.sfSymbol)
+                .foregroundStyle(.secondary)
+            Text(s.kind.label)
+                .font(.caption.bold())
+            if let proj = s.project {
+                Text("· \(proj.name)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let collab = s.collaborator {
+                Text("· \(collab.name)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text("\(Int(s.confidence * 100))%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(s.autoApply(threshold: settings.autoImportThreshold) ? .green : .orange)
+        }
+        .padding(.vertical, 2)
     }
 }

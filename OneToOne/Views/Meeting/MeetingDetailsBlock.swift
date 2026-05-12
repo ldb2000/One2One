@@ -23,6 +23,7 @@ struct MeetingDetailsBlock: View {
     @Environment(\.modelContext) private var context
     @State private var showCreateProjectSheet = false
     @State private var showProjectSearch = false
+    @State private var showResyncConfirmation: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -161,13 +162,35 @@ struct MeetingDetailsBlock: View {
                 .tracking(1.2)
                 .foregroundColor(.secondary)
 
-            if !meeting.calendarEventTitle.isEmpty {
-                Label(
-                    "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
-                    systemImage: "calendar"
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                if !meeting.calendarEventTitle.isEmpty {
+                    Label(
+                        "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
+                        systemImage: "calendar"
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                if !meeting.calendarEventID.isEmpty {
+                    Button {
+                        showResyncConfirmation = true
+                    } label: {
+                        Label("Resync", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Recharger titre / dates / lien Teams depuis le calendrier")
+                }
+            }
+            .alert("Resynchroniser depuis le calendrier ?",
+                   isPresented: $showResyncConfirmation) {
+                Button("Annuler", role: .cancel) { }
+                Button("Remplacer", role: .destructive) {
+                    resyncFromCalendar()
+                }
+            } message: {
+                Text("Le titre, les dates et le lien Teams seront remplacés par les valeurs du calendrier.")
             }
 
             FlowLayout(spacing: 8) {
@@ -299,6 +322,30 @@ struct MeetingDetailsBlock: View {
         case .participant: return settings.meetingParticipantColor
         case .absent:      return settings.meetingAbsentColor
         }
+    }
+
+    @MainActor
+    private func resyncFromCalendar() {
+        let eventID = meeting.calendarEventID
+        guard !eventID.isEmpty else { return }
+        let importer = CalendarMeetingImportService()
+        let now = Date()
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        let end = cal.date(byAdding: .day, value: 60, to: now) ?? now
+        let events = importer.fetchEvents(start: start, end: end)
+        guard let match = events.first(where: { $0.id == eventID }) else { return }
+
+        meeting.title = match.title
+        meeting.scheduledStart = match.startDate
+        meeting.scheduledEnd = match.endDate
+        meeting.teamsJoinURL = match.teamsJoinURL
+        meeting.date = match.startDate
+        if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
+
+        // Persist before scheduling so storeIdentifier stays stable.
+        try? context.save()
+        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
     }
 }
 

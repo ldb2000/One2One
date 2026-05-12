@@ -783,8 +783,7 @@ struct DashboardView: View {
     /// Renvoie la durée à comptabiliser pour un meeting : durée de réunion
     /// (calendar event), avec fallback sur la durée d'enregistrement audio.
     private func meetingTrackedSeconds(_ meeting: Meeting) -> Int {
-        if meeting.meetingDurationSeconds > 0 { return meeting.meetingDurationSeconds }
-        return max(0, meeting.durationSeconds)
+        return max(0, Int(meeting.effectiveDuration.rounded()))
     }
 
     private var previousWeekStart: Date {
