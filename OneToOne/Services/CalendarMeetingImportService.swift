@@ -1,5 +1,6 @@
 import Foundation
 import EventKit
+import SwiftData
 
 struct CalendarMeetingAttendee: Identifiable, Hashable {
     let id: String
@@ -95,5 +96,70 @@ final class CalendarMeetingImportService: ObservableObject {
             return String(absolute.dropFirst("mailto:".count))
         }
         return absolute.isEmpty ? nil : absolute
+    }
+
+    // MARK: - Import
+
+    /// Imports a calendar event as a Meeting. Idempotent on `calendarEventID`:
+    /// re-importing the same event returns the existing Meeting unchanged.
+    /// Caller is responsible for `context.save()` after mutation.
+    func importEvent(_ event: CalendarMeetingEvent,
+                     context: ModelContext,
+                     settings: AppSettings) -> Meeting {
+        if let existing = findExisting(eventID: event.id, in: context) {
+            return existing
+        }
+
+        let meeting = Meeting(title: event.title, date: event.startDate)
+        meeting.scheduledStart = event.startDate
+        meeting.scheduledEnd = event.endDate
+        meeting.teamsJoinURL = event.teamsJoinURL
+        meeting.calendarEventID = event.id
+
+        let suggestion = ProjectMatchService.suggestKind(for: event, context: context, settings: settings)
+        meeting.kind = suggestion.kind
+        if let project = suggestion.project {
+            meeting.project = project
+        }
+        if let collab = suggestion.collaborator,
+           !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
+            meeting.participants.append(collab)
+        }
+
+        // Materialize attendees as Collaborator (dedup by email).
+        let me = settings.userEmail.lowercased()
+        for attendee in event.attendees {
+            let email = (attendee.email ?? "").lowercased()
+            if email == me || email.isEmpty { continue }
+            let collab = upsertCollaborator(for: attendee, in: context)
+            if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
+                meeting.participants.append(collab)
+            }
+        }
+
+        context.insert(meeting)
+        return meeting
+    }
+
+    private func findExisting(eventID: String, in context: ModelContext) -> Meeting? {
+        let descriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
+        )
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    private func upsertCollaborator(for attendee: CalendarMeetingAttendee,
+                                     in context: ModelContext) -> Collaborator {
+        let email = (attendee.email ?? "").lowercased()
+        if !email.isEmpty {
+            let all = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
+            if let match = all.first(where: { $0.email.lowercased() == email }) {
+                return match
+            }
+        }
+        let collab = Collaborator(name: attendee.name)
+        collab.email = attendee.email ?? ""
+        context.insert(collab)
+        return collab
     }
 }
