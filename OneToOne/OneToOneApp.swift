@@ -73,6 +73,7 @@ struct OneToOneApp: App {
 
         WindowGroup(id: "1to1-meeting", for: OneToOneLaunchToken.self) { $token in
             OneToOneMeetingWindowContent(token: token)
+                .preferredColorScheme(.light)
                 .environmentObject(router)
         }
         .modelContainer(container)
@@ -244,9 +245,9 @@ struct ContentView: View {
                 meeting.stableID = UUID()
                 meetingFilled += 1
             }
-            print("Reparation SwiftData: \(allMeetings.count) Meetings scanned, \(meetingFilled) backfilled.")
             if meetingFilled > 0 {
                 try context.save()
+                print("Reparation SwiftData: \(meetingFilled) Meeting.stableID backfilles.")
             }
         } catch {
             print("Echec reparation SwiftData: \(error)")
@@ -278,11 +279,9 @@ struct OneToOneMeetingWindowContent: View {
         guard let token else { return }
         if let resolved, resolved.stableID == token.meetingID { return }
         let target = token.meetingID
-        print("[Window] resolveIfNeeded target=\(target.uuidString)")
         let descriptor = FetchDescriptor<Meeting>(
             predicate: #Predicate { $0.stableID == target }
         )
         resolved = try? context.fetch(descriptor).first
-        print("[Window] resolved title=\(resolved?.title ?? "nil") stableID=\(resolved?.stableID?.uuidString ?? "nil")")
     }
 }
