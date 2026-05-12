@@ -132,10 +132,10 @@ final class MenuBarController: NSObject {
         }
 
         let submenu = NSMenu()
-        if let url = event.teamsJoinURL {
+        if event.teamsJoinURL != nil {
             let join = NSMenuItem(title: "Rejoindre Teams", action: #selector(joinTeams(_:)), keyEquivalent: "")
             join.target = self
-            join.representedObject = url
+            join.representedObject = event.id
             submenu.addItem(join)
         } else {
             let none = NSMenuItem(title: "(pas de lien Teams)", action: nil, keyEquivalent: "")
@@ -166,8 +166,32 @@ final class MenuBarController: NSObject {
     // MARK: - Actions
 
     @objc private func joinTeams(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? String else { return }
+        guard let eventID = sender.representedObject as? String,
+              let event = CalendarAgendaService.shared.eventsToday.first(where: { $0.id == eventID }),
+              let url = event.teamsJoinURL,
+              let context = container?.mainContext else { return }
         TeamsLauncher.open(url)
+
+        // Ensure the meeting is imported in-app (idempotent).
+        let descriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
+        )
+        let meeting: Meeting
+        if let existing = (try? context.fetch(descriptor))?.first {
+            meeting = existing
+        } else if let settings = currentSettings() {
+            let importer = CalendarMeetingImportService()
+            meeting = importer.importEvent(event, context: context, settings: settings)
+            try? context.save()
+        } else {
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(
+            name: .openMeetingFromAgenda,
+            object: nil,
+            userInfo: ["meetingID": meeting.persistentModelID.storeIdentifier ?? ""]
+        )
     }
 
     @objc private func openEvent(_ sender: NSMenuItem) {

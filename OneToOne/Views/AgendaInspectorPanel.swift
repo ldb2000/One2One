@@ -26,11 +26,13 @@ struct AgendaInspectorPanel: View {
 
             if !agenda.hasCalendarAccess {
                 permissionDeniedView
+                Spacer(minLength: 0)
             } else if events.isEmpty {
                 ContentUnavailableView("Aucune réunion ce jour",
                                        systemImage: "calendar",
                                        description: Text("Sélectionnez une autre date."))
                     .padding()
+                Spacer(minLength: 0)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -42,7 +44,7 @@ struct AgendaInspectorPanel: View {
                 }
             }
         }
-        .frame(minWidth: 280)
+        .frame(minWidth: 280, maxHeight: .infinity, alignment: .top)
         .task { await agenda.bootstrap() }
         .onChange(of: selectedDate) { _, _ in reload() }
         .onChange(of: agenda.eventsToday) { _, _ in reload() }
@@ -91,7 +93,7 @@ struct AgendaInspectorPanel: View {
             HStack(spacing: 8) {
                 if let url = event.teamsJoinURL {
                     Button {
-                        TeamsLauncher.open(url)
+                        joinAndImport(event: event, url: url)
                     } label: {
                         Label("Rejoindre Teams", systemImage: "video.fill")
                             .font(.caption)
@@ -166,6 +168,21 @@ struct AgendaInspectorPanel: View {
             predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
         )
         return (try? context.fetch(descriptor))?.first
+    }
+
+    /// Opens Teams and ensures the event is imported as a Meeting (idempotent).
+    /// If the Meeting doesn't exist yet, creates it with auto-matched kind/project
+    /// and opens it in the app alongside Teams.
+    private func joinAndImport(event: CalendarMeetingEvent, url: String) {
+        TeamsLauncher.open(url)
+        let meeting: Meeting
+        if let existing = existingMeeting(for: event.id) {
+            meeting = existing
+        } else {
+            meeting = importer.importEvent(event, context: context, settings: settings)
+            try? context.save()
+        }
+        openMeeting(meeting)
     }
 
     private func openMeeting(_ meeting: Meeting) {

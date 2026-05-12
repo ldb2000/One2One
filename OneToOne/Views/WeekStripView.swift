@@ -37,9 +37,20 @@ struct WeekStripView: View {
                 .buttonStyle(.plain)
             }
 
-            Text(selectedDateHeader)
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                Text(selectedDateHeader)
+                    .font(.headline)
+                Spacer()
+                if !calendar.isDateInToday(selectedDate) {
+                    Button("Aujourd'hui") {
+                        let today = Date()
+                        selectedDate = today
+                        weekAnchor = today
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
         }
         .padding(.horizontal, 8)
         .onAppear { weekAnchor = selectedDate }
