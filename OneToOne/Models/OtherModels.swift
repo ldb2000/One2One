@@ -263,6 +263,11 @@ final class Meeting {
     var calendarEventID: String = ""
     var calendarEventTitle: String = ""
 
+    // MARK: - Calendar integration (optional — lightweight migration safe)
+    var scheduledStart: Date?
+    var scheduledEnd: Date?
+    var teamsJoinURL: String?
+
     // Report metadata
     /// Durée de la dernière génération de rapport, en secondes (0 si jamais
     /// généré). Utilisé pour afficher "Rapport ✓ (2:34)" et donner un repère
@@ -284,6 +289,11 @@ final class Meeting {
 
     @Relationship(deleteRule: .cascade, inverse: \TranscriptChunk.meeting)
     var transcriptChunks: [TranscriptChunk] = []
+
+    /// Segments timestampés (sub-projet D : diarization). Optionnel — vide
+    /// pour les meetings transcrits avant l'introduction des segments.
+    @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.meeting)
+    var transcriptSegments: [TranscriptSegment] = []
 
     init(title: String = "", date: Date = Date(), notes: String = "") {
         self.title = title

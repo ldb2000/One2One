@@ -223,4 +223,14 @@ extension Meeting {
             .filter { !$0.isEmpty }
             .filter { seen.insert($0).inserted }
     }
+
+    /// Duration to display in stats. Prefers calendar-scheduled duration
+    /// (Outlook-style) and falls back to recorded duration for ad-hoc
+    /// meetings. Inverted scheduled bounds are treated as invalid.
+    var effectiveDuration: TimeInterval {
+        if let s = scheduledStart, let e = scheduledEnd, e > s {
+            return e.timeIntervalSince(s)
+        }
+        return TimeInterval(durationSeconds)
+    }
 }
