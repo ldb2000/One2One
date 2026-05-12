@@ -68,6 +68,35 @@ final class AppSettings {
     /// du CR manager (cf. ManagerCRGenerator).
     var managerReportPrompt: String = AppSettings.defaultManagerReportPrompt
 
+    // MARK: - Calendar & Menubar Integration
+
+    /// Email de l'utilisateur (pour filtrage attendees et détection manager).
+    var userEmail: String = ""
+
+    /// Activer l'affichage de la prochaine réunion dans la barre de menu.
+    var menubarEnabled: Bool = true
+
+    /// Afficher le titre de la réunion dans le menubar.
+    var menubarShowNextTitle: Bool = true
+
+    /// Nombre maximum de caractères du titre à afficher dans le menubar.
+    var menubarMaxTitleChars: Int = 25
+
+    /// Ouvrir l'inspecteur d'agenda par défaut à l'ouverture de l'app.
+    var agendaInspectorOpenByDefault: Bool = false
+
+    /// Notifier au démarrage de la réunion.
+    var notifMeetingStart: Bool = true
+
+    /// Notifier 5 min avant la fin de la réunion.
+    var notifMeetingEndWarning: Bool = true
+
+    /// Notifier à la fin de la réunion.
+    var notifMeetingEnd: Bool = true
+
+    /// Seuil de confiance pour l'importation automatique (0.0 à 1.0).
+    var autoImportThreshold: Double = 0.9
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
