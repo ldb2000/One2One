@@ -276,13 +276,13 @@ struct OneToOneMeetingWindowContent: View {
 
     private func resolveIfNeeded() {
         guard let token else { return }
-        // Re-resolve when the token's meetingID differs from the currently-
-        // shown meeting (window reuse across multiple tokens).
         if let resolved, resolved.stableID == token.meetingID { return }
         let target = token.meetingID
+        print("[Window] resolveIfNeeded target=\(target.uuidString)")
         let descriptor = FetchDescriptor<Meeting>(
             predicate: #Predicate { $0.stableID == target }
         )
         resolved = try? context.fetch(descriptor).first
+        print("[Window] resolved title=\(resolved?.title ?? "nil") stableID=\(resolved?.stableID?.uuidString ?? "nil")")
     }
 }

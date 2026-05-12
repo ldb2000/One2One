@@ -175,12 +175,15 @@ struct AgendaInspectorPanel: View {
     /// and opens it in the app alongside Teams.
     private func joinAndImport(event: CalendarMeetingEvent, url: String) {
         TeamsLauncher.open(url)
+        print("[Agenda] joinAndImport event.id=\(event.id) title=\(event.title)")
         let meeting: Meeting
         if let existing = existingMeeting(for: event.id) {
             meeting = existing
+            print("[Agenda] existing Meeting found: title=\(existing.title) stableID=\(existing.stableID?.uuidString ?? "nil") calendarEventID=\(existing.calendarEventID)")
         } else {
             meeting = importer.importEvent(event, context: context, settings: settings)
             try? context.save()
+            print("[Agenda] imported new Meeting: title=\(meeting.title) stableID=\(meeting.stableID?.uuidString ?? "nil")")
         }
         openMeeting(meeting)
     }
