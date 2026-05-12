@@ -161,13 +161,26 @@ struct MeetingDetailsBlock: View {
                 .tracking(1.2)
                 .foregroundColor(.secondary)
 
-            if !meeting.calendarEventTitle.isEmpty {
-                Label(
-                    "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
-                    systemImage: "calendar"
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                if !meeting.calendarEventTitle.isEmpty {
+                    Label(
+                        "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
+                        systemImage: "calendar"
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                if !meeting.calendarEventID.isEmpty {
+                    Button {
+                        resyncFromCalendar()
+                    } label: {
+                        Label("Resync", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Recharger titre / dates / lien Teams depuis le calendrier")
+                }
             }
 
             FlowLayout(spacing: 8) {
@@ -299,6 +312,28 @@ struct MeetingDetailsBlock: View {
         case .participant: return settings.meetingParticipantColor
         case .absent:      return settings.meetingAbsentColor
         }
+    }
+
+    @MainActor
+    private func resyncFromCalendar() {
+        let eventID = meeting.calendarEventID
+        guard !eventID.isEmpty else { return }
+        let importer = CalendarMeetingImportService()
+        let now = Date()
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        let end = cal.date(byAdding: .day, value: 60, to: now) ?? now
+        let events = importer.fetchEvents(start: start, end: end)
+        guard let match = events.first(where: { $0.id == eventID }) else { return }
+
+        meeting.title = match.title
+        meeting.scheduledStart = match.startDate
+        meeting.scheduledEnd = match.endDate
+        meeting.teamsJoinURL = match.teamsJoinURL
+        meeting.date = match.startDate
+        if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
+
+        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
     }
 }
 
