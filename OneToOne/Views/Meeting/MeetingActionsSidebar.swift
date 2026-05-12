@@ -141,7 +141,7 @@ struct MeetingActionsSidebar: View {
             HStack(spacing: 8) {
                 Picker("Assigné à", selection: $selectedCollaborator) {
                     Text("Non assigné").tag(nil as Collaborator?)
-                    ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
+                    ForEach(allCollaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
                 }
                 .pickerStyle(.menu)
                 Toggle(isOn: $showNewTaskDueDate) {

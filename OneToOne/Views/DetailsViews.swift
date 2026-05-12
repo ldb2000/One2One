@@ -70,7 +70,7 @@ struct ProjectDetailView: View {
 
                         Picker("Entité", selection: $project.entity) {
                             Text("Aucune").tag(nil as Entity?)
-                            ForEach(entities) { entity in
+                            ForEach(entities.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { entity in
                                 Text(entity.name).tag(entity as Entity?)
                             }
                         }
@@ -1370,7 +1370,7 @@ struct InterviewView: View {
                 }
             )) {
                 Text("Aucun projet").tag(nil as Project?)
-                ForEach(projects) { project in
+                ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { project in
                     Text(project.name).tag(project as Project?)
                 }
             }
@@ -1633,7 +1633,7 @@ struct InterviewView: View {
                                 set: { task.project = $0; saveContext() }
                             )) {
                                 Text("Aucun projet").tag(nil as Project?)
-                                ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                                ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
                             }
                             .pickerStyle(.menu)
                             .frame(maxWidth: 140)
@@ -1644,7 +1644,7 @@ struct InterviewView: View {
                                 set: { task.collaborator = $0; saveContext() }
                             )) {
                                 Text("Non assigné").tag(nil as Collaborator?)
-                                ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
+                                ForEach(allCollaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
                             }
                             .pickerStyle(.menu)
                             .frame(maxWidth: 140)
@@ -1692,13 +1692,13 @@ struct InterviewView: View {
                 HStack(spacing: 8) {
                     Picker("Projet", selection: $selectedProject) {
                         Text("Aucun projet").tag(nil as Project?)
-                        ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                        ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
                     }
                     .pickerStyle(.menu)
 
                     Picker("Assigné à", selection: $selectedCollaborator) {
                         Text("Non assigné").tag(nil as Collaborator?)
-                        ForEach(allCollaborators) { c in Text(c.name).tag(c as Collaborator?) }
+                        ForEach(allCollaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
                     }
                     .pickerStyle(.menu)
                 }
@@ -1798,7 +1798,7 @@ struct InterviewView: View {
                                         )
                                     ) {
                                         Text("Aucun projet").tag(nil as Project?)
-                                        ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                                        ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
                                     }
                                     .pickerStyle(.menu)
 
@@ -1861,7 +1861,7 @@ struct InterviewView: View {
                 HStack {
                     Picker("Projet", selection: $selectedAlertProject) {
                         Text("Aucun projet").tag(nil as Project?)
-                        ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                        ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
                     }
                     .pickerStyle(.menu)
                     Picker("Sévérité", selection: $newAlertSeverity) {

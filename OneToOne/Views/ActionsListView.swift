@@ -59,14 +59,14 @@ struct ActionsListView: View {
 
                 Picker("Projet", selection: $filterProject) {
                     Text("Tous les projets").tag(nil as Project?)
-                    ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                    ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 180)
 
                 Picker("Assigné à", selection: $filterCollaborator) {
                     Text("Tous").tag(nil as Collaborator?)
-                    ForEach(collaborators) { c in Text(c.name).tag(c as Collaborator?) }
+                    ForEach(collaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 180)
@@ -165,7 +165,7 @@ struct ActionTaskRow: View {
                     set: { task.project = $0; onSave() }
                 )) {
                     Text("Aucun projet").tag(nil as Project?)
-                    ForEach(projects) { p in Text(p.name).tag(p as Project?) }
+                    ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 140)
@@ -176,7 +176,7 @@ struct ActionTaskRow: View {
                     set: { task.collaborator = $0; onSave() }
                 )) {
                     Text("Non assigné").tag(nil as Collaborator?)
-                    ForEach(collaborators) { c in Text(c.name).tag(c as Collaborator?) }
+                    ForEach(collaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 140)

@@ -127,7 +127,7 @@ struct ManagerClassificationSheet: View {
             HStack {
                 Text("Catégorie :")
                 Picker("Catégorie", selection: $category) {
-                    ForEach(categories, id: \.self) { Text($0).tag($0) }
+                    ForEach(categories.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, id: \.self) { Text($0).tag($0) }
                     if !categories.contains(category) {
                         Text("\(category) (libre)").tag(category)
                     }

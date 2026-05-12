@@ -99,7 +99,7 @@ struct ManagerTrackingView: View {
                 TextField("Description", text: $manualSnippet, axis: .vertical)
                     .lineLimit(2...4).textFieldStyle(.roundedBorder)
                 Picker("Catégorie", selection: $manualCategory) {
-                    ForEach(settings.managerCategories, id: \.self) { Text($0).tag($0) }
+                    ForEach(settings.managerCategories.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, id: \.self) { Text($0).tag($0) }
                 }
                 TextField("Tag", text: $manualTag).textFieldStyle(.roundedBorder)
                 HStack {
@@ -126,7 +126,7 @@ struct ManagerTrackingView: View {
             HStack {
                 Picker("Filtre", selection: $filterCategory) {
                     Text("Toutes catégories").tag(nil as String?)
-                    ForEach(settings.managerCategories, id: \.self) { Text($0).tag($0 as String?) }
+                    ForEach(settings.managerCategories.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, id: \.self) { Text($0).tag($0 as String?) }
                 }
                 .pickerStyle(.menu)
                 Spacer()
@@ -172,7 +172,7 @@ struct ManagerTrackingView: View {
             HStack {
                 Picker("Filtre", selection: $filterCategory) {
                     Text("Toutes catégories").tag(nil as String?)
-                    ForEach(settings.managerCategories, id: \.self) { Text($0).tag($0 as String?) }
+                    ForEach(settings.managerCategories.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }, id: \.self) { Text($0).tag($0 as String?) }
                 }
                 .pickerStyle(.menu)
                 TextField("Recherche", text: $historySearch).textFieldStyle(.roundedBorder).frame(maxWidth: 280)

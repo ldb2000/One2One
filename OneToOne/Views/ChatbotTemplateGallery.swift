@@ -368,13 +368,13 @@ struct TemplateConfigSheet: View {
         case .collaborator:
             Picker("", selection: bindingFor(v.key)) {
                 Text("Choisir…").tag("")
-                ForEach(collaborators) { c in Text(c.name).tag(c.name) }
+                ForEach(collaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c.name) }
             }
             .labelsHidden()
         case .project:
             Picker("", selection: bindingFor(v.key)) {
                 Text("Choisir…").tag("")
-                ForEach(projects) { p in Text(p.name).tag(p.name) }
+                ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p.name) }
             }
             .labelsHidden()
         case .period:
