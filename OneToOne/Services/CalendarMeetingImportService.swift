@@ -138,6 +138,7 @@ final class CalendarMeetingImportService: ObservableObject {
         }
 
         context.insert(meeting)
+        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
         return meeting
     }
 
