@@ -132,11 +132,13 @@ final class CalendarMeetingImportService: ObservableObject {
             meeting.participants.append(collab)
         }
 
-        // Materialize attendees as Collaborator (dedup by email).
+        // Materialize attendees as Collaborator. Skip self only when we can
+        // identify "me" via email; never skip attendees without email — many
+        // internal Outlook/Teams events expose names only.
         let me = settings.userEmail.lowercased()
         for attendee in event.attendees {
             let email = (attendee.email ?? "").lowercased()
-            if email == me || email.isEmpty { continue }
+            if !me.isEmpty && email == me { continue }
             let collab = upsertCollaborator(for: attendee, in: context)
             if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
                 meeting.participants.append(collab)
@@ -161,13 +163,20 @@ final class CalendarMeetingImportService: ObservableObject {
     private func upsertCollaborator(for attendee: CalendarMeetingAttendee,
                                      in context: ModelContext) -> Collaborator {
         let email = (attendee.email ?? "").lowercased()
-        if !email.isEmpty {
-            let all = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
-            if let match = all.first(where: { $0.email.lowercased() == email }) {
-                return match
-            }
+        let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let all = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
+
+        if !email.isEmpty,
+           let match = all.first(where: { $0.email.lowercased() == email }) {
+            return match
         }
-        let collab = Collaborator(name: attendee.name)
+        // Fallback dedup by name (case-insensitive) when email is missing.
+        if !name.isEmpty,
+           let match = all.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+            if match.email.isEmpty && !email.isEmpty { match.email = attendee.email ?? "" }
+            return match
+        }
+        let collab = Collaborator(name: name.isEmpty ? "Participant" : name)
         collab.email = attendee.email ?? ""
         context.insert(collab)
         return collab

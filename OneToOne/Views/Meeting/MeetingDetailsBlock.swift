@@ -342,6 +342,31 @@ struct MeetingDetailsBlock: View {
         meeting.teamsJoinURL = match.teamsJoinURL
         meeting.date = match.startDate
         if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
+        meeting.meetingDurationSeconds = max(0, Int(match.endDate.timeIntervalSince(match.startDate).rounded()))
+
+        // Re-import missing participants (dedup by email then name).
+        let me = settings.userEmail.lowercased()
+        let allCollabs = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
+        for attendee in match.attendees {
+            let email = (attendee.email ?? "").lowercased()
+            if !me.isEmpty && email == me { continue }
+            let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let collab: Collaborator
+            if !email.isEmpty, let m = allCollabs.first(where: { $0.email.lowercased() == email }) {
+                collab = m
+            } else if !name.isEmpty, let m = allCollabs.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                collab = m
+            } else {
+                let c = Collaborator(name: name.isEmpty ? "Participant" : name)
+                c.email = attendee.email ?? ""
+                context.insert(c)
+                collab = c
+            }
+            if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
+                meeting.participants.append(collab)
+            }
+            meeting.setParticipantStatus(attendee.status, for: collab)
+        }
 
         // Persist before scheduling so storeIdentifier stays stable.
         try? context.save()
