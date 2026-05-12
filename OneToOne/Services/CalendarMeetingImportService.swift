@@ -112,10 +112,15 @@ final class CalendarMeetingImportService: ObservableObject {
         }
 
         let meeting = Meeting(title: event.title, date: event.startDate)
+        // Insert BEFORE setting relations so SwiftData inverse-keys wire up correctly.
+        context.insert(meeting)
+
         meeting.scheduledStart = event.startDate
         meeting.scheduledEnd = event.endDate
         meeting.teamsJoinURL = event.teamsJoinURL
         meeting.calendarEventID = event.id
+        meeting.calendarEventTitle = event.title
+        meeting.meetingDurationSeconds = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
 
         let suggestion = ProjectMatchService.suggestKind(for: event, context: context, settings: settings)
         meeting.kind = suggestion.kind
@@ -136,9 +141,9 @@ final class CalendarMeetingImportService: ObservableObject {
             if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
                 meeting.participants.append(collab)
             }
+            meeting.setParticipantStatus(attendee.status, for: collab)
         }
 
-        context.insert(meeting)
         // Save BEFORE scheduling notifications — storeIdentifier is temporary
         // until first save, and we encode it in the notification userInfo.
         try? context.save()
