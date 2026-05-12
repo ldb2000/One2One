@@ -15,6 +15,8 @@ struct MeetingsListView: View {
     @State private var bulkImportReport: String?
     @State private var isBulkImporting = false
     @State private var showProjectFilterPicker = false
+    @State private var agendaInspectorOpen: Bool = false
+    @Query private var allAppSettings: [AppSettings]
 
     /// Projets ayant au moins une réunion en base. C'est la liste qu'on
     /// propose dans le filtre "Projet" : pas de bruit avec les projets
@@ -149,6 +151,13 @@ struct MeetingsListView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
+                Button {
+                    agendaInspectorOpen.toggle()
+                } label: {
+                    Image(systemName: "calendar")
+                }
+                .help("Afficher l'agenda du jour")
+
                 Menu {
                     Button {
                         Task { await importOrphanWAVs(targetProject: filterProject) }
@@ -236,6 +245,15 @@ struct MeetingsListView: View {
                     }
                     .onDelete(perform: deleteMeetings)
                 }
+            }
+        }
+        .inspector(isPresented: $agendaInspectorOpen) {
+            AgendaInspectorPanel()
+                .inspectorColumnWidth(min: 280, ideal: 340, max: 460)
+        }
+        .onAppear {
+            if let s = allAppSettings.first, s.agendaInspectorOpenByDefault {
+                agendaInspectorOpen = true
             }
         }
         .searchable(text: $searchText, prompt: "Rechercher (titre, rapport, transcription, notes…)")
