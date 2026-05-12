@@ -233,10 +233,9 @@ struct ContentView: View {
                 print("Reparation SwiftData: \(backfilled) Collaborator.stableID backfilles.")
             }
 
-            // Backfill Meeting.stableID — pre-Optional rows all shared the same
-            // UUID default; assign a fresh one per row to make navigation tokens
-            // unique. Detect via grouping rather than nil-check (legacy rows
-            // share a single non-nil value rather than being nil).
+            // Backfill Meeting.stableID — pre-Optional rows may have nil or
+            // share duplicates from the legacy non-Optional default. Detect
+            // both and assign unique UUIDs.
             let allMeetings = try context.fetch(FetchDescriptor<Meeting>())
             var seenIDs = Set<UUID>()
             var meetingFilled = 0
@@ -245,9 +244,9 @@ struct ContentView: View {
                 meeting.stableID = UUID()
                 meetingFilled += 1
             }
+            print("Reparation SwiftData: \(allMeetings.count) Meetings scanned, \(meetingFilled) backfilled.")
             if meetingFilled > 0 {
                 try context.save()
-                print("Reparation SwiftData: \(meetingFilled) Meeting.stableID backfilles.")
             }
         } catch {
             print("Echec reparation SwiftData: \(error)")
