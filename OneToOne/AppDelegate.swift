@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notifObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installAppIcon()
+
         // Notification permission — non-blocking
         Task { _ = await MeetingNotificationService.shared.requestAuthorization() }
 
@@ -45,6 +47,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notifObservers.forEach(NotificationCenter.default.removeObserver)
         notifObservers.removeAll()
         menuBar.uninstall()
+    }
+
+    /// SwiftPM exec targets package resources into `OneToOne_OneToOne.bundle/`,
+    /// so `CFBundleIconFile` at the top level can't find AppIcon.icns. Load it
+    /// at runtime via `Bundle.module` and assign to `NSApp` — covers Dock and
+    /// menu-bar app icon while the app runs.
+    private func installAppIcon() {
+        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = image
+        }
     }
 
     private func handleOpenMeeting(userInfo: [AnyHashable: Any]?) {
