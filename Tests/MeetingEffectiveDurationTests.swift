@@ -28,4 +28,11 @@ final class MeetingEffectiveDurationTests: XCTestCase {
         meeting.durationSeconds = 500
         XCTAssertEqual(meeting.effectiveDuration, 500, accuracy: 0.01)
     }
+
+    func test_effectiveDuration_prefersMeetingDurationSecondsOverRecording() {
+        let meeting = Meeting(title: "Test", date: Date())
+        meeting.meetingDurationSeconds = 2700  // 45 min calendar legacy
+        meeting.durationSeconds = 500          // should be ignored
+        XCTAssertEqual(meeting.effectiveDuration, 2700, accuracy: 0.01)
+    }
 }
