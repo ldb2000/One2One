@@ -26,6 +26,7 @@ struct ProjectDetailView: View {
     @Bindable var project: Project
     @Query private var entities: [Entity]
     @Query private var collaborators: [Collaborator]
+    @Query private var allMeetings: [Meeting]
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingProjectAttachmentImporter = false
@@ -587,6 +588,13 @@ struct ProjectDetailView: View {
                 }
 
                 NotesSection(target: .project(project))
+
+                GroupBox("Activité réunions") {
+                    MeetingHeatmapView(
+                        meetings: allMeetings.filter { $0.project?.persistentModelID == project.persistentModelID }
+                    )
+                    .padding(.top, 4)
+                }
             }
             .padding()
         }
@@ -740,6 +748,7 @@ struct CollaboratorDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingPhotoImporter = false
+    @Query private var allMeetings: [Meeting]
 
     var body: some View {
         ScrollView {
@@ -907,6 +916,15 @@ struct CollaboratorDetailView: View {
                 }
 
                 NotesSection(target: .collaborator(collaborator))
+
+                GroupBox("Activité réunions") {
+                    MeetingHeatmapView(
+                        meetings: allMeetings.filter { meeting in
+                            meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID })
+                        }
+                    )
+                    .padding(.top, 4)
+                }
             }
             .padding()
         }

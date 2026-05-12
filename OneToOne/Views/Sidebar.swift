@@ -744,6 +744,7 @@ struct DashboardView: View {
     @State private var showingFileImporter = false
     @State private var showingBacklogImporter = false
     @State private var agendaInspectorOpen: Bool = false
+    @State private var heatmapSelectedEntity: Entity? = nil
     @State private var isProcessing = false
     @State private var isExportingWeekly = false
     @State private var importError: String?
@@ -785,6 +786,40 @@ struct DashboardView: View {
     /// (calendar event), avec fallback sur la durée d'enregistrement audio.
     private func meetingTrackedSeconds(_ meeting: Meeting) -> Int {
         return max(0, Int(meeting.effectiveDuration.rounded()))
+    }
+
+    @ViewBuilder
+    private var heatmapSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Activité réunions")
+                .font(.headline)
+
+            MeetingHeatmapView(meetings: meetings, title: "Total")
+
+            HStack {
+                Text("Par entité")
+                    .font(.subheadline.bold())
+                Spacer()
+                Picker("", selection: $heatmapSelectedEntity) {
+                    Text("Choisir une entité…").tag(nil as Entity?)
+                    ForEach(entities.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { e in
+                        Text(e.name).tag(e as Entity?)
+                    }
+                }
+                .pickerStyle(.menu)
+                .fixedSize()
+            }
+            if let entity = heatmapSelectedEntity {
+                let filtered = meetings.filter { $0.project?.entity?.persistentModelID == entity.persistentModelID }
+                MeetingHeatmapView(meetings: filtered, title: entity.name)
+            } else {
+                Text("Sélectionnez une entité pour afficher sa heatmap.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
     }
 
     private var previousWeekStart: Date {
@@ -1250,6 +1285,8 @@ struct DashboardView: View {
                         }
                     }
                 }
+
+                heatmapSection
             }
             .padding()
         }
