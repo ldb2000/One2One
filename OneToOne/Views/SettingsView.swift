@@ -47,6 +47,13 @@ struct SettingsView: View {
     @State private var managerCategories: [String] = []
     @State private var managerReportPrompt: String = ""
 
+    /// Set to true at the END of onAppear's hydration. Prevents `.onChange` handlers
+    /// from running during the initial state-from-DB load — otherwise:
+    /// - `selectedProvider = settings.provider` → onChange fires → updateDefaults → resets modelName/apiEndpoint
+    /// - my auto-save .onChange(of: modelName) sees the reset → persists the WRONG value
+    /// → on next reopen, the saved-by-mistake value comes back. Hence "voxtral keeps coming back".
+    @State private var didInitialLoad: Bool = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -65,6 +72,10 @@ struct SettingsView: View {
                             }
                         }
                         .onChange(of: selectedProvider) { _, newProvider in
+                            // Skip during initial hydration — otherwise updateDefaults
+                            // overwrites the user's saved modelName/endpoint at every
+                            // settings reopen.
+                            guard didInitialLoad else { return }
                             updateDefaults(for: newProvider)
                             if newProvider == .ollama {
                                 fetchOllamaModels()
@@ -223,8 +234,39 @@ struct SettingsView: View {
                                     .frame(height: 24)
                             }
                         }
+
+                        Divider()
+
+                        HStack {
+                            // Auto-save on Picker / Provider change is wired via
+                            // `.onChange` modifiers below — but we keep an explicit
+                            // button so users have a clear "save" anchor.
+                            Button("Enregistrer la config IA") { saveSettings() }
+                                .buttonStyle(.borderedProminent)
+                            if !oauthStatus.isEmpty && oauthStatus.contains("sauvegardés") {
+                                Label(oauthStatus, systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                            Spacer()
+                        }
                     }
                     .padding(.vertical, 5)
+                    // Auto-save : every change to provider / endpoint / model
+                    // persists immediately. Guarded by `didInitialLoad` so
+                    // initial-state hydration doesn't fire false saves.
+                    .onChange(of: selectedProvider) { _, _ in
+                        guard didInitialLoad else { return }
+                        saveSettings()
+                    }
+                    .onChange(of: modelName) { _, _ in
+                        guard didInitialLoad else { return }
+                        saveSettings()
+                    }
+                    .onChange(of: apiEndpoint) { _, _ in
+                        guard didInitialLoad else { return }
+                        saveSettings()
+                    }
                 }
 
                 // Test button
@@ -409,6 +451,68 @@ struct SettingsView: View {
                     .padding(.vertical, 5)
                 }
 
+                GroupBox("Calendrier & menubar") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Votre email (filtrage 'moi' dans participants)", text: Binding(
+                            get: { settings.userEmail },
+                            set: { settings.userEmail = $0; saveSettings() }
+                        ))
+
+                        Divider()
+
+                        Toggle("Afficher la barre des menus", isOn: Binding(
+                            get: { settings.menubarEnabled },
+                            set: { settings.menubarEnabled = $0; saveSettings() }
+                        ))
+                        Toggle("Afficher le titre du prochain meeting", isOn: Binding(
+                            get: { settings.menubarShowNextTitle },
+                            set: { settings.menubarShowNextTitle = $0; saveSettings() }
+                        ))
+                        .disabled(!settings.menubarEnabled)
+                        Stepper(value: Binding(
+                            get: { settings.menubarMaxTitleChars },
+                            set: { settings.menubarMaxTitleChars = $0; saveSettings() }
+                        ), in: 10...60) {
+                            Text("Longueur max du titre: \(settings.menubarMaxTitleChars)")
+                        }
+                        .disabled(!settings.menubarEnabled || !settings.menubarShowNextTitle)
+
+                        Divider()
+
+                        Toggle("Ouvrir le panneau agenda par défaut", isOn: Binding(
+                            get: { settings.agendaInspectorOpenByDefault },
+                            set: { settings.agendaInspectorOpenByDefault = $0; saveSettings() }
+                        ))
+
+                        Divider()
+
+                        Toggle("Notification au début de réunion", isOn: Binding(
+                            get: { settings.notifMeetingStart },
+                            set: { settings.notifMeetingStart = $0; saveSettings() }
+                        ))
+                        Toggle("Notification 5 min avant la fin", isOn: Binding(
+                            get: { settings.notifMeetingEndWarning },
+                            set: { settings.notifMeetingEndWarning = $0; saveSettings() }
+                        ))
+                        Toggle("Notification à la fin de réunion", isOn: Binding(
+                            get: { settings.notifMeetingEnd },
+                            set: { settings.notifMeetingEnd = $0; saveSettings() }
+                        ))
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Seuil de match automatique: \(Int(settings.autoImportThreshold * 100))%")
+                                .font(.caption)
+                            Slider(value: Binding(
+                                get: { settings.autoImportThreshold },
+                                set: { settings.autoImportThreshold = $0; saveSettings() }
+                            ), in: 0.5...1.0, step: 0.05)
+                        }
+                    }
+                    .padding(8)
+                }
+
                 GroupBox("Entités") {
                     VStack(alignment: .leading, spacing: 10) {
                         if entities.isEmpty {
@@ -536,6 +640,9 @@ struct SettingsView: View {
             managerEmail = settings.managerEmail
             managerCategories = settings.managerCategories
             managerReportPrompt = settings.managerReportPrompt
+
+            // Initial state hydration done — allow .onChange handlers to fire saves now.
+            didInitialLoad = true
 
             // Check if claude CLI is available for the setup-token provider
             if selectedProvider == .claudeOAuth {
