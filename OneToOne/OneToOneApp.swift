@@ -10,6 +10,8 @@ struct OneToOneApp: App {
     /// (AppIntent perform, Carbon hotkey callback). Initialisé dans `init()`.
     static var sharedContainer: ModelContainer!
 
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     let container: ModelContainer
 
     init() {
