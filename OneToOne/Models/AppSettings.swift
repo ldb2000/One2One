@@ -97,6 +97,10 @@ final class AppSettings {
     /// Seuil de confiance pour l'importation automatique (0.0 à 1.0).
     var autoImportThreshold: Double = 0.9
 
+    // MARK: - Contact photo sync
+    var contactPhotoSyncEnabled: Bool = false
+    var contactPhotoSyncIntervalMinutes: Int = 60
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"

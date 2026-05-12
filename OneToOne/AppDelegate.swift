@@ -27,6 +27,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Bootstrap calendar agenda observer
         Task { await CalendarAgendaService.shared.bootstrap() }
 
+        // Contact photo sync — request access + initial scan + schedule
+        let containerForPhoto = container
+        Task {
+            let granted = await ContactPhotoService.shared.requestAccess()
+            await MainActor.run {
+                let ctx = containerForPhoto.mainContext
+                guard let settings = (try? ctx.fetch(FetchDescriptor<AppSettings>()))?.first,
+                      settings.contactPhotoSyncEnabled, granted else { return }
+                _ = ContactPhotoService.shared.syncMissingPhotos(context: ctx)
+                ContactPhotoService.shared.reschedulePeriodicSync(context: ctx, settings: settings)
+            }
+        }
+
         // Route notification and agenda taps to open the target Meeting
         let nc = NotificationCenter.default
         notifObservers.append(

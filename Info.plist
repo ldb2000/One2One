@@ -22,5 +22,7 @@
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>NSContactsUsageDescription</key>
+    <string>OneToOne récupère la photo de profil de vos collaborateurs depuis vos Contacts macOS pour enrichir les listes de participants.</string>
 </dict>
 </plist>

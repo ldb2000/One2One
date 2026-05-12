@@ -509,6 +509,50 @@ struct SettingsView: View {
                                 set: { settings.autoImportThreshold = $0; saveSettings() }
                             ), in: 0.5...1.0, step: 0.05)
                         }
+
+                        Divider()
+
+                        Toggle("Récupérer photos depuis Contacts (auto)", isOn: Binding(
+                            get: { settings.contactPhotoSyncEnabled },
+                            set: { newValue in
+                                settings.contactPhotoSyncEnabled = newValue
+                                saveSettings()
+                                if newValue {
+                                    Task {
+                                        let granted = await ContactPhotoService.shared.requestAccess()
+                                        if granted {
+                                            _ = ContactPhotoService.shared.syncMissingPhotos(context: context)
+                                            ContactPhotoService.shared.reschedulePeriodicSync(context: context, settings: settings)
+                                        }
+                                    }
+                                }
+                            }
+                        ))
+                        Picker("Intervalle", selection: Binding(
+                            get: { settings.contactPhotoSyncIntervalMinutes },
+                            set: { newValue in
+                                settings.contactPhotoSyncIntervalMinutes = newValue
+                                saveSettings()
+                                ContactPhotoService.shared.reschedulePeriodicSync(context: context, settings: settings)
+                            }
+                        )) {
+                            Text("10 min").tag(10)
+                            Text("30 min").tag(30)
+                            Text("1 h").tag(60)
+                            Text("2 h").tag(120)
+                            Text("6 h").tag(360)
+                        }
+                        .disabled(!settings.contactPhotoSyncEnabled)
+
+                        Button("Synchroniser maintenant") {
+                            Task {
+                                let granted = await ContactPhotoService.shared.requestAccess()
+                                if granted {
+                                    let n = ContactPhotoService.shared.syncMissingPhotos(context: context)
+                                    print("[Settings] manual sync: \(n) photo(s) applied")
+                                }
+                            }
+                        }
                     }
                     .padding(8)
                 }
