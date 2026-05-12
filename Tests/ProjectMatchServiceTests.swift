@@ -81,7 +81,7 @@ final class ProjectMatchServiceTests: XCTestCase {
         XCTAssertEqual(s.kind, .oneToOne)
         XCTAssertNil(s.collaborator)
         XCTAssertLessThan(s.confidence, 0.9)
-        XCTAssertFalse(s.autoApply)
+        XCTAssertFalse(s.autoApply(threshold: 0.9))
     }
 
     func test_projectFuzzyMatch_highConfidenceAutoApplies() throws {
@@ -101,7 +101,7 @@ final class ProjectMatchServiceTests: XCTestCase {
         XCTAssertEqual(s.kind, .project)
         XCTAssertEqual(s.project?.name, "Téléphonie iPMI")
         XCTAssertGreaterThanOrEqual(s.confidence, 0.9)
-        XCTAssertTrue(s.autoApply)
+        XCTAssertTrue(s.autoApply(threshold: 0.9))
     }
 
     func test_projectFuzzyMatch_accentInsensitive() throws {

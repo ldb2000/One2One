@@ -23,6 +23,7 @@ struct MeetingDetailsBlock: View {
     @Environment(\.modelContext) private var context
     @State private var showCreateProjectSheet = false
     @State private var showProjectSearch = false
+    @State private var showResyncConfirmation: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -172,7 +173,7 @@ struct MeetingDetailsBlock: View {
                 }
                 if !meeting.calendarEventID.isEmpty {
                     Button {
-                        resyncFromCalendar()
+                        showResyncConfirmation = true
                     } label: {
                         Label("Resync", systemImage: "arrow.triangle.2.circlepath")
                     }
@@ -181,6 +182,15 @@ struct MeetingDetailsBlock: View {
                     .controlSize(.small)
                     .help("Recharger titre / dates / lien Teams depuis le calendrier")
                 }
+            }
+            .alert("Resynchroniser depuis le calendrier ?",
+                   isPresented: $showResyncConfirmation) {
+                Button("Annuler", role: .cancel) { }
+                Button("Remplacer", role: .destructive) {
+                    resyncFromCalendar()
+                }
+            } message: {
+                Text("Le titre, les dates et le lien Teams seront remplacés par les valeurs du calendrier.")
             }
 
             FlowLayout(spacing: 8) {
@@ -333,6 +343,8 @@ struct MeetingDetailsBlock: View {
         meeting.date = match.startDate
         if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
 
+        // Persist before scheduling so storeIdentifier stays stable.
+        try? context.save()
         MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
     }
 }

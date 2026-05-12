@@ -7,7 +7,8 @@ struct MatchSuggestion {
     let collaborator: Collaborator?
     let confidence: Double  // 0..1
 
-    var autoApply: Bool { confidence >= 0.9 }
+    /// Auto-applies when confidence meets the user-configured threshold.
+    func autoApply(threshold: Double) -> Bool { confidence >= threshold }
 
     static func global(confidence: Double = 0.3) -> MatchSuggestion {
         .init(kind: .global, project: nil, collaborator: nil, confidence: confidence)

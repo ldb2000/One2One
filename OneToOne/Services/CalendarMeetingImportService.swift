@@ -102,7 +102,8 @@ final class CalendarMeetingImportService: ObservableObject {
 
     /// Imports a calendar event as a Meeting. Idempotent on `calendarEventID`:
     /// re-importing the same event returns the existing Meeting unchanged.
-    /// Caller is responsible for `context.save()` after mutation.
+    /// Saves the context internally so the Meeting's storeIdentifier is stable
+    /// before notifications reference it.
     func importEvent(_ event: CalendarMeetingEvent,
                      context: ModelContext,
                      settings: AppSettings) -> Meeting {
@@ -138,6 +139,9 @@ final class CalendarMeetingImportService: ObservableObject {
         }
 
         context.insert(meeting)
+        // Save BEFORE scheduling notifications — storeIdentifier is temporary
+        // until first save, and we encode it in the notification userInfo.
+        try? context.save()
         MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
         return meeting
     }

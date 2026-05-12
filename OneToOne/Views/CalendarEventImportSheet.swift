@@ -150,7 +150,7 @@ struct CalendarEventImportSheet: View {
             Spacer()
             Text("\(Int(s.confidence * 100))%")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(s.autoApply ? .green : .orange)
+                .foregroundStyle(s.autoApply(threshold: settings.autoImportThreshold) ? .green : .orange)
         }
         .padding(.vertical, 2)
     }
