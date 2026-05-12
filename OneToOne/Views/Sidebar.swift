@@ -743,6 +743,7 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var context
     @State private var showingFileImporter = false
     @State private var showingBacklogImporter = false
+    @State private var agendaInspectorOpen: Bool = false
     @State private var isProcessing = false
     @State private var isExportingWeekly = false
     @State private var importError: String?
@@ -983,6 +984,14 @@ struct DashboardView: View {
                         .font(.largeTitle)
                         .bold()
                     Spacer()
+                    Button {
+                        agendaInspectorOpen.toggle()
+                    } label: {
+                        Label("Agenda", systemImage: "calendar")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Afficher l'agenda du jour")
+
                     Button(action: exportProjectOverview) {
                         Label("Exporter les projets", systemImage: "square.and.arrow.up")
                     }
@@ -1246,6 +1255,15 @@ struct DashboardView: View {
         }
         .textSelection(.enabled)
         .warmBackground()
+        .inspector(isPresented: $agendaInspectorOpen) {
+            AgendaInspectorPanel()
+                .inspectorColumnWidth(min: 280, ideal: 340, max: 460)
+        }
+        .onAppear {
+            if let s = settingsList.first, s.agendaInspectorOpenByDefault {
+                agendaInspectorOpen = true
+            }
+        }
         .fileImporter(
             isPresented: $showingFileImporter,
             allowedContentTypes: [.pdf, .presentation, .plainText, .text, .commaSeparatedText, .spreadsheet, .item],
