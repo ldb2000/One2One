@@ -1,13 +1,15 @@
 import SwiftUI
 import AppKit
 
-/// Sheet that searches Brave Image Search for "<name> LinkedIn" and
-/// presents a thumbnail grid. Clicking a thumbnail downloads the full
-/// image and returns the data via `onPick`.
-struct BravePhotoSearchSheet: View {
+/// Sheet that searches for "<name> LinkedIn" via DuckDuckGo (default) or
+/// Google Custom Search Engine (when API key + CX are configured).
+/// Clicking a thumbnail downloads the full image and returns the data
+/// via `onPick`.
+struct PhotoSearchSheet: View {
 
     let initialQuery: String
-    let apiKey: String
+    let googleAPIKey: String
+    let googleCSEID: String
     let onPick: (Data) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -15,14 +17,20 @@ struct BravePhotoSearchSheet: View {
     @State private var isLoading: Bool = false
     @State private var results: [LinkedInPhotoSearch.ImageResult] = []
     @State private var errorMessage: String?
+    @State private var providerLabel: String = ""
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 8)]
 
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("Rechercher une photo (Brave + LinkedIn)")
+                Text("Rechercher une photo")
                     .font(.headline)
+                if !providerLabel.isEmpty {
+                    Text("via \(providerLabel)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 Button("Fermer") { dismiss() }
             }
@@ -57,7 +65,7 @@ struct BravePhotoSearchSheet: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(results) { result in
-                            BravePhotoThumbnail(result: result) {
+                            PhotoSearchThumbnail(result: result) {
                                 pick(result)
                             }
                         }
@@ -81,9 +89,14 @@ struct BravePhotoSearchSheet: View {
         isLoading = true
         Task {
             do {
-                let r = try await LinkedInPhotoSearch.braveImageSearch(name: trimmed, key: apiKey)
+                let r = try await LinkedInPhotoSearch.searchImages(
+                    name: trimmed,
+                    googleAPIKey: googleAPIKey,
+                    googleCSEID: googleCSEID
+                )
                 await MainActor.run {
                     results = r
+                    providerLabel = r.first?.provider.rawValue ?? ""
                     isLoading = false
                 }
             } catch {
@@ -111,7 +124,7 @@ struct BravePhotoSearchSheet: View {
     }
 }
 
-private struct BravePhotoThumbnail: View {
+private struct PhotoSearchThumbnail: View {
     let result: LinkedInPhotoSearch.ImageResult
     let onTap: () -> Void
 

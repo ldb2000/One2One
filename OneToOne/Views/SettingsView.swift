@@ -556,18 +556,29 @@ struct SettingsView: View {
 
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Clé Brave Search API")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Recherche photo LinkedIn")
                                 .font(.caption.bold())
-                            SecureField("X-Subscription-Token", text: Binding(
-                                get: { settings.braveSearchKey },
-                                set: { settings.braveSearchKey = $0; saveSettings() }
+                            Text("Par défaut: DuckDuckGo (gratuit, sans clé, non officiel — peut casser). Optionnel: Google Custom Search (100 req/jour, plus fiable).")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+
+                            SecureField("Google API key (optionnel)", text: Binding(
+                                get: { settings.googleCseApiKey },
+                                set: { settings.googleCseApiKey = $0; saveSettings() }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            TextField("Google CSE ID (cx)", text: Binding(
+                                get: { settings.googleCseId },
+                                set: { settings.googleCseId = $0; saveSettings() }
                             ))
                             .textFieldStyle(.roundedBorder)
                             HStack(spacing: 4) {
-                                Text("Active la recherche photo LinkedIn dans la fiche collaborateur. Crée un compte gratuit (2000 req/mois) sur")
-                                Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api/")!)
-                                Text(".")
+                                Text("Setup:")
+                                Link("console.cloud.google.com", destination: URL(string: "https://console.cloud.google.com")!)
+                                Text("(API key) +")
+                                Link("programmablesearchengine.google.com", destination: URL(string: "https://programmablesearchengine.google.com/")!)
+                                Text("(CSE ID, activer Image search).")
                             }
                             .font(.caption2)
                             .foregroundColor(.secondary)

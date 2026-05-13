@@ -101,9 +101,14 @@ final class AppSettings {
     var contactPhotoSyncEnabled: Bool = false
     var contactPhotoSyncIntervalMinutes: Int = 60
 
-    // MARK: - LinkedIn photo search via Brave Search API
-    /// Brave Search API subscription token. Get one at brave.com/search/api/
-    /// (Free tier = 2000 queries/month). Replaces the retired Bing Search v7.
+    // MARK: - LinkedIn photo search
+    /// DuckDuckGo image search is used by default (no key required). When
+    /// both Google fields are filled, Google Custom Search is preferred
+    /// (100 free queries/day, more reliable).
+    var googleCseApiKey: String = ""
+    var googleCseId: String = ""
+
+    // Deprecated — kept to avoid SwiftData lightweight migration churn.
     var braveSearchKey: String = ""
 
     static let defaultMeetingParticipantColorHex  = "#A8D490"

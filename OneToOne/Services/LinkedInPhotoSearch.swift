@@ -1,16 +1,15 @@
 import Foundation
 import AppKit
 
-/// Two-mode helper for finding a collaborator's photo:
-/// - `openLinkedInSearch`: launches the LinkedIn people-search URL in the
-///   default browser; user can copy a photo and paste it back into the app
-///   via `pasteImageFromClipboard`.
-/// - `braveImageSearch`: hits the Brave Search API images endpoint for
-///   "<name> LinkedIn" and returns thumbnail URLs the UI can present.
-///   Replaces the retired Bing Search v7.
+/// Photo search helpers for collaborator profiles.
+///
+/// - `openLinkedInSearch`: opens LinkedIn people search in the browser.
+/// - `pasteImageFromClipboard`: reads NSPasteboard image bytes (copy/paste flow).
+/// - `searchImages`: returns photo candidates from DuckDuckGo by default,
+///   or Google Custom Search Engine when API key + CSE ID are set.
 enum LinkedInPhotoSearch {
 
-    // MARK: - Mode B: Browser open
+    // MARK: - Browser open
 
     static func openLinkedInSearch(name: String) {
         let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21,117 +20,218 @@ enum LinkedInPhotoSearch {
         NSWorkspace.shared.open(url)
     }
 
-    /// Reads an NSImage from the pasteboard (image data or file URLs).
     static func pasteImageFromClipboard() -> Data? {
         let pb = NSPasteboard.general
-
         if let types = pb.types {
             for t in types {
-                if let data = pb.data(forType: t), NSImage(data: data) != nil {
-                    return data
-                }
+                if let data = pb.data(forType: t), NSImage(data: data) != nil { return data }
             }
         }
         if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
             for url in urls {
-                if let data = try? Data(contentsOf: url), NSImage(data: data) != nil {
-                    return data
-                }
+                if let data = try? Data(contentsOf: url), NSImage(data: data) != nil { return data }
             }
         }
         return nil
     }
 
-    // MARK: - Mode A: Brave Image Search
+    // MARK: - Public types
 
     struct ImageResult: Identifiable, Hashable {
         let id: String
         let thumbnailURL: URL
         let contentURL: URL
         let hostPageURL: URL?
+        let provider: Provider
+    }
+
+    enum Provider: String {
+        case duckDuckGo = "DuckDuckGo"
+        case googleCSE = "Google CSE"
     }
 
     enum SearchError: Error, LocalizedError {
-        case missingKey
         case invalidResponse
         case httpStatus(Int, String?)
+        case missingVQDToken
+        case missingGoogleConfig
 
         var errorDescription: String? {
             switch self {
-            case .missingKey: return "Clé Brave Search manquante dans les Préférences."
-            case .invalidResponse: return "Réponse Brave inattendue."
+            case .invalidResponse: return "Réponse de recherche inattendue."
             case .httpStatus(let code, let body):
-                if let body, !body.isEmpty { return "Brave HTTP \(code): \(body)" }
-                return "Brave HTTP \(code)."
+                if let body, !body.isEmpty { return "HTTP \(code): \(body)" }
+                return "HTTP \(code)."
+            case .missingVQDToken: return "Token DuckDuckGo introuvable (le service a changé). Configure Google CSE en Préférences."
+            case .missingGoogleConfig: return "Clé Google API + CSE ID requis."
             }
         }
     }
 
-    /// Calls the Brave Search images endpoint for "<name> LinkedIn".
-    /// Endpoint: GET https://api.search.brave.com/res/v1/images/search
-    /// Auth: header `X-Subscription-Token: <key>`.
-    /// Free plan: 2000 requests/month, 1 query/sec rate limit.
-    static func braveImageSearch(name: String, key: String, limit: Int = 24) async throws -> [ImageResult] {
-        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw SearchError.missingKey }
+    /// Routes to Google CSE if both fields are set, otherwise DuckDuckGo.
+    static func searchImages(name: String,
+                              googleAPIKey: String,
+                              googleCSEID: String,
+                              limit: Int = 24) async throws -> [ImageResult] {
+        let trimmedKey = googleAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCx = googleCSEID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty && !trimmedCx.isEmpty {
+            return try await googleCSEImageSearch(name: name, apiKey: trimmedKey, cseId: trimmedCx, limit: limit)
+        }
+        return try await duckDuckGoImageSearch(name: name, limit: limit)
+    }
 
-        let q = "\(name) LinkedIn"
-        guard var comps = URLComponents(string: "https://api.search.brave.com/res/v1/images/search") else {
+    // MARK: - DuckDuckGo (no key, unofficial endpoint)
+
+    /// DDG image search is a two-step dance: fetch the HTML SERP to extract
+    /// the `vqd` token, then hit the JSON endpoint.
+    /// **Unofficial** — DDG can break this at any time.
+    static func duckDuckGoImageSearch(name: String, limit: Int = 24) async throws -> [ImageResult] {
+        let query = "\(name) LinkedIn"
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             throw SearchError.invalidResponse
         }
+
+        // Step 1: fetch the HTML SERP to obtain the vqd token.
+        guard let htmlURL = URL(string: "https://duckduckgo.com/?q=\(encoded)&iax=images&ia=images") else {
+            throw SearchError.invalidResponse
+        }
+        var htmlReq = URLRequest(url: htmlURL)
+        htmlReq.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        let (htmlData, htmlResponse) = try await URLSession.shared.data(for: htmlReq)
+        guard let httpHtml = htmlResponse as? HTTPURLResponse, httpHtml.statusCode == 200 else {
+            throw SearchError.httpStatus((htmlResponse as? HTTPURLResponse)?.statusCode ?? -1, nil)
+        }
+        guard let html = String(data: htmlData, encoding: .utf8) else { throw SearchError.invalidResponse }
+        guard let vqd = extractVQD(from: html) else { throw SearchError.missingVQDToken }
+
+        // Step 2: JSON request.
+        guard var comps = URLComponents(string: "https://duckduckgo.com/i.js") else { throw SearchError.invalidResponse }
         comps.queryItems = [
-            URLQueryItem(name: "q", value: q),
-            URLQueryItem(name: "count", value: String(min(limit, 100))),
-            URLQueryItem(name: "safesearch", value: "strict"),
-            URLQueryItem(name: "search_lang", value: "fr")
+            URLQueryItem(name: "l", value: "fr-fr"),
+            URLQueryItem(name: "o", value: "json"),
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "vqd", value: vqd),
+            URLQueryItem(name: "f", value: ",,,,,"),
+            URLQueryItem(name: "p", value: "1")
         ]
-        guard let url = comps.url else { throw SearchError.invalidResponse }
+        guard let jsonURL = comps.url else { throw SearchError.invalidResponse }
+        var jsonReq = URLRequest(url: jsonURL)
+        jsonReq.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        jsonReq.setValue("application/json", forHTTPHeaderField: "Accept")
+        jsonReq.setValue("https://duckduckgo.com/", forHTTPHeaderField: "Referer")
 
-        var req = URLRequest(url: url)
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
-        req.setValue(trimmedKey, forHTTPHeaderField: "X-Subscription-Token")
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else { throw SearchError.invalidResponse }
-        guard http.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8)
-            throw SearchError.httpStatus(http.statusCode, body)
+        let (jsonData, jsonResponse) = try await URLSession.shared.data(for: jsonReq)
+        guard let httpJson = jsonResponse as? HTTPURLResponse, httpJson.statusCode == 200 else {
+            let body = String(data: jsonData, encoding: .utf8)
+            throw SearchError.httpStatus((jsonResponse as? HTTPURLResponse)?.statusCode ?? -1, body)
         }
 
-        struct BraveResponse: Decodable {
-            struct Result: Decodable {
-                struct Thumbnail: Decodable { let src: String? }
-                struct Properties: Decodable { let url: String? }
+        struct DDGResponse: Decodable {
+            struct Item: Decodable {
+                let image: String?
+                let thumbnail: String?
                 let url: String?
-                let thumbnail: Thumbnail?
-                let properties: Properties?
+                let title: String?
             }
-            let results: [Result]?
+            let results: [Item]?
         }
 
-        let decoded = try JSONDecoder().decode(BraveResponse.self, from: data)
-        let results = decoded.results ?? []
-        return results.compactMap { r in
-            guard let thumbStr = r.thumbnail?.src, let thumb = URL(string: thumbStr) else { return nil }
-            let contentStr = r.properties?.url ?? r.url ?? thumbStr
-            guard let content = URL(string: contentStr) else { return nil }
+        let decoded = try JSONDecoder().decode(DDGResponse.self, from: jsonData)
+        let items = decoded.results ?? []
+        return items.prefix(limit).compactMap { item in
+            guard let imageStr = item.image, let content = URL(string: imageStr) else { return nil }
+            let thumb = URL(string: item.thumbnail ?? imageStr) ?? content
             return ImageResult(
-                id: contentStr,
+                id: imageStr,
                 thumbnailURL: thumb,
                 contentURL: content,
-                hostPageURL: r.url.flatMap(URL.init(string:))
+                hostPageURL: item.url.flatMap(URL.init(string:)),
+                provider: .duckDuckGo
             )
         }
     }
 
-    /// Downloads the full-resolution image for a chosen search result.
-    static func downloadImage(at url: URL) async throws -> Data {
+    private static func extractVQD(from html: String) -> String? {
+        // Forms seen in DDG HTML: vqd="3-...." or vqd='3-....' or vqd=3-....&
+        let patterns = [
+            #"vqd="([^"]+)""#,
+            #"vqd='([^']+)'"#,
+            #"vqd=([^&"'\s]+)"#
+        ]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               match.numberOfRanges > 1,
+               let range = Range(match.range(at: 1), in: html) {
+                return String(html[range])
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Google Custom Search Engine
+
+    static func googleCSEImageSearch(name: String, apiKey: String, cseId: String, limit: Int = 10) async throws -> [ImageResult] {
+        let query = "\(name) LinkedIn"
+        guard var comps = URLComponents(string: "https://www.googleapis.com/customsearch/v1") else {
+            throw SearchError.invalidResponse
+        }
+        // Google CSE caps `num` at 10 per request.
+        comps.queryItems = [
+            URLQueryItem(name: "key", value: apiKey),
+            URLQueryItem(name: "cx", value: cseId),
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "searchType", value: "image"),
+            URLQueryItem(name: "num", value: String(min(limit, 10))),
+            URLQueryItem(name: "safe", value: "active")
+        ]
+        guard let url = comps.url else { throw SearchError.invalidResponse }
         let (data, response) = try await URLSession.shared.data(from: url)
+        guard let http = response as? HTTPURLResponse else { throw SearchError.invalidResponse }
+        guard http.statusCode == 200 else {
+            throw SearchError.httpStatus(http.statusCode, String(data: data, encoding: .utf8))
+        }
+
+        struct GoogleResponse: Decodable {
+            struct Item: Decodable {
+                struct Image: Decodable {
+                    let thumbnailLink: String?
+                    let contextLink: String?
+                }
+                let link: String?
+                let image: Image?
+            }
+            let items: [Item]?
+        }
+
+        let decoded = try JSONDecoder().decode(GoogleResponse.self, from: data)
+        let items = decoded.items ?? []
+        return items.compactMap { item in
+            guard let linkStr = item.link, let content = URL(string: linkStr) else { return nil }
+            let thumb = URL(string: item.image?.thumbnailLink ?? linkStr) ?? content
+            return ImageResult(
+                id: linkStr,
+                thumbnailURL: thumb,
+                contentURL: content,
+                hostPageURL: item.image?.contextLink.flatMap(URL.init(string:)),
+                provider: .googleCSE
+            )
+        }
+    }
+
+    // MARK: - Download
+
+    static func downloadImage(at url: URL) async throws -> Data {
+        var req = URLRequest(url: url)
+        req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw SearchError.httpStatus(http.statusCode, nil)
         }
         guard NSImage(data: data) != nil else { throw SearchError.invalidResponse }
         return data
     }
+
+    private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 }

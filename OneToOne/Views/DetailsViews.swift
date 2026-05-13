@@ -748,7 +748,7 @@ struct CollaboratorDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingPhotoImporter = false
-    @State private var showingBraveSearch = false
+    @State private var showingPhotoSearch = false
     @Query private var allMeetings: [Meeting]
     @Query private var appSettings: [AppSettings]
 
@@ -792,14 +792,13 @@ struct CollaboratorDetailView: View {
                                 .keyboardShortcut("v", modifiers: [.command])
                                 .help("Coller une image copiée (ex: depuis LinkedIn).")
 
-                                if hasBraveKey {
-                                    Button {
-                                        showingBraveSearch = true
-                                    } label: {
-                                        Label("Rechercher photo (Brave)", systemImage: "sparkles.rectangle.stack")
-                                    }
-                                    .buttonStyle(.bordered)
+                                Button {
+                                    showingPhotoSearch = true
+                                } label: {
+                                    Label("Rechercher photo (web)", systemImage: "sparkles.rectangle.stack")
                                 }
+                                .buttonStyle(.bordered)
+                                .help("Rechercher via DuckDuckGo (ou Google CSE si configuré en Préférences).")
 
                                 if collaborator.photoURL() != nil {
                                     Button("Retirer la photo", role: .destructive) {
@@ -964,10 +963,11 @@ struct CollaboratorDetailView: View {
         ) { result in
             handlePhotoImport(result: result)
         }
-        .sheet(isPresented: $showingBraveSearch) {
-            BravePhotoSearchSheet(
+        .sheet(isPresented: $showingPhotoSearch) {
+            PhotoSearchSheet(
                 initialQuery: collaborator.name,
-                apiKey: appSettings.first?.braveSearchKey ?? ""
+                googleAPIKey: appSettings.first?.googleCseApiKey ?? "",
+                googleCSEID: appSettings.first?.googleCseId ?? ""
             ) { data in
                 savePhotoData(data)
             }
@@ -1062,10 +1062,6 @@ struct CollaboratorDetailView: View {
         case .failure(let error):
             print("[CollaboratorDetail] photo import failed: \(error)")
         }
-    }
-
-    private var hasBraveKey: Bool {
-        !(appSettings.first?.braveSearchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
     private func pasteClipboardPhoto() {
