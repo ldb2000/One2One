@@ -51,11 +51,11 @@ enum ManagerReportService {
         // and a non-zero range.
         if let sourceMeeting, range.length > 0 {
             let existing = try fetchItemsForSource(meeting: sourceMeeting, field: sourceField, in: context)
-            for other in existing where other.stableID != item.stableID {
+            for other in existing where other.ensuredStableID != item.ensuredStableID {
                 if overlap(rangeA: range, rangeB: NSRange(location: other.sourceRangeStart, length: other.sourceRangeLength)) > duplicateOverlapThreshold {
-                    item.duplicateOfStableID = other.stableID.uuidString
-                    other.duplicateOfStableID = item.stableID.uuidString
-                    mgrLog.info("add: duplicate detected with \(other.stableID.uuidString, privacy: .public)")
+                    item.duplicateOfStableID = other.ensuredStableID.uuidString
+                    other.duplicateOfStableID = item.ensuredStableID.uuidString
+                    mgrLog.info("add: duplicate detected with \(other.ensuredStableID.uuidString, privacy: .public)")
                     break
                 }
             }

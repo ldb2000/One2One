@@ -254,26 +254,49 @@ struct ContentView: View {
                 print("Reparation SwiftData: \(meetingFilled) Meeting.stableID backfilles.")
             }
 
-            // Defensive dedup for other @Model classes with non-Optional
-            // `UUID() = UUID()` defaults. Cheap insurance against legacy
-            // migrations or future field additions.
-            deduplicate(context: context, label: "NoteAttachment",
-                        fetch: FetchDescriptor<NoteAttachment>(),
-                        get: { $0.stableID }, set: { $0.stableID = $1 })
-            deduplicate(context: context, label: "ManagerReportItem",
-                        fetch: FetchDescriptor<ManagerReportItem>(),
-                        get: { $0.stableID }, set: { $0.stableID = $1 })
-            deduplicate(context: context, label: "ManagerMeetingReport",
-                        fetch: FetchDescriptor<ManagerMeetingReport>(),
-                        get: { $0.stableID }, set: { $0.stableID = $1 })
-            deduplicate(context: context, label: "TranscriptSegment",
-                        fetch: FetchDescriptor<TranscriptSegment>(),
-                        get: { $0.stableID }, set: { $0.stableID = $1 })
+            // Defensive dedup for the 4 stableID Optionals + SlideCapture.id.
+            // Same pattern as Meeting/Collaborator: nil rows OR duplicates
+            // get a fresh UUID.
+            deduplicateOptional(context: context, label: "NoteAttachment",
+                                fetch: FetchDescriptor<NoteAttachment>(),
+                                get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicateOptional(context: context, label: "ManagerReportItem",
+                                fetch: FetchDescriptor<ManagerReportItem>(),
+                                get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicateOptional(context: context, label: "ManagerMeetingReport",
+                                fetch: FetchDescriptor<ManagerMeetingReport>(),
+                                get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicateOptional(context: context, label: "TranscriptSegment",
+                                fetch: FetchDescriptor<TranscriptSegment>(),
+                                get: { $0.stableID }, set: { $0.stableID = $1 })
             deduplicate(context: context, label: "SlideCapture",
                         fetch: FetchDescriptor<SlideCapture>(),
                         get: { $0.id }, set: { $0.id = $1 })
         } catch {
             print("Echec reparation SwiftData: \(error)")
+        }
+    }
+
+    /// Same as `deduplicate` but for Optional UUID fields — nil rows are
+    /// also backfilled.
+    private func deduplicateOptional<T: PersistentModel>(
+        context: ModelContext,
+        label: String,
+        fetch: FetchDescriptor<T>,
+        get: (T) -> UUID?,
+        set: (T, UUID) -> Void
+    ) {
+        guard let all = try? context.fetch(fetch) else { return }
+        var seen = Set<UUID>()
+        var fixed = 0
+        for row in all {
+            if let id = get(row), seen.insert(id).inserted { continue }
+            set(row, UUID())
+            fixed += 1
+        }
+        if fixed > 0 {
+            try? context.save()
+            print("Reparation SwiftData: \(fixed) \(label).stableID backfilles.")
         }
     }
 

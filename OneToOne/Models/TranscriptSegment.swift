@@ -9,7 +9,9 @@ import SwiftData
 /// - `speaker != nil` → cluster résolu vers un participant nommé
 @Model
 final class TranscriptSegment {
-    var stableID: UUID = UUID()
+    /// Optional — see SwiftData migration caveat. Use `ensuredStableID`
+    /// when you need a guaranteed non-nil UUID.
+    var stableID: UUID? = nil
     var orderIndex: Int = 0
     var startSeconds: Double = 0
     var endSeconds: Double = 0
@@ -28,11 +30,20 @@ final class TranscriptSegment {
          endSeconds: Double,
          text: String,
          speakerID: Int = 0) {
+        self.stableID = UUID()
         self.orderIndex = orderIndex
         self.startSeconds = startSeconds
         self.endSeconds = endSeconds
         self.text = text
         self.speakerID = speakerID
+    }
+
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 
     /// Display label : nom du participant si renommé, sinon "Speaker N".

@@ -40,15 +40,26 @@ final class Note {
 /// fichier original).
 @Model
 final class NoteAttachment {
-    var stableID: UUID = UUID()
+    /// Optional — see SwiftData migration caveat. Use `ensuredStableID`
+    /// when you need a guaranteed non-nil UUID.
+    var stableID: UUID? = nil
     var fileName: String = ""
     var filePath: String = ""        // chemin absolu inside Application Support
     var importedAt: Date = Date()
     var note: Note?
 
     init(fileName: String, filePath: String) {
+        self.stableID = UUID()
         self.fileName = fileName
         self.filePath = filePath
+    }
+
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 
     var url: URL { URL(fileURLWithPath: filePath) }

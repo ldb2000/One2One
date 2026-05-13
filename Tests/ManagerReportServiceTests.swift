@@ -101,8 +101,8 @@ struct ManagerReportServiceTests {
         )
         try context.save()
 
-        #expect(second.duplicateOfStableID == first.stableID.uuidString)
-        #expect(first.duplicateOfStableID == second.stableID.uuidString)
+        #expect(second.duplicateOfStableID == first.ensuredStableID.uuidString)
+        #expect(first.duplicateOfStableID == second.ensuredStableID.uuidString)
     }
 
     @Test("Different source meeting does NOT flag duplicate")

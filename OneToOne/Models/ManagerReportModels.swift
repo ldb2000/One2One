@@ -9,7 +9,9 @@ import SwiftData
 
 @Model
 final class ManagerReportItem {
-    var stableID: UUID = UUID()
+    /// Optional — see SwiftData migration caveat. Use `ensuredStableID`
+    /// when you need a guaranteed non-nil UUID.
+    var stableID: UUID? = nil
     var createdAt: Date = Date()
 
     // Contenu source brut
@@ -60,6 +62,7 @@ final class ManagerReportItem {
          sourceRangeStart: Int,
          sourceRangeLength: Int,
          sourceMeeting: Meeting?) {
+        self.stableID = UUID()
         self.rawSnippet = rawSnippet
         self.sourceField = sourceField
         self.sourceRangeStart = sourceRangeStart
@@ -77,6 +80,14 @@ final class ManagerReportItem {
         self.isManual = true
         self.category = category
     }
+
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
+    }
 }
 
 // MARK: - ManagerMeetingReport
@@ -86,7 +97,9 @@ final class ManagerReportItem {
 
 @Model
 final class ManagerMeetingReport {
-    var stableID: UUID = UUID()
+    /// Optional — see SwiftData migration caveat. Use `ensuredStableID`
+    /// when you need a guaranteed non-nil UUID.
+    var stableID: UUID? = nil
     var generatedAt: Date = Date()
     var generatedSummary: String = ""        // markdown
     var durationSeconds: Double = 0
@@ -104,6 +117,15 @@ final class ManagerMeetingReport {
     var meeting: Meeting?
 
     init(meeting: Meeting? = nil) {
+        self.stableID = UUID()
         self.meeting = meeting
+    }
+
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 }

@@ -485,7 +485,7 @@ final class BackupService {
             },
             managerReportItems: managerReportItems.map { item in
                 ManagerReportItemDTO(
-                    stableID: item.stableID,
+                    stableID: item.ensuredStableID,
                     createdAt: item.createdAt,
                     rawSnippet: item.rawSnippet,
                     contextBefore: item.contextBefore,
@@ -509,7 +509,7 @@ final class BackupService {
             },
             managerMeetingReports: managerMeetingReports.map { report in
                 ManagerMeetingReportDTO(
-                    stableID: report.stableID,
+                    stableID: report.ensuredStableID,
                     generatedAt: report.generatedAt,
                     generatedSummary: report.generatedSummary,
                     durationSeconds: report.durationSeconds,

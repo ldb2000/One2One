@@ -241,7 +241,7 @@ enum ManagerCRGenerator {
             let sourceMeetingTitle: String?
         }
         let snaps = items.map {
-            Snap(stableID: $0.stableID.uuidString,
+            Snap(stableID: $0.ensuredStableID.uuidString,
                  category: $0.category,
                  tag: $0.tag,
                  rawSnippet: $0.rawSnippet,
