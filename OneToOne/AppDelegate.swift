@@ -62,15 +62,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar.uninstall()
     }
 
-    /// SwiftPM exec targets package resources into `OneToOne_OneToOne.bundle/`,
-    /// so `CFBundleIconFile` at the top level can't find AppIcon.icns. Load it
-    /// at runtime via `Bundle.module` and assign to `NSApp` — covers Dock and
-    /// menu-bar app icon while the app runs.
+    /// Generates the Dock icon at runtime — squircle background with a
+    /// meeting-themed SF Symbol on top. SwiftPM exec targets package
+    /// resources into a sub-bundle so a static .icns isn't reachable via
+    /// CFBundleIconFile anyway.
     private func installAppIcon() {
-        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
-           let image = NSImage(contentsOf: url) {
-            NSApp.applicationIconImage = image
+        let size = NSSize(width: 1024, height: 1024)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        // 1. Squircle background gradient (indigo → orange, macOS Big Sur style).
+        let cornerRadius: CGFloat = 230
+        let bgRect = NSRect(origin: .zero, size: size)
+        let path = NSBezierPath(roundedRect: bgRect, xRadius: cornerRadius, yRadius: cornerRadius)
+        let gradient = NSGradient(colors: [
+            NSColor(red: 0.30, green: 0.38, blue: 0.86, alpha: 1.0),  // indigo
+            NSColor(red: 0.93, green: 0.45, blue: 0.27, alpha: 1.0)   // orange
+        ])
+        path.addClip()
+        gradient?.draw(in: bgRect, angle: -45)
+
+        // 2. Inner soft glow ring (white at 12% opacity).
+        let ring = NSBezierPath(
+            roundedRect: bgRect.insetBy(dx: 70, dy: 70),
+            xRadius: cornerRadius - 50, yRadius: cornerRadius - 50
+        )
+        NSColor.white.withAlphaComponent(0.12).setStroke()
+        ring.lineWidth = 12
+        ring.stroke()
+
+        // 3. Foreground symbol — three people (meeting), tinted white.
+        let sizeConfig = NSImage.SymbolConfiguration(pointSize: 560, weight: .semibold)
+        let paletteConfig = NSImage.SymbolConfiguration(paletteColors: [.white])
+        let combined = sizeConfig.applying(paletteConfig)
+        if let symbol = NSImage(systemSymbolName: "person.3.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(combined) {
+            let symbolRect = NSRect(
+                x: (size.width - symbol.size.width) / 2,
+                y: (size.height - symbol.size.height) / 2 - 30,
+                width: symbol.size.width,
+                height: symbol.size.height
+            )
+            symbol.draw(in: symbolRect)
         }
+
+        image.unlockFocus()
+        NSApp.applicationIconImage = image
     }
 
     private func handleOpenMeeting(userInfo: [AnyHashable: Any]?) {
