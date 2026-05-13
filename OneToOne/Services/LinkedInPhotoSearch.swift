@@ -4,9 +4,10 @@ import AppKit
 /// Two-mode helper for finding a collaborator's photo:
 /// - `openLinkedInSearch`: launches the LinkedIn people-search URL in the
 ///   default browser; user can copy a photo and paste it back into the app
-///   via `pasteFromClipboard`.
-/// - `bingImageSearch`: hits Azure Bing Image Search for "<name> LinkedIn"
-///   and returns thumbnail URLs the UI can present in a grid.
+///   via `pasteImageFromClipboard`.
+/// - `braveImageSearch`: hits the Brave Search API images endpoint for
+///   "<name> LinkedIn" and returns thumbnail URLs the UI can present.
+///   Replaces the retired Bing Search v7.
 enum LinkedInPhotoSearch {
 
     // MARK: - Mode B: Browser open
@@ -20,11 +21,10 @@ enum LinkedInPhotoSearch {
         NSWorkspace.shared.open(url)
     }
 
-    /// Reads an NSImage from the pasteboard (handles image data and file URLs).
+    /// Reads an NSImage from the pasteboard (image data or file URLs).
     static func pasteImageFromClipboard() -> Data? {
         let pb = NSPasteboard.general
 
-        // Direct image types.
         if let types = pb.types {
             for t in types {
                 if let data = pb.data(forType: t), NSImage(data: data) != nil {
@@ -32,8 +32,6 @@ enum LinkedInPhotoSearch {
                 }
             }
         }
-
-        // File URLs.
         if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
             for url in urls {
                 if let data = try? Data(contentsOf: url), NSImage(data: data) != nil {
@@ -41,89 +39,99 @@ enum LinkedInPhotoSearch {
                 }
             }
         }
-
         return nil
     }
 
-    // MARK: - Mode A: Bing Image Search
+    // MARK: - Mode A: Brave Image Search
 
-    struct BingResult: Identifiable, Hashable {
+    struct ImageResult: Identifiable, Hashable {
         let id: String
         let thumbnailURL: URL
         let contentURL: URL
         let hostPageURL: URL?
     }
 
-    enum BingError: Error, LocalizedError {
+    enum SearchError: Error, LocalizedError {
         case missingKey
         case invalidResponse
-        case httpStatus(Int)
+        case httpStatus(Int, String?)
 
         var errorDescription: String? {
             switch self {
-            case .missingKey: return "Clé Bing manquante dans les Préférences."
-            case .invalidResponse: return "Réponse Bing inattendue."
-            case .httpStatus(let code): return "Bing HTTP \(code)."
+            case .missingKey: return "Clé Brave Search manquante dans les Préférences."
+            case .invalidResponse: return "Réponse Brave inattendue."
+            case .httpStatus(let code, let body):
+                if let body, !body.isEmpty { return "Brave HTTP \(code): \(body)" }
+                return "Brave HTTP \(code)."
             }
         }
     }
 
-    /// Searches Bing Image API for "<name> LinkedIn". Requires a valid
-    /// Azure Cognitive Services key with Bing Search v7 access.
-    static func bingImageSearch(name: String, key: String, limit: Int = 24) async throws -> [BingResult] {
+    /// Calls the Brave Search images endpoint for "<name> LinkedIn".
+    /// Endpoint: GET https://api.search.brave.com/res/v1/images/search
+    /// Auth: header `X-Subscription-Token: <key>`.
+    /// Free plan: 2000 requests/month, 1 query/sec rate limit.
+    static func braveImageSearch(name: String, key: String, limit: Int = 24) async throws -> [ImageResult] {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw BingError.missingKey }
+        guard !trimmedKey.isEmpty else { throw SearchError.missingKey }
 
         let q = "\(name) LinkedIn"
-        guard var comps = URLComponents(string: "https://api.bing.microsoft.com/v7.0/images/search") else {
-            throw BingError.invalidResponse
+        guard var comps = URLComponents(string: "https://api.search.brave.com/res/v1/images/search") else {
+            throw SearchError.invalidResponse
         }
         comps.queryItems = [
             URLQueryItem(name: "q", value: q),
-            URLQueryItem(name: "count", value: String(limit)),
-            URLQueryItem(name: "safeSearch", value: "Moderate"),
-            URLQueryItem(name: "imageType", value: "Photo"),
-            URLQueryItem(name: "size", value: "Medium")
+            URLQueryItem(name: "count", value: String(min(limit, 100))),
+            URLQueryItem(name: "safesearch", value: "strict"),
+            URLQueryItem(name: "search_lang", value: "fr")
         ]
-        guard let url = comps.url else { throw BingError.invalidResponse }
+        guard let url = comps.url else { throw SearchError.invalidResponse }
 
         var req = URLRequest(url: url)
-        req.setValue(trimmedKey, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
+        req.setValue(trimmedKey, forHTTPHeaderField: "X-Subscription-Token")
 
         let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else { throw BingError.invalidResponse }
-        guard http.statusCode == 200 else { throw BingError.httpStatus(http.statusCode) }
-
-        struct BingResponse: Decodable {
-            struct Value: Decodable {
-                let imageId: String?
-                let thumbnailUrl: String
-                let contentUrl: String
-                let hostPageUrl: String?
-            }
-            let value: [Value]
+        guard let http = response as? HTTPURLResponse else { throw SearchError.invalidResponse }
+        guard http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8)
+            throw SearchError.httpStatus(http.statusCode, body)
         }
 
-        let decoded = try JSONDecoder().decode(BingResponse.self, from: data)
-        return decoded.value.compactMap { v in
-            guard let thumb = URL(string: v.thumbnailUrl),
-                  let content = URL(string: v.contentUrl) else { return nil }
-            return BingResult(
-                id: v.imageId ?? UUID().uuidString,
+        struct BraveResponse: Decodable {
+            struct Result: Decodable {
+                struct Thumbnail: Decodable { let src: String? }
+                struct Properties: Decodable { let url: String? }
+                let url: String?
+                let thumbnail: Thumbnail?
+                let properties: Properties?
+            }
+            let results: [Result]?
+        }
+
+        let decoded = try JSONDecoder().decode(BraveResponse.self, from: data)
+        let results = decoded.results ?? []
+        return results.compactMap { r in
+            guard let thumbStr = r.thumbnail?.src, let thumb = URL(string: thumbStr) else { return nil }
+            let contentStr = r.properties?.url ?? r.url ?? thumbStr
+            guard let content = URL(string: contentStr) else { return nil }
+            return ImageResult(
+                id: contentStr,
                 thumbnailURL: thumb,
                 contentURL: content,
-                hostPageURL: v.hostPageUrl.flatMap(URL.init(string:))
+                hostPageURL: r.url.flatMap(URL.init(string:))
             )
         }
     }
 
-    /// Downloads the full-resolution image for a chosen Bing result.
+    /// Downloads the full-resolution image for a chosen search result.
     static func downloadImage(at url: URL) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(from: url)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            throw BingError.httpStatus(http.statusCode)
+            throw SearchError.httpStatus(http.statusCode, nil)
         }
-        guard NSImage(data: data) != nil else { throw BingError.invalidResponse }
+        guard NSImage(data: data) != nil else { throw SearchError.invalidResponse }
         return data
     }
 }

@@ -1,10 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Sheet that searches Bing Image API for "<name> LinkedIn" and presents
-/// a thumbnail grid. Clicking a thumbnail downloads the full image and
-/// returns the data via `onPick`.
-struct BingPhotoSearchSheet: View {
+/// Sheet that searches Brave Image Search for "<name> LinkedIn" and
+/// presents a thumbnail grid. Clicking a thumbnail downloads the full
+/// image and returns the data via `onPick`.
+struct BravePhotoSearchSheet: View {
 
     let initialQuery: String
     let apiKey: String
@@ -13,7 +13,7 @@ struct BingPhotoSearchSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query: String = ""
     @State private var isLoading: Bool = false
-    @State private var results: [LinkedInPhotoSearch.BingResult] = []
+    @State private var results: [LinkedInPhotoSearch.ImageResult] = []
     @State private var errorMessage: String?
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 8)]
@@ -21,7 +21,7 @@ struct BingPhotoSearchSheet: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("Rechercher une photo (Bing + LinkedIn)")
+                Text("Rechercher une photo (Brave + LinkedIn)")
                     .font(.headline)
                 Spacer()
                 Button("Fermer") { dismiss() }
@@ -57,7 +57,7 @@ struct BingPhotoSearchSheet: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(results) { result in
-                            BingThumbnail(result: result) {
+                            BravePhotoThumbnail(result: result) {
                                 pick(result)
                             }
                         }
@@ -81,7 +81,7 @@ struct BingPhotoSearchSheet: View {
         isLoading = true
         Task {
             do {
-                let r = try await LinkedInPhotoSearch.bingImageSearch(name: trimmed, key: apiKey)
+                let r = try await LinkedInPhotoSearch.braveImageSearch(name: trimmed, key: apiKey)
                 await MainActor.run {
                     results = r
                     isLoading = false
@@ -96,7 +96,7 @@ struct BingPhotoSearchSheet: View {
         }
     }
 
-    private func pick(_ result: LinkedInPhotoSearch.BingResult) {
+    private func pick(_ result: LinkedInPhotoSearch.ImageResult) {
         Task {
             do {
                 let data = try await LinkedInPhotoSearch.downloadImage(at: result.contentURL)
@@ -111,8 +111,8 @@ struct BingPhotoSearchSheet: View {
     }
 }
 
-private struct BingThumbnail: View {
-    let result: LinkedInPhotoSearch.BingResult
+private struct BravePhotoThumbnail: View {
+    let result: LinkedInPhotoSearch.ImageResult
     let onTap: () -> Void
 
     @State private var image: NSImage?

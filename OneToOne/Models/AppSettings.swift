@@ -101,9 +101,10 @@ final class AppSettings {
     var contactPhotoSyncEnabled: Bool = false
     var contactPhotoSyncIntervalMinutes: Int = 60
 
-    // MARK: - LinkedIn / Bing photo search
-    /// Azure Cognitive Services key for Bing Image Search. Stored locally.
-    var bingImageSearchKey: String = ""
+    // MARK: - LinkedIn photo search via Brave Search API
+    /// Brave Search API subscription token. Get one at brave.com/search/api/
+    /// (Free tier = 2000 queries/month). Replaces the retired Bing Search v7.
+    var braveSearchKey: String = ""
 
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"

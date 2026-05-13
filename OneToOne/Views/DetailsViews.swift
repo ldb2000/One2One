@@ -748,7 +748,7 @@ struct CollaboratorDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingPhotoImporter = false
-    @State private var showingBingSearch = false
+    @State private var showingBraveSearch = false
     @Query private var allMeetings: [Meeting]
     @Query private var appSettings: [AppSettings]
 
@@ -792,11 +792,11 @@ struct CollaboratorDetailView: View {
                                 .keyboardShortcut("v", modifiers: [.command])
                                 .help("Coller une image copiée (ex: depuis LinkedIn).")
 
-                                if hasBingKey {
+                                if hasBraveKey {
                                     Button {
-                                        showingBingSearch = true
+                                        showingBraveSearch = true
                                     } label: {
-                                        Label("Rechercher photo (Bing)", systemImage: "sparkles.rectangle.stack")
+                                        Label("Rechercher photo (Brave)", systemImage: "sparkles.rectangle.stack")
                                     }
                                     .buttonStyle(.bordered)
                                 }
@@ -964,10 +964,10 @@ struct CollaboratorDetailView: View {
         ) { result in
             handlePhotoImport(result: result)
         }
-        .sheet(isPresented: $showingBingSearch) {
-            BingPhotoSearchSheet(
+        .sheet(isPresented: $showingBraveSearch) {
+            BravePhotoSearchSheet(
                 initialQuery: collaborator.name,
-                apiKey: appSettings.first?.bingImageSearchKey ?? ""
+                apiKey: appSettings.first?.braveSearchKey ?? ""
             ) { data in
                 savePhotoData(data)
             }
@@ -1064,8 +1064,8 @@ struct CollaboratorDetailView: View {
         }
     }
 
-    private var hasBingKey: Bool {
-        !(appSettings.first?.bingImageSearchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    private var hasBraveKey: Bool {
+        !(appSettings.first?.braveSearchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
     private func pasteClipboardPhoto() {
@@ -1077,7 +1077,7 @@ struct CollaboratorDetailView: View {
     }
 
     /// Persists raw image bytes to Application Support and updates the
-    /// collaborator's photoPath. Used by paste and Bing search.
+    /// collaborator's photoPath. Used by paste and Brave search.
     private func savePhotoData(_ data: Data) {
         let dir = URL.applicationSupportDirectory
             .appending(path: "OneToOne", directoryHint: .isDirectory)

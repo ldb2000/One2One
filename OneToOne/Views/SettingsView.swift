@@ -557,16 +557,20 @@ struct SettingsView: View {
                         Divider()
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Clé Bing Image Search (Azure)")
+                            Text("Clé Brave Search API")
                                 .font(.caption.bold())
-                            SecureField("Ocp-Apim-Subscription-Key", text: Binding(
-                                get: { settings.bingImageSearchKey },
-                                set: { settings.bingImageSearchKey = $0; saveSettings() }
+                            SecureField("X-Subscription-Token", text: Binding(
+                                get: { settings.braveSearchKey },
+                                set: { settings.braveSearchKey = $0; saveSettings() }
                             ))
                             .textFieldStyle(.roundedBorder)
-                            Text("Active la recherche photo LinkedIn via Bing dans la fiche collaborateur. Crée une ressource Cognitive Services > Bing Search v7 sur portal.azure.com.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                            HStack(spacing: 4) {
+                                Text("Active la recherche photo LinkedIn dans la fiche collaborateur. Crée un compte gratuit (2000 req/mois) sur")
+                                Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api/")!)
+                                Text(".")
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                         }
                     }
                     .padding(8)
