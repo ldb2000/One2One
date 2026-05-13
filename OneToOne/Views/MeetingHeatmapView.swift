@@ -61,10 +61,13 @@ struct MeetingHeatmapView: View {
         let days = generateDays()
         let buckets = buildBuckets(days: days)
         let maxValue = max(buckets.values.max() ?? 0, 1)
+        let monthLabels = monthLabelsForColumns(days: days)
+        let weekColumnWidth = cellSize + cellGap
 
         return HStack(alignment: .top, spacing: 4) {
-            // Day-of-week labels
+            // Day-of-week labels — leave room at top to align with cells (month row offset)
             VStack(alignment: .leading, spacing: cellGap) {
+                Text(" ").font(.system(size: 9)).frame(height: cellSize)  // align with month row
                 ForEach(0..<7, id: \.self) { idx in
                     Text(dayLabel(idx))
                         .font(.system(size: 9))
@@ -73,17 +76,53 @@ struct MeetingHeatmapView: View {
                 }
             }
 
-            // Cells
-            HStack(alignment: .top, spacing: cellGap) {
-                ForEach(0..<weeks, id: \.self) { week in
-                    VStack(spacing: cellGap) {
-                        ForEach(0..<7, id: \.self) { dow in
-                            cellView(day: days[week * 7 + dow], value: buckets[days[week * 7 + dow]] ?? 0, max: maxValue)
+            VStack(alignment: .leading, spacing: cellGap) {
+                // Month labels row
+                ZStack(alignment: .topLeading) {
+                    Color.clear.frame(height: cellSize)
+                    ForEach(monthLabels, id: \.column) { label in
+                        Text(label.text)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .offset(x: CGFloat(label.column) * weekColumnWidth)
+                    }
+                }
+
+                // Cells grid
+                HStack(alignment: .top, spacing: cellGap) {
+                    ForEach(0..<weeks, id: \.self) { week in
+                        VStack(spacing: cellGap) {
+                            ForEach(0..<7, id: \.self) { dow in
+                                cellView(day: days[week * 7 + dow], value: buckets[days[week * 7 + dow]] ?? 0, max: maxValue)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Computes which week column should host a month label. Returns one
+    /// entry per month transition (and the first visible month).
+    private func monthLabelsForColumns(days: [Date]) -> [(column: Int, text: String)] {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "fr_FR")
+        fmt.dateFormat = "MMM"
+
+        var labels: [(Int, String)] = []
+        var lastMonth: Int? = nil
+        for week in 0..<weeks {
+            let firstDayOfWeek = days[week * 7]
+            let month = calendar.component(.month, from: firstDayOfWeek)
+            if month != lastMonth {
+                let raw = fmt.string(from: firstDayOfWeek)
+                // Trim trailing dot some locales add ("janv." → "janv")
+                let text = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                labels.append((week, text.capitalized))
+                lastMonth = month
+            }
+        }
+        return labels
     }
 
     private func cellView(day: Date, value: Double, max: Double) -> some View {

@@ -43,6 +43,13 @@ struct ProjectDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                GroupBox("Activité réunions") {
+                    MeetingHeatmapView(
+                        meetings: allMeetings.filter { $0.project?.persistentModelID == project.persistentModelID }
+                    )
+                    .padding(.top, 4)
+                }
+
                 // Informations Générales
                 GroupBox("Informations Générales") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -588,13 +595,6 @@ struct ProjectDetailView: View {
                 }
 
                 NotesSection(target: .project(project))
-
-                GroupBox("Activité réunions") {
-                    MeetingHeatmapView(
-                        meetings: allMeetings.filter { $0.project?.persistentModelID == project.persistentModelID }
-                    )
-                    .padding(.top, 4)
-                }
             }
             .padding()
         }
@@ -753,6 +753,15 @@ struct CollaboratorDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                GroupBox("Activité réunions") {
+                    MeetingHeatmapView(
+                        meetings: allMeetings.filter { meeting in
+                            meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID })
+                        }
+                    )
+                    .padding(.top, 4)
+                }
+
                 GroupBox("Identité") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 16) {
@@ -916,15 +925,6 @@ struct CollaboratorDetailView: View {
                 }
 
                 NotesSection(target: .collaborator(collaborator))
-
-                GroupBox("Activité réunions") {
-                    MeetingHeatmapView(
-                        meetings: allMeetings.filter { meeting in
-                            meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID })
-                        }
-                    )
-                    .padding(.top, 4)
-                }
             }
             .padding()
         }

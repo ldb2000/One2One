@@ -1064,6 +1064,8 @@ struct DashboardView: View {
                     .help("Importer / mettre à jour les projets depuis l'export xlsx (feuille Backlog_2025).")
                 }
 
+                heatmapSection
+
                 if isProcessing {
                     HStack {
                         ProgressView()
@@ -1285,8 +1287,6 @@ struct DashboardView: View {
                         }
                     }
                 }
-
-                heatmapSection
             }
             .padding()
         }
