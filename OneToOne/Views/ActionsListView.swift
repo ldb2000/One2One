@@ -4,12 +4,14 @@ import SwiftData
 struct ActionsListView: View {
     @Query(sort: \ActionTask.dueDate) private var allTasks: [ActionTask]
     @Query private var projects: [Project]
+    @Query private var entities: [Entity]
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var collaborators: [Collaborator]
     @Environment(\.modelContext) private var context
 
     @State private var searchText = ""
     @State private var filterStatus: FilterStatus = .pending
     @State private var filterProject: Project?
+    @State private var filterEntity: Entity?
     @State private var filterCollaborator: Collaborator?
 
     enum FilterStatus: String, CaseIterable {
@@ -32,6 +34,8 @@ struct ActionsListView: View {
 
         if let project = filterProject {
             tasks = tasks.filter { $0.project?.persistentModelID == project.persistentModelID }
+        } else if let entity = filterEntity {
+            tasks = tasks.filter { $0.project?.entity?.persistentModelID == entity.persistentModelID }
         }
 
         if let collaborator = filterCollaborator {
@@ -57,12 +61,7 @@ struct ActionsListView: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 250)
 
-                Picker("Projet", selection: $filterProject) {
-                    Text("Tous les projets").tag(nil as Project?)
-                    ForEach(projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { p in Text(p.name).tag(p as Project?) }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 180)
+                projectFilterMenu
 
                 Picker("Assigné à", selection: $filterCollaborator) {
                     Text("Tous").tag(nil as Collaborator?)
@@ -120,6 +119,70 @@ struct ActionsListView: View {
 
     private func saveContext() {
         do { try context.save() } catch { print("Save error: \(error)") }
+    }
+
+    /// Hierarchical project filter: Entities at the top level, each opens
+    /// a submenu of its projects. "Sans entité" groups orphan projects.
+    private var projectFilterMenu: some View {
+        Menu {
+            Button("Tous les projets") {
+                filterProject = nil
+                filterEntity = nil
+            }
+            Divider()
+            let sortedEntities = entities.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            ForEach(sortedEntities) { entity in
+                let entityProjects = projects
+                    .filter { $0.entity?.persistentModelID == entity.persistentModelID && !$0.isArchived }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                if !entityProjects.isEmpty {
+                    Menu(entity.name) {
+                        Button("Tous les projets de \(entity.name)") {
+                            filterEntity = entity
+                            filterProject = nil
+                        }
+                        Divider()
+                        ForEach(entityProjects) { p in
+                            Button(p.name) {
+                                filterProject = p
+                                filterEntity = nil
+                            }
+                        }
+                    }
+                }
+            }
+            let orphans = projects
+                .filter { $0.entity == nil && !$0.isArchived }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            if !orphans.isEmpty {
+                Divider()
+                Menu("Sans entité") {
+                    ForEach(orphans) { p in
+                        Button(p.name) {
+                            filterProject = p
+                            filterEntity = nil
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                Text(currentProjectFilterLabel).lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var currentProjectFilterLabel: String {
+        if let p = filterProject { return p.name }
+        if let e = filterEntity { return "📂 \(e.name)" }
+        return "Tous les projets"
     }
 
     private func addAction() {
