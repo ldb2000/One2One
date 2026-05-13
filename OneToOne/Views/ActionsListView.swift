@@ -98,17 +98,20 @@ struct ActionsListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    ForEach(filteredTasks) { task in
-                        ActionTaskRow(
-                            task: task,
-                            projects: projects,
-                            collaborators: collaborators,
-                            onSave: saveContext,
-                            onDelete: { context.delete(task); saveContext() }
-                        )
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filteredTasks) { task in
+                            ActionTaskRow(
+                                task: task,
+                                projects: projects,
+                                collaborators: collaborators,
+                                onSave: saveContext,
+                                onDelete: { context.delete(task); saveContext() }
+                            )
+                        }
                     }
                 }
+                .background(Color(nsColor: .textBackgroundColor))
             }
         }
         .searchable(text: $searchText, prompt: "Rechercher une action...")
@@ -193,72 +196,117 @@ struct ActionTaskRow: View {
     // MARK: - Open (GitHub-style)
 
     private var openTaskView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
                 Button(action: toggleCompleted) {
-                    Image(systemName: "circle")
-                        .foregroundColor(.green)
-                        .font(.title3)
+                    Image(systemName: "circle.dashed")
+                        .foregroundColor(Color(red: 0.16, green: 0.65, blue: 0.27))  // GitHub-green
+                        .font(.system(size: 18, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .help("Marquer comme terminée")
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        EditableTextField(placeholder: "Action...", text: $task.title)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if isEditingTitle {
+                            TextField("Action…", text: $task.title, onCommit: {
+                                isEditingTitle = false
+                                onSave()
+                            })
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 15, weight: .semibold))
+                        } else {
+                            Text(task.title.isEmpty ? "Sans titre" : task.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(task.title.isEmpty ? .secondary : .primary)
+                                .onTapGesture(count: 2) { isEditingTitle = true }
+                        }
+
                         if task.fromManager {
                             Label("manager", systemImage: "person.crop.square.filled.and.at.rectangle")
                                 .labelStyle(.titleAndIcon)
                                 .font(.caption2)
-                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Color.accentColor.opacity(0.15))
                                 .clipShape(Capsule())
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     metaLine
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                Button(action: { expanded.toggle() }) {
+                if !task.comments.isEmpty {
+                    Label("\(task.comments.count)", systemImage: "bubble.left")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Button { expanded.toggle() } label: {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-
                 Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .foregroundColor(.secondary)
+                    Image(systemName: "trash").foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Supprimer cette action")
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if !isEditingTitle { expanded.toggle() }
             }
 
             if expanded {
                 Divider()
                 expandedDetails
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
             }
         }
-        .padding(.vertical, 6)
+        .background(rowBackground)
+        .overlay(
+            Rectangle().frame(height: 1)
+                .foregroundColor(Color.secondary.opacity(0.15)),
+            alignment: .bottom
+        )
+    }
+
+    @State private var isEditingTitle: Bool = false
+    @State private var isHovering: Bool = false
+
+    private var rowBackground: some View {
+        Color(nsColor: .textBackgroundColor)
+            .opacity(isHovering ? 0.6 : 1.0)
+            .onHover { isHovering = $0 }
     }
 
     private var metaLine: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
+            Text("#\(task.persistentModelID.hashValue & 0xFFFF, specifier: "%X")")
+                .foregroundColor(.secondary)
+            Text("·").foregroundColor(.secondary)
             if let createdAt = task.createdAt {
-                Text("Ouverte \(Self.dateFmt.string(from: createdAt))")
+                Text("ouverte le \(Self.dateFmt.string(from: createdAt))")
             } else {
-                Text("Ouverte (date inconnue)")
+                Text("ouverte (date inconnue)")
             }
-            if let project = task.project { Text("· \(project.name)") }
-            if let collab = task.collaborator { Text("· @\(collab.name)") }
+            if let project = task.project {
+                Text("·").foregroundColor(.secondary)
+                Label(project.name, systemImage: "folder")
+            }
+            if let collab = task.collaborator {
+                Text("·").foregroundColor(.secondary)
+                Label(collab.name, systemImage: "person.fill")
+            }
             if let due = task.dueDate {
-                Text("· échéance \(Self.dateFmt.string(from: due))")
+                Text("·").foregroundColor(.secondary)
+                Label(Self.dateFmt.string(from: due), systemImage: "calendar")
                     .foregroundStyle(due < Date() ? .red : .secondary)
-            }
-            if !task.comments.isEmpty {
-                Label("\(task.comments.count)", systemImage: "bubble.left")
             }
         }
         .font(.caption)
