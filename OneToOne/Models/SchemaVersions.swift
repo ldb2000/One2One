@@ -30,6 +30,7 @@ enum SchemaV1: VersionedSchema {
             Collaborator.self,
             Interview.self,
             ActionTask.self,
+            ActionComment.self,
             ProjectAlert.self,
             AppSettings.self,
             Entity.self,

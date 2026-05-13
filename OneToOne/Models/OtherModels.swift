@@ -186,17 +186,33 @@ final class ActionTask {
     var reminderID: String?
 
     /// True when the task was extracted from a 1:1 manager CR.
-    /// Surfaces a "manager" badge in `ActionsListView` and lets
-    /// `ManagerTrackingView` filter to manager-requested actions.
     var fromManager: Bool = false
-
-    /// The 1:1 manager meeting where this action was requested.
-    /// Distinct from `meeting` (which can be any meeting source).
     var managerMeeting: Meeting?
+
+    /// Creation and completion timestamps. Optional so existing rows
+    /// keep nil and we display "Date inconnue" rather than crashing.
+    var createdAt: Date? = nil
+    var completedAt: Date? = nil
+
+    @Relationship(deleteRule: .cascade, inverse: \ActionComment.task)
+    var comments: [ActionComment] = []
 
     init(title: String, dueDate: Date? = nil) {
         self.title = title
         self.dueDate = dueDate
+        self.createdAt = Date()
+    }
+}
+
+@Model
+final class ActionComment {
+    var date: Date
+    var text: String
+    var task: ActionTask?
+
+    init(text: String, date: Date = Date()) {
+        self.text = text
+        self.date = date
     }
 }
 

@@ -71,13 +71,48 @@ struct MeetingActionsSidebar: View {
 
     private var tasksList: some View {
         ScrollView {
-            LazyVStack(spacing: 8) {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                if let collab = oneToOnePartner, !otherCollabOpenActions(for: collab).isEmpty {
+                    Text("Actions ouvertes de \(collab.name)")
+                        .font(MeetingTheme.sectionLabel)
+                        .tracking(1.2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                    ForEach(otherCollabOpenActions(for: collab)) { task in
+                        taskRow(task)
+                            .opacity(0.85)
+                    }
+                    Divider().padding(.vertical, 4)
+                    Text("Cette réunion")
+                        .font(MeetingTheme.sectionLabel)
+                        .tracking(1.2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                }
                 ForEach(meeting.tasks) { task in
                     taskRow(task)
                 }
             }
             .padding(10)
         }
+    }
+
+    private var oneToOnePartner: Collaborator? {
+        guard meeting.kind == .oneToOne else { return nil }
+        return meeting.participants.first
+    }
+
+    private func otherCollabOpenActions(for collab: Collaborator) -> [ActionTask] {
+        // Tasks assigned to collab, open, not part of THIS meeting.
+        let direct = collab.assignedTasks
+        let viaInterviews = collab.interviews.flatMap { $0.tasks }
+        var seen = Set<PersistentIdentifier>()
+        let combined = (direct + viaInterviews).filter { task in
+            guard !task.isCompleted else { return false }
+            guard task.meeting?.persistentModelID != meeting.persistentModelID else { return false }
+            return seen.insert(task.persistentModelID).inserted
+        }
+        return combined.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
     }
 
     @ViewBuilder
