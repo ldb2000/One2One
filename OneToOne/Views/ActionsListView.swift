@@ -66,12 +66,17 @@ struct ActionsListView: View {
 
                 Picker("Assigné à", selection: $filterCollaborator) {
                     Text("Tous").tag(nil as Collaborator?)
-                    ForEach(collaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
+                    CollaboratorPickerOptions(collaborators: collaborators)
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 180)
 
                 Spacer()
+
+                Button(action: addAction) {
+                    Label("Nouvelle action", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
 
                 Text("\(filteredTasks.count) action(s)")
                     .font(.caption)
@@ -112,6 +117,46 @@ struct ActionsListView: View {
 
     private func saveContext() {
         do { try context.save() } catch { print("Save error: \(error)") }
+    }
+
+    private func addAction() {
+        let task = ActionTask(title: "Nouvelle action")
+        task.project = filterProject
+        task.collaborator = filterCollaborator
+        context.insert(task)
+        saveContext()
+    }
+}
+
+/// Renders Collaborator picker options with favourites/pinned first,
+/// a divider, then the rest sorted alphabetically. Adhoc collaborators
+/// are excluded for cleanliness.
+struct CollaboratorPickerOptions: View {
+    let collaborators: [Collaborator]
+
+    var body: some View {
+        let filtered = collaborators.filter { !$0.isAdhoc && !$0.isArchived }
+        let pinned = filtered
+            .filter { $0.pinLevel > 0 }
+            .sorted { lhs, rhs in
+                if lhs.pinLevel != rhs.pinLevel { return lhs.pinLevel > rhs.pinLevel }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        let rest = filtered
+            .filter { $0.pinLevel == 0 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        Group {
+            ForEach(pinned) { c in
+                Label(c.name, systemImage: c.pinLevel >= 2 ? "pin.fill" : "star.fill").tag(c as Collaborator?)
+            }
+            if !pinned.isEmpty && !rest.isEmpty {
+                Divider()
+            }
+            ForEach(rest) { c in
+                Text(c.name).tag(c as Collaborator?)
+            }
+        }
     }
 }
 
@@ -176,34 +221,29 @@ struct ActionTaskRow: View {
                     set: { task.collaborator = $0; onSave() }
                 )) {
                     Text("Non assigné").tag(nil as Collaborator?)
-                    ForEach(collaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
+                    CollaboratorPickerOptions(collaborators: collaborators)
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 140)
                 .font(.caption)
 
-                if let dueDate = task.dueDate {
-                    DatePicker("", selection: Binding(
-                        get: { dueDate },
-                        set: { task.dueDate = $0; onSave() }
-                    ), displayedComponents: .date)
-                    .labelsHidden()
-                    .font(.caption)
-                    .frame(width: 100)
+                DatePicker("", selection: Binding(
+                    get: { task.dueDate ?? Date() },
+                    set: { task.dueDate = $0; onSave() }
+                ), displayedComponents: .date)
+                .labelsHidden()
+                .font(.caption)
+                .opacity(task.dueDate == nil ? 0.6 : 1.0)
+                .help(task.dueDate == nil ? "Définir une échéance" : "Modifier l'échéance")
 
+                if task.dueDate != nil {
                     Button(action: { task.dueDate = nil; onSave() }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                             .font(.caption2)
                     }
                     .buttonStyle(.plain)
-                } else {
-                    Button(action: { task.dueDate = Date(); onSave() }) {
-                        Label("Échéance", systemImage: "calendar.badge.plus")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
+                    .help("Retirer l'échéance")
                 }
 
                 if task.reminderID != nil {
