@@ -253,8 +253,52 @@ struct ContentView: View {
                 try context.save()
                 print("Reparation SwiftData: \(meetingFilled) Meeting.stableID backfilles.")
             }
+
+            // Defensive dedup for other @Model classes with non-Optional
+            // `UUID() = UUID()` defaults. Cheap insurance against legacy
+            // migrations or future field additions.
+            deduplicate(context: context, label: "NoteAttachment",
+                        fetch: FetchDescriptor<NoteAttachment>(),
+                        get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicate(context: context, label: "ManagerReportItem",
+                        fetch: FetchDescriptor<ManagerReportItem>(),
+                        get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicate(context: context, label: "ManagerMeetingReport",
+                        fetch: FetchDescriptor<ManagerMeetingReport>(),
+                        get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicate(context: context, label: "TranscriptSegment",
+                        fetch: FetchDescriptor<TranscriptSegment>(),
+                        get: { $0.stableID }, set: { $0.stableID = $1 })
+            deduplicate(context: context, label: "SlideCapture",
+                        fetch: FetchDescriptor<SlideCapture>(),
+                        get: { $0.id }, set: { $0.id = $1 })
         } catch {
             print("Echec reparation SwiftData: \(error)")
+        }
+    }
+
+    /// Scans a SwiftData entity for rows whose UUID identifier collides
+    /// with another, and reassigns each duplicate a fresh UUID. Saves
+    /// once when any change is made. Quiet on no-op.
+    private func deduplicate<T: PersistentModel>(
+        context: ModelContext,
+        label: String,
+        fetch: FetchDescriptor<T>,
+        get: (T) -> UUID,
+        set: (T, UUID) -> Void
+    ) {
+        guard let all = try? context.fetch(fetch) else { return }
+        var seen = Set<UUID>()
+        var fixed = 0
+        for row in all {
+            let id = get(row)
+            if seen.insert(id).inserted { continue }
+            set(row, UUID())
+            fixed += 1
+        }
+        if fixed > 0 {
+            try? context.save()
+            print("Reparation SwiftData: \(fixed) \(label) UUID dedoublonnes.")
         }
     }
 }
