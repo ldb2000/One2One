@@ -101,6 +101,10 @@ final class AppSettings {
     var contactPhotoSyncEnabled: Bool = false
     var contactPhotoSyncIntervalMinutes: Int = 60
 
+    // MARK: - LinkedIn / Bing photo search
+    /// Azure Cognitive Services key for Bing Image Search. Stored locally.
+    var bingImageSearchKey: String = ""
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"

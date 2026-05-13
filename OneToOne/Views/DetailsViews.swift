@@ -748,7 +748,9 @@ struct CollaboratorDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingPhotoImporter = false
+    @State private var showingBingSearch = false
     @Query private var allMeetings: [Meeting]
+    @Query private var appSettings: [AppSettings]
 
     var body: some View {
         ScrollView {
@@ -772,6 +774,32 @@ struct CollaboratorDetailView: View {
                                     showingPhotoImporter = true
                                 }
                                 .buttonStyle(.bordered)
+
+                                Button {
+                                    LinkedInPhotoSearch.openLinkedInSearch(name: collaborator.name)
+                                } label: {
+                                    Label("Rechercher sur LinkedIn", systemImage: "magnifyingglass")
+                                }
+                                .buttonStyle(.bordered)
+                                .help("Ouvre LinkedIn dans le navigateur. Copiez la photo, puis revenez dans cette fiche et collez avec Cmd+V.")
+
+                                Button {
+                                    pasteClipboardPhoto()
+                                } label: {
+                                    Label("Coller depuis presse-papiers", systemImage: "doc.on.clipboard")
+                                }
+                                .buttonStyle(.bordered)
+                                .keyboardShortcut("v", modifiers: [.command])
+                                .help("Coller une image copiée (ex: depuis LinkedIn).")
+
+                                if hasBingKey {
+                                    Button {
+                                        showingBingSearch = true
+                                    } label: {
+                                        Label("Rechercher photo (Bing)", systemImage: "sparkles.rectangle.stack")
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
 
                                 if collaborator.photoURL() != nil {
                                     Button("Retirer la photo", role: .destructive) {
@@ -936,6 +964,14 @@ struct CollaboratorDetailView: View {
         ) { result in
             handlePhotoImport(result: result)
         }
+        .sheet(isPresented: $showingBingSearch) {
+            BingPhotoSearchSheet(
+                initialQuery: collaborator.name,
+                apiKey: appSettings.first?.bingImageSearchKey ?? ""
+            ) { data in
+                savePhotoData(data)
+            }
+        }
         .navigationTitle(collaborator.name)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -1025,6 +1061,36 @@ struct CollaboratorDetailView: View {
             saveContext()
         case .failure(let error):
             print("[CollaboratorDetail] photo import failed: \(error)")
+        }
+    }
+
+    private var hasBingKey: Bool {
+        !(appSettings.first?.bingImageSearchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    private func pasteClipboardPhoto() {
+        guard let data = LinkedInPhotoSearch.pasteImageFromClipboard() else {
+            NSSound.beep()
+            return
+        }
+        savePhotoData(data)
+    }
+
+    /// Persists raw image bytes to Application Support and updates the
+    /// collaborator's photoPath. Used by paste and Bing search.
+    private func savePhotoData(_ data: Data) {
+        let dir = URL.applicationSupportDirectory
+            .appending(path: "OneToOne", directoryHint: .isDirectory)
+            .appending(path: "photos", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let target = dir.appending(path: "\(collaborator.ensuredStableID.uuidString).jpg")
+        do {
+            try data.write(to: target, options: .atomic)
+            collaborator.photoPath = target.path
+            collaborator.photoBookmarkData = nil
+            saveContext()
+        } catch {
+            print("[CollaboratorDetail] savePhotoData failed: \(error)")
         }
     }
 }

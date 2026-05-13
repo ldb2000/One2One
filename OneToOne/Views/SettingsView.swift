@@ -553,6 +553,21 @@ struct SettingsView: View {
                                 }
                             }
                         }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Clé Bing Image Search (Azure)")
+                                .font(.caption.bold())
+                            SecureField("Ocp-Apim-Subscription-Key", text: Binding(
+                                get: { settings.bingImageSearchKey },
+                                set: { settings.bingImageSearchKey = $0; saveSettings() }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            Text("Active la recherche photo LinkedIn via Bing dans la fiche collaborateur. Crée une ressource Cognitive Services > Bing Search v7 sur portal.azure.com.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     .padding(8)
                 }
