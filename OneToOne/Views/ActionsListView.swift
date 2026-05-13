@@ -131,29 +131,35 @@ struct ActionsListView: View {
     }
 }
 
-/// Renders Collaborator picker options with favourites/pinned first,
-/// a divider, then the rest sorted alphabetically. Adhoc collaborators
-/// are excluded for cleanliness.
+/// Renders Collaborator picker options with pinned (sidebar) at the top,
+/// then favourites (star), a divider, then the rest sorted A–Z.
+/// Includes ad-hoc collaborators so favourited ones aren't silently hidden.
 struct CollaboratorPickerOptions: View {
     let collaborators: [Collaborator]
 
     var body: some View {
-        let filtered = collaborators.filter { !$0.isAdhoc && !$0.isArchived }
-        let pinned = filtered
-            .filter { $0.pinLevel > 0 }
-            .sorted { lhs, rhs in
-                if lhs.pinLevel != rhs.pinLevel { return lhs.pinLevel > rhs.pinLevel }
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
-        let rest = filtered
+        let active = collaborators.filter { !$0.isArchived }
+        let pinned = active
+            .filter { $0.pinLevel >= 2 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let favourites = active
+            .filter { $0.pinLevel == 1 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let rest = active
             .filter { $0.pinLevel == 0 }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         Group {
             ForEach(pinned) { c in
-                Label(c.name, systemImage: c.pinLevel >= 2 ? "pin.fill" : "star.fill").tag(c as Collaborator?)
+                Label(c.name, systemImage: "pin.fill").tag(c as Collaborator?)
             }
-            if !pinned.isEmpty && !rest.isEmpty {
+            if !pinned.isEmpty && (!favourites.isEmpty || !rest.isEmpty) {
+                Divider()
+            }
+            ForEach(favourites) { c in
+                Label(c.name, systemImage: "star.fill").tag(c as Collaborator?)
+            }
+            if !favourites.isEmpty && !rest.isEmpty {
                 Divider()
             }
             ForEach(rest) { c in
