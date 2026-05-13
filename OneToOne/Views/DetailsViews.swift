@@ -1073,15 +1073,25 @@ struct CollaboratorDetailView: View {
     }
 
     /// Persists raw image bytes to Application Support and updates the
-    /// collaborator's photoPath. Used by paste and Brave search.
+    /// collaborator's photoPath. Uses a fresh UUID per save so two
+    /// collaborators can't accidentally overwrite each other's photo
+    /// even if their stableIDs collided (legacy data).
     private func savePhotoData(_ data: Data) {
         let dir = URL.applicationSupportDirectory
             .appending(path: "OneToOne", directoryHint: .isDirectory)
             .appending(path: "photos", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let target = dir.appending(path: "\(collaborator.ensuredStableID.uuidString).jpg")
+        let target = dir.appending(path: "\(UUID().uuidString).jpg")
         do {
             try data.write(to: target, options: .atomic)
+            // Best-effort cleanup of the previous photo if it lived in our
+            // managed photos dir (avoid orphaning files across pastes).
+            let oldPath = collaborator.photoPath
+            if !oldPath.isEmpty,
+               oldPath.hasPrefix(dir.path),
+               oldPath != target.path {
+                try? FileManager.default.removeItem(atPath: oldPath)
+            }
             collaborator.photoPath = target.path
             collaborator.photoBookmarkData = nil
             saveContext()

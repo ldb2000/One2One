@@ -108,7 +108,9 @@ final class ContactPhotoService {
             .appending(path: "photos", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let filename = "\(collab.ensuredStableID.uuidString).jpg"
+        // Fresh UUID per save — never reuse a filename based on stableID
+        // (legacy collabs may share a stableID and would overwrite each other).
+        let filename = "\(UUID().uuidString).jpg"
         let target = dir.appending(path: filename)
         do {
             try data.write(to: target, options: .atomic)

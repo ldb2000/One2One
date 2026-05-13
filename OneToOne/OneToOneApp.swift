@@ -222,10 +222,14 @@ struct ContentView: View {
                 print("Reparation SwiftData: codes projet dupliques corriges.")
             }
 
-            // Backfill Collaborator.stableID pour rows créées avant l'ajout du champ.
+            // Backfill Collaborator.stableID — handles both nil rows and
+            // duplicates from the legacy non-Optional `UUID()` default that
+            // SwiftData applied identically to existing rows.
             let allCollabs = try context.fetch(FetchDescriptor<Collaborator>())
+            var seenCollabIDs = Set<UUID>()
             var backfilled = 0
-            for collab in allCollabs where collab.stableID == nil {
+            for collab in allCollabs {
+                if let id = collab.stableID, seenCollabIDs.insert(id).inserted { continue }
                 collab.stableID = UUID()
                 backfilled += 1
             }
