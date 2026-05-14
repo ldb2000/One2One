@@ -1,5 +1,6 @@
 import Foundation
 import os
+import SwiftData
 
 private let reportLog = Logger(subsystem: "com.onetoone.app", category: "report")
 
@@ -80,6 +81,69 @@ struct AIReportService {
 
         let raw = try await AIClient.send(prompt: prompt, settings: settings, onProgress: onProgress)
         return parse(raw)
+    }
+
+    /// Template-driven report generation. Resolves `meeting.reportTemplate`
+    /// (or default by kind), injects history + variables, then calls
+    /// `AIClient`. Returns parsed `MeetingReportData`.
+    @MainActor
+    static func generate(
+        meeting: Meeting,
+        in context: ModelContext,
+        settings: AppSettings,
+        onProgress: AIClient.ProgressCallback? = nil
+    ) async throws -> MeetingReportData {
+        let template = meeting.reportTemplate ?? defaultTemplate(for: meeting.kind, in: context)
+        let history = template.map { HistoryContextBuilder.build(for: meeting, template: $0, in: context) } ?? ""
+        let body = template?.promptBody ?? ""
+        let sections = template?.sections ?? []
+
+        // 1. Resolve {{vars}} in the body
+        var resolved = TemplateVariableResolver.resolve(prompt: body, for: meeting, in: context)
+
+        // 2. Substitute {{historique_n}} with the history bloc
+        resolved = resolved.replacingOccurrences(of: "{{historique_n}}", with: history)
+        resolved = resolved.replacingOccurrences(of: "{{project.historique_n}}", with: history)
+
+        // 3. Append the sections schema so the LLM structures its output
+        var sectionsBlock = ""
+        if !sections.isEmpty {
+            sectionsBlock = "\n\n# Sections attendues (respecte cet ordre, un # par titre):\n"
+            for (idx, s) in sections.enumerated() {
+                sectionsBlock += "\(idx + 1). **\(s.title)** — \(s.hint)\n"
+            }
+        }
+
+        let finalPrompt = """
+        Tu es l'assistant de synthèse de OneToOne.
+
+        \(resolved)
+        \(sectionsBlock)
+
+        Produis un compte-rendu en markdown structuré autour des sections demandées,
+        en français, concis et factuel.
+        """
+
+        reportLog.info("generate(meeting): template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count)")
+        let raw = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress)
+        return parse(raw)
+    }
+
+    @MainActor
+    private static func defaultTemplate(for kind: MeetingKind, in context: ModelContext) -> ReportTemplate? {
+        let templateKind: ReportTemplateKind
+        switch kind {
+        case .global:    templateKind = .general
+        case .oneToOne:  templateKind = .oneToOne
+        case .manager:   templateKind = .manager
+        case .project:   templateKind = .copil
+        case .work:      templateKind = .general
+        }
+        let raw = templateKind.rawValue
+        let descriptor = FetchDescriptor<ReportTemplate>(
+            predicate: #Predicate { $0.isBuiltIn == true && $0.kindRaw == raw && !$0.isArchived }
+        )
+        return (try? context.fetch(descriptor))?.first
     }
 
     // MARK: - Prompt
