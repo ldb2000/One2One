@@ -56,7 +56,11 @@ final class Project {
     var ditLink: URL?
 
     var entity: Entity?
-    
+
+    /// Free-text planning notes. Surfaced via {{project.planning}} variable
+    /// in report templates.
+    var planningText: String = ""
+
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.project)
     var tasks: [ActionTask] = []
 

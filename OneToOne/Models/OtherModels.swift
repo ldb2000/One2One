@@ -314,6 +314,9 @@ final class Meeting {
     @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.meeting)
     var transcriptSegments: [TranscriptSegment] = []
 
+    // MARK: - Report template (chosen at create, overridable)
+    var reportTemplate: ReportTemplate?
+
     init(title: String = "", date: Date = Date(), notes: String = "") {
         self.stableID = UUID()
         self.title = title
