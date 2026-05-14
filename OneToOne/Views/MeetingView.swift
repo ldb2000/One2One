@@ -997,22 +997,12 @@ struct MeetingView: View {
             liveNotes: meeting.liveNotes
         )
 
-        // Phase 8 : RAG historique — injection du contexte pré-LLM.
-        let historicalContext = await fetchHistoricalContext()
-        let attachmentsContext = await fetchAttachmentsContext()
-
-        let participantsDesc = meeting.participantsDescription
+        // Phase 8 : RAG historique — injection du contexte pré-LLM (now handled in resolver).
         let generationStart = Date()
         do {
             let report = try await AIReportService.generate(
-                mergedTranscript: meeting.mergedTranscript,
-                meetingKind: meeting.kind,
-                durationSeconds: meeting.durationSeconds,
-                projectName: meeting.project?.name,
-                participantsDescription: participantsDesc,
-                customPrompt: meeting.customPrompt,
-                historicalContext: historicalContext,
-                attachmentsContext: attachmentsContext,
+                meeting: meeting,
+                in: context,
                 settings: settings,
                 onProgress: { partial in
                     let count = partial.count
