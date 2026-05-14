@@ -305,3 +305,72 @@ enum TemplateVariableResolver {
         s.components(separatedBy: .newlines).first ?? s
     }
 }
+
+/// Produces the bloc injected into `{{historique_n}}` according to the
+/// template's history mode (none/lastN/rag/hybrid).
+enum HistoryContextBuilder {
+
+    @MainActor
+    static func build(for meeting: Meeting,
+                      template: ReportTemplate,
+                      in context: ModelContext) -> String {
+        switch template.historyMode {
+        case .none:
+            return ""
+        case .lastN:
+            return buildLastN(for: meeting, n: template.historyN, in: context)
+        case .rag:
+            // Embeddings infra not generalised yet — fallback to lastN(1).
+            return buildLastN(for: meeting, n: max(template.historyN, 1), in: context)
+        case .hybrid:
+            // Same fallback — RAG portion is no-op until embeddings infra is generalised.
+            return buildLastN(for: meeting, n: max(template.historyN, 1), in: context)
+        }
+    }
+
+    // MARK: - lastN
+
+    @MainActor
+    private static func buildLastN(for meeting: Meeting, n: Int, in context: ModelContext) -> String {
+        guard n > 0 else { return "" }
+        let scope = peerMeetings(for: meeting, in: context)
+            .filter { $0.persistentModelID != meeting.persistentModelID }
+            .filter { !$0.summary.isEmpty }
+        let top = Array(scope.prefix(n))
+        guard !top.isEmpty else { return "" }
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "fr_FR")
+        fmt.dateFormat = "d MMM yyyy"
+        return top.map { m in
+            let truncated = m.summary.count > 2000
+                ? String(m.summary.prefix(1999)) + "…"
+                : m.summary
+            return "--- \(fmt.string(from: m.date)) · \(m.title) ---\n\(truncated)"
+        }.joined(separator: "\n\n")
+    }
+
+    /// Returns Meetings in the scope of `meeting.kind`, sorted desc by date.
+    @MainActor
+    private static func peerMeetings(for meeting: Meeting, in context: ModelContext) -> [Meeting] {
+        let descriptor = FetchDescriptor<Meeting>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        let all = (try? context.fetch(descriptor)) ?? []
+        switch meeting.kind {
+        case .project:
+            guard let pid = meeting.project?.persistentModelID else { return all }
+            return all.filter { $0.project?.persistentModelID == pid }
+        case .oneToOne:
+            guard let partner = meeting.participants.first else { return [] }
+            let cid = partner.persistentModelID
+            return all.filter { m in
+                m.kind == .oneToOne
+                    && m.participants.contains(where: { $0.persistentModelID == cid })
+            }
+        case .manager:
+            return all.filter { $0.kind == .manager }
+        case .global, .work:
+            return all
+        }
+    }
+}
