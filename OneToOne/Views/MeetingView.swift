@@ -332,13 +332,19 @@ struct MeetingView: View {
         transcribeError = nil
         print("[MeetingView] retranscribe: \(wavURL.path)")
         do {
-            let result = try await stt.transcribe(audioURL: wavURL)
+            // Drop old segments before re-running so the new diarization can write fresh ones.
+            for old in meeting.transcriptSegments { context.delete(old) }
+            let result = try await stt.transcribeWithDiarization(
+                audioURL: wavURL,
+                meeting: meeting,
+                settings: settings,
+                in: context
+            )
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
-            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
             print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
@@ -968,15 +974,21 @@ struct MeetingView: View {
 
         transcribeError = nil
         do {
-            print("[MeetingView] → transcribe start…")
-            let result = try await stt.transcribe(audioURL: finalURL)
+            print("[MeetingView] → transcribe start (with diarization + speaker matching)…")
+            // Drop any prior segments (re-record case).
+            for old in meeting.transcriptSegments { context.delete(old) }
+            let result = try await stt.transcribeWithDiarization(
+                audioURL: finalURL,
+                meeting: meeting,
+                settings: settings,
+                in: context
+            )
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
-            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
         } catch {
