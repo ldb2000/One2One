@@ -317,11 +317,11 @@ final class TranscriptionService: ObservableObject {
             return sttResult
         }
 
-        // 2. Diarize.
-        onPhase?(.diarizing)
+        // 2. Diarize. PyannoteDiarizer will itself emit .loadingModel before
+        // first-call `fromPretrained` and .diarizing once compute starts.
         let diarOutput: PyannoteDiarizer.DiarizeOutput
         do {
-            diarOutput = try await PyannoteDiarizer.shared.diarize(audioURL: audioURL)
+            diarOutput = try await PyannoteDiarizer.shared.diarize(audioURL: audioURL, onPhase: onPhase)
         } catch {
             print("[TranscriptionService] diarization failed: \(error). Falling back to anonymous.")
             persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)

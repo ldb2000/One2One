@@ -30,13 +30,18 @@ final class PyannoteDiarizer {
     private init() {}
 
     /// Lazy-load the pipeline on first call. Triggers HuggingFace download
-    /// on first run (cached afterwards).
-    func diarize(audioURL: URL) async throws -> DiarizeOutput {
+    /// on first run (cached afterwards). `onPhase` is called with `.loadingModel`
+    /// before the (potentially slow) `fromPretrained` step, then `.diarizing`
+    /// once compute starts.
+    func diarize(audioURL: URL,
+                 onPhase: ((TranscriptionPhase) -> Void)? = nil) async throws -> DiarizeOutput {
         #if canImport(SpeechVAD)
         if pipeline == nil {
             diarLog.info("loading PyannoteDiarizationPipeline (first call)")
+            onPhase?(.loadingModel)
             pipeline = try await PyannoteDiarizationPipeline.fromPretrained(useVADFilter: true)
         }
+        onPhase?(.diarizing)
         guard let pipeline else {
             throw NSError(domain: "PyannoteDiarizer", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "pipeline unavailable"])

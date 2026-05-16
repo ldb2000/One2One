@@ -1675,7 +1675,15 @@ struct MeetingView: View {
         Task { @MainActor in
             transcriptionPhase = .reidentifying
             do {
-                let out = try await PyannoteDiarizer.shared.diarize(audioURL: url)
+                let out = try await PyannoteDiarizer.shared.diarize(audioURL: url, onPhase: { phase in
+                    // While re-identifying, surface model-load explicitly but
+                    // keep the "réidentification" wording for the actual compute.
+                    if case .loadingModel = phase {
+                        transcriptionPhase = .loadingModel
+                    } else {
+                        transcriptionPhase = .reidentifying
+                    }
+                })
                 lastDiarizationEmbeddings = out.perClusterEmbedding
                 let assignments = SpeakerMatcher.match(
                     clusterEmbeddings: out.perClusterEmbedding,
