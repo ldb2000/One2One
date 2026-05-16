@@ -3,6 +3,7 @@ import Foundation
 import Combine
 import AppKit
 import os
+import SwiftData
 
 #if canImport(MLXAudioSTT)
 import MLXAudioSTT
@@ -293,6 +294,118 @@ final class TranscriptionService: ObservableObject {
         #else
         throw STTError.mlxNotLinked
         #endif
+    }
+
+    // MARK: - Diarization pipeline
+
+    /// Full pipeline: Cohere transcribe → Pyannote diarize → align → match speakers.
+    /// Mutates `meeting`: inserts TranscriptSegments, sets `speakerAssignmentsJSON`
+    /// + `speakerMatchMetaJSON`. Does **not** call `context.save()` — the caller
+    /// (`MeetingView.runTranscription`) decides when to persist.
+    func transcribeWithDiarization(audioURL: URL,
+                                    meeting: Meeting,
+                                    settings: AppSettings,
+                                    in context: ModelContext) async throws -> STTResult {
+        // 1. Cohere transcribe (existing path).
+        let sttResult = try await transcribe(audioURL: audioURL)
+
+        // If speaker identification disabled in settings, return early with cluster=0.
+        guard settings.speakerIdEnabled else {
+            persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)
+            return sttResult
+        }
+
+        // 2. Diarize.
+        let diarOutput: PyannoteDiarizer.DiarizeOutput
+        do {
+            diarOutput = try await PyannoteDiarizer.shared.diarize(audioURL: audioURL)
+        } catch {
+            print("[TranscriptionService] diarization failed: \(error). Falling back to anonymous.")
+            persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)
+            return sttResult
+        }
+
+        // 3. Align chunks ↔ turns.
+        let chunks = sttResult.segments.map { c in
+            TurnAligner.STTChunkInput(startSec: c.startSeconds, endSec: c.endSeconds, text: c.text)
+        }
+        let aligned = TurnAligner.align(chunks: chunks, turns: diarOutput.turns)
+
+        // 4. Match clusters → Collaborators.
+        let assignments = SpeakerMatcher.match(
+            clusterEmbeddings: diarOutput.perClusterEmbedding,
+            meeting: meeting,
+            in: context
+        )
+
+        // 5. Persist segments + metadata.
+        persistAlignedSegments(
+            aligned: aligned,
+            assignments: assignments,
+            meeting: meeting,
+            in: context
+        )
+
+        return sttResult
+    }
+
+    private func persistAnonymousSegments(sttResult: STTResult,
+                                           meeting: Meeting,
+                                           in context: ModelContext) {
+        var idx = 0
+        for chunk in sttResult.segments {
+            let s = TranscriptSegment(
+                orderIndex: idx,
+                startSeconds: chunk.startSeconds,
+                endSeconds: chunk.endSeconds,
+                text: chunk.text,
+                speakerID: 1
+            )
+            s.meeting = meeting
+            context.insert(s)
+            idx += 1
+        }
+    }
+
+    private func persistAlignedSegments(aligned: [TurnAligner.AlignedSegment],
+                                         assignments: [Int: SpeakerMatcher.Assignment],
+                                         meeting: Meeting,
+                                         in context: ModelContext) {
+        var idx = 0
+        var assignmentsDict: [String: Any] = [:]
+        var metaDict: [String: [String: Any]] = [:]
+        for seg in aligned {
+            let s = TranscriptSegment(
+                orderIndex: idx,
+                startSeconds: seg.startSec,
+                endSeconds: seg.endSec,
+                text: seg.text,
+                speakerID: seg.clusterID + 1
+            )
+            s.meeting = meeting
+            if let a = assignments[seg.clusterID], let collab = a.collaborator, a.auto {
+                s.speaker = collab
+            }
+            context.insert(s)
+            idx += 1
+        }
+        for (cid, a) in assignments {
+            assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
+            metaDict[String(cid)] = [
+                "confidence": a.confidence,
+                "auto": a.auto,
+                "ambiguous": a.ambiguous,
+                "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
+            ]
+        }
+        if let assignmentsJSON = try? JSONSerialization.data(withJSONObject: assignmentsDict),
+           let s = String(data: assignmentsJSON, encoding: .utf8) {
+            meeting.speakerAssignmentsJSON = s
+        }
+        if let metaJSON = try? JSONSerialization.data(withJSONObject: metaDict),
+           let s = String(data: metaJSON, encoding: .utf8) {
+            meeting.speakerMatchMetaJSON = s
+        }
     }
 
     // MARK: - Audio loader

@@ -3,6 +3,27 @@ import SwiftData
 import UniformTypeIdentifiers
 import AVFoundation
 
+fileprivate struct SpeakerMeta {
+    let confidence: Double
+    let auto: Bool
+    let ambiguous: Bool
+    let candidateStableIDs: [String]
+
+    static func parse(json: String, clusterID: Int) -> SpeakerMeta? {
+        guard let data = json.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entry = dict[String(clusterID)] as? [String: Any] else {
+            return nil
+        }
+        return SpeakerMeta(
+            confidence: (entry["confidence"] as? Double) ?? 0,
+            auto: (entry["auto"] as? Bool) ?? false,
+            ambiguous: (entry["ambiguous"] as? Bool) ?? false,
+            candidateStableIDs: (entry["candidates"] as? [String]) ?? []
+        )
+    }
+}
+
 struct MeetingView: View {
     @Bindable var meeting: Meeting
     /// Démarre automatiquement le recorder à `onAppear` (déclenché par
@@ -72,6 +93,7 @@ struct MeetingView: View {
     // Speaker view toggle + rename popover state
     @State private var showSpeakersView: Bool = true
     @State private var renamingSpeakerID: Int?
+    @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
@@ -310,13 +332,19 @@ struct MeetingView: View {
         transcribeError = nil
         print("[MeetingView] retranscribe: \(wavURL.path)")
         do {
-            let result = try await stt.transcribe(audioURL: wavURL)
+            // Drop old segments before re-running so the new diarization can write fresh ones.
+            for old in meeting.transcriptSegments { context.delete(old) }
+            let result = try await stt.transcribeWithDiarization(
+                audioURL: wavURL,
+                meeting: meeting,
+                settings: settings,
+                in: context
+            )
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
-            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
             print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
@@ -946,15 +974,21 @@ struct MeetingView: View {
 
         transcribeError = nil
         do {
-            print("[MeetingView] → transcribe start…")
-            let result = try await stt.transcribe(audioURL: finalURL)
+            print("[MeetingView] → transcribe start (with diarization + speaker matching)…")
+            // Drop any prior segments (re-record case).
+            for old in meeting.transcriptSegments { context.delete(old) }
+            let result = try await stt.transcribeWithDiarization(
+                audioURL: finalURL,
+                meeting: meeting,
+                settings: settings,
+                in: context
+            )
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
-            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
         } catch {
@@ -1349,6 +1383,14 @@ struct MeetingView: View {
             .buttonStyle(.bordered)
             .disabled(meeting.transcriptSegments.isEmpty || (meeting.wavFilePath ?? "").isEmpty)
             .help("Analyse l'audio (VAD) et propose une alternance de tours de parole. Reassign manuel ensuite via clic sur le label.")
+
+            Button {
+                reidentifySpeakers()
+            } label: {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+            }
+            .help("Ré-identifier les speakers")
+            .disabled((meeting.wavFilePath ?? "").isEmpty)
         }
         .padding(.bottom, 4)
     }
@@ -1365,12 +1407,77 @@ struct MeetingView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
     private func segmentRow(_ seg: TranscriptSegment) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Button {
-                renamingSpeakerID = seg.speakerID
-            } label: {
+            speakerBadge(for: seg)
+
+            Text(seg.formattedTimestamp)
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+
+            Text(seg.text)
+                .font(.body)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private func speakerBadge(for seg: TranscriptSegment) -> some View {
+        let clusterID = seg.speakerID - 1
+        let meta = SpeakerMeta.parse(json: meeting.speakerMatchMetaJSON, clusterID: clusterID)
+
+        if let speaker = seg.speaker {
+            // Auto-assigned: small green check
+            Button { renamingSpeakerID = seg.speakerID } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: meta?.auto == true ? "checkmark.seal.fill" : "person.fill")
+                        .font(.caption2)
+                        .foregroundStyle(meta?.auto == true ? .green : speakerColor(seg.speakerID))
+                    Text(speaker.name)
+                        .font(.caption.bold())
+                        .foregroundColor(.primary)
+                    if let m = meta, m.auto {
+                        Text("(\(Int(m.confidence * 100))%)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(speakerColor(seg.speakerID).opacity(0.10))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: Binding(
+                get: { renamingSpeakerID == seg.speakerID },
+                set: { if !$0 { renamingSpeakerID = nil } }
+            )) {
+                speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
+            }
+        } else if let m = meta,
+                  m.confidence >= SpeakerMatcher.suggestThreshold,
+                  let suggested = firstCandidate(stableIDs: m.candidateStableIDs) {
+            // Suggestion path
+            HStack(spacing: 4) {
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.caption2).foregroundStyle(.orange)
+                Text("\(suggested.name)? (\(Int(m.confidence * 100))%)")
+                    .font(.caption.italic())
+                    .foregroundColor(.primary)
+                Button { acceptSuggestion(suggested, for: seg) } label: {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                }.buttonStyle(.plain)
+                Button { rejectSuggestion(for: seg) } label: {
+                    Image(systemName: "xmark.circle").foregroundStyle(.secondary)
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.orange.opacity(0.10))
+            .clipShape(Capsule())
+        } else {
+            // Anonymous fallback (existing flow).
+            Button { renamingSpeakerID = seg.speakerID } label: {
                 HStack(spacing: 4) {
                     Circle()
                         .fill(speakerColor(seg.speakerID))
@@ -1388,20 +1495,30 @@ struct MeetingView: View {
                 get: { renamingSpeakerID == seg.speakerID },
                 set: { if !$0 { renamingSpeakerID = nil } }
             )) {
-                speakerRenamePopover(speakerID: seg.speakerID)
-                    .padding(12)
-                    .frame(minWidth: 240)
+                speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
             }
+        }
+    }
 
-            Text(seg.formattedTimestamp)
-                .font(.caption2.monospacedDigit())
-                .foregroundColor(.secondary)
+    private func firstCandidate(stableIDs: [String]) -> Collaborator? {
+        guard let first = stableIDs.first, let uuid = UUID(uuidString: first) else { return nil }
+        return allCollaborators.first { $0.stableID == uuid }
+    }
 
-            Text(seg.text)
-                .font(.body)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+    private func acceptSuggestion(_ collab: Collaborator, for seg: TranscriptSegment) {
+        assignSpeaker(speakerID: seg.speakerID, to: collab)
+    }
+
+    private func rejectSuggestion(for seg: TranscriptSegment) {
+        let clusterID = seg.speakerID - 1
+        var meta = (try? JSONSerialization.jsonObject(
+            with: meeting.speakerMatchMetaJSON.data(using: .utf8) ?? Data()
+        ) as? [String: Any]) ?? [:]
+        meta.removeValue(forKey: String(clusterID))
+        if let data = try? JSONSerialization.data(withJSONObject: meta),
+           let s = String(data: data, encoding: .utf8) {
+            meeting.speakerMatchMetaJSON = s
+            try? context.save()
         }
     }
 
@@ -1438,6 +1555,21 @@ struct MeetingView: View {
         for seg in meeting.transcriptSegments where seg.speakerID == speakerID {
             seg.speaker = collaborator
         }
+        // Update assignmentsJSON
+        let clusterID = speakerID - 1
+        var assignments = (try? JSONSerialization.jsonObject(
+            with: meeting.speakerAssignmentsJSON.data(using: .utf8) ?? Data()
+        ) as? [String: Any]) ?? [:]
+        assignments[String(clusterID)] = collaborator.ensuredStableID.uuidString
+        if let data = try? JSONSerialization.data(withJSONObject: assignments),
+           let s = String(data: data, encoding: .utf8) {
+            meeting.speakerAssignmentsJSON = s
+        }
+        // EMA voiceprint update if we have a fresh embedding cached from the last
+        // diarization pass for this cluster.
+        if let embedding = lastDiarizationEmbeddings[clusterID] {
+            SpeakerMatcher.applyEMAUpdate(to: collaborator, newEmbedding: embedding, in: context)
+        }
         try? context.save()
     }
 
@@ -1460,6 +1592,52 @@ struct MeetingView: View {
             )
             await MainActor.run {
                 applySpeakerTurns(turns)
+            }
+        }
+    }
+
+    /// Re-runs the Pyannote speech-swift diarization on the existing wav to
+    /// rebuild per-cluster embeddings + re-match against current voiceprints.
+    /// Does NOT re-transcribe — only updates speaker badges + assignments.
+    private func reidentifySpeakers() {
+        guard let wavPath = meeting.wavFilePath, !wavPath.isEmpty else { return }
+        let url = URL(fileURLWithPath: wavPath)
+        Task { @MainActor in
+            do {
+                let out = try await PyannoteDiarizer.shared.diarize(audioURL: url)
+                lastDiarizationEmbeddings = out.perClusterEmbedding
+                let assignments = SpeakerMatcher.match(
+                    clusterEmbeddings: out.perClusterEmbedding,
+                    meeting: meeting,
+                    in: context
+                )
+                var assignmentsDict: [String: Any] = [:]
+                var metaDict: [String: [String: Any]] = [:]
+                for (cid, a) in assignments {
+                    assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
+                    metaDict[String(cid)] = [
+                        "confidence": a.confidence,
+                        "auto": a.auto,
+                        "ambiguous": a.ambiguous,
+                        "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
+                    ]
+                    if a.auto, let collab = a.collaborator {
+                        for seg in meeting.transcriptSegments where seg.speakerID == cid + 1 {
+                            seg.speaker = collab
+                        }
+                    }
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: assignmentsDict),
+                   let s = String(data: data, encoding: .utf8) {
+                    meeting.speakerAssignmentsJSON = s
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: metaDict),
+                   let s = String(data: data, encoding: .utf8) {
+                    meeting.speakerMatchMetaJSON = s
+                }
+                try? context.save()
+            } catch {
+                print("[MeetingView] reidentifySpeakers failed: \(error)")
             }
         }
     }

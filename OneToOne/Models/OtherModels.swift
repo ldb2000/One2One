@@ -40,6 +40,14 @@ final class Collaborator {
     /// Marks a collaborator created ad-hoc from a meeting (reusable afterwards).
     var isAdhoc: Bool = false
 
+    // MARK: - Voice identification (speech-swift WeSpeaker ResNet34)
+    /// 256 Float32 mean embedding (1024 bytes). Nil = jamais enrôlé.
+    var voicePrint: Data?
+    /// Nombre d'updates EMA agrégées (pondère les mises à jour).
+    var voicePrintSamples: Int = 0
+    /// Date du dernier update (debug + audit).
+    var voicePrintUpdatedAt: Date?
+
     @Relationship(deleteRule: .nullify, inverse: \Interview.collaborator)
     var interviews: [Interview] = []
 
@@ -296,6 +304,15 @@ final class Meeting {
     // Participant statuses / ad-hoc attendees (JSON-encoded)
     var participantStatusesJSON: String = "{}"
     var adhocAttendeesJSON: String = "[]"
+
+    /// JSON: {clusterID(String): "collabStableID|null"}.
+    /// Source de vérité du mapping cluster → Collaborator décidé par
+    /// SpeakerMatcher (auto ou manuel). Bulk-re-assign sur correction user.
+    var speakerAssignmentsJSON: String = "{}"
+
+    /// JSON: {clusterID(String): {"confidence":Double, "auto":Bool, "ambiguous":Bool, "candidates":[stableID]}}.
+    /// Métadonnée UI (badge ✓ auto / ? suggestion).
+    var speakerMatchMetaJSON: String = "{}"
 
     @Relationship(deleteRule: .nullify)
     var participants: [Collaborator] = []

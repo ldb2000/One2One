@@ -587,6 +587,38 @@ struct SettingsView: View {
                     .padding(8)
                 }
 
+                GroupBox("Reconnaissance vocale") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Identification automatique des speakers", isOn: Binding(
+                            get: { settings.speakerIdEnabled },
+                            set: { settings.speakerIdEnabled = $0; saveSettings() }
+                        ))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Seuil auto-assign: \(Int(settings.speakerIdAutoThreshold * 100))%")
+                                .font(.caption)
+                            Slider(value: Binding(
+                                get: { settings.speakerIdAutoThreshold },
+                                set: { settings.speakerIdAutoThreshold = $0; saveSettings() }
+                            ), in: 0.65...0.90, step: 0.01)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Seuil suggestion: \(Int(settings.speakerIdSuggestThreshold * 100))%")
+                                .font(.caption)
+                            Slider(value: Binding(
+                                get: { settings.speakerIdSuggestThreshold },
+                                set: { settings.speakerIdSuggestThreshold = $0; saveSettings() }
+                            ), in: 0.50...0.70, step: 0.01)
+                        }
+
+                        Divider()
+                        Text("Collaborateurs enrôlés").font(.caption.bold()).foregroundColor(.secondary)
+                        enrolledCollabsList
+                    }
+                    .padding(8)
+                }
+
                 GroupBox("Templates de rapport") {
                     ReportTemplateListView()
                         .padding(8)
@@ -989,5 +1021,30 @@ struct SettingsView: View {
             context.delete(candidate)
         }
         try? context.save()
+    }
+
+    @ViewBuilder
+    private var enrolledCollabsList: some View {
+        let enrolled = collaborators.filter { $0.voicePrint != nil && $0.voicePrintSamples > 0 }
+        if enrolled.isEmpty {
+            Text("Aucun collaborateur enrôlé. Assignez un speaker dans une réunion pour démarrer l'enrôlement.")
+                .font(.caption2).foregroundStyle(.secondary)
+        } else {
+            ForEach(enrolled.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in
+                HStack {
+                    Text(c.name)
+                    Text("· \(c.voicePrintSamples) réunion(s)").font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset voiceprint", role: .destructive) {
+                        c.voicePrint = nil
+                        c.voicePrintSamples = 0
+                        c.voicePrintUpdatedAt = nil
+                        saveSettings()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
     }
 }

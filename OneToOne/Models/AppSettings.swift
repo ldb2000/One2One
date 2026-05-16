@@ -111,6 +111,11 @@ final class AppSettings {
     // Deprecated — kept to avoid SwiftData lightweight migration churn.
     var braveSearchKey: String = ""
 
+    // MARK: - Speaker identification (diarization + matching)
+    var speakerIdEnabled: Bool = true
+    var speakerIdAutoThreshold: Double = 0.75
+    var speakerIdSuggestThreshold: Double = 0.60
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
