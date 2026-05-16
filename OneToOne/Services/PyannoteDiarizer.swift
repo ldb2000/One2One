@@ -22,7 +22,7 @@ final class PyannoteDiarizer {
     private var pipeline: PyannoteDiarizationPipeline?
     #endif
 
-    struct DiarizeOutput {
+    struct DiarizeOutput: Sendable {
         let turns: [TurnAligner.DiarTurn]
         let perClusterEmbedding: [Int: [Float]]
     }
@@ -41,23 +41,31 @@ final class PyannoteDiarizer {
             throw NSError(domain: "PyannoteDiarizer", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "pipeline unavailable"])
         }
-        let samples = try Self.loadMono16k(url: audioURL)
-        let result = pipeline.diarize(audio: samples, sampleRate: 16000, config: .default)
 
-        let turns = result.segments.map { seg in
-            TurnAligner.DiarTurn(
-                startSec: Double(seg.startTime),
-                endSec: Double(seg.endTime),
-                clusterID: seg.speakerId
-            )
-        }
+        // Run AVAudio load + MLX compute OFF the main actor — they're CPU-heavy
+        // (30-60s for 25min audio) and would freeze the UI otherwise.
+        struct SendableBox: @unchecked Sendable { let value: PyannoteDiarizationPipeline }
+        let boxed = SendableBox(value: pipeline)
+        let url = audioURL
 
-        var embeddings: [Int: [Float]] = [:]
-        for (idx, emb) in result.speakerEmbeddings.enumerated() {
-            embeddings[idx] = emb
-        }
-        diarLog.info("diarize done turns=\(turns.count) speakers=\(result.numSpeakers)")
-        return DiarizeOutput(turns: turns, perClusterEmbedding: embeddings)
+        return try await Task.detached(priority: .userInitiated) {
+            let samples = try Self.loadMono16k(url: url)
+            let result = boxed.value.diarize(audio: samples, sampleRate: 16000, config: .default)
+
+            let turns = result.segments.map { seg in
+                TurnAligner.DiarTurn(
+                    startSec: Double(seg.startTime),
+                    endSec: Double(seg.endTime),
+                    clusterID: seg.speakerId
+                )
+            }
+            var embeddings: [Int: [Float]] = [:]
+            for (idx, emb) in result.speakerEmbeddings.enumerated() {
+                embeddings[idx] = emb
+            }
+            diarLog.info("diarize done turns=\(turns.count) speakers=\(result.numSpeakers)")
+            return DiarizeOutput(turns: turns, perClusterEmbedding: embeddings)
+        }.value
         #else
         throw NSError(domain: "PyannoteDiarizer", code: -1,
                       userInfo: [NSLocalizedDescriptionKey: "SpeechVAD non disponible — speech-swift pas linké."])
@@ -65,8 +73,9 @@ final class PyannoteDiarizer {
     }
 
     /// Loads WAV/M4A and returns 16 kHz mono Float32 samples via AVAudioEngine
-    /// (resamples + downmixes if needed).
-    private static func loadMono16k(url: URL) throws -> [Float] {
+    /// (resamples + downmixes if needed). Non-isolated so it can run from a
+    /// `Task.detached` block off the main actor.
+    nonisolated private static func loadMono16k(url: URL) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
         let inFormat = file.processingFormat
         guard let outFormat = AVAudioFormat(

@@ -6,7 +6,7 @@ enum TurnAligner {
 
     /// Speaker turn from diarization. `clusterID` is local to the meeting
     /// (0-indexed). Use `clusterID + 1` when persisting `TranscriptSegment.speakerID`.
-    struct DiarTurn {
+    struct DiarTurn: Sendable {
         let startSec: Double
         let endSec: Double
         let clusterID: Int
