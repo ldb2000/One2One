@@ -40,6 +40,14 @@ final class Collaborator {
     /// Marks a collaborator created ad-hoc from a meeting (reusable afterwards).
     var isAdhoc: Bool = false
 
+    // MARK: - Voice identification (speech-swift WeSpeaker ResNet34)
+    /// 256 Float32 mean embedding (1024 bytes). Nil = jamais enrôlé.
+    var voicePrint: Data?
+    /// Nombre d'updates EMA agrégées (pondère les mises à jour).
+    var voicePrintSamples: Int = 0
+    /// Date du dernier update (debug + audit).
+    var voicePrintUpdatedAt: Date?
+
     @Relationship(deleteRule: .nullify, inverse: \Interview.collaborator)
     var interviews: [Interview] = []
 
