@@ -305,8 +305,10 @@ final class TranscriptionService: ObservableObject {
     func transcribeWithDiarization(audioURL: URL,
                                     meeting: Meeting,
                                     settings: AppSettings,
-                                    in context: ModelContext) async throws -> STTResult {
+                                    in context: ModelContext,
+                                    onPhase: ((TranscriptionPhase) -> Void)? = nil) async throws -> STTResult {
         // 1. Cohere transcribe (existing path).
+        onPhase?(.transcribing)
         let sttResult = try await transcribe(audioURL: audioURL)
 
         // If speaker identification disabled in settings, return early with cluster=0.
@@ -316,6 +318,7 @@ final class TranscriptionService: ObservableObject {
         }
 
         // 2. Diarize.
+        onPhase?(.diarizing)
         let diarOutput: PyannoteDiarizer.DiarizeOutput
         do {
             diarOutput = try await PyannoteDiarizer.shared.diarize(audioURL: audioURL)
@@ -326,6 +329,7 @@ final class TranscriptionService: ObservableObject {
         }
 
         // 3. Align chunks ↔ turns.
+        onPhase?(.matching)
         let chunks = sttResult.segments.map { c in
             TurnAligner.STTChunkInput(startSec: c.startSeconds, endSec: c.endSeconds, text: c.text)
         }

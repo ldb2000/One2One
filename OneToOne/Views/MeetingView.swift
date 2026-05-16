@@ -24,6 +24,35 @@ fileprivate struct SpeakerMeta {
     }
 }
 
+/// Pipeline phases surfaced to the UI during a transcription run.
+enum TranscriptionPhase: Equatable, Sendable {
+    case idle
+    case loadingModel        // first-call HuggingFace download / MLX kernel load
+    case transcribing        // Cohere STT
+    case diarizing           // Pyannote + WeSpeaker embeddings
+    case matching            // SpeakerMatcher cosine + persist
+    case reidentifying       // toolbar "Re-identifier les speakers"
+    case error(String)
+
+    var isActive: Bool {
+        if case .idle = self { return false }
+        if case .error = self { return false }
+        return true
+    }
+
+    var label: String {
+        switch self {
+        case .idle:           return ""
+        case .loadingModel:   return "Chargement du modèle…"
+        case .transcribing:   return "Transcription en cours…"
+        case .diarizing:      return "Diarisation des locuteurs…"
+        case .matching:       return "Identification des speakers…"
+        case .reidentifying:  return "Ré-identification des speakers…"
+        case .error(let msg): return "Erreur: \(msg)"
+        }
+    }
+}
+
 struct MeetingView: View {
     @Bindable var meeting: Meeting
     /// Démarre automatiquement le recorder à `onAppear` (déclenché par
@@ -55,6 +84,7 @@ struct MeetingView: View {
     @State private var isGeneratingReport = false
     @State private var reportError: String?
     @State private var transcribeError: String?
+    @State private var transcriptionPhase: TranscriptionPhase = .idle
     @State private var showDocImporter = false
     @State private var attachmentError: String?
     @State private var isImportingAttachment = false
@@ -189,6 +219,8 @@ struct MeetingView: View {
             .animation(.easeInOut(duration: 0.15), value: recorder.isRecording)
             .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
+
+            transcriptionPhaseBanner
 
             HSplitView {
                 mainPanel.frame(minWidth: 520)
@@ -334,12 +366,15 @@ struct MeetingView: View {
         do {
             // Drop old segments before re-running so the new diarization can write fresh ones.
             for old in meeting.transcriptSegments { context.delete(old) }
+            transcriptionPhase = .transcribing
             let result = try await stt.transcribeWithDiarization(
                 audioURL: wavURL,
                 meeting: meeting,
                 settings: settings,
-                in: context
+                in: context,
+                onPhase: { phase in transcriptionPhase = phase }
             )
+            transcriptionPhase = .idle
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
@@ -350,6 +385,7 @@ struct MeetingView: View {
             print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
         } catch {
             transcribeError = error.localizedDescription
+            transcriptionPhase = .error(error.localizedDescription)
             print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
         }
     }
@@ -977,12 +1013,15 @@ struct MeetingView: View {
             print("[MeetingView] → transcribe start (with diarization + speaker matching)…")
             // Drop any prior segments (re-record case).
             for old in meeting.transcriptSegments { context.delete(old) }
+            transcriptionPhase = .transcribing
             let result = try await stt.transcribeWithDiarization(
                 audioURL: finalURL,
                 meeting: meeting,
                 settings: settings,
-                in: context
+                in: context,
+                onPhase: { phase in transcriptionPhase = phase }
             )
+            transcriptionPhase = .idle
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
@@ -993,6 +1032,7 @@ struct MeetingView: View {
             saveContext()
         } catch {
             transcribeError = error.localizedDescription
+            transcriptionPhase = .error(error.localizedDescription)
             print("[MeetingView] transcribe FAILED: \(error.localizedDescription)")
         }
     }
@@ -1599,10 +1639,41 @@ struct MeetingView: View {
     /// Re-runs the Pyannote speech-swift diarization on the existing wav to
     /// rebuild per-cluster embeddings + re-match against current voiceprints.
     /// Does NOT re-transcribe — only updates speaker badges + assignments.
+    @ViewBuilder
+    private var transcriptionPhaseBanner: some View {
+        if transcriptionPhase.isActive {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(transcriptionPhase.label).font(.caption)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.12))
+            .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.2)), alignment: .bottom)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        } else if case .error(let msg) = transcriptionPhase {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(msg).font(.caption).lineLimit(2)
+                Spacer()
+                Button {
+                    transcriptionPhase = .idle
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Color.orange.opacity(0.12))
+            .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.2)), alignment: .bottom)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
     private func reidentifySpeakers() {
         guard let wavPath = meeting.wavFilePath, !wavPath.isEmpty else { return }
         let url = URL(fileURLWithPath: wavPath)
         Task { @MainActor in
+            transcriptionPhase = .reidentifying
             do {
                 let out = try await PyannoteDiarizer.shared.diarize(audioURL: url)
                 lastDiarizationEmbeddings = out.perClusterEmbedding
@@ -1636,8 +1707,10 @@ struct MeetingView: View {
                     meeting.speakerMatchMetaJSON = s
                 }
                 try? context.save()
+                transcriptionPhase = .idle
             } catch {
                 print("[MeetingView] reidentifySpeakers failed: \(error)")
+                transcriptionPhase = .error(error.localizedDescription)
             }
         }
     }
