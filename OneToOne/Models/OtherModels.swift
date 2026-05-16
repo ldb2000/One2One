@@ -305,6 +305,15 @@ final class Meeting {
     var participantStatusesJSON: String = "{}"
     var adhocAttendeesJSON: String = "[]"
 
+    /// JSON: {clusterID(String): "collabStableID|null"}.
+    /// Source de vérité du mapping cluster → Collaborator décidé par
+    /// SpeakerMatcher (auto ou manuel). Bulk-re-assign sur correction user.
+    var speakerAssignmentsJSON: String = "{}"
+
+    /// JSON: {clusterID(String): {"confidence":Double, "auto":Bool, "ambiguous":Bool, "candidates":[stableID]}}.
+    /// Métadonnée UI (badge ✓ auto / ? suggestion).
+    var speakerMatchMetaJSON: String = "{}"
+
     @Relationship(deleteRule: .nullify)
     var participants: [Collaborator] = []
 
