@@ -1,7 +1,10 @@
 import SwiftUI
+import SwiftData
 
 struct MeetingTopChromeBar: View {
     @Bindable var meeting: Meeting
+    @Environment(\.modelContext) private var modelContext
+    @Query private var allTemplates: [ReportTemplate]
     @ObservedObject var recorder: AudioRecorderService
     @ObservedObject var stt: TranscriptionService
     @ObservedObject var player: AudioPlayerService
@@ -37,6 +40,7 @@ struct MeetingTopChromeBar: View {
             Spacer()
             recorderPill
             captureButton
+            templatePickerButton
             reportButton
             moreMenu
         }
@@ -228,6 +232,57 @@ struct MeetingTopChromeBar: View {
         let m = seconds / 60
         let s = seconds % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    // MARK: - Template picker
+
+    private var templatePickerButton: some View {
+        Menu {
+            Button("Auto (selon type)") {
+                meeting.reportTemplate = nil
+                try? modelContext.save()
+            }
+            Divider()
+            ForEach(compatibleTemplates) { t in
+                Button(t.name) {
+                    meeting.reportTemplate = t
+                    try? modelContext.save()
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "doc.text")
+                Text(meeting.reportTemplate?.name ?? "Auto")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Template de rapport — modifie la structure du compte-rendu généré")
+    }
+
+    private var compatibleTemplates: [ReportTemplate] {
+        let mapping: [MeetingKind: ReportTemplateKind] = [
+            .global: .general,
+            .oneToOne: .oneToOne,
+            .manager: .manager,
+            .project: .copil,
+            .work: .general
+        ]
+        let preferred = mapping[meeting.kind] ?? .general
+        return allTemplates
+            .filter { !$0.isArchived }
+            .sorted { lhs, rhs in
+                let li = lhs.kind == preferred ? 0 : 1
+                let ri = rhs.kind == preferred ? 0 : 1
+                if li != ri { return li < ri }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
     }
 
     // MARK: - More menu

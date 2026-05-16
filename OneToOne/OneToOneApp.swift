@@ -272,6 +272,9 @@ struct ContentView: View {
             deduplicate(context: context, label: "SlideCapture",
                         fetch: FetchDescriptor<SlideCapture>(),
                         get: { $0.id }, set: { $0.id = $1 })
+
+            BuiltInTemplates.seedIfNeeded(in: context)
+            try context.save()
         } catch {
             print("Echec reparation SwiftData: \(error)")
         }

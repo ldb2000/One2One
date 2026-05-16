@@ -587,6 +587,11 @@ struct SettingsView: View {
                     .padding(8)
                 }
 
+                GroupBox("Templates de rapport") {
+                    ReportTemplateListView()
+                        .padding(8)
+                }
+
                 GroupBox("Entités") {
                     VStack(alignment: .leading, spacing: 10) {
                         if entities.isEmpty {
