@@ -306,7 +306,8 @@ final class TranscriptionService: ObservableObject {
                                     meeting: Meeting,
                                     settings: AppSettings,
                                     in context: ModelContext,
-                                    onPhase: ((TranscriptionPhase) -> Void)? = nil) async throws -> STTResult {
+                                    onPhase: ((TranscriptionPhase) -> Void)? = nil,
+                                    onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
         // 1. Cohere transcribe (existing path).
         onPhase?(.transcribing)
         let sttResult = try await transcribe(audioURL: audioURL)
@@ -321,7 +322,11 @@ final class TranscriptionService: ObservableObject {
         // first-call `fromPretrained` and .diarizing once compute starts.
         let diarOutput: PyannoteDiarizer.DiarizeOutput
         do {
-            diarOutput = try await PyannoteDiarizer.shared.diarize(audioURL: audioURL, onPhase: onPhase)
+            diarOutput = try await PyannoteDiarizer.shared.diarize(
+                audioURL: audioURL,
+                onPhase: onPhase,
+                onProgress: onProgress
+            )
         } catch {
             print("[TranscriptionService] diarization failed: \(error). Falling back to anonymous.")
             persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)

@@ -85,6 +85,8 @@ struct MeetingView: View {
     @State private var reportError: String?
     @State private var transcribeError: String?
     @State private var transcriptionPhase: TranscriptionPhase = .idle
+    @State private var transcriptionProgress: Double? = nil   // 0.0–1.0 when known
+    @State private var transcriptionProgressStatus: String? = nil
     @State private var showDocImporter = false
     @State private var attachmentError: String?
     @State private var isImportingAttachment = false
@@ -367,14 +369,22 @@ struct MeetingView: View {
             // Drop old segments before re-running so the new diarization can write fresh ones.
             for old in meeting.transcriptSegments { context.delete(old) }
             transcriptionPhase = .transcribing
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
             let result = try await stt.transcribeWithDiarization(
                 audioURL: wavURL,
                 meeting: meeting,
                 settings: settings,
                 in: context,
-                onPhase: { phase in transcriptionPhase = phase }
+                onPhase: { phase in transcriptionPhase = phase },
+                onProgress: { fraction, status in
+                    transcriptionProgress = fraction
+                    transcriptionProgressStatus = status
+                }
             )
             transcriptionPhase = .idle
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
@@ -1014,14 +1024,28 @@ struct MeetingView: View {
             // Drop any prior segments (re-record case).
             for old in meeting.transcriptSegments { context.delete(old) }
             transcriptionPhase = .transcribing
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
             let result = try await stt.transcribeWithDiarization(
                 audioURL: finalURL,
                 meeting: meeting,
                 settings: settings,
                 in: context,
-                onPhase: { phase in transcriptionPhase = phase }
+                onPhase: { phase in
+                    transcriptionPhase = phase
+                    if case .transcribing = phase {
+                        transcriptionProgress = nil
+                        transcriptionProgressStatus = nil
+                    }
+                },
+                onProgress: { fraction, status in
+                    transcriptionProgress = fraction
+                    transcriptionProgressStatus = status
+                }
             )
             transcriptionPhase = .idle
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
             meeting.rawTranscript = result.text
             meeting.mergedTranscript = NoteMergeService.merge(
@@ -1567,28 +1591,57 @@ struct MeetingView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Speaker \(speakerID) → participant")
                 .font(.caption.bold())
-            if allCollaborators.isEmpty {
+
+            let participantIDs = Set(meeting.participants.map { $0.persistentModelID })
+            let participants = meeting.participants
+                .filter { !$0.isArchived }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            let others = allCollaborators
+                .filter { !participantIDs.contains($0.persistentModelID) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            if participants.isEmpty && others.isEmpty {
                 Text("Aucun collaborateur dans la base.").font(.caption2).foregroundColor(.secondary)
             } else {
-                ForEach(allCollaborators.sorted(by: { $0.name < $1.name })) { c in
-                    Button {
-                        assignSpeaker(speakerID: speakerID, to: c)
-                        renamingSpeakerID = nil
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.fill").foregroundColor(.accentColor)
-                            Text(c.name)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
+                if !participants.isEmpty {
+                    Text("Participants de la réunion").font(.caption2.bold()).foregroundStyle(.secondary)
+                    ForEach(participants) { c in
+                        speakerPickerRow(c, speakerID: speakerID, highlighted: true)
                     }
-                    .buttonStyle(.plain)
+                }
+                if !others.isEmpty {
+                    if !participants.isEmpty { Divider() }
+                    Text("Autres collaborateurs").font(.caption2.bold()).foregroundStyle(.secondary)
+                    ForEach(others) { c in
+                        speakerPickerRow(c, speakerID: speakerID, highlighted: false)
+                    }
                 }
                 Divider()
             }
             Button("Annuler") { renamingSpeakerID = nil }
                 .font(.caption)
         }
+    }
+
+    @ViewBuilder
+    private func speakerPickerRow(_ c: Collaborator, speakerID: Int, highlighted: Bool) -> some View {
+        Button {
+            assignSpeaker(speakerID: speakerID, to: c)
+            renamingSpeakerID = nil
+        } label: {
+            HStack {
+                Image(systemName: highlighted ? "person.fill.checkmark" : "person.fill")
+                    .foregroundColor(highlighted ? .green : .accentColor)
+                Text(c.name)
+                    .fontWeight(highlighted ? .semibold : .regular)
+                if c.voicePrint != nil {
+                    Image(systemName: "waveform").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func assignSpeaker(speakerID: Int, to collaborator: Collaborator) {
@@ -1642,9 +1695,19 @@ struct MeetingView: View {
     @ViewBuilder
     private var transcriptionPhaseBanner: some View {
         if transcriptionPhase.isActive {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
+            HStack(spacing: 10) {
+                if let pct = transcriptionProgress {
+                    ProgressView(value: pct).controlSize(.small).frame(width: 90)
+                    Text("\(Int(pct * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
                 Text(transcriptionPhase.label).font(.caption)
+                if let status = transcriptionProgressStatus, !status.isEmpty {
+                    Text("· \(status)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -1674,16 +1737,23 @@ struct MeetingView: View {
         let url = URL(fileURLWithPath: wavPath)
         Task { @MainActor in
             transcriptionPhase = .reidentifying
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
             do {
-                let out = try await PyannoteDiarizer.shared.diarize(audioURL: url, onPhase: { phase in
-                    // While re-identifying, surface model-load explicitly but
-                    // keep the "réidentification" wording for the actual compute.
-                    if case .loadingModel = phase {
-                        transcriptionPhase = .loadingModel
-                    } else {
-                        transcriptionPhase = .reidentifying
+                let out = try await PyannoteDiarizer.shared.diarize(
+                    audioURL: url,
+                    onPhase: { phase in
+                        if case .loadingModel = phase {
+                            transcriptionPhase = .loadingModel
+                        } else {
+                            transcriptionPhase = .reidentifying
+                        }
+                    },
+                    onProgress: { fraction, status in
+                        transcriptionProgress = fraction
+                        transcriptionProgressStatus = status
                     }
-                })
+                )
                 lastDiarizationEmbeddings = out.perClusterEmbedding
                 let assignments = SpeakerMatcher.match(
                     clusterEmbeddings: out.perClusterEmbedding,
@@ -1716,9 +1786,13 @@ struct MeetingView: View {
                 }
                 try? context.save()
                 transcriptionPhase = .idle
+                transcriptionProgress = nil
+                transcriptionProgressStatus = nil
             } catch {
                 print("[MeetingView] reidentifySpeakers failed: \(error)")
                 transcriptionPhase = .error(error.localizedDescription)
+                transcriptionProgress = nil
+                transcriptionProgressStatus = nil
             }
         }
     }

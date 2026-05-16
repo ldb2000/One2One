@@ -32,16 +32,24 @@ final class PyannoteDiarizer {
     /// Lazy-load the pipeline on first call. Triggers HuggingFace download
     /// on first run (cached afterwards). `onPhase` is called with `.loadingModel`
     /// before the (potentially slow) `fromPretrained` step, then `.diarizing`
-    /// once compute starts.
+    /// once compute starts. `onProgress` reports (fraction 0..1, status string)
+    /// during both download (first call) and diarization stages.
     func diarize(audioURL: URL,
-                 onPhase: ((TranscriptionPhase) -> Void)? = nil) async throws -> DiarizeOutput {
+                 onPhase: ((TranscriptionPhase) -> Void)? = nil,
+                 onProgress: ((Double, String) -> Void)? = nil) async throws -> DiarizeOutput {
         #if canImport(SpeechVAD)
         if pipeline == nil {
             diarLog.info("loading PyannoteDiarizationPipeline (first call)")
             onPhase?(.loadingModel)
-            pipeline = try await PyannoteDiarizationPipeline.fromPretrained(useVADFilter: true)
+            pipeline = try await PyannoteDiarizationPipeline.fromPretrained(
+                useVADFilter: true,
+                progressHandler: { fraction, status in
+                    onProgress?(fraction, status)
+                }
+            )
         }
         onPhase?(.diarizing)
+        onProgress?(0.0, "Préparation de l'audio")
         guard let pipeline else {
             throw NSError(domain: "PyannoteDiarizer", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "pipeline unavailable"])
@@ -52,10 +60,28 @@ final class PyannoteDiarizer {
         struct SendableBox: @unchecked Sendable { let value: PyannoteDiarizationPipeline }
         let boxed = SendableBox(value: pipeline)
         let url = audioURL
+        let progressForward: (@Sendable (Double, String) -> Void)? = onProgress.map { handler in
+            { fraction, status in
+                Task { @MainActor in handler(fraction, status) }
+            }
+        }
 
         return try await Task.detached(priority: .userInitiated) {
+            progressForward?(0.02, "Lecture du fichier audio")
             let samples = try Self.loadMono16k(url: url)
-            let result = boxed.value.diarize(audio: samples, sampleRate: 16000, config: .default)
+            progressForward?(0.05, "Démarrage de la diarisation")
+            let result = boxed.value.diarize(
+                audio: samples,
+                sampleRate: 16000,
+                config: .default,
+                progressHandler: { fraction, status in
+                    // 0.05–0.95 range to leave headroom for post-processing.
+                    let scaled = 0.05 + Double(fraction) * 0.90
+                    progressForward?(scaled, status)
+                    return true  // never cancel from here
+                }
+            )
+            progressForward?(0.98, "Finalisation")
 
             let turns = result.segments.map { seg in
                 TurnAligner.DiarTurn(
