@@ -486,6 +486,10 @@ struct SettingsView: View {
 
                         Divider()
 
+                        Toggle("Notification au démarrage de l'enregistrement", isOn: Binding(
+                            get: { settings.notifRecordingStart },
+                            set: { settings.notifRecordingStart = $0; saveSettings() }
+                        ))
                         Toggle("Pré-rappel avant la réunion (style Outlook)", isOn: Binding(
                             get: { settings.notifMeetingPreStart },
                             set: { settings.notifMeetingPreStart = $0; saveSettings() }
