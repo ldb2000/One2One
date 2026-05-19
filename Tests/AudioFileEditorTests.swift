@@ -51,4 +51,21 @@ final class AudioFileEditorTests: XCTestCase {
         let d = AudioFileEditor.duration(url: url)
         XCTAssertEqual(d, 5.0, accuracy: 0.05)
     }
+
+    func test_trim_dropsLeadingSeconds() async throws {
+        let url = try makeSyntheticWAV(seconds: 6.0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try await AudioFileEditor.trim(url: url, from: 2.0)
+        let d = AudioFileEditor.duration(url: url)
+        XCTAssertEqual(d, 4.0, accuracy: 0.05)
+    }
+
+    func test_trim_throws_whenFromSecExceedsDuration() async throws {
+        let url = try makeSyntheticWAV(seconds: 3.0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            try await AudioFileEditor.trim(url: url, from: 5.0)
+            XCTFail("trim should throw when fromSec >= duration")
+        } catch { /* expected */ }
+    }
 }
