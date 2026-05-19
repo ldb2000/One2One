@@ -809,6 +809,17 @@ struct MeetingView: View {
     private var reportView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if !meeting.reportRevisions.isEmpty,
+                   meeting.rawTranscript.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text("Transcription supprimée après édition audio — re-transcrire pour mettre à jour le rapport.")
+                            .font(.caption)
+                        Spacer()
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.08)))
+                }
                 if meeting.summary.isEmpty {
                     ContentUnavailableView(
                         "Aucun rapport",
