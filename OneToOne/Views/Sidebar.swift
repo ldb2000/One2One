@@ -90,6 +90,9 @@ struct MainSidebarView: View {
         projects.filter { selectedProjectIDs.contains($0.persistentModelID) }
     }
 
+    @ObservedObject private var jobQueue = JobQueue.shared
+    @AppStorage("sidebar.jobsExpanded") private var jobsExpanded: Bool = true
+
     var body: some View {
         VStack(spacing: 0) {
             // Multi-select action bar
@@ -375,7 +378,48 @@ struct MainSidebarView: View {
                     .help(isMultiSelectMode ? "Quitter la selection multiple" : "Selection multiple de projets")
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                jobsFooter
+            }
         }
+    }
+
+    /// Pied de sidebar : file des jobs (transcription, rapport). Collapsible.
+    @ViewBuilder
+    private var jobsFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.snappy) { jobsExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: jobsExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2)
+                        Image(systemName: "list.bullet.rectangle.portrait")
+                            .font(.caption)
+                        Text("Jobs").font(.caption.bold())
+                        if jobQueue.hasActiveJobs {
+                            Text("\(jobQueue.activeJobs.count)")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.accentColor))
+                                .foregroundColor(.white)
+                        }
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+
+            if jobsExpanded {
+                JobQueueSidebar()
+                    .frame(maxHeight: 220)
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - Project Row (selectable in multi-select mode)

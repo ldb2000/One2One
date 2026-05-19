@@ -88,6 +88,11 @@ final class AppSettings {
     /// Notifier au démarrage de la réunion.
     var notifMeetingStart: Bool = true
 
+    /// Pré-rappel style Outlook (banner + son + bouton Teams).
+    var notifMeetingPreStart: Bool = true
+    /// Minutes avant le début pour le pré-rappel (Outlook default = 15).
+    var notifMeetingPreStartMinutes: Int = 5
+
     /// Notifier 5 min avant la fin de la réunion.
     var notifMeetingEndWarning: Bool = true
 
@@ -115,6 +120,10 @@ final class AppSettings {
     var speakerIdEnabled: Bool = true
     var speakerIdAutoThreshold: Double = 0.75
     var speakerIdSuggestThreshold: Double = 0.60
+    /// Pyannote cluster merge threshold (0.0-2.0). Higher = less merging =
+    /// more speakers détectés. Default speech-swift 0.715 fusionne agressivement
+    /// (souvent 2 speakers seulement) — on monte à 0.85 pour mieux séparer.
+    var diarizationClusterThreshold: Double = 0.85
 
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"

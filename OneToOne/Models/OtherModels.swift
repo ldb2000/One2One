@@ -331,6 +331,11 @@ final class Meeting {
     @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.meeting)
     var transcriptSegments: [TranscriptSegment] = []
 
+    /// Historique des révisions du rapport (Writer/Critique loop). Version
+    /// 1 = draft initial, suivantes = post-critique. Cascade delete.
+    @Relationship(deleteRule: .cascade, inverse: \ReportRevision.meeting)
+    var reportRevisions: [ReportRevision] = []
+
     // MARK: - Report template (chosen at create, overridable)
     var reportTemplate: ReportTemplate?
 

@@ -267,14 +267,18 @@ final class TranscriptionService: ObservableObject {
                 return String(out.text).trimmingCharacters(in: .whitespacesAndNewlines)
             }.value
 
-            pieces.append(segText)
+            // Collapse pathological loops ("Je. Je. Je. …") inside each chunk too,
+            // otherwise the segmented view still shows the raw loop while the
+            // global `text` is clean.
+            let segClean = Self.collapseRepetitions(segText)
+            pieces.append(segClean)
             // Capture timestamped segment alongside text (60s chunks for now).
             // Phase B (VAD) refines speaker turns within these chunks.
-            if !segText.isEmpty {
+            if !segClean.isEmpty {
                 sttSegments.append(STTSegment(
                     startSeconds: Double(start) / 16_000.0,
                     endSeconds: Double(end) / 16_000.0,
-                    text: segText
+                    text: segClean
                 ))
             }
             self.progressFraction = Double(i + 1) / Double(segmentCount)
@@ -324,6 +328,7 @@ final class TranscriptionService: ObservableObject {
         do {
             diarOutput = try await PyannoteDiarizer.shared.diarize(
                 audioURL: audioURL,
+                clusterThreshold: Float(settings.diarizationClusterThreshold),
                 onPhase: onPhase,
                 onProgress: onProgress
             )
@@ -512,14 +517,16 @@ final class TranscriptionService: ObservableObject {
             }
         }
 
-        // 2. Collapse de groupes de mots (2-5 tokens) répétés immédiatement.
+        // 2. Collapse de groupes de mots (1-5 tokens) répétés immédiatement.
+        // n=1 attrape les boucles mono-token type "Je. Je. Je. …" qu'on voit
+        // sur des fins de chunk silencieuses.
         let words = out.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        if words.count > 10 {
+        if words.count > 4 {
             var cleaned: [String] = []
             var i = 0
             while i < words.count {
                 var replaced = false
-                for n in stride(from: 5, through: 2, by: -1) where i + n * 3 <= words.count {
+                for n in stride(from: 5, through: 1, by: -1) where i + n * 3 <= words.count {
                     let pattern = Array(words[i..<i + n])
                     var repeats = 1
                     var j = i + n

@@ -82,11 +82,19 @@ struct MeetingView: View {
     @State private var activeSection: MeetingSection = .liveNotes
     @State private var participantsRefreshID = UUID()
     @State private var isGeneratingReport = false
+    @State private var isCritiquing = false
+    @State private var isRevising = false
+    @State private var isAutoLooping = false
+    @State private var selectedRevisionVersion: Int? = nil  // nil = current
+    /// Plafond d'itérations de la boucle auto (Critique → Révise). 3 tours
+    /// suffisent en pratique ; au-delà le LLM tourne en rond.
+    private let autoLoopMaxIterations: Int = 3
     @State private var reportError: String?
     @State private var transcribeError: String?
     @State private var transcriptionPhase: TranscriptionPhase = .idle
     @State private var transcriptionProgress: Double? = nil   // 0.0–1.0 when known
     @State private var transcriptionProgressStatus: String? = nil
+    @State private var speakerPickerSearch: String = ""
     @State private var showDocImporter = false
     @State private var attachmentError: String?
     @State private var isImportingAttachment = false
@@ -170,6 +178,12 @@ struct MeetingView: View {
                 onToggleCustomPrompt: { showCustomPrompt.toggle() },
                 onImportCalendar:     { showCalendarImporter = true },
                 onImportExistingWAV:  { showWavImporter = true },
+                onRevealWAV: {
+                    if let url = meeting.wavFileURL {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                },
+                hasWAV: meeting.wavFileURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
                 onExportMarkdown: {
                     let md = ExportService().exportMeetingMarkdown(meeting: meeting)
                     let pb = NSPasteboard.general
@@ -365,38 +379,65 @@ struct MeetingView: View {
     private func retranscribe(wavURL: URL) async {
         transcribeError = nil
         print("[MeetingView] retranscribe: \(wavURL.path)")
-        do {
-            // Drop old segments before re-running so the new diarization can write fresh ones.
-            for old in meeting.transcriptSegments { context.delete(old) }
-            transcriptionPhase = .transcribing
-            transcriptionProgress = nil
-            transcriptionProgressStatus = nil
-            let result = try await stt.transcribeWithDiarization(
-                audioURL: wavURL,
-                meeting: meeting,
-                settings: settings,
-                in: context,
-                onPhase: { phase in transcriptionPhase = phase },
-                onProgress: { fraction, status in
-                    transcriptionProgress = fraction
-                    transcriptionProgressStatus = status
+        // Drop old segments before re-running so the new diarization can write fresh ones.
+        for old in meeting.transcriptSegments { context.delete(old) }
+        transcriptionPhase = .transcribing
+        transcriptionProgress = nil
+        transcriptionProgressStatus = nil
+
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .transcription,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title
+        ) { jobID in
+            do {
+                try Task.checkCancellation()
+                let result = try await stt.transcribeWithDiarization(
+                    audioURL: wavURL,
+                    meeting: meeting,
+                    settings: settings,
+                    in: context,
+                    onPhase: { phase in
+                        Task { @MainActor in self.transcriptionPhase = phase }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
+                        queue.updateProgress(jobID, fraction: fraction, status: status)
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                    self.meeting.rawTranscript = result.text
+                    self.meeting.mergedTranscript = NoteMergeService.merge(
+                        transcript: result.text,
+                        liveNotes: self.meeting.liveNotes
+                    )
+                    self.activeSection = .transcript
+                    self.saveContext()
                 }
-            )
-            transcriptionPhase = .idle
-            transcriptionProgress = nil
-            transcriptionProgressStatus = nil
-            meeting.rawTranscript = result.text
-            meeting.mergedTranscript = NoteMergeService.merge(
-                transcript: result.text,
-                liveNotes: meeting.liveNotes
-            )
-            activeSection = .transcript
-            saveContext()
-            print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
-        } catch {
-            transcribeError = error.localizedDescription
-            transcriptionPhase = .error(error.localizedDescription)
-            print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
+                print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                }
+                throw CancellationError()
+            } catch {
+                await MainActor.run {
+                    self.transcribeError = error.localizedDescription
+                    self.transcriptionPhase = .error(error.localizedDescription)
+                }
+                print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
+                throw error
+            }
         }
     }
 
@@ -735,6 +776,10 @@ struct MeetingView: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 240)
                 } else {
+                    revisionToolbar
+                    if let critique = currentCritique, !critique.isEmpty {
+                        critiquePanel(critique)
+                    }
                     if !meeting.highlights.isEmpty {
                         section("Faits marquants") {
                             ForEach(meeting.highlights, id: \.self) { item in
@@ -744,7 +789,7 @@ struct MeetingView: View {
                     }
                     section("Résumé") {
                         MeetingHighlightableTextView(
-                            text: .constant(meeting.summary),
+                            text: .constant(displayedReportBody),
                             isEditable: false,
                             highlightedRanges: managerHighlightedRanges(for: "summary"),
                             onAddToManagerReport: { range, snippet in
@@ -1061,33 +1106,401 @@ struct MeetingView: View {
         }
     }
 
+    // MARK: - Revision workflow (Writer / Critique / Revise / Validate)
+
+    /// Révisions triées par version croissante.
+    private var sortedRevisions: [ReportRevision] {
+        meeting.reportRevisions.sorted { $0.version < $1.version }
+    }
+
+    /// Révision affichée : sélection explicite via picker, sinon la plus
+    /// récente.
+    private var currentRevision: ReportRevision? {
+        if let v = selectedRevisionVersion {
+            return sortedRevisions.first { $0.version == v }
+        }
+        return sortedRevisions.last
+    }
+
+    private var displayedReportBody: String {
+        currentRevision?.body ?? meeting.summary
+    }
+
+    private var currentCritique: String? {
+        let c = currentRevision?.critique ?? ""
+        return c.isEmpty ? nil : c
+    }
+
+    /// Toolbar au-dessus du rapport : sélecteur version + actions
+    /// Critiquer / Réviser / Valider.
+    @ViewBuilder
+    private var revisionToolbar: some View {
+        HStack(spacing: 10) {
+            if !sortedRevisions.isEmpty {
+                Picker("Version", selection: Binding<Int>(
+                    get: { selectedRevisionVersion ?? (sortedRevisions.last?.version ?? 1) },
+                    set: { selectedRevisionVersion = $0 }
+                )) {
+                    ForEach(sortedRevisions, id: \.version) { rev in
+                        Text(versionLabel(rev)).tag(rev.version)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 200)
+            }
+
+            Spacer()
+
+            Button {
+                Task { await runAutoLoop() }
+            } label: {
+                Label(isAutoLooping ? "Auto…" : "Auto",
+                      systemImage: "wand.and.rays")
+            }
+            .disabled(isAutoLooping || isCritiquing || isRevising || meeting.summary.isEmpty)
+            .help("Boucle automatique Critique → Révise jusqu'à OK (\(autoLoopMaxIterations) tours max)")
+
+            Button {
+                Task { await runCritique() }
+            } label: {
+                Label(isCritiquing ? "Critique…" : "Critiquer",
+                      systemImage: "checkmark.shield")
+            }
+            .disabled(isCritiquing || isRevising || isAutoLooping || meeting.summary.isEmpty)
+            .help("Demande au LLM relecteur d'auditer le brouillon courant")
+
+            Button {
+                Task { await runRevise() }
+            } label: {
+                Label(isRevising ? "Révise…" : "Réviser",
+                      systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(isRevising || isCritiquing || isAutoLooping || (currentCritique ?? "").isEmpty)
+            .help("Produit une nouvelle version corrigeant les critiques")
+
+            Button {
+                validateCurrentRevision()
+            } label: {
+                Label(
+                    currentRevision?.isValidated == true ? "Validée" : "Valider",
+                    systemImage: currentRevision?.isValidated == true
+                        ? "checkmark.seal.fill" : "checkmark.seal"
+                )
+            }
+            .disabled(currentRevision == nil || currentRevision?.isValidated == true)
+            .help("Fige cette version comme rapport final")
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+
+    private func versionLabel(_ r: ReportRevision) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "d MMM HH:mm"
+        let prefix = "v\(r.version)"
+        let suffix = r.isValidated ? " ✓" : ""
+        return "\(prefix) — \(f.string(from: r.createdAt))\(suffix)"
+    }
+
+    /// Encart d'affichage du retour du critique LLM.
+    @ViewBuilder
+    private func critiquePanel(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield.fill")
+                    .foregroundStyle(.orange)
+                Text("Retour du relecteur")
+                    .font(.subheadline.bold())
+                Spacer()
+                if let msg = currentRevision?.writerMessage, !msg.isEmpty {
+                    Text("Réponse rédacteur: \(msg)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.orange.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 0.5)
+        )
+    }
+
+    /// Construit la description des participants — utilisée dans les prompts
+    /// critique/revise pour garder les noms réels en contexte.
+    private func participantsContextString() -> String {
+        meeting.participants
+            .filter { !$0.isArchived }
+            .map { "- \($0.name)" + ($0.role.isEmpty ? "" : " (\($0.role))") }
+            .joined(separator: "\n")
+    }
+
+    /// Snapshot du draft courant en tant que ReportRevision v1 si nécessaire
+    /// (cas où on a déjà un meeting.summary mais aucune révision en base —
+    /// migration douce des anciennes réunions).
+    private func ensureBaselineRevision() {
+        if meeting.reportRevisions.isEmpty && !meeting.summary.isEmpty {
+            let rev = ReportRevision(
+                meeting: meeting,
+                version: 1,
+                body: meeting.summary,
+                critique: "",
+                writerMessage: "",
+                isValidated: false
+            )
+            context.insert(rev)
+            saveContext()
+        }
+    }
+
+    @MainActor
+    private func runCritique() async {
+        ensureBaselineRevision()
+        guard let rev = currentRevision else { return }
+        isCritiquing = true
+        defer { isCritiquing = false }
+
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .report,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title + " · critique"
+        ) { jobID in
+            do {
+                try Task.checkCancellation()
+                let critique = try await AIReportService.critique(
+                    draft: rev.body,
+                    mergedTranscript: meeting.mergedTranscript.isEmpty
+                        ? meeting.rawTranscript : meeting.mergedTranscript,
+                    participantsDescription: self.participantsContextString(),
+                    settings: settings,
+                    onProgress: { partial in
+                        let count = partial.count
+                        await MainActor.run {
+                            queue.updateProgress(jobID, fraction: nil,
+                                                  status: "\(count) chars")
+                        }
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    rev.critique = critique ?? ""
+                    if critique == nil {
+                        // OK — auto-valide la révision.
+                        rev.isValidated = true
+                    }
+                    self.saveContext()
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                await MainActor.run { self.reportError = error.localizedDescription }
+                throw error
+            }
+        }
+    }
+
+    @MainActor
+    private func runRevise() async {
+        ensureBaselineRevision()
+        guard let rev = currentRevision, !rev.critique.isEmpty else { return }
+        isRevising = true
+        defer { isRevising = false }
+
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .report,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title + " · révision"
+        ) { jobID in
+            do {
+                try Task.checkCancellation()
+                let result = try await AIReportService.revise(
+                    draft: rev.body,
+                    critique: rev.critique,
+                    mergedTranscript: meeting.mergedTranscript.isEmpty
+                        ? meeting.rawTranscript : meeting.mergedTranscript,
+                    participantsDescription: self.participantsContextString(),
+                    previousWriterMessage: rev.writerMessage,
+                    settings: settings,
+                    onProgress: { partial in
+                        let count = partial.count
+                        await MainActor.run {
+                            queue.updateProgress(jobID, fraction: nil,
+                                                  status: "\(count) chars")
+                        }
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    let nextVersion = (self.sortedRevisions.last?.version ?? 0) + 1
+                    let newRev = ReportRevision(
+                        meeting: self.meeting,
+                        version: nextVersion,
+                        body: result.body,
+                        critique: "",
+                        writerMessage: result.writerMessage,
+                        isValidated: false
+                    )
+                    self.context.insert(newRev)
+                    self.selectedRevisionVersion = nextVersion
+                    self.saveContext()
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                await MainActor.run { self.reportError = error.localizedDescription }
+                throw error
+            }
+        }
+    }
+
+    /// Boucle automatique : Critique → Révise → Critique → … jusqu'à `nil`
+    /// (rapport jugé OK = auto-validé) ou `autoLoopMaxIterations` atteint.
+    /// Tout passe par un seul `JobQueue` job — statusText évolue à chaque
+    /// phase. Annulable depuis la sidebar (Task.checkCancellation entre
+    /// chaque étape).
+    @MainActor
+    private func runAutoLoop() async {
+        ensureBaselineRevision()
+        guard let startRev = currentRevision else { return }
+        isAutoLooping = true
+        defer { isAutoLooping = false }
+
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .report,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title + " · auto"
+        ) { jobID in
+            var workingRev: ReportRevision = startRev
+            var iteration = 0
+            let maxIter = self.autoLoopMaxIterations
+            let transcript = meeting.mergedTranscript.isEmpty
+                ? meeting.rawTranscript : meeting.mergedTranscript
+            let participants = self.participantsContextString()
+
+            while iteration < maxIter {
+                iteration += 1
+                try Task.checkCancellation()
+
+                // ---- Phase 1 : critique ----
+                await MainActor.run {
+                    queue.updateProgress(jobID,
+                                          fraction: Double(iteration - 1) / Double(maxIter),
+                                          status: "Critique v\(workingRev.version) (tour \(iteration)/\(maxIter))")
+                }
+                let critique = try await AIReportService.critique(
+                    draft: workingRev.body,
+                    mergedTranscript: transcript,
+                    participantsDescription: participants,
+                    settings: settings,
+                    onProgress: { partial in
+                        let count = partial.count
+                        await MainActor.run {
+                            queue.updateProgress(jobID, fraction: nil,
+                                                  status: "Critique v\(workingRev.version) · \(count) chars")
+                        }
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    workingRev.critique = critique ?? ""
+                    self.saveContext()
+                }
+
+                // ---- Cas OK : on auto-valide et on sort ----
+                if critique == nil {
+                    await MainActor.run {
+                        for r in self.sortedRevisions { r.isValidated = false }
+                        workingRev.isValidated = true
+                        self.meeting.summary = workingRev.body
+                        queue.updateProgress(jobID, fraction: 1.0,
+                                              status: "OK à v\(workingRev.version)")
+                        self.saveContext()
+                    }
+                    return
+                }
+
+                // ---- Phase 2 : révise ----
+                try Task.checkCancellation()
+                await MainActor.run {
+                    queue.updateProgress(jobID,
+                                          fraction: (Double(iteration - 1) + 0.5) / Double(maxIter),
+                                          status: "Révision après v\(workingRev.version)")
+                }
+                let result = try await AIReportService.revise(
+                    draft: workingRev.body,
+                    critique: workingRev.critique,
+                    mergedTranscript: transcript,
+                    participantsDescription: participants,
+                    previousWriterMessage: workingRev.writerMessage,
+                    settings: settings,
+                    onProgress: { partial in
+                        let count = partial.count
+                        await MainActor.run {
+                            queue.updateProgress(jobID, fraction: nil,
+                                                  status: "Révision · \(count) chars")
+                        }
+                    }
+                )
+                try Task.checkCancellation()
+                let newRevHolder: ReportRevision = await MainActor.run {
+                    let nextVersion = (self.sortedRevisions.last?.version ?? 0) + 1
+                    let newRev = ReportRevision(
+                        meeting: self.meeting,
+                        version: nextVersion,
+                        body: result.body,
+                        critique: "",
+                        writerMessage: result.writerMessage,
+                        isValidated: false
+                    )
+                    self.context.insert(newRev)
+                    self.selectedRevisionVersion = nextVersion
+                    self.saveContext()
+                    return newRev
+                }
+                workingRev = newRevHolder
+            }
+
+            // Cap atteint sans OK — on s'arrête, l'utilisateur jugera.
+            await MainActor.run {
+                queue.updateProgress(jobID, fraction: 1.0,
+                                      status: "Cap \(maxIter) tours atteint — relecture manuelle")
+            }
+        }
+    }
+
+    @MainActor
+    private func validateCurrentRevision() {
+        guard let rev = currentRevision else { return }
+        // Toutes les révisions à false sauf celle-ci.
+        for r in sortedRevisions { r.isValidated = false }
+        rev.isValidated = true
+        // Fige meeting.summary = body de la révision validée (pour exports,
+        // partages mail, etc. qui lisent encore meeting.summary).
+        meeting.summary = rev.body
+        saveContext()
+    }
+
     // MARK: - Report generation
 
     private func generateReport() async {
         guard !meeting.rawTranscript.isEmpty else { return }
-
-        reportError = nil
-        isGeneratingReport = true
-        reportProgressChars = 0
-        reportElapsedSeconds = 0
-
-        // Tick toutes les secondes pour afficher le temps écoulé pendant la
-        // génération (le LLM ne renvoie rien tant que les poids ne sont pas
-        // chargés — le compteur évite l'impression d'un freeze).
-        let elapsedTimer = Task { @MainActor in
-            let start = Date()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { break }
-                self.reportElapsedSeconds = Int(Date().timeIntervalSince(start))
-            }
-        }
-        defer {
-            elapsedTimer.cancel()
-            isGeneratingReport = false
-            reportProgressChars = 0
-            reportElapsedSeconds = 0
-        }
 
         // Refresh merged transcript au cas où l'utilisateur a édité les notes.
         meeting.mergedTranscript = NoteMergeService.merge(
@@ -1095,35 +1508,79 @@ struct MeetingView: View {
             liveNotes: meeting.liveNotes
         )
 
-        // Phase 8 : RAG historique — injection du contexte pré-LLM (now handled in resolver).
-        let generationStart = Date()
-        do {
-            let report = try await AIReportService.generate(
-                meeting: meeting,
-                in: context,
-                settings: settings,
-                onProgress: { partial in
-                    let count = partial.count
-                    await MainActor.run {
-                        self.reportProgressChars = count
-                    }
-                }
-            )
-            apply(report: report)
-            meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
-            saveContext()
-            activeSection = .report
+        reportError = nil
+        isGeneratingReport = true
+        reportProgressChars = 0
+        reportElapsedSeconds = 0
 
-            // Indexation RAG post-rapport (non bloquant pour l'UI).
-            Task.detached { @MainActor in
-                do {
-                    try await RAGIndexer.reindex(meeting: meeting, context: context)
-                } catch {
-                    print("[MeetingView] RAG reindex échoué: \(error.localizedDescription)")
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .report,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title
+        ) { jobID in
+            // Tick d'avancement (LLM streaming — pas de fraction réelle, on
+            // alimente le statusText avec le nombre de chars reçus).
+            let start = Date()
+            let elapsedTimer = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { break }
+                    self.reportElapsedSeconds = Int(Date().timeIntervalSince(start))
+                    queue.updateProgress(jobID,
+                                          fraction: nil,
+                                          status: "\(self.reportElapsedSeconds)s · \(self.reportProgressChars) chars")
                 }
             }
-        } catch {
-            reportError = error.localizedDescription
+            defer {
+                elapsedTimer.cancel()
+                Task { @MainActor in
+                    self.isGeneratingReport = false
+                    self.reportProgressChars = 0
+                    self.reportElapsedSeconds = 0
+                }
+            }
+
+            try Task.checkCancellation()
+
+            let generationStart = Date()
+            do {
+                let report = try await AIReportService.generate(
+                    meeting: meeting,
+                    in: context,
+                    settings: settings,
+                    onProgress: { partial in
+                        // Note : signature non-throwing — la cancellation est
+                        // vérifiée juste après l'appel `generate(...)`. Côté
+                        // streaming on se contente de pousser la progression.
+                        let count = partial.count
+                        await MainActor.run {
+                            self.reportProgressChars = count
+                        }
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.apply(report: report)
+                    self.meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
+                    self.saveContext()
+                    self.activeSection = .report
+                }
+
+                // Indexation RAG post-rapport (non bloquant pour l'UI).
+                Task.detached { @MainActor in
+                    do {
+                        try await RAGIndexer.reindex(meeting: meeting, context: context)
+                    } catch {
+                        print("[MeetingView] RAG reindex échoué: \(error.localizedDescription)")
+                    }
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                await MainActor.run { self.reportError = error.localizedDescription }
+                throw error
+            }
         }
     }
 
@@ -1209,6 +1666,20 @@ struct MeetingView: View {
         meeting.keyPoints = report.keyPoints
         meeting.decisions = report.decisions
         meeting.openQuestions = report.openQuestions
+
+        // Snapshot v_n+1 — chaque génération crée une nouvelle révision pour
+        // pouvoir comparer/restaurer un draft antérieur.
+        let nextVersion = (meeting.reportRevisions.map(\.version).max() ?? 0) + 1
+        let rev = ReportRevision(
+            meeting: meeting,
+            version: nextVersion,
+            body: report.summary,
+            critique: "",
+            writerMessage: "",
+            isValidated: false
+        )
+        context.insert(rev)
+        selectedRevisionVersion = nextVersion
 
         for a in report.actions {
             let task = ActionTask(title: a.title)
@@ -1472,12 +1943,40 @@ struct MeetingView: View {
     }
 
     private func segmentRow(_ seg: TranscriptSegment) -> some View {
+        // textSelection(.enabled) capture le clic droit sur macOS → on ne peut
+        // pas y attacher un contextMenu fonctionnel. À la place : bouton play
+        // visible à côté du timestamp (clic gauche = lecture ; option-clic =
+        // seek sans jouer).
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             speakerBadge(for: seg)
 
-            Text(seg.formattedTimestamp)
-                .font(.caption2.monospacedDigit())
-                .foregroundColor(.secondary)
+            Button {
+                playSegmentAudio(seg)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill").font(.caption2)
+                    Text(seg.formattedTimestamp)
+                        .font(.caption.monospacedDigit().bold())
+                }
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(
+                    Capsule().fill(meeting.wavFileURL == nil
+                                   ? Color.secondary.opacity(0.15)
+                                   : Color.accentColor.opacity(0.18))
+                )
+                .foregroundColor(meeting.wavFileURL == nil ? .secondary : .accentColor)
+                .overlay(
+                    Capsule().stroke(
+                        meeting.wavFileURL == nil ? Color.clear : Color.accentColor.opacity(0.4),
+                        lineWidth: 0.5
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(meeting.wavFileURL == nil)
+            .help(meeting.wavFileURL == nil
+                  ? "Aucun audio attaché à la réunion"
+                  : "Lire l'audio à partir de \(seg.formattedTimestamp)")
 
             Text(seg.text)
                 .font(.body)
@@ -1485,6 +1984,32 @@ struct MeetingView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
+    }
+
+    /// Charge le wav si besoin et positionne le curseur sans démarrer la lecture.
+    private func seekToSegment(_ seg: TranscriptSegment) {
+        guard let url = meeting.wavFileURL else { return }
+        if player.loadedURL != url { try? player.load(url: url) }
+        player.seek(to: seg.startSeconds)
+    }
+
+    /// Charge le wav si besoin, place le curseur sur seg.startSeconds, joue.
+    /// Si la lecture est déjà en cours, on pause d'abord pour forcer le saut
+    /// (sinon AVAudioPlayer continue parfois depuis l'ancienne position avant
+    /// de prendre en compte le seek).
+    private func playSegmentAudio(_ seg: TranscriptSegment) {
+        guard let url = meeting.wavFileURL else { return }
+        do {
+            if player.loadedURL != url { try player.load(url: url) }
+        } catch {
+            transcribeError = "Lecture impossible: \(error.localizedDescription)"
+            return
+        }
+        let wasPlaying = player.isPlaying
+        if wasPlaying { player.pause() }
+        player.seek(to: seg.startSeconds)
+        player.play()
+        print("[MeetingView] play segment from \(seg.startSeconds)s (was playing: \(wasPlaying))")
     }
 
     @ViewBuilder
@@ -1592,35 +2117,53 @@ struct MeetingView: View {
             Text("Speaker \(speakerID) → participant")
                 .font(.caption.bold())
 
+            TextField("Rechercher…", text: $speakerPickerSearch)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+
             let participantIDs = Set(meeting.participants.map { $0.persistentModelID })
+            let query = speakerPickerSearch.trimmingCharacters(in: .whitespaces)
+            let matches: (Collaborator) -> Bool = { c in
+                query.isEmpty || c.name.localizedCaseInsensitiveContains(query)
+            }
             let participants = meeting.participants
-                .filter { !$0.isArchived }
+                .filter { !$0.isArchived && matches($0) }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             let others = allCollaborators
-                .filter { !participantIDs.contains($0.persistentModelID) }
+                .filter { !participantIDs.contains($0.persistentModelID) && matches($0) }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
             if participants.isEmpty && others.isEmpty {
-                Text("Aucun collaborateur dans la base.").font(.caption2).foregroundColor(.secondary)
+                Text(query.isEmpty ? "Aucun collaborateur dans la base." : "Aucun résultat.")
+                    .font(.caption2).foregroundColor(.secondary)
             } else {
-                if !participants.isEmpty {
-                    Text("Participants de la réunion").font(.caption2.bold()).foregroundStyle(.secondary)
-                    ForEach(participants) { c in
-                        speakerPickerRow(c, speakerID: speakerID, highlighted: true)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !participants.isEmpty {
+                            Text("Participants de la réunion").font(.caption2.bold()).foregroundStyle(.secondary)
+                            ForEach(participants) { c in
+                                speakerPickerRow(c, speakerID: speakerID, highlighted: true)
+                            }
+                        }
+                        if !others.isEmpty {
+                            if !participants.isEmpty { Divider() }
+                            Text("Autres collaborateurs").font(.caption2.bold()).foregroundStyle(.secondary)
+                            ForEach(others) { c in
+                                speakerPickerRow(c, speakerID: speakerID, highlighted: false)
+                            }
+                        }
                     }
                 }
-                if !others.isEmpty {
-                    if !participants.isEmpty { Divider() }
-                    Text("Autres collaborateurs").font(.caption2.bold()).foregroundStyle(.secondary)
-                    ForEach(others) { c in
-                        speakerPickerRow(c, speakerID: speakerID, highlighted: false)
-                    }
-                }
+                .frame(maxHeight: 360)
                 Divider()
             }
-            Button("Annuler") { renamingSpeakerID = nil }
-                .font(.caption)
+            Button("Annuler") {
+                renamingSpeakerID = nil
+                speakerPickerSearch = ""
+            }
+            .font(.caption)
         }
+        .frame(width: 280)
     }
 
     @ViewBuilder
@@ -1628,6 +2171,7 @@ struct MeetingView: View {
         Button {
             assignSpeaker(speakerID: speakerID, to: c)
             renamingSpeakerID = nil
+            speakerPickerSearch = ""
         } label: {
             HStack {
                 Image(systemName: highlighted ? "person.fill.checkmark" : "person.fill")

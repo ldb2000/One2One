@@ -27,7 +27,8 @@ enum BuiltInTemplates {
         d5_cosui,
         d6_codir,
         d7_preparation,
-        d8_restitution
+        d8_restitution,
+        d9_workshop
     ]
 
     /// Idempotent seeding. Inserts only missing built-in templates by name.
@@ -72,7 +73,9 @@ enum BuiltInTemplates {
         promptBody: """
         Type: {{kind}} · Date: {{date}} · Participants: {{participants}}
 
-        Contexte actuel:
+        Contexte projet (à n'utiliser que comme arrière-plan, NE PAS recopier
+        dans le rapport — ne mentionne une action/alerte que si elle est
+        explicitement reprise dans la transcription) :
         {{contexte_general}}
 
         {{custom_prompt}}
@@ -82,6 +85,15 @@ enum BuiltInTemplates {
 
         Notes manuelles:
         {{notes}}
+
+        Règles de rédaction:
+        - Tout le contenu doit provenir de la transcription + notes. N'invente
+          rien.
+        - Pour chaque action, identifie un porteur nommé parmi les participants
+          réels ; si inconnu, écris "À préciser" (jamais "Équipe de pilotage").
+        - Garde la section "Contexte général" courte et factuelle : objet de
+          la réunion + participants effectifs. N'y mets PAS d'actions ou
+          d'alertes provenant d'autres projets.
         """
     )
 
@@ -310,6 +322,72 @@ enum BuiltInTemplates {
 
         Notes:
         {{notes}}
+        """
+    )
+
+    // MARK: - D9 Séance de travail / Workshop
+    //
+    // Pour les sessions longues, denses, multi-sujets (architecture, gouvernance,
+    // groupes de travail). Produit un CR structuré façon document de référence :
+    // objet, contexte, discussion détaillée, définitions, décisions numérotées,
+    // points ouverts, actions avec porteurs nommés, annexe cas illustratifs.
+
+    static let d9_workshop = Seed(
+        name: "Séance de travail / Workshop",
+        kind: .workshop,
+        sections: [
+            .init(title: "Objet & contexte",
+                  hint: "1–3 lignes : sujet traité, raison de la séance, format."),
+            .init(title: "Discussion",
+                  hint: "Restitution riche des sujets abordés, idéalement en sous-points thématiques (ne pas résumer en 3 lignes — préserver la nuance et les points de désaccord)."),
+            .init(title: "Définitions retenues",
+                  hint: "Si la séance a fixé du vocabulaire (technologie vs solution, frontières…), liste les définitions actées. Sinon, omets cette section."),
+            .init(title: "Décisions",
+                  hint: "Numérotées D1, D2… avec libellé court et clair. Une seule décision par puce."),
+            .init(title: "Points ouverts à trancher",
+                  hint: "Numérotés O1, O2… Sujets identifiés mais non tranchés en séance, à instruire plus tard."),
+            .init(title: "Actions",
+                  hint: "Numérotées A1, A2… avec porteur **nommément identifié parmi les participants réels** et échéance (ou « À préciser »)."),
+            .init(title: "Cas illustratifs",
+                  hint: "Si la séance s'est appuyée sur des cas concrets (outil X, projet Y, exemples), récapitule-les en 1 ligne chacun avec l'enseignement tiré.")
+        ],
+        historyMode: .lastN,
+        historyN: 2,
+        historyK: 0,
+        promptBody: """
+        Séance de travail · {{date}} · Participants: {{participants}}
+        Projet : {{project.name}}
+
+        Contexte projet (arrière-plan uniquement — NE PAS recopier dans le
+        rapport, n'utiliser que pour comprendre les références) :
+        {{contexte_general}}
+
+        Séances précédentes du projet :
+        {{historique_n}}
+
+        {{custom_prompt}}
+
+        Transcription brute (sortie STT + notes live) :
+        {{transcript}}
+
+        Notes manuelles :
+        {{notes}}
+
+        Consignes de rédaction — IMPORTANT :
+        - Tout le contenu sort de la transcription + notes. N'invente AUCUN
+          chiffre, date, porteur, sujet qui ne soit pas explicitement présent.
+        - Préserve la nuance technique : si deux participants ont nuancé un
+          point, restitue les deux côtés (ex. : « X estime que… ; Y nuance que… »).
+        - Pour les porteurs d'actions : utilise uniquement les noms des
+          participants réels listés ci-dessus. Si le porteur n'est pas clair,
+          écris exactement « À préciser ». N'écris JAMAIS « Équipe de pilotage »
+          ou autres formules génériques.
+        - Numérote décisions (D1…), points ouverts (O1…), actions (A1…).
+        - Si une section est vide pour cette séance (ex. aucune définition
+          retenue), omets-la entièrement plutôt que d'écrire « (aucune) ».
+        - Le bloc "Contexte projet" ci-dessus est de l'arrière-plan : ne le
+          recopie pas dans le rapport. Ne mentionne une action/alerte existante
+          que si elle est explicitement reprise dans la séance.
         """
     )
 }

@@ -486,6 +486,30 @@ struct SettingsView: View {
 
                         Divider()
 
+                        Toggle("Pré-rappel avant la réunion (style Outlook)", isOn: Binding(
+                            get: { settings.notifMeetingPreStart },
+                            set: { settings.notifMeetingPreStart = $0; saveSettings() }
+                        ))
+                        if settings.notifMeetingPreStart {
+                            HStack {
+                                Text("Délai du pré-rappel:")
+                                Picker("", selection: Binding(
+                                    get: { settings.notifMeetingPreStartMinutes },
+                                    set: { settings.notifMeetingPreStartMinutes = $0; saveSettings(); resyncNotifs() }
+                                )) {
+                                    Text("1 min").tag(1)
+                                    Text("2 min").tag(2)
+                                    Text("5 min").tag(5)
+                                    Text("10 min").tag(10)
+                                    Text("15 min").tag(15)
+                                    Text("30 min").tag(30)
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 120)
+                                Spacer()
+                            }
+                            .font(.caption)
+                        }
                         Toggle("Notification au début de réunion", isOn: Binding(
                             get: { settings.notifMeetingStart },
                             set: { settings.notifMeetingStart = $0; saveSettings() }
@@ -610,6 +634,17 @@ struct SettingsView: View {
                                 get: { settings.speakerIdSuggestThreshold },
                                 set: { settings.speakerIdSuggestThreshold = $0; saveSettings() }
                             ), in: 0.50...0.70, step: 0.01)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Séparation des voix (pyannote): \(String(format: "%.2f", settings.diarizationClusterThreshold))")
+                                .font(.caption)
+                            Text("Plus haut = plus de speakers distincts. Plus bas = fusionne davantage.")
+                                .font(.caption2).foregroundColor(.secondary)
+                            Slider(value: Binding(
+                                get: { settings.diarizationClusterThreshold },
+                                set: { settings.diarizationClusterThreshold = $0; saveSettings() }
+                            ), in: 0.50...1.10, step: 0.01)
                         }
 
                         Divider()
@@ -908,6 +943,13 @@ struct SettingsView: View {
             apiEndpoint = "https://generativelanguage.googleapis.com/v1beta"
             modelName = "gemini-1.5-pro"
         }
+    }
+
+    /// Re-applique tous les notifs avec les nouveaux paramètres. Utilisé
+    /// quand l'utilisateur change le délai du pré-rappel — les pending
+    /// existants restent armés sur l'ancien délai jusqu'à un resync.
+    private func resyncNotifs() {
+        MeetingNotificationService.shared.syncPending(context: context, settings: settings)
     }
 
     private func saveSettings() {

@@ -5,6 +5,7 @@ enum ReportTemplateKind: String, CaseIterable, Identifiable {
     case general, oneToOne, manager
     case copil, cosui, codir
     case preparation, restitution
+    case workshop
     case metier, initiative, custom
 
     var id: String { rawValue }
@@ -19,6 +20,7 @@ enum ReportTemplateKind: String, CaseIterable, Identifiable {
         case .codir:      return "CODIR"
         case .preparation: return "Préparation"
         case .restitution: return "Restitution / Démo"
+        case .workshop:   return "Séance de travail / Workshop"
         case .metier:     return "Métier"
         case .initiative: return "Initiative"
         case .custom:     return "Personnalisé"
@@ -35,6 +37,7 @@ enum ReportTemplateKind: String, CaseIterable, Identifiable {
         case .codir:      return "building.columns"
         case .preparation: return "checklist"
         case .restitution: return "play.rectangle"
+        case .workshop:   return "person.3.sequence"
         case .metier:     return "briefcase"
         case .initiative: return "lightbulb"
         case .custom:     return "slider.horizontal.3"

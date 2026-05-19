@@ -118,12 +118,16 @@ struct MeetingContextualRecorderBar: View {
             if stt.isTranscribing {
                 HStack(spacing: 6) {
                     if stt.progressFraction > 0 {
-                        ProgressView(value: stt.progressFraction)
-                            .progressViewStyle(.linear)
-                            .frame(width: 110)
-                        Text("\(Int(stt.progressFraction * 100)) %")
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
+                        ZStack {
+                            ProgressView(value: stt.progressFraction)
+                                .progressViewStyle(.linear)
+                                .frame(width: 140)
+                            Text("\(Int(stt.progressFraction * 100)) %")
+                                .font(.caption2.monospacedDigit().bold())
+                                .foregroundColor(.white)
+                                .shadow(color: .black.opacity(0.35), radius: 1, y: 0.5)
+                        }
+                        .frame(width: 140)
                     } else {
                         ProgressView().controlSize(.small)
                     }

@@ -35,6 +35,7 @@ final class PyannoteDiarizer {
     /// once compute starts. `onProgress` reports (fraction 0..1, status string)
     /// during both download (first call) and diarization stages.
     func diarize(audioURL: URL,
+                 clusterThreshold: Float? = nil,
                  onPhase: ((TranscriptionPhase) -> Void)? = nil,
                  onProgress: ((Double, String) -> Void)? = nil) async throws -> DiarizeOutput {
         #if canImport(SpeechVAD)
@@ -60,6 +61,9 @@ final class PyannoteDiarizer {
         struct SendableBox: @unchecked Sendable { let value: PyannoteDiarizationPipeline }
         let boxed = SendableBox(value: pipeline)
         let url = audioURL
+        var diarConfig = DiarizationConfig.default
+        if let ct = clusterThreshold { diarConfig.clusteringThreshold = ct }
+        let configToUse = diarConfig
         let progressForward: (@Sendable (Double, String) -> Void)? = onProgress.map { handler in
             { fraction, status in
                 Task { @MainActor in handler(fraction, status) }
@@ -73,7 +77,7 @@ final class PyannoteDiarizer {
             let result = boxed.value.diarize(
                 audio: samples,
                 sampleRate: 16000,
-                config: .default,
+                config: configToUse,
                 progressHandler: { fraction, status in
                     // 0.05–0.95 range to leave headroom for post-processing.
                     let scaled = 0.05 + Double(fraction) * 0.90

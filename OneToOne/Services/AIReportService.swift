@@ -129,6 +129,174 @@ struct AIReportService {
         return parse(raw)
     }
 
+    // MARK: - Critique pass (inspiré tevslin/meeting-reporter)
+    //
+    // Une seconde passe LLM qui audite un draft de rapport contre des critères
+    // stricts (porteurs nommés, pas d'invention, sections vides supprimées,
+    // nuance préservée). Renvoie soit `nil` si le draft est jugé OK, soit un
+    // bloc texte structuré listant les problèmes à corriger.
+
+    /// Résultat du critique. `nil` = rapport accepté tel quel.
+    static func critique(
+        draft: String,
+        mergedTranscript: String,
+        participantsDescription: String,
+        settings: AppSettings,
+        onProgress: AIClient.ProgressCallback? = nil
+    ) async throws -> String? {
+        let prompt = """
+        Tu es un relecteur exigeant de comptes-rendus de réunion. Ton rôle
+        est de pointer les défauts du brouillon, PAS de le réécrire.
+
+        Critères stricts :
+        1. Chaque action doit avoir un porteur NOMMÉMENT identifié parmi les
+           participants réels ci-dessous. Aucune mention « Équipe de pilotage »,
+           « À définir » est tolérée seulement si la transcription n'indique
+           vraiment personne.
+        2. Aucune information ne doit être inventée. Tout doit être traçable
+           à la transcription. Si tu repères un chiffre, une date, un nom
+           absent de la transcription → c'est une hallucination.
+        3. Les nuances et désaccords doivent être préservés. Si deux
+           participants ont nuancé un point, le rapport doit le restituer.
+        4. Les sections vides ou inutiles (« (aucune) ») doivent être omises.
+        5. Pour les votes ou décisions partagées, les noms doivent être cités.
+        6. Pas d'éditorialisation : le ton doit rester factuel.
+
+        Participants réels de la réunion :
+        \(participantsDescription)
+
+        Transcription source (référence pour vérifier l'absence d'invention) :
+        ---
+        \(mergedTranscript)
+        ---
+
+        Brouillon à critiquer :
+        ---
+        \(draft)
+        ---
+
+        Si le brouillon respecte TOUS les critères, réponds EXACTEMENT par le
+        mot `OK` (sans guillemets, sans autre texte).
+
+        Sinon, liste les défauts sous forme de puces courtes, regroupées par
+        critère (ex. « Action 3 — porteur générique 'Équipe de pilotage' »).
+        Reste concis : maximum 12 puces. N'écris pas de version corrigée.
+        """
+
+        reportLog.info("critique: draftChars=\(draft.count)")
+        let raw = try await AIClient.send(prompt: prompt, settings: settings, onProgress: onProgress)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "OK" || trimmed.hasPrefix("OK\n") || trimmed.hasPrefix("OK ") {
+            return nil
+        }
+        return trimmed
+    }
+
+    // MARK: - Revise pass
+    //
+    // Prend draft + critique → produit v2. Accepte un `previousMessage` du
+    // writer (justifie ce qui n'a pas pu être corrigé lors d'une révision
+    // antérieure — évite que le critique redemande la même chose).
+
+    struct RevisionOutput {
+        let body: String          // markdown révisé
+        let writerMessage: String // explications du writer au critique
+    }
+
+    static func revise(
+        draft: String,
+        critique: String,
+        mergedTranscript: String,
+        participantsDescription: String,
+        previousWriterMessage: String = "",
+        settings: AppSettings,
+        onProgress: AIClient.ProgressCallback? = nil
+    ) async throws -> RevisionOutput {
+        let prevBlock = previousWriterMessage.isEmpty ? "" : """
+
+        Message précédent du rédacteur (raisons pour lesquelles certaines
+        critiques n'ont pas pu être suivies — à conserver si toujours valides) :
+        \(previousWriterMessage)
+
+        """
+
+        let prompt = """
+        Tu es le rédacteur du compte-rendu. Tu dois réviser le brouillon ci-
+        dessous en suivant les critiques du relecteur, SANS rien inventer.
+
+        Participants réels :
+        \(participantsDescription)
+
+        Transcription source :
+        ---
+        \(mergedTranscript)
+        ---
+
+        Brouillon actuel :
+        ---
+        \(draft)
+        ---
+
+        Critiques du relecteur (à corriger) :
+        ---
+        \(critique)
+        ---
+        \(prevBlock)
+        Règles :
+        - Réécris le rapport en markdown, en conservant la structure de sections
+          du brouillon. Corrige UNIQUEMENT ce que le relecteur a pointé.
+        - Si une critique ne peut pas être satisfaite (info absente de la
+          transcription), garde la formulation prudente et explique-le dans
+          le `writer_message`.
+        - Ne rajoute pas de sections que le brouillon n'avait pas.
+
+        Réponds en JSON strict :
+        {
+          "body": "<markdown révisé complet>",
+          "writer_message": "<court message au relecteur, max 200 mots, expliquant les changements ou justifiant l'absence de changement>"
+        }
+        """
+
+        reportLog.info("revise: draftChars=\(draft.count) critiqueChars=\(critique.count)")
+        let raw = try await AIClient.send(prompt: prompt, settings: settings, onProgress: onProgress)
+
+        // Parse JSON. Si parsing échoue, on retourne le brut comme body et
+        // un message vide — pas idéal mais préserve le travail du LLM.
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // Tentative extraction d'un bloc ```json ... ``` éventuel.
+            if let extracted = extractJSONBlock(from: raw),
+               let data = extracted.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                return RevisionOutput(
+                    body: (json["body"] as? String) ?? raw,
+                    writerMessage: (json["writer_message"] as? String) ?? ""
+                )
+            }
+            return RevisionOutput(body: raw, writerMessage: "")
+        }
+        return RevisionOutput(
+            body: (json["body"] as? String) ?? raw,
+            writerMessage: (json["writer_message"] as? String) ?? ""
+        )
+    }
+
+    private static func extractJSONBlock(from s: String) -> String? {
+        // Extrait le premier bloc { ... } équilibré rencontré.
+        guard let start = s.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var i = start
+        while i < s.endIndex {
+            if s[i] == "{" { depth += 1 }
+            else if s[i] == "}" {
+                depth -= 1
+                if depth == 0 { return String(s[start...i]) }
+            }
+            i = s.index(after: i)
+        }
+        return nil
+    }
+
     @MainActor
     private static func defaultTemplate(for kind: MeetingKind, in context: ModelContext) -> ReportTemplate? {
         let templateKind: ReportTemplateKind

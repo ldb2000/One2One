@@ -88,7 +88,7 @@ enum TemplateVariableResolver {
         case "actions_overdue":   return Self.actionsOverdue(in: context, now: now)
         case "actions_du_jour":   return Self.actionsDuJour(in: context, now: now)
         case "historique_n":      return ""  // populated externally
-        case "contexte_general":  return Self.contexteGeneral(in: context, now: now)
+        case "contexte_general":  return Self.contexteGeneral(for: meeting, in: context, now: now)
         case "date_now":          return Self.formatDate(now)
         case "semaine":           return Self.formatWeek(now)
         case "mois":              return Self.formatMonth(now)
@@ -222,49 +222,62 @@ enum TemplateVariableResolver {
         return Self.renderActions(Array(tasks.prefix(10)))
     }
 
+    /// Contexte injecté dans le rapport. Scopé au projet de la réunion si
+    /// présent (évite la pollution cross-projet) ; sinon bloc minimal indiquant
+    /// l'absence de contexte exploitable. Le prompt instruit l'IA de ne pas
+    /// recopier ce bloc en l'état (cf. d1_global et d_workshop).
     @MainActor
-    private static func contexteGeneral(in context: ModelContext, now: Date) -> String {
-        let urgent = UrgentActionsSelector.qualifying(in: context, now: now)
-        let actions = Self.renderActions(Array(urgent.prefix(5)))
+    private static func contexteGeneral(for meeting: Meeting, in context: ModelContext, now: Date) -> String {
+        guard let project = meeting.project else {
+            return "(aucun projet attaché à la réunion — n'inventer aucun contexte)"
+        }
+        let projectID = project.persistentModelID
 
-        let alertDescriptor = FetchDescriptor<ProjectAlert>()
-        let allAlerts = (try? context.fetch(alertDescriptor)) ?? []
-        let alerts = allAlerts
-            .filter { $0.severity == "Élevé" || $0.severity == "Critique" }
-            .prefix(3)
+        // Actions ouvertes du projet seulement.
+        let actionDescriptor = FetchDescriptor<ActionTask>(
+            predicate: #Predicate { task in
+                !task.isCompleted && task.project?.persistentModelID == projectID
+            },
+            sortBy: [SortDescriptor(\.dueDate)]
+        )
+        let projActions = (try? context.fetch(actionDescriptor)) ?? []
+        let actions = projActions.isEmpty
+            ? "(aucune action ouverte sur le projet)"
+            : Self.renderActions(Array(projActions.prefix(8)))
+
+        // Alertes Élevé/Critique sur le projet.
+        let alertDescriptor = FetchDescriptor<ProjectAlert>(
+            predicate: #Predicate { $0.project?.persistentModelID == projectID }
+        )
+        let projAlerts = (try? context.fetch(alertDescriptor)) ?? []
+        let alerts = projAlerts.filter { $0.severity == "Élevé" || $0.severity == "Critique" }.prefix(5)
         let alertsText = alerts.isEmpty
             ? "(aucune)"
             : alerts.map { "- [\($0.severity)] \(Self.firstLine($0.title))" }.joined(separator: "\n")
 
-        let cal = Calendar.current
-        let fortnightAgo = cal.date(byAdding: .day, value: -14, to: now) ?? now
-        let meetingDescriptor = FetchDescriptor<Meeting>(
-            predicate: #Predicate { $0.date >= fortnightAgo && $0.project != nil },
+        // Dernières réunions du projet (titre + date) pour mettre la séance
+        // courante en perspective.
+        let recentDescriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate { $0.project?.persistentModelID == projectID },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
-        let recentMeetings = (try? context.fetch(meetingDescriptor)) ?? []
-        var seenProjectIDs: Set<PersistentIdentifier> = []
-        var topProjects: [Project] = []
-        for m in recentMeetings {
-            guard let p = m.project else { continue }
-            if seenProjectIDs.insert(p.persistentModelID).inserted {
-                topProjects.append(p)
-                if topProjects.count == 3 { break }
-            }
-        }
-        let projectsText = topProjects.isEmpty
-            ? "(aucun)"
-            : topProjects.map { "- \($0.name) (\($0.code))" }.joined(separator: "\n")
+        let recent = (try? context.fetch(recentDescriptor)) ?? []
+        let recentOthers = recent.filter { $0.persistentModelID != meeting.persistentModelID }.prefix(3)
+        let recentText = recentOthers.isEmpty
+            ? "(aucune)"
+            : recentOthers.map { "- \(Self.formatDate($0.date)) — \($0.title)" }.joined(separator: "\n")
 
         return """
-        Actions urgentes:
+        Projet: \(project.name) (\(project.code))
+
+        Actions ouvertes du projet:
         \(actions)
 
-        Alertes actives:
+        Alertes actives du projet:
         \(alertsText)
 
-        Activité récente:
-        \(projectsText)
+        Réunions récentes du projet:
+        \(recentText)
         """
     }
 
