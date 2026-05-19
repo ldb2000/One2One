@@ -19,6 +19,16 @@ struct AudioEditorSheet: View {
     @State private var markerSeconds: Double = 0
     @State private var error: String?
     @State private var isWorking = false
+    @State private var splitStage: SplitStage = .pickPosition
+    @State private var splitTarget: SplitTarget = .newMeeting
+    @State private var existingTargetID: PersistentIdentifier?
+    @Query(sort: \Meeting.date, order: .reverse) private var allMeetings: [Meeting]
+
+    enum SplitStage { case pickPosition, pickTarget }
+    enum SplitTarget: String, Identifiable, CaseIterable {
+        case newMeeting, existing
+        var id: String { rawValue }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -63,8 +73,21 @@ struct AudioEditorSheet: View {
                 .disabled(markerSeconds < 1 || isWorking)
             }
         case .split:
-            Text("Étape 2 — choix de la cible — implémentée à la tâche suivante.")
-                .foregroundStyle(.secondary)
+            switch splitStage {
+            case .pickPosition:
+                HStack {
+                    Spacer()
+                    Button {
+                        splitStage = .pickTarget
+                    } label: {
+                        Label("Diviser ici (\(format(markerSeconds)))",
+                              systemImage: "rectangle.split.2x1")
+                    }
+                    .disabled(markerSeconds < 1)
+                }
+            case .pickTarget:
+                splitTargetForm
+            }
         }
     }
 
@@ -100,6 +123,127 @@ struct AudioEditorSheet: View {
         let m = Int(s) / 60
         let sec = Int(s) % 60
         return String(format: "%d:%02d", m, sec)
+    }
+
+    private var splitTargetForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Affecter le second morceau à :").font(.subheadline.bold())
+            Picker("", selection: $splitTarget) {
+                Text("Nouvelle réunion").tag(SplitTarget.newMeeting)
+                Text("Réunion existante").tag(SplitTarget.existing)
+            }
+            .pickerStyle(.radioGroup)
+
+            if splitTarget == .existing {
+                Picker("Réunion", selection: Binding(
+                    get: { existingTargetID },
+                    set: { existingTargetID = $0 }
+                )) {
+                    Text("— choisir —").tag(PersistentIdentifier?.none)
+                    ForEach(candidateMeetings, id: \.persistentModelID) { m in
+                        Text("\(formatDate(m.date)) — \(m.title)")
+                            .tag(Optional(m.persistentModelID))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            HStack {
+                Button("Retour") { splitStage = .pickPosition }
+                Spacer()
+                Button(role: .destructive) {
+                    Task { await runSplit() }
+                } label: {
+                    Label("Confirmer", systemImage: "checkmark")
+                }
+                .disabled(isWorking ||
+                          (splitTarget == .existing && existingTargetID == nil))
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    /// Réunions du même jour ± 1 jour, excluant la source.
+    private var candidateMeetings: [Meeting] {
+        let cal = Calendar.current
+        let lower = cal.date(byAdding: .day, value: -1, to: meeting.date) ?? meeting.date
+        let upper = cal.date(byAdding: .day, value: 1, to: meeting.date) ?? meeting.date
+        return allMeetings
+            .filter { $0.persistentModelID != meeting.persistentModelID }
+            .filter { $0.date >= lower && $0.date <= upper }
+    }
+
+    private func formatDate(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "d MMM HH:mm"
+        return f.string(from: d)
+    }
+
+    private func runSplit() async {
+        guard let url = meeting.wavFileURL else { return }
+        isWorking = true
+        defer { isWorking = false }
+        let queue = JobQueue.shared
+        let cut = markerSeconds
+        _ = queue.start(
+            kind: .audioEdit,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title + " · split"
+        ) { _ in
+            do {
+                let (urlA, urlB) = try await AudioFileEditor.split(url: url, at: cut)
+                await MainActor.run {
+                    // Part A → source meeting
+                    meeting.wavFilePath = urlA.path
+                    meeting.durationSeconds = Int(AudioFileEditor.duration(url: urlA))
+                    invalidateTranscriptArtifacts(of: meeting, in: context)
+
+                    // Part B → target meeting
+                    let target = resolveTargetMeeting(cutSec: cut)
+                    target.wavFilePath = urlB.path
+                    target.durationSeconds = Int(AudioFileEditor.duration(url: urlB))
+                    invalidateTranscriptArtifacts(of: target, in: context)
+
+                    try? context.save()
+                    onFinish(true)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                }
+                throw error
+            }
+        }
+    }
+
+    @MainActor
+    private func resolveTargetMeeting(cutSec: Double) -> Meeting {
+        switch splitTarget {
+        case .existing:
+            if let id = existingTargetID,
+               let m = allMeetings.first(where: { $0.persistentModelID == id }) {
+                return m
+            }
+            return makeNewMeeting(cutSec: cutSec)
+        case .newMeeting:
+            return makeNewMeeting(cutSec: cutSec)
+        }
+    }
+
+    @MainActor
+    private func makeNewMeeting(cutSec: Double) -> Meeting {
+        let new = Meeting(
+            title: "\(meeting.title) — partie 2",
+            date: meeting.date.addingTimeInterval(cutSec),
+            notes: ""
+        )
+        new.kind = meeting.kind
+        new.project = meeting.project
+        new.participants = meeting.participants
+        context.insert(new)
+        return new
     }
 }
 
