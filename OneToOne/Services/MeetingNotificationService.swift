@@ -14,6 +14,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         static let preStart = "MEETING_PRE_START"  // Outlook-style "starts in N min"
         static let start    = "MEETING_START"
         static let end      = "MEETING_END"
+        static let recording = "RECORDING_STARTED"
     }
 
     private enum Action {
@@ -198,6 +199,22 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                  interruptionLevel: .timeSensitive)
     }
 
+    /// Bannière immédiate "Enregistrement en cours". Auto-dismiss, sans action.
+    func notifyRecordingStarted(meetingTitle: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Enregistrement en cours"
+        content.body = meetingTitle.isEmpty ? "Réunion en capture" : meetingTitle
+        content.sound = .default
+        content.categoryIdentifier = Category.recording
+        content.interruptionLevel = .active
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false)
+        let id = "recording.start.\(UUID().uuidString)"
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        center.add(request) { error in
+            if let error { print("[MeetingNotificationService] recording: \(error)") }
+        }
+    }
+
     // MARK: - Internals
 
     private func registerCategories() {
@@ -219,7 +236,10 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         let endCat = UNNotificationCategory(identifier: Category.end,
                                              actions: [openAction],
                                              intentIdentifiers: [])
-        center.setNotificationCategories([preStartCat, startCat, endCat])
+        let recordingCat = UNNotificationCategory(identifier: Category.recording,
+                                          actions: [],
+                                          intentIdentifiers: [])
+        center.setNotificationCategories([preStartCat, startCat, endCat, recordingCat])
     }
 
     private func schedule(id: String, title: String, body: String,

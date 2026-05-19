@@ -88,6 +88,9 @@ final class AppSettings {
     /// Notifier au démarrage de la réunion.
     var notifMeetingStart: Bool = true
 
+    /// Bannière de confirmation au démarrage de l'enregistrement.
+    var notifRecordingStart: Bool = true
+
     /// Pré-rappel style Outlook (banner + son + bouton Teams).
     var notifMeetingPreStart: Bool = true
     /// Minutes avant le début pour le pré-rappel (Outlook default = 15).
