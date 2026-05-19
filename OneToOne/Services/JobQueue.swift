@@ -13,7 +13,7 @@ final class JobQueue: ObservableObject {
 
     static let shared = JobQueue()
 
-    enum JobKind: String { case transcription, report }
+    enum JobKind: String { case transcription, report, audioEdit }
     enum JobStatus: Equatable {
         case running
         case cancelling

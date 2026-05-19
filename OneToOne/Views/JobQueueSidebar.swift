@@ -105,7 +105,7 @@ struct JobQueueSidebar: View {
                 Text(job.meetingTitle)
                     .font(.caption.bold())
                     .lineLimit(1)
-                Text(job.kind == .transcription ? "Transcription" : "Rapport IA")
+                Text(jobKindLabel(job.kind))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -157,8 +157,15 @@ struct JobQueueSidebar: View {
     @ViewBuilder
     private func jobIcon(_ job: JobQueue.Job) -> some View {
         switch job.status {
-        case .running:    Image(systemName: job.kind == .transcription ? "waveform" : "wand.and.stars")
-                            .foregroundStyle(Color.accentColor)
+        case .running:
+            switch job.kind {
+            case .transcription:
+                Image(systemName: "waveform").foregroundStyle(Color.accentColor)
+            case .report:
+                Image(systemName: "wand.and.stars").foregroundStyle(Color.accentColor)
+            case .audioEdit:
+                Image(systemName: "scissors").foregroundStyle(Color.accentColor)
+            }
         case .cancelling: Image(systemName: "xmark.circle").foregroundStyle(.orange)
         case .succeeded:  Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .cancelled:  Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -207,5 +214,13 @@ struct JobQueueSidebar: View {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []
         return all.first { $0.persistentModelID == persistentID }
+    }
+
+    private func jobKindLabel(_ k: JobQueue.JobKind) -> String {
+        switch k {
+        case .transcription: return "Transcription"
+        case .report:        return "Rapport IA"
+        case .audioEdit:     return "Édition audio"
+        }
     }
 }
