@@ -110,6 +110,7 @@ struct MeetingView: View {
     @State private var saveStatusMessage: String?
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
+    @State private var audioEditMode: AudioEditMode?
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
     /// instead of `.sheet(isPresented:)` avoids a SwiftUI race where the sheet
@@ -302,6 +303,9 @@ struct MeetingView: View {
                 }
             )
         }
+        .sheet(item: $audioEditMode) { mode in
+            AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
+        }
         .popover(isPresented: $showSlidesList) { slidesPopover }
         .popover(isPresented: $showCaptureSetup) {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
@@ -467,7 +471,10 @@ struct MeetingView: View {
         case .liveNotes:
             MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
         case .transcript:
-            transcriptView
+            VStack(spacing: 0) {
+                audioEditingToolbar
+                transcriptView
+            }
         case .report:
             reportView
         case .documents:
@@ -722,6 +729,40 @@ struct MeetingView: View {
         case .failure(let error):
             attachmentError = error.localizedDescription
         }
+    }
+
+    @ViewBuilder
+    private var audioEditingToolbar: some View {
+        HStack(spacing: 8) {
+            Button {
+                audioEditMode = .trim
+            } label: {
+                Label("Couper début", systemImage: "scissors")
+            }
+            .disabled(!canEditAudio)
+
+            Button {
+                audioEditMode = .split
+            } label: {
+                Label("Diviser", systemImage: "rectangle.split.2x1")
+            }
+            .disabled(!canEditAudio)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    /// Boutons disabled si pas de WAV, enregistrement en cours sur cette
+    /// réunion, ou job actif (transcription/rapport/édition).
+    private var canEditAudio: Bool {
+        guard meeting.wavFileURL != nil else { return false }
+        if recorder.isRecording, recorder.activeMeetingID == meeting.ensuredStableID {
+            return false
+        }
+        let active = JobQueue.shared.activeJobs.contains { $0.meetingID == meeting.persistentModelID }
+        return !active
     }
 
     private var transcriptView: some View {
