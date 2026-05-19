@@ -46,6 +46,9 @@ struct AudioEditorSheet: View {
         }
         .padding(16)
         .frame(minWidth: 720, minHeight: 360)
+        .onAppear {
+            cleanupStaleTmp()
+        }
     }
 
     private var header: some View {
@@ -116,6 +119,20 @@ struct AudioEditorSheet: View {
                 }
                 throw error
             }
+        }
+    }
+
+    /// Supprime un éventuel `<wav>.tmp.wav` orphelin (crash pendant trim)
+    /// vieux de plus de 5 minutes.
+    private func cleanupStaleTmp() {
+        guard let url = meeting.wavFileURL else { return }
+        let tmp = url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".tmp.wav")
+        guard FileManager.default.fileExists(atPath: tmp.path),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: tmp.path),
+              let mtime = attrs[.modificationDate] as? Date else { return }
+        if Date().timeIntervalSince(mtime) > 5 * 60 {
+            try? FileManager.default.removeItem(at: tmp)
         }
     }
 
