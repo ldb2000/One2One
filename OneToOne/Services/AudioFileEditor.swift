@@ -53,3 +53,63 @@ extension AudioFileEditor {
         editorLog.info("trim done from=\(fromSec)s")
     }
 }
+
+extension AudioFileEditor {
+
+    /// Split `url` at `cutSec` into two WAVs. Returns `(urlA, urlB)`. The
+    /// original is removed after both new files are written successfully.
+    /// Throws if `cutSec < 1s` or `cutSec > duration - 1s`.
+    static func split(url: URL, at cutSec: Double) async throws -> (URL, URL) {
+        let total = duration(url: url)
+        guard cutSec >= 1.0, cutSec <= total - 1.0 else {
+            throw NSError(domain: "AudioFileEditor", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Position de coupe trop proche d'un bord"])
+        }
+        let base = url.deletingPathExtension().lastPathComponent
+        let dir = url.deletingLastPathComponent()
+        let urlA = dir.appendingPathComponent("\(base)_A.wav")
+        let urlB = dir.appendingPathComponent("\(base)_B.wav")
+        try? FileManager.default.removeItem(at: urlA)
+        try? FileManager.default.removeItem(at: urlB)
+
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                let src = try AVAudioFile(forReading: url)
+                let format = src.processingFormat
+                let cutFrame = AVAudioFramePosition(cutSec * format.sampleRate)
+                let chunk: AVAudioFrameCount = 8192
+                let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
+
+                // Part A: 0 ..< cutFrame
+                let dstA = try AVAudioFile(forWriting: urlA, settings: src.fileFormat.settings)
+                src.framePosition = 0
+                while src.framePosition < cutFrame {
+                    try Task.checkCancellation()
+                    let remaining = AVAudioFrameCount(cutFrame - src.framePosition)
+                    buf.frameLength = min(chunk, remaining)
+                    try src.read(into: buf, frameCount: buf.frameLength)
+                    if buf.frameLength == 0 { break }
+                    try dstA.write(from: buf)
+                }
+
+                // Part B: cutFrame ..< end
+                let dstB = try AVAudioFile(forWriting: urlB, settings: src.fileFormat.settings)
+                src.framePosition = cutFrame
+                while src.framePosition < src.length {
+                    try Task.checkCancellation()
+                    try src.read(into: buf)
+                    if buf.frameLength == 0 { break }
+                    try dstB.write(from: buf)
+                }
+            }.value
+        } catch {
+            try? FileManager.default.removeItem(at: urlA)
+            try? FileManager.default.removeItem(at: urlB)
+            throw error
+        }
+
+        try FileManager.default.removeItem(at: url)
+        editorLog.info("split done at=\(cutSec)s")
+        return (urlA, urlB)
+    }
+}

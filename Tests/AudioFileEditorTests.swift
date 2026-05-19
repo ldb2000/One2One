@@ -68,4 +68,26 @@ final class AudioFileEditorTests: XCTestCase {
             XCTFail("trim should throw when fromSec >= duration")
         } catch { /* expected */ }
     }
+
+    func test_split_producesTwoFilesOfExpectedLengths() async throws {
+        let url = try makeSyntheticWAV(seconds: 10.0)
+        let (a, b) = try await AudioFileEditor.split(url: url, at: 4.0)
+        defer {
+            try? FileManager.default.removeItem(at: a)
+            try? FileManager.default.removeItem(at: b)
+        }
+        XCTAssertEqual(AudioFileEditor.duration(url: a), 4.0, accuracy: 0.05)
+        XCTAssertEqual(AudioFileEditor.duration(url: b), 6.0, accuracy: 0.05)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path),
+                       "Original file must be removed after split")
+    }
+
+    func test_split_throws_whenCutTooCloseToEdge() async throws {
+        let url = try makeSyntheticWAV(seconds: 5.0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            _ = try await AudioFileEditor.split(url: url, at: 0.5)
+            XCTFail("split should refuse cuts < 1s from start")
+        } catch { /* expected */ }
+    }
 }
