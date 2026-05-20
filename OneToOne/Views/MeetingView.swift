@@ -420,6 +420,11 @@ struct MeetingView: View {
                     self.transcriptionProgress = nil
                     self.transcriptionProgressStatus = nil
                     self.meeting.rawTranscript = result.text
+                    PrepCarryoverService.carryoverUncheckedFromMeeting(
+                        self.meeting,
+                        settings: self.settings,
+                        in: self.context
+                    )
                     self.meeting.mergedTranscript = NoteMergeService.merge(
                         transcript: result.text,
                         liveNotes: self.meeting.liveNotes
