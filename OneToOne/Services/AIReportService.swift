@@ -446,7 +446,11 @@ struct AIReportService {
 }
 
 extension AIReportService {
-    /// Génère un brouillon de préparation. Implémentation complète au P7.
+
+    /// Génère un brouillon de préparation en markdown depuis l'historique des
+    /// 3 dernières meetings, les actions ouvertes et alertes. Sortie = markdown
+    /// avec sections `## Points à aborder` / `## Questions à poser` / etc., chaque
+    /// item étant une checkbox `- [ ] ...`.
     @MainActor
     static func generatePrep(
         collab: Collaborator?,
@@ -455,6 +459,125 @@ extension AIReportService {
         in context: ModelContext,
         settings: AppSettings
     ) async throws -> String {
-        return "## Points à aborder\n- [ ] (brouillon vide — implémentation Task P7)\n"
+        var ctxLines: [String] = []
+
+        if let m = meeting {
+            ctxLines.append("Réunion : \(m.title)")
+            if let start = m.scheduledStart {
+                let df = DateFormatter()
+                df.locale = Locale(identifier: "fr_FR")
+                df.dateFormat = "d MMM yyyy HH:mm"
+                ctxLines.append("Date : \(df.string(from: start))")
+            }
+        }
+        if let c = collab {
+            ctxLines.append("Participant : \(c.name)\(c.role.isEmpty ? "" : " (\(c.role))")")
+        }
+        if let p = project {
+            ctxLines.append("Projet : \(p.name) (\(p.code))")
+        }
+
+        // Historique : 3 dernières meetings du collab/projet, résumé court.
+        // Note: #Predicate ne supporte pas .contains(where:) sur les relations
+        // SwiftData — on fetch tout et on filtre en Swift.
+        var historyBlock = ""
+        if let c = collab {
+            let collabID = c.persistentModelID
+            let descriptor = FetchDescriptor<Meeting>(
+                sortBy: [SortDescriptor(\.date, order: .reverse)]
+            )
+            let all = (try? context.fetch(descriptor)) ?? []
+            let past = all
+                .filter { $0.participants.contains(where: { $0.persistentModelID == collabID }) }
+                .prefix(3)
+            historyBlock = past.map { m -> String in
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "fr_FR")
+                f.dateFormat = "d MMM"
+                let when = f.string(from: m.date)
+                let snippet = String(m.summary.prefix(200))
+                return "- \(when) — \(m.title) : \(snippet)"
+            }.joined(separator: "\n")
+        } else if let p = project {
+            let projectID = p.persistentModelID
+            let descriptor = FetchDescriptor<Meeting>(
+                predicate: #Predicate { m in
+                    m.project?.persistentModelID == projectID
+                },
+                sortBy: [SortDescriptor(\.date, order: .reverse)]
+            )
+            let past = ((try? context.fetch(descriptor)) ?? []).prefix(3)
+            historyBlock = past.map { m -> String in
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "fr_FR")
+                f.dateFormat = "d MMM"
+                let when = f.string(from: m.date)
+                let snippet = String(m.summary.prefix(200))
+                return "- \(when) — \(m.title) : \(snippet)"
+            }.joined(separator: "\n")
+        }
+
+        // Actions ouvertes
+        var actionsBlock = ""
+        if let c = collab {
+            let collabID = c.persistentModelID
+            let desc = FetchDescriptor<ActionTask>(
+                predicate: #Predicate { t in
+                    !t.isCompleted && t.collaborator?.persistentModelID == collabID
+                }
+            )
+            let open = ((try? context.fetch(desc)) ?? []).prefix(8)
+            actionsBlock = open.map { "- \($0.title)" }.joined(separator: "\n")
+        } else if let p = project {
+            let projectID = p.persistentModelID
+            let desc = FetchDescriptor<ActionTask>(
+                predicate: #Predicate { t in
+                    !t.isCompleted && t.project?.persistentModelID == projectID
+                }
+            )
+            let open = ((try? context.fetch(desc)) ?? []).prefix(8)
+            actionsBlock = open.map { "- \($0.title)" }.joined(separator: "\n")
+        }
+
+        // Alertes
+        var alertsBlock = ""
+        if let p = project {
+            let projectID = p.persistentModelID
+            let desc = FetchDescriptor<ProjectAlert>(
+                predicate: #Predicate { $0.project?.persistentModelID == projectID }
+            )
+            let alerts = ((try? context.fetch(desc)) ?? [])
+                .filter { $0.severity == "Élevé" || $0.severity == "Critique" }
+                .prefix(5)
+            alertsBlock = alerts.map { "- [\($0.severity)] \($0.title)" }.joined(separator: "\n")
+        }
+
+        let prompt = """
+        Tu prépares la réunion ci-dessous. Produis une PRÉPARATION en markdown
+        organisée en sections (omets celles vides) :
+          ## Points à aborder
+          ## Questions à poser
+          ## Décisions à obtenir
+          ## Infos à partager
+        Chaque item = puce checkbox `- [ ] ...`. Reste concis, factuel.
+
+        Contexte :
+        \(ctxLines.joined(separator: "\n"))
+
+        Historique récent :
+        \(historyBlock.isEmpty ? "(aucun)" : historyBlock)
+
+        Actions ouvertes :
+        \(actionsBlock.isEmpty ? "(aucune)" : actionsBlock)
+
+        Alertes en cours :
+        \(alertsBlock.isEmpty ? "(aucune)" : alertsBlock)
+
+        Ne réécris pas les actions ouvertes verbatim ; sélectionne celles qui
+        méritent une discussion. N'invente rien.
+        """
+
+        let raw = try await AIClient.send(prompt: prompt, settings: settings)
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
