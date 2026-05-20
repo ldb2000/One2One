@@ -824,6 +824,43 @@ struct CollaboratorDetailView: View {
                 }
 
                 GroupBox {
+                    DisclosureGroup(isExpanded: .constant(!collaborator.standingPrepNotes.isEmpty)) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MarkdownEditorView(
+                                text: Binding(
+                                    get: { collaborator.standingPrepNotes },
+                                    set: {
+                                        collaborator.standingPrepNotes = $0
+                                        collaborator.standingPrepUpdatedAt = Date()
+                                        try? context.save()
+                                    }
+                                ),
+                                textViewID: "collabPrep.\(collaborator.persistentModelID.hashValue)"
+                            )
+                            .frame(minHeight: 160)
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { await generatePrepForCollab() }
+                                } label: {
+                                    Label("Générer brouillon IA", systemImage: "wand.and.stars")
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "checklist")
+                            Text("Préparation prochaine 1:1").font(.headline)
+                            Spacer()
+                            if let dt = collaborator.standingPrepUpdatedAt {
+                                Text("maj \(relativeCollabPrepDate(dt))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                GroupBox {
                     let pendingTasks = collaborator.assignedTasks.filter { !$0.isCompleted }
                     let doneTasks = collaborator.assignedTasks.filter { $0.isCompleted }
 
@@ -1021,6 +1058,28 @@ struct CollaboratorDetailView: View {
         } catch {
             print("[LOG CollaboratorDetail] save FAILED: \(error)")
         }
+    }
+
+    @MainActor
+    private func generatePrepForCollab() async {
+        let settings = appSettings.canonicalSettings ?? AppSettings()
+        do {
+            let md = try await AIReportService.generatePrep(
+                collab: collaborator, project: nil, meeting: nil,
+                in: context, settings: settings
+            )
+            collaborator.standingPrepNotes = md
+            collaborator.standingPrepUpdatedAt = Date()
+            try? context.save()
+        } catch {
+            print("[CollabPrep] generation failed: \(error)")
+        }
+    }
+
+    private func relativeCollabPrepDate(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        return f.localizedString(for: d, relativeTo: Date())
     }
 
     @ViewBuilder
