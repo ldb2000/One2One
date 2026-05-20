@@ -3,6 +3,11 @@ import SwiftUI
 import Combine
 import SwiftData
 
+extension Notification.Name {
+    static let openPrepWindow = Notification.Name("OneToOne.openPrepWindow")
+    static let openCalendarMeetingPicker = Notification.Name("OneToOne.openCalendarMeetingPicker")
+}
+
 @MainActor
 final class MenuBarController: NSObject {
 
@@ -177,6 +182,11 @@ final class MenuBarController: NSObject {
 
         // --- Stats footer
         appendStatsFooter(to: menu)
+
+        // --- Préparer submenu
+        let prepItem = NSMenuItem(title: "Préparer…", action: nil, keyEquivalent: "")
+        prepItem.submenu = buildPrepSubmenu()
+        menu.addItem(prepItem)
 
         menu.addItem(.separator())
         let openItem = NSMenuItem(title: "Ouvrir OneToOne",
@@ -538,6 +548,94 @@ final class MenuBarController: NSObject {
                 userInfo: ["meetingID": meeting.ensuredStableID.uuidString]
             )
         }
+    }
+
+    // MARK: - Prep submenu
+
+    private func buildPrepSubmenu() -> NSMenu {
+        let submenu = NSMenu()
+        guard let container = OneToOneApp.sharedContainer else {
+            let empty = NSMenuItem(title: "Indisponible", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            submenu.addItem(empty)
+            return submenu
+        }
+        let ctx = container.mainContext
+
+        // 1:1 — pinned collabs alpha
+        let collabDesc = FetchDescriptor<Collaborator>(
+            predicate: #Predicate { !$0.isArchived && $0.pinLevel > 0 },
+            sortBy: [SortDescriptor(\.name)]
+        )
+        let collabs = Array(((try? ctx.fetch(collabDesc)) ?? []).prefix(10))
+        if !collabs.isEmpty {
+            let header = NSMenuItem(title: "1:1", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            submenu.addItem(header)
+            for c in collabs {
+                let mi = NSMenuItem(title: c.name,
+                                    action: #selector(openCollabPrep(_:)),
+                                    keyEquivalent: "")
+                mi.target = self
+                mi.representedObject = c.ensuredStableID.uuidString
+                submenu.addItem(mi)
+            }
+        }
+
+        // Projets — first 5 non-archived, sorted by name
+        let projDesc = FetchDescriptor<Project>(
+            predicate: #Predicate { !$0.isArchived },
+            sortBy: [SortDescriptor(\.name)]
+        )
+        let projects = Array(((try? ctx.fetch(projDesc)) ?? []).prefix(5))
+        if !projects.isEmpty {
+            submenu.addItem(.separator())
+            let header = NSMenuItem(title: "Projets", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            submenu.addItem(header)
+            for p in projects {
+                let mi = NSMenuItem(title: p.name,
+                                    action: #selector(openProjectPrep(_:)),
+                                    keyEquivalent: "")
+                mi.target = self
+                mi.representedObject = (p.stableID ?? UUID()).uuidString
+                submenu.addItem(mi)
+            }
+        }
+
+        submenu.addItem(.separator())
+        let pickerItem = NSMenuItem(title: "Choisir réunion calendrier…",
+                                    action: #selector(openCalendarMeetingPickerAction),
+                                    keyEquivalent: "")
+        pickerItem.target = self
+        submenu.addItem(pickerItem)
+
+        return submenu
+    }
+
+    @objc private func openCollabPrep(_ sender: NSMenuItem) {
+        guard let idString = sender.representedObject as? String,
+              let id = UUID(uuidString: idString) else { return }
+        let token = PrepWindowToken(collabID: id, projectID: nil)
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openPrepWindow,
+                                        object: nil,
+                                        userInfo: ["token": token])
+    }
+
+    @objc private func openProjectPrep(_ sender: NSMenuItem) {
+        guard let idString = sender.representedObject as? String,
+              let id = UUID(uuidString: idString) else { return }
+        let token = PrepWindowToken(collabID: nil, projectID: id)
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openPrepWindow,
+                                        object: nil,
+                                        userInfo: ["token": token])
+    }
+
+    @objc private func openCalendarMeetingPickerAction() {
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openCalendarMeetingPicker, object: nil)
     }
 
     @objc private func openMainWindow() {

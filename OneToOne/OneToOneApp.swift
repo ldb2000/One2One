@@ -134,6 +134,18 @@ struct ContentView: View {
             ) { _ in
                 registerHotkeys()
             }
+
+            NotificationCenter.default.addObserver(
+                forName: .openPrepWindow,
+                object: nil,
+                queue: .main
+            ) { note in
+                if let token = note.userInfo?["token"] as? PrepWindowToken {
+                    Task { @MainActor in
+                        openWindow(id: "prep-standalone", value: token)
+                    }
+                }
+            }
         }
         .onReceive(router.$pendingToken.compactMap { $0 }) { token in
             openWindow(id: "1to1-meeting", value: token)
