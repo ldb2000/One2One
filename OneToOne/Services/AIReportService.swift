@@ -444,3 +444,17 @@ struct AIReportService {
         return lines.joined(separator: "\n")
     }
 }
+
+extension AIReportService {
+    /// Génère un brouillon de préparation. Implémentation complète au P7.
+    @MainActor
+    static func generatePrep(
+        collab: Collaborator?,
+        project: Project?,
+        meeting: Meeting?,
+        in context: ModelContext,
+        settings: AppSettings
+    ) async throws -> String {
+        return "## Points à aborder\n- [ ] (brouillon vide — implémentation Task P7)\n"
+    }
+}
