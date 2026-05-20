@@ -358,23 +358,47 @@ final class MenuBarController: NSObject {
             )
         }
 
-        let submenu = NSMenu()
-        if event.teamsJoinURL != nil {
-            let join = NSMenuItem(title: "Rejoindre Teams", action: #selector(joinTeams(_:)), keyEquivalent: "")
-            join.target = self
-            join.representedObject = event.id
-            submenu.addItem(join)
-        } else {
-            let none = NSMenuItem(title: "(pas de lien Teams)", action: nil, keyEquivalent: "")
-            none.isEnabled = false
-            submenu.addItem(none)
-        }
-        let open = NSMenuItem(title: "Ouvrir dans OneToOne", action: #selector(openEvent(_:)), keyEquivalent: "")
-        open.target = self
-        open.representedObject = event.id
-        submenu.addItem(open)
-        item.submenu = submenu
+        // Clic direct = ouvrir dans OneToOne (+ Teams si lien dispo).
+        // Pas de submenu — évite un clic supplémentaire.
+        item.action = #selector(activateEvent(_:))
+        item.target = self
+        item.representedObject = event.id
         return item
+    }
+
+    /// Action unifiée pour un événement de l'agenda : lance Teams si l'event
+    /// a un `teamsJoinURL`, puis ouvre/importe la réunion dans OneToOne.
+    @objc private func activateEvent(_ sender: NSMenuItem) {
+        guard let eventID = sender.representedObject as? String,
+              let context = container?.mainContext,
+              let event = CalendarAgendaService.shared.eventsToday.first(where: { $0.id == eventID })
+        else { return }
+
+        // 1. Teams si dispo.
+        if let url = event.teamsJoinURL {
+            TeamsLauncher.open(url)
+        }
+
+        // 2. Import idempotent + activation + post notification.
+        let descriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
+        )
+        let meeting: Meeting
+        if let existing = (try? context.fetch(descriptor))?.first {
+            meeting = existing
+        } else if let settings = currentSettings() {
+            let importer = CalendarMeetingImportService()
+            meeting = importer.importEvent(event, context: context, settings: settings)
+            try? context.save()
+        } else {
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(
+            name: .openMeetingFromAgenda,
+            object: nil,
+            userInfo: ["meetingID": meeting.ensuredStableID.uuidString]
+        )
     }
 
     private func dayHeader(_ date: Date) -> String {
@@ -493,61 +517,6 @@ final class MenuBarController: NSObject {
         let descriptor = FetchDescriptor<Collaborator>()
         let all = (try? container.mainContext.fetch(descriptor)) ?? []
         return all.first { $0.email.lowercased() == needle }
-    }
-
-    @objc private func joinTeams(_ sender: NSMenuItem) {
-        guard let eventID = sender.representedObject as? String,
-              let event = CalendarAgendaService.shared.eventsToday.first(where: { $0.id == eventID }),
-              let url = event.teamsJoinURL,
-              let context = container?.mainContext else { return }
-        TeamsLauncher.open(url)
-
-        // Ensure the meeting is imported in-app (idempotent).
-        let descriptor = FetchDescriptor<Meeting>(
-            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
-        )
-        let meeting: Meeting
-        if let existing = (try? context.fetch(descriptor))?.first {
-            meeting = existing
-        } else if let settings = currentSettings() {
-            let importer = CalendarMeetingImportService()
-            meeting = importer.importEvent(event, context: context, settings: settings)
-            try? context.save()
-        } else {
-            return
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        NotificationCenter.default.post(
-            name: .openMeetingFromAgenda,
-            object: nil,
-            userInfo: ["meetingID": meeting.ensuredStableID.uuidString]
-        )
-    }
-
-    @objc private func openEvent(_ sender: NSMenuItem) {
-        NSApp.activate(ignoringOtherApps: true)
-        guard let eventID = sender.representedObject as? String,
-              let context = container?.mainContext else { return }
-        let descriptor = FetchDescriptor<Meeting>(
-            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
-        )
-        if let existing = (try? context.fetch(descriptor))?.first {
-            NotificationCenter.default.post(
-                name: .openMeetingFromAgenda,
-                object: nil,
-                userInfo: ["meetingID": existing.ensuredStableID.uuidString]
-            )
-        } else if let event = CalendarAgendaService.shared.eventsToday.first(where: { $0.id == eventID }) {
-            guard let settings = currentSettings() else { return }
-            let importer = CalendarMeetingImportService()
-            let meeting = importer.importEvent(event, context: context, settings: settings)
-            try? context.save()
-            NotificationCenter.default.post(
-                name: .openMeetingFromAgenda,
-                object: nil,
-                userInfo: ["meetingID": meeting.ensuredStableID.uuidString]
-            )
-        }
     }
 
     // MARK: - Prep submenu
