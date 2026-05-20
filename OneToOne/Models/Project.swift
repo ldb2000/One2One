@@ -61,6 +61,10 @@ final class Project {
     /// in report templates.
     var planningText: String = ""
 
+    /// Notes de préparation persistantes pour la prochaine réunion projet.
+    var standingPrepNotes: String = ""
+    var standingPrepUpdatedAt: Date?
+
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.project)
     var tasks: [ActionTask] = []
 

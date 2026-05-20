@@ -40,6 +40,12 @@ final class Collaborator {
     /// Marks a collaborator created ad-hoc from a meeting (reusable afterwards).
     var isAdhoc: Bool = false
 
+    /// Notes de préparation persistantes pour la prochaine 1:1 / manager.
+    /// Drainées dans `Meeting.prepNotes` à la création d'une meeting 1:1/manager
+    /// avec ce collab ; repeuplées au carryover des items non cochés post-meeting.
+    var standingPrepNotes: String = ""
+    var standingPrepUpdatedAt: Date?
+
     // MARK: - Voice identification (speech-swift WeSpeaker ResNet34)
     /// 256 Float32 mean embedding (1024 bytes). Nil = jamais enrôlé.
     var voicePrint: Data?
@@ -277,6 +283,15 @@ final class Meeting {
     var keyPointsJSON: String = "[]"
     var decisionsJSON: String = "[]"
     var openQuestionsJSON: String = "[]"
+
+    /// Snapshot in-flight de la préparation pour cette meeting précise.
+    /// Pour les kinds .oneToOne/.manager/.project, alimenté par drain depuis
+    /// le pool standing du collab/projet. Pour .global/.work, édité directement.
+    var prepNotes: String = ""
+    var prepGeneratedAt: Date?
+    /// Flag à double usage (idempotence) : true = drain initial OU carryover
+    /// post-meeting déjà effectué.
+    var prepCarryoverDone: Bool = false
 
     // Audio
     var wavFilePath: String?

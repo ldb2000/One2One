@@ -105,6 +105,10 @@ final class AppSettings {
     /// Seuil de confiance pour l'importation automatique (0.0 à 1.0).
     var autoImportThreshold: Double = 0.9
 
+    /// Active le carryover automatique des items non cochés vers le pool
+    /// standing (collab ou projet) à la fin d'une meeting.
+    var prepAutoCarryover: Bool = true
+
     // MARK: - Contact photo sync
     var contactPhotoSyncEnabled: Bool = false
     var contactPhotoSyncIntervalMinutes: Int = 60
