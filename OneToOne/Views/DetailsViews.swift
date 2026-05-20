@@ -27,6 +27,7 @@ struct ProjectDetailView: View {
     @Query private var entities: [Entity]
     @Query private var collaborators: [Collaborator]
     @Query private var allMeetings: [Meeting]
+    @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingProjectAttachmentImporter = false
@@ -594,6 +595,43 @@ struct ProjectDetailView: View {
                     }
                 }
 
+                GroupBox {
+                    DisclosureGroup(isExpanded: .constant(!project.standingPrepNotes.isEmpty)) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MarkdownEditorView(
+                                text: Binding(
+                                    get: { project.standingPrepNotes },
+                                    set: {
+                                        project.standingPrepNotes = $0
+                                        project.standingPrepUpdatedAt = Date()
+                                        try? context.save()
+                                    }
+                                ),
+                                textViewID: "projectPrep.\(project.persistentModelID.hashValue)"
+                            )
+                            .frame(minHeight: 160)
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { await generatePrepForProject() }
+                                } label: {
+                                    Label("Générer brouillon IA", systemImage: "wand.and.stars")
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "checklist")
+                            Text("Préparation prochaine réunion").font(.headline)
+                            Spacer()
+                            if let dt = project.standingPrepUpdatedAt {
+                                Text("maj \(relativeProjPrepDate(dt))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 NotesSection(target: .project(project))
             }
             .padding()
@@ -718,6 +756,28 @@ struct ProjectDetailView: View {
         entry.collaborator = collaborator
         context.insert(entry)
         saveContext()
+    }
+
+    @MainActor
+    private func generatePrepForProject() async {
+        let settings = settingsList.canonicalSettings ?? AppSettings()
+        do {
+            let md = try await AIReportService.generatePrep(
+                collab: nil, project: project, meeting: nil,
+                in: context, settings: settings
+            )
+            project.standingPrepNotes = md
+            project.standingPrepUpdatedAt = Date()
+            try? context.save()
+        } catch {
+            print("[ProjectPrep] generation failed: \(error)")
+        }
+    }
+
+    private func relativeProjPrepDate(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        return f.localizedString(for: d, relativeTo: Date())
     }
 }
 
