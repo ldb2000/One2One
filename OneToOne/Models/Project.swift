@@ -61,6 +61,10 @@ final class Project {
     /// in report templates.
     var planningText: String = ""
 
+    /// Identifiant stable pour les tokens inter-fenêtres (WindowGroup).
+    /// `nil` sur les lignes antérieures — backfillé au lancement de l'app.
+    var stableID: UUID? = nil
+
     /// Notes de préparation persistantes pour la prochaine réunion projet.
     var standingPrepNotes: String = ""
     var standingPrepUpdatedAt: Date?

@@ -77,6 +77,14 @@ struct OneToOneApp: App {
                 .environmentObject(router)
         }
         .modelContainer(container)
+
+        WindowGroup(id: "prep-standalone", for: PrepWindowToken.self) { $token in
+            if let t = token {
+                PrepWindowView(token: t)
+                    .preferredColorScheme(.light)
+            }
+        }
+        .modelContainer(container)
     }
 }
 
@@ -220,6 +228,20 @@ struct ContentView: View {
             if changed {
                 try context.save()
                 print("Reparation SwiftData: codes projet dupliques corriges.")
+            }
+
+            // Backfill Project.stableID — new Optional field, nil on existing rows.
+            let allProjectsForBackfill = try context.fetch(FetchDescriptor<Project>())
+            var seenProjectIDs = Set<UUID>()
+            var projectBackfilled = 0
+            for proj in allProjectsForBackfill {
+                if let id = proj.stableID, seenProjectIDs.insert(id).inserted { continue }
+                proj.stableID = UUID()
+                projectBackfilled += 1
+            }
+            if projectBackfilled > 0 {
+                try context.save()
+                print("Reparation SwiftData: \(projectBackfilled) Project.stableID backfilles.")
             }
 
             // Backfill Collaborator.stableID — handles both nil rows and
