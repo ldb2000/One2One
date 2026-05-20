@@ -141,6 +141,7 @@ struct MeetingView: View {
     @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
     enum MeetingSection: String, CaseIterable, Identifiable {
+        case preparation = "Préparation"
         case liveNotes = "Notes live"
         case transcript = "Transcription"
         case report = "Rapport"
@@ -468,6 +469,11 @@ struct MeetingView: View {
     @ViewBuilder
     private var sectionContent: some View {
         switch activeSection {
+        case .preparation:
+            MeetingPrepTab(meeting: meeting)
+                .onAppear {
+                    PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
+                }
         case .liveNotes:
             MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
         case .transcript:
