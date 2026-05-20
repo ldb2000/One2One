@@ -204,6 +204,13 @@ struct MeetingView: View {
                 onSaveNow: saveMeetingNow
             )
 
+            HStack {
+                prepBadgeView
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+
             MeetingContextualRecorderBar(
                 recorder: recorder,
                 stt: stt,
@@ -763,6 +770,48 @@ struct MeetingView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    // MARK: - Prep badge
+
+    private enum PrepBadge { case none, toPrepare, prepared }
+
+    private var prepBadgeState: PrepBadge {
+        let standingNonEmpty: Bool = {
+            switch meeting.kind {
+            case .oneToOne, .manager:
+                return !(meeting.participants.first?.standingPrepNotes.isEmpty ?? true)
+            case .project:
+                return !(meeting.project?.standingPrepNotes.isEmpty ?? true)
+            case .global, .work:
+                return false
+            }
+        }()
+        let isFuture = (meeting.scheduledStart ?? meeting.date) > Date()
+        let hasContent = !meeting.prepNotes.isEmpty || standingNonEmpty
+        if isFuture && !hasContent { return .toPrepare }
+        if hasContent { return .prepared }
+        return .none
+    }
+
+    @ViewBuilder
+    private var prepBadgeView: some View {
+        switch prepBadgeState {
+        case .toPrepare:
+            Label("À préparer", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Color.orange))
+        case .prepared:
+            Label("Préparée", systemImage: "checkmark.seal.fill")
+                .font(.caption.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Color.green))
+        case .none:
+            EmptyView()
+        }
     }
 
     /// Boutons disabled si pas de WAV, enregistrement en cours sur cette
