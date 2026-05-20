@@ -94,7 +94,8 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var router: QuickLaunchRouter
     @State private var didRunDataRepair = false
-    
+    @State private var showMeetingPicker: Bool = false
+
     var body: some View {
         NavigationSplitView {
             MainSidebarView()
@@ -151,6 +152,17 @@ struct ContentView: View {
             openWindow(id: "1to1-meeting", value: token)
             // Drain so the same token doesn't fire twice on view remount.
             _ = router.consumePendingToken()
+        }
+        .sheet(isPresented: $showMeetingPicker) {
+            CalendarMeetingPicker { meeting in
+                router.pendingToken = OneToOneLaunchToken(
+                    meetingID: meeting.ensuredStableID,
+                    autoStartRecording: false
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openCalendarMeetingPicker)) { _ in
+            showMeetingPicker = true
         }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             QuickLaunchURLHandler.handle(activity: activity,
