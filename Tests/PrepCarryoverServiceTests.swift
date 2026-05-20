@@ -71,6 +71,54 @@ final class PrepCarryoverServiceTests: XCTestCase {
         XCTAssertTrue(meeting.prepCarryoverDone)
     }
 
+
+    @MainActor
+    func test_carryover_oneToOne_pushesUncheckedToCollabPool() throws {
+        let (ctx, collab, meeting) = try makeOneToOneFixture()
+        meeting.prepNotes = """
+        - [ ] Not done
+        - [x] Done
+        - [ ] Also not done
+        """
+        meeting.prepCarryoverDone = false
+        let settings = AppSettings()
+        ctx.insert(settings)
+
+        PrepCarryoverService.carryoverUncheckedFromMeeting(meeting, settings: settings, in: ctx)
+
+        XCTAssertTrue(collab.standingPrepNotes.contains("- [ ] Not done"))
+        XCTAssertTrue(collab.standingPrepNotes.contains("- [ ] Also not done"))
+        XCTAssertFalse(collab.standingPrepNotes.contains("- [x] Done"))
+        XCTAssertTrue(collab.standingPrepNotes.contains("<!-- reporté"))
+        XCTAssertTrue(meeting.prepCarryoverDone)
+    }
+
+    @MainActor
+    func test_carryover_skipsWhenSettingDisabled() throws {
+        let (ctx, collab, meeting) = try makeOneToOneFixture()
+        meeting.prepNotes = "- [ ] Should stay"
+        let settings = AppSettings()
+        settings.prepAutoCarryover = false
+        ctx.insert(settings)
+
+        PrepCarryoverService.carryoverUncheckedFromMeeting(meeting, settings: settings, in: ctx)
+
+        XCTAssertEqual(collab.standingPrepNotes, "")
+        XCTAssertFalse(meeting.prepCarryoverDone)
+    }
+
+    @MainActor
+    func test_carryover_globalKind_skipsAndMarksDone() throws {
+        let (ctx, meeting) = try makeGlobalFixture()
+        meeting.prepNotes = "- [ ] Lost item"
+        let settings = AppSettings()
+        ctx.insert(settings)
+
+        PrepCarryoverService.carryoverUncheckedFromMeeting(meeting, settings: settings, in: ctx)
+
+        XCTAssertTrue(meeting.prepCarryoverDone)
+    }
+
     // MARK: - Fixtures
 
     @MainActor

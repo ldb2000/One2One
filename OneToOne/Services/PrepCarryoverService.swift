@@ -71,3 +71,57 @@ extension PrepCarryoverService {
         return standing + "\n\n" + existing
     }
 }
+
+extension PrepCarryoverService {
+
+    /// At meeting end (transcription finished or manual close): extract unchecked
+    /// `[ ]` items from `meeting.prepNotes` and prepend them to the relevant
+    /// standing pool (`collab` for .oneToOne/.manager, `project` for .project).
+    /// Idempotent via `meeting.prepCarryoverDone`.
+    @MainActor
+    static func carryoverUncheckedFromMeeting(
+        _ meeting: Meeting,
+        settings: AppSettings,
+        in context: ModelContext
+    ) {
+        guard settings.prepAutoCarryover else { return }
+        guard !meeting.prepCarryoverDone else { return }
+
+        let unchecked = extractUncheckedItems(from: meeting.prepNotes)
+        guard !unchecked.isEmpty else {
+            meeting.prepCarryoverDone = true
+            try? context.save()
+            return
+        }
+
+        let block = "<!-- reporté de la réunion \(formatCarryDate(meeting.date)) -->\n"
+            + unchecked.joined(separator: "\n")
+            + "\n\n"
+
+        switch meeting.kind {
+        case .oneToOne, .manager:
+            if let collab = meeting.participants.first {
+                collab.standingPrepNotes = block + collab.standingPrepNotes
+                collab.standingPrepUpdatedAt = Date()
+            }
+        case .project:
+            if let project = meeting.project {
+                project.standingPrepNotes = block + project.standingPrepNotes
+                project.standingPrepUpdatedAt = Date()
+            }
+        case .global, .work:
+            break  // pool absent — items perdus (cf. spec, intentionnel)
+        }
+
+        meeting.prepCarryoverDone = true
+        try? context.save()
+        prepLog.info("carryover done count=\(unchecked.count) kind=\(meeting.kind.rawValue, privacy: .public)")
+    }
+
+    private static func formatCarryDate(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "d MMM yyyy"
+        return f.string(from: d)
+    }
+}
