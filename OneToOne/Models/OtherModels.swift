@@ -289,8 +289,11 @@ final class Meeting {
     /// le pool standing du collab/projet. Pour .global/.work, édité directement.
     var prepNotes: String = ""
     var prepGeneratedAt: Date?
-    /// Flag à double usage (idempotence) : true = drain initial OU carryover
-    /// post-meeting déjà effectué.
+    /// Flag idempotence du drain (pool standing → meeting) à la création/
+    /// première ouverture du tab Préparation.
+    var prepDrainDone: Bool = false
+    /// Flag idempotence du carryover (meeting → pool standing) en fin de
+    /// transcription.
     var prepCarryoverDone: Bool = false
 
     // Audio

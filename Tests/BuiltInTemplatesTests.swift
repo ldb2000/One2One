@@ -14,13 +14,13 @@ final class BuiltInTemplatesTests: XCTestCase {
         container = try ModelContainer(for: schema, configurations: cfg)
     }
 
-    func test_seedIfNeeded_inserts8_onFirstCall() throws {
+    func test_seedIfNeeded_insertsAllSeeds_onFirstCall() throws {
         BuiltInTemplates.seedIfNeeded(in: context)
         try context.save()
         let count = try context.fetchCount(FetchDescriptor<ReportTemplate>(
             predicate: #Predicate { $0.isBuiltIn == true }
         ))
-        XCTAssertEqual(count, 8)
+        XCTAssertEqual(count, BuiltInTemplates.all.count)
     }
 
     func test_seedIfNeeded_isIdempotent() throws {
@@ -31,7 +31,7 @@ final class BuiltInTemplatesTests: XCTestCase {
         let count = try context.fetchCount(FetchDescriptor<ReportTemplate>(
             predicate: #Predicate { $0.isBuiltIn == true }
         ))
-        XCTAssertEqual(count, 8)
+        XCTAssertEqual(count, BuiltInTemplates.all.count)
     }
 
     func test_seedIfNeeded_doesNotOverwriteEditedBuiltIn() throws {
@@ -51,12 +51,14 @@ final class BuiltInTemplatesTests: XCTestCase {
         XCTAssertEqual(again?.promptBody, "EDITED")
     }
 
-    func test_dict_contains_all8Names() {
+    func test_dict_contains_all_seed_names() {
         let names = Set(BuiltInTemplates.dict.keys)
         XCTAssertEqual(names, [
             "Global", "1:1 Collaborateur", "1:1 Manager",
             "COPIL", "COSUI", "CODIR",
-            "Préparation", "Restitution / Démo"
+            "Préparation", "Restitution / Démo",
+            "Séance de travail / Workshop"
         ])
+        XCTAssertEqual(names.count, BuiltInTemplates.all.count)
     }
 }

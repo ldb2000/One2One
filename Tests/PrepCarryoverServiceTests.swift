@@ -38,7 +38,9 @@ final class PrepCarryoverServiceTests: XCTestCase {
 
         XCTAssertEqual(meeting.prepNotes, "- [ ] Ask DAT status\n- [ ] Review roadmap")
         XCTAssertEqual(collab.standingPrepNotes, "")
-        XCTAssertTrue(meeting.prepCarryoverDone)
+        XCTAssertTrue(meeting.prepDrainDone)
+        XCTAssertFalse(meeting.prepCarryoverDone,
+                       "Drain must NOT set carryover flag — would block end-of-meeting carryover")
     }
 
     @MainActor
@@ -68,7 +70,27 @@ final class PrepCarryoverServiceTests: XCTestCase {
         let (ctx, meeting) = try makeGlobalFixture()
         PrepCarryoverService.drainStandingIntoMeeting(meeting, in: ctx)
         XCTAssertEqual(meeting.prepNotes, "")
-        XCTAssertTrue(meeting.prepCarryoverDone)
+        XCTAssertTrue(meeting.prepDrainDone)
+    }
+
+    @MainActor
+    func test_drain_doesNotBlockSubsequentCarryover() throws {
+        // Régression : avant le split prepDrainDone/prepCarryoverDone, le
+        // drain marquait `prepCarryoverDone = true`, ce qui faisait sauter
+        // le carryover de fin de meeting (items non cochés perdus).
+        let (ctx, collab, meeting) = try makeOneToOneFixture()
+        collab.standingPrepNotes = "- [ ] from pool"
+
+        PrepCarryoverService.drainStandingIntoMeeting(meeting, in: ctx)
+        // L'utilisateur coche un item, en ajoute un nouveau non coché
+        meeting.prepNotes = "- [x] from pool\n- [ ] new question"
+        let settings = AppSettings()
+        ctx.insert(settings)
+
+        PrepCarryoverService.carryoverUncheckedFromMeeting(meeting, settings: settings, in: ctx)
+
+        XCTAssertTrue(collab.standingPrepNotes.contains("- [ ] new question"),
+                      "Carryover doit s'exécuter même après un drain antérieur")
     }
 
 

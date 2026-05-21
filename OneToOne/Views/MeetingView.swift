@@ -431,6 +431,8 @@ struct MeetingView: View {
                     self.transcriptionPhase = .idle
                     self.transcriptionProgress = nil
                     self.transcriptionProgressStatus = nil
+                    // Cache embeddings pour EMA voiceprint update au 1er labeling.
+                    self.lastDiarizationEmbeddings = result.clusterEmbeddings
                     self.meeting.rawTranscript = result.text
                     PrepCarryoverService.carryoverUncheckedFromMeeting(
                         self.meeting,
@@ -1183,8 +1185,9 @@ struct MeetingView: View {
         transcribeError = nil
         do {
             print("[MeetingView] → transcribe start (with diarization + speaker matching)…")
-            // Drop any prior segments (re-record case).
-            for old in meeting.transcriptSegments { context.delete(old) }
+            // Purge des segments existants déléguée à TranscriptionService
+            // (atomique avec l'insertion des nouveaux — préserve les anciens
+            // si STT échoue ou est annulé).
             transcriptionPhase = .transcribing
             transcriptionProgress = nil
             transcriptionProgressStatus = nil
@@ -1209,7 +1212,15 @@ struct MeetingView: View {
             transcriptionProgress = nil
             transcriptionProgressStatus = nil
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
+            // Cache les embeddings pour permettre l'EMA voiceprint update au
+            // premier labeling manuel (sinon il faut attendre re-diarisation).
+            lastDiarizationEmbeddings = result.clusterEmbeddings
             meeting.rawTranscript = result.text
+            PrepCarryoverService.carryoverUncheckedFromMeeting(
+                meeting,
+                settings: settings,
+                in: context
+            )
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
@@ -1667,11 +1678,15 @@ struct MeetingView: View {
             try Task.checkCancellation()
 
             let generationStart = Date()
+            // RAG sémantique : récupère extraits pertinents des réunions
+            // antérieures, ajouté en arrière-plan du prompt.
+            let ragContext = await self.fetchHistoricalContext()
             do {
                 let report = try await AIReportService.generate(
                     meeting: meeting,
                     in: context,
                     settings: settings,
+                    additionalContext: ragContext,
                     onProgress: { partial in
                         // Note : signature non-throwing — la cancellation est
                         // vérifiée juste après l'appel `generate(...)`. Côté
@@ -2168,7 +2183,7 @@ struct MeetingView: View {
                 speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
             }
         } else if let m = meta,
-                  m.confidence >= SpeakerMatcher.suggestThreshold,
+                  m.confidence >= settings.speakerIdSuggestThreshold,
                   let suggested = firstCandidate(stableIDs: m.candidateStableIDs) {
             // Suggestion path
             HStack(spacing: 4) {
@@ -2425,7 +2440,8 @@ struct MeetingView: View {
                 let assignments = SpeakerMatcher.match(
                     clusterEmbeddings: out.perClusterEmbedding,
                     meeting: meeting,
-                    in: context
+                    in: context,
+                    settings: settings
                 )
                 var assignmentsDict: [String: Any] = [:]
                 var metaDict: [String: [String: Any]] = [:]

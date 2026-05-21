@@ -86,11 +86,15 @@ struct AIReportService {
     /// Template-driven report generation. Resolves `meeting.reportTemplate`
     /// (or default by kind), injects history + variables, then calls
     /// `AIClient`. Returns parsed `MeetingReportData`.
+    /// - Parameter additionalContext: bloc texte additionnel (ex. RAG sémantique
+    ///   issu de `MeetingView.fetchHistoricalContext()`) injecté avant
+    ///   l'historique structuré. Vide = pas d'injection.
     @MainActor
     static func generate(
         meeting: Meeting,
         in context: ModelContext,
         settings: AppSettings,
+        additionalContext: String = "",
         onProgress: AIClient.ProgressCallback? = nil
     ) async throws -> MeetingReportData {
         let template = meeting.reportTemplate ?? defaultTemplate(for: meeting.kind, in: context)
@@ -113,6 +117,9 @@ struct AIReportService {
         if !history.isEmpty, !hasHistoryPlaceholder {
             historyAppendix = "\n\nContexte historique (extraits de réunions précédentes) :\n\(history)\n"
         }
+        if !additionalContext.isEmpty {
+            historyAppendix += "\n\nContexte sémantique (RAG, extraits pertinents) :\n\(additionalContext)\n"
+        }
 
         // 3. Append the sections schema so the LLM structures its output
         var sectionsBlock = ""
@@ -129,8 +136,23 @@ struct AIReportService {
         \(resolved)\(historyAppendix)
         \(sectionsBlock)
 
-        Produis un compte-rendu en markdown structuré autour des sections demandées,
-        en français, concis et factuel.
+        Réponds EXCLUSIVEMENT en JSON strict avec ce schéma :
+        {
+          "summary": "<le compte-rendu complet en markdown, structuré autour des sections demandées ci-dessus, en français, concis et factuel>",
+          "keyPoints": ["point clé 1", "point clé 2"],
+          "decisions": ["décision 1", "décision 2"],
+          "openQuestions": ["question ouverte 1"],
+          "actions": [
+            { "title": "Action exacte", "assignee": "Nom complet ou null", "deadline": "YYYY-MM-DD ou null" }
+          ],
+          "alerts": [
+            { "title": "Titre alerte", "detail": "Description", "severity": "Critique|Élevé|Modéré|Faible" }
+          ]
+        }
+
+        Le champ `summary` est obligatoire et contient le rapport en markdown
+        (sections, listes, gras). Les autres tableaux peuvent être vides `[]`
+        si rien ne s'applique.
         """
 
         reportLog.info("generate(meeting): template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count)")

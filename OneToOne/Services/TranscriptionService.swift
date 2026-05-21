@@ -28,6 +28,10 @@ struct STTResult {
     /// Segments timestampés (1 par chunk de 60s par défaut). Vide pour
     /// les chemins legacy qui n'auraient pas conservé les segments.
     let segments: [STTSegment]
+    /// Embeddings 256-dim par cluster issus de la diarisation (vide si pas
+    /// de diarisation ou si SpeechVAD indisponible). Utilisé par MeetingView
+    /// pour déclencher l'EMA voiceprint update lors d'un labeling manuel.
+    var clusterEmbeddings: [Int: [Float]] = [:]
 }
 
 // MARK: - Errors
@@ -349,7 +353,8 @@ final class TranscriptionService: ObservableObject {
         let assignments = SpeakerMatcher.match(
             clusterEmbeddings: diarOutput.perClusterEmbedding,
             meeting: meeting,
-            in: context
+            in: context,
+            settings: settings
         )
 
         // 5. Persist segments + metadata.
@@ -360,7 +365,11 @@ final class TranscriptionService: ObservableObject {
             in: context
         )
 
-        return sttResult
+        // 6. Renvoie les embeddings au caller pour permettre l'EMA voiceprint
+        // update au premier labeling manuel.
+        var resultWithEmbeddings = sttResult
+        resultWithEmbeddings.clusterEmbeddings = diarOutput.perClusterEmbedding
+        return resultWithEmbeddings
     }
 
     private func persistAnonymousSegments(sttResult: STTResult,

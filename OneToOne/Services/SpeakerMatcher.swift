@@ -5,9 +5,16 @@ import SwiftData
 /// voiceprints. See spec §5.4 and §5.5.
 enum SpeakerMatcher {
 
-    static let autoThreshold: Double = 0.75
-    static let suggestThreshold: Double = 0.60
+    /// Valeurs par défaut, utilisées si l'appelant n'injecte pas
+    /// `AppSettings`. Le calage utilisateur (Réglages → Identification vocale)
+    /// est appliqué via la surcharge `match(..., settings:)`.
+    static let defaultAutoThreshold: Double = 0.75
+    static let defaultSuggestThreshold: Double = 0.60
     static let ambiguousDelta: Double = 0.02
+
+    // Conservés pour compat — alias des défauts.
+    static var autoThreshold: Double { defaultAutoThreshold }
+    static var suggestThreshold: Double { defaultSuggestThreshold }
 
     struct Assignment {
         let collaborator: Collaborator?
@@ -18,10 +25,13 @@ enum SpeakerMatcher {
     }
 
     /// Returns one Assignment per clusterID. Missing clusterID = no candidate.
+    /// Si `settings` est fourni, utilise `speakerIdAutoThreshold` et
+    /// `speakerIdSuggestThreshold` ; sinon, défauts statiques.
     @MainActor
     static func match(clusterEmbeddings: [Int: [Float]],
                        meeting: Meeting,
-                       in context: ModelContext) -> [Int: Assignment] {
+                       in context: ModelContext,
+                       settings: AppSettings? = nil) -> [Int: Assignment] {
         let participants = Set(meeting.participants
             .filter { !$0.isArchived }
             .map { $0.persistentModelID })
@@ -32,19 +42,26 @@ enum SpeakerMatcher {
         let all = (try? context.fetch(descriptor)) ?? []
         let enrolled = all.filter { $0.voicePrint != nil && $0.voicePrintSamples > 0 }
 
+        let autoT = settings?.speakerIdAutoThreshold ?? defaultAutoThreshold
+        let suggestT = settings?.speakerIdSuggestThreshold ?? defaultSuggestThreshold
+
         var out: [Int: Assignment] = [:]
         for (clusterID, embedding) in clusterEmbeddings {
             out[clusterID] = matchOne(embedding: embedding,
                                       enrolled: enrolled,
-                                      participants: participants)
+                                      participants: participants,
+                                      autoThreshold: autoT,
+                                      suggestThreshold: suggestT)
         }
         return out
     }
 
     private static func matchOne(embedding: [Float],
                                   enrolled: [Collaborator],
-                                  participants: Set<PersistentIdentifier>) -> Assignment {
-        // Pass 1: participants, threshold suggest (0.60).
+                                  participants: Set<PersistentIdentifier>,
+                                  autoThreshold: Double,
+                                  suggestThreshold: Double) -> Assignment {
+        // Pass 1: participants, threshold suggest.
         var pool1: [(Collaborator, Double)] = []
         for c in enrolled where participants.contains(c.persistentModelID) {
             guard let vp = c.voicePrint else { continue }
@@ -56,10 +73,10 @@ enum SpeakerMatcher {
         pool1.sort { $0.1 > $1.1 }
 
         if !pool1.isEmpty {
-            return assemble(candidates: pool1)
+            return assemble(candidates: pool1, autoThreshold: autoThreshold)
         }
 
-        // Pass 2: non-participants, threshold auto (0.75 strict).
+        // Pass 2: non-participants, threshold auto (strict).
         var pool2: [(Collaborator, Double)] = []
         for c in enrolled where !participants.contains(c.persistentModelID) {
             guard let vp = c.voicePrint else { continue }
@@ -71,13 +88,14 @@ enum SpeakerMatcher {
         pool2.sort { $0.1 > $1.1 }
 
         if !pool2.isEmpty {
-            return assemble(candidates: pool2)
+            return assemble(candidates: pool2, autoThreshold: autoThreshold)
         }
 
         return Assignment(collaborator: nil, confidence: 0, auto: false, candidates: [], ambiguous: false)
     }
 
-    private static func assemble(candidates: [(Collaborator, Double)]) -> Assignment {
+    private static func assemble(candidates: [(Collaborator, Double)],
+                                  autoThreshold: Double) -> Assignment {
         let top = candidates[0]
         let ambiguous: Bool
         if candidates.count >= 2 {

@@ -12,7 +12,9 @@ private let prepLog = Logger(subsystem: "com.onetoone.app", category: "prep-carr
 /// - `carryoverUncheckedFromMeeting(_:settings:in:)` — at transcription end:
 ///   pushes unchecked `[ ]` items from `meeting.prepNotes` back to the pool.
 ///
-/// Both operations are idempotent via `meeting.prepCarryoverDone`.
+/// Idempotence: drain via `meeting.prepDrainDone`, carryover via
+/// `meeting.prepCarryoverDone` — flags séparés pour que le drain d'ouverture
+/// ne bloque pas le carryover de fin.
 enum PrepCarryoverService {
 
     /// Extracts lines matching `- [ ] ...` (with optional leading whitespace).
@@ -32,11 +34,11 @@ extension PrepCarryoverService {
 
     /// Drains the standing pool of the relevant collab/project into the
     /// meeting's `prepNotes` and clears the pool. Idempotent via
-    /// `meeting.prepCarryoverDone`.
+    /// `meeting.prepDrainDone`.
     /// - For `.global` / `.work`: no pool exists; sets the flag and returns.
     @MainActor
     static func drainStandingIntoMeeting(_ meeting: Meeting, in context: ModelContext) {
-        guard !meeting.prepCarryoverDone else { return }
+        guard !meeting.prepDrainDone else { return }
 
         switch meeting.kind {
         case .oneToOne, .manager:
@@ -61,7 +63,7 @@ extension PrepCarryoverService {
             break
         }
 
-        meeting.prepCarryoverDone = true
+        meeting.prepDrainDone = true
         try? context.save()
         prepLog.info("drain done kind=\(meeting.kind.rawValue, privacy: .public) bytes=\(meeting.prepNotes.count)")
     }
