@@ -19,6 +19,12 @@ struct MainSidebarView: View {
     @AppStorage("sidebar.archivesExpanded") private var archivesExpanded: Bool = false
     @AppStorage("sidebar.archivedProjectsExpanded") private var archivedProjectsExpanded: Bool = false
 
+    /// Mode de filtrage de la section "Collaborateurs" :
+    /// - `pinned`     : pinLevel == 2 uniquement
+    /// - `favourites` : pinLevel == 1 uniquement
+    /// - `both`       : pinLevel >= 1 (favoris + épinglés)
+    @AppStorage("sidebar.collabsFilter") private var collabsFilter: String = "both"
+
     // MARK: - Filtered data
 
     private var filteredEntities: [Entity] {
@@ -26,18 +32,37 @@ struct MainSidebarView: View {
         return entities.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
-    /// Sidebar : seuls les collaborateurs ÉPINGLÉS (pinLevel > 0) apparaissent.
-    /// Les autres restent accessibles via "Tous les Collaborateurs".
+    /// Sidebar : filtre `pinned` / `favourites` / `both` selon `collabsFilter`.
     /// La recherche reste un raccourci global : si l'utilisateur tape un nom,
-    /// on relâche le filtre épinglé pour permettre la découverte.
+    /// on relâche le filtre pour permettre la découverte.
     private var filteredActiveCollaborators: [Collaborator] {
         let active = collaborators
             .filter { !$0.isArchived }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        if searchText.isEmpty {
-            return active.filter { $0.pinLevel > 0 }
+        if !searchText.isEmpty {
+            return active.filter { collabMatches($0, searchText) }
         }
-        return active.filter { collabMatches($0, searchText) }
+        switch collabsFilter {
+        case "pinned":     return active.filter { $0.pinLevel == 2 }
+        case "favourites": return active.filter { $0.pinLevel == 1 }
+        default:           return active.filter { $0.pinLevel >= 1 }  // both
+        }
+    }
+
+    private var collabsFilterLabel: String {
+        switch collabsFilter {
+        case "pinned":     return "Collaborateurs épinglés"
+        case "favourites": return "Collaborateurs favoris"
+        default:           return "Collaborateurs (épinglés + favoris)"
+        }
+    }
+
+    private var collabsFilterIcon: String {
+        switch collabsFilter {
+        case "pinned":     return "pin.fill"
+        case "favourites": return "star.fill"
+        default:           return "person.2.fill"
+        }
     }
 
     private var filteredArchivedCollaborators: [Collaborator] {
@@ -201,8 +226,29 @@ struct MainSidebarView: View {
                     }
                     .buttonStyle(.plain)
                     } label: {
-                        Label("Collaborateurs Épinglés", systemImage: "pin.fill")
-                            .font(.subheadline.weight(.semibold))
+                        HStack(spacing: 6) {
+                            Label(collabsFilterLabel, systemImage: collabsFilterIcon)
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Menu {
+                                Picker("Filtre", selection: $collabsFilter) {
+                                    Label("Épinglés + favoris", systemImage: "person.2.fill")
+                                        .tag("both")
+                                    Label("Épinglés uniquement", systemImage: "pin.fill")
+                                        .tag("pinned")
+                                    Label("Favoris uniquement", systemImage: "star.fill")
+                                        .tag("favourites")
+                                }
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Choisir le filtre de la liste")
+                        }
                     }
                 }
 
