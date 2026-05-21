@@ -90,4 +90,20 @@ final class AudioFileEditorTests: XCTestCase {
             XCTFail("split should refuse cuts < 1s from start")
         } catch { /* expected */ }
     }
+
+    func test_trim_dropsTrailingSeconds() async throws {
+        let url = try makeSyntheticWAV(seconds: 6.0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try await AudioFileEditor.trim(url: url, from: nil, to: 2.5)
+        let d = AudioFileEditor.duration(url: url)
+        XCTAssertEqual(d, 2.5, accuracy: 0.05)
+    }
+
+    func test_trim_acceptsBothBounds() async throws {
+        let url = try makeSyntheticWAV(seconds: 10.0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try await AudioFileEditor.trim(url: url, from: 2.0, to: 7.0)
+        let d = AudioFileEditor.duration(url: url)
+        XCTAssertEqual(d, 5.0, accuracy: 0.05)
+    }
 }

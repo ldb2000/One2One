@@ -19,14 +19,16 @@ struct AudioFileEditor {
 
 extension AudioFileEditor {
 
-    /// Rewrite `url` keeping only samples from `fromSec` onward. Atomic:
-    /// writes a `.tmp.wav` sibling then replaces the original.
-    /// Throws if `fromSec` >= total duration.
-    static func trim(url: URL, from fromSec: Double) async throws {
+    /// Rewrite `url` keeping samples in [`fromSec`, `toSec`). Either bound
+    /// can be nil → unbounded. Atomic via `.tmp.wav` + `replaceItemAt`.
+    /// Throws if the resulting range is empty or invalid.
+    static func trim(url: URL, from fromSec: Double? = nil, to toSec: Double? = nil) async throws {
         let total = duration(url: url)
-        guard fromSec > 0, fromSec < total else {
+        let lo = max(0, fromSec ?? 0)
+        let hi = min(total, toSec ?? total)
+        guard hi - lo >= 0.5 else {
             throw NSError(domain: "AudioFileEditor", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Position invalide"])
+                          userInfo: [NSLocalizedDescriptionKey: "Plage à conserver trop courte"])
         }
         let tmp = url.deletingLastPathComponent()
             .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".tmp.wav")
@@ -36,22 +38,26 @@ extension AudioFileEditor {
             let src = try AVAudioFile(forReading: url)
             let format = src.processingFormat
             let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
-            let startFrame = AVAudioFramePosition(fromSec * format.sampleRate)
+            let startFrame = AVAudioFramePosition(lo * format.sampleRate)
+            let endFrame = AVAudioFramePosition(hi * format.sampleRate)
             src.framePosition = startFrame
             let chunk: AVAudioFrameCount = 8192
             let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
-            while src.framePosition < src.length {
+            while src.framePosition < endFrame {
                 try Task.checkCancellation()
-                try src.read(into: buf)
+                let remaining = AVAudioFrameCount(endFrame - src.framePosition)
+                let toRead = min(chunk, remaining)
+                buf.frameLength = 0
+                try src.read(into: buf, frameCount: toRead)
                 if buf.frameLength == 0 { break }
                 try dst.write(from: buf)
             }
         }.value
 
-        // Atomic replace.
         _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
-        editorLog.info("trim done from=\(fromSec)s")
+        editorLog.info("trim done from=\(lo)s to=\(hi)s total=\(total)s")
     }
+
 }
 
 extension AudioFileEditor {

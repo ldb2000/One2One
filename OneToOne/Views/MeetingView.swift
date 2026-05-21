@@ -760,18 +760,12 @@ struct MeetingView: View {
     private var audioEditingToolbar: some View {
         HStack(spacing: 8) {
             Button {
-                audioEditMode = .trim
+                audioEditMode = .trimStart
             } label: {
-                Label("Couper début", systemImage: "scissors")
+                Label("Éditer l'audio", systemImage: "waveform.path")
             }
             .disabled(!canEditAudio)
-
-            Button {
-                audioEditMode = .split
-            } label: {
-                Label("Diviser", systemImage: "rectangle.split.2x1")
-            }
-            .disabled(!canEditAudio)
+            .help("Couper début, couper fin ou diviser le fichier")
 
             Spacer()
         }
