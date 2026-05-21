@@ -27,6 +27,11 @@ struct AudioWaveformEditor: View {
     @State private var scrubberValue: Double = 0
     @State private var isScrubbing = false
 
+    // Layout constants — partagés entre `drawPeaks` et `marker` (doivent
+    // matcher pour que la ligne verticale s'aligne avec les barres).
+    private static let topPad: CGFloat = 28
+    private static let bottomPad: CGFloat = 22
+
     var body: some View {
         VStack(spacing: 14) {
             waveformBlock
@@ -65,48 +70,48 @@ struct AudioWaveformEditor: View {
 
     private func drawPeaks(ctx: GraphicsContext, size: CGSize) {
         guard !peaks.isEmpty, totalDuration > 0 else { return }
-        let topPadding: CGFloat = 28
-        let bottomPadding: CGFloat = 22
-        let availableHeight = size.height - topPadding - bottomPadding
-        let midY = topPadding + availableHeight / 2
+        let availableHeight = size.height - Self.topPad - Self.bottomPad
+        let midY = Self.topPad + availableHeight / 2
         let barWidth = size.width / CGFloat(peaks.count)
-
+        let lineWidth = max(1.5, barWidth - 1.5)
         let markerX = CGFloat(markerSeconds / totalDuration) * size.width
-        let activeColor = Color.accentColor
-        let inactiveColor = Color.secondary.opacity(0.35)
 
+        // Hoist le test mode hors de la boucle : `mode` est const pour tout
+        // l'appel. Résultat : 2 paths agrégés (actif/inactif) + 2 strokes,
+        // au lieu de 180 paths + 180 strokes.
+        let isActive: (CGFloat) -> Bool
+        switch mode {
+        case .trimStart: isActive = { $0 >= markerX }
+        case .trimEnd:   isActive = { $0 <= markerX }
+        case .split:     isActive = { _ in true }
+        }
+
+        var activePath = Path()
+        var inactivePath = Path()
         for (i, p) in peaks.enumerated() {
             let x = CGFloat(i) * barWidth + barWidth / 2
             let h = max(2, CGFloat(p) * (availableHeight / 2 - 4))
-            let color: Color
-            switch mode {
-            case .trimStart:
-                color = (x >= markerX) ? activeColor : inactiveColor
-            case .trimEnd:
-                color = (x <= markerX) ? activeColor : inactiveColor
-            case .split:
-                color = activeColor
+            let p1 = CGPoint(x: x, y: midY - h)
+            let p2 = CGPoint(x: x, y: midY + h)
+            if isActive(x) {
+                activePath.move(to: p1); activePath.addLine(to: p2)
+            } else {
+                inactivePath.move(to: p1); inactivePath.addLine(to: p2)
             }
-            var path = Path()
-            path.move(to: CGPoint(x: x, y: midY - h))
-            path.addLine(to: CGPoint(x: x, y: midY + h))
-            ctx.stroke(path, with: .color(color), lineWidth: max(1.5, barWidth - 1.5))
         }
+        ctx.stroke(activePath, with: .color(.accentColor), lineWidth: lineWidth)
+        ctx.stroke(inactivePath, with: .color(.secondary.opacity(0.35)), lineWidth: lineWidth)
     }
 
     @ViewBuilder
     private func marker(width: CGFloat, height: CGFloat) -> some View {
         let x = totalDuration > 0 ? CGFloat(markerSeconds / totalDuration) * width : 0
-        let topPad: CGFloat = 28
-        let bottomPad: CGFloat = 22
         ZStack(alignment: .top) {
-            // Ligne verticale
             Rectangle()
                 .fill(Color.accentColor)
-                .frame(width: 2, height: height - topPad - bottomPad)
-                .offset(x: x - 1, y: topPad)
-            // Bulle de temps
-            Text(formatTime(markerSeconds))
+                .frame(width: 2, height: height - Self.topPad - Self.bottomPad)
+                .offset(x: x - 1, y: Self.topPad)
+            Text(formatAudioTime(markerSeconds))
                 .font(.caption2.monospacedDigit().weight(.semibold))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -119,16 +124,14 @@ struct AudioWaveformEditor: View {
                     Capsule().strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 0.5)
                 )
                 .offset(x: x - 28, y: 0)
-            // Pastille haut
             Circle()
                 .fill(Color.accentColor)
                 .frame(width: 10, height: 10)
-                .offset(x: x - 5, y: topPad - 5)
-            // Pastille bas
+                .offset(x: x - 5, y: Self.topPad - 5)
             Circle()
                 .fill(Color.accentColor)
                 .frame(width: 10, height: 10)
-                .offset(x: x - 5, y: height - bottomPad - 5)
+                .offset(x: x - 5, y: height - Self.bottomPad - 5)
         }
     }
 
@@ -137,7 +140,7 @@ struct AudioWaveformEditor: View {
         HStack {
             ForEach(0..<5) { i in
                 let frac = Double(i) / 4.0
-                Text(formatTime(frac * totalDuration))
+                Text(formatAudioTime(frac * totalDuration))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
                 if i < 4 { Spacer() }
@@ -168,7 +171,7 @@ struct AudioWaveformEditor: View {
             }
             .buttonStyle(.bordered)
 
-            Text("\(formatTime(scrubberValue))  /  \(formatTime(totalDuration))")
+            Text("\(formatAudioTime(scrubberValue))  /  \(formatAudioTime(totalDuration))")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
 
@@ -206,13 +209,4 @@ struct AudioWaveformEditor: View {
         isLoadingPeaks = false
     }
 
-    private func formatTime(_ s: Double) -> String {
-        let total = Int(s.rounded())
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let sec = total % 60
-        return h > 0
-            ? String(format: "%d:%02d:%02d", h, m, sec)
-            : String(format: "%d:%02d", m, sec)
-    }
 }

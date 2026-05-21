@@ -4,22 +4,36 @@ import SwiftData
 /// Mode initial à l'ouverture du sheet. L'utilisateur peut basculer entre
 /// les trois modes via les onglets en tête sans fermer la sheet.
 enum AudioEditMode: String, Identifiable {
-    case trim       // alias historique → trimStart
     case trimStart
     case trimEnd
     case split
 
     var id: String { rawValue }
-
-    var normalised: AudioEditMode {
-        self == .trim ? .trimStart : self
-    }
 }
 
-/// Modal d'édition audio inspiré des éditeurs pro : 3 onglets en tête
-/// (Couper le début / Couper la fin / Diviser en deux), waveform interactif
-/// bicolore (conservé en accent, supprimé en gris), stats Conservé/Supprimé
-/// et CTA dynamique à droite.
+// MARK: - Shared formatters
+
+/// Cached fr_FR "d MMM HH:mm" formatter — `DateFormatter` instantiation est
+/// coûteuse et était précédemment refaite à chaque rendu de cell de Picker.
+private let audioEditorDateFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "fr_FR")
+    f.dateFormat = "d MMM HH:mm"
+    return f
+}()
+
+/// `5:42` ou `1:23:45` selon que la durée dépasse l'heure. Partagé entre
+/// `AudioEditorSheet` et `AudioWaveformEditor` (mêmes besoins, ex-doublon).
+func formatAudioTime(_ s: Double) -> String {
+    let total = Int(s.rounded())
+    let h = total / 3600
+    let m = (total % 3600) / 60
+    let sec = total % 60
+    return h > 0
+        ? String(format: "%d:%02d:%02d", h, m, sec)
+        : String(format: "%d:%02d", m, sec)
+}
+
 struct AudioEditorSheet: View {
     let meeting: Meeting
     let mode: AudioEditMode
@@ -74,7 +88,7 @@ struct AudioEditorSheet: View {
         .padding(18)
         .frame(minWidth: 820, minHeight: 520)
         .onAppear {
-            currentMode = mode.normalised
+            currentMode = mode
             cleanupStaleTmp()
         }
     }
@@ -151,9 +165,9 @@ struct AudioEditorSheet: View {
 
     private var waveformMode: AudioWaveformEditorMode {
         switch currentMode {
-        case .trimEnd:                 return .trimEnd
-        case .split:                   return .split
-        case .trim, .trimStart:        return .trimStart
+        case .trimEnd:    return .trimEnd
+        case .split:      return .split
+        case .trimStart:  return .trimStart
         }
     }
 
@@ -162,10 +176,10 @@ struct AudioEditorSheet: View {
     private var bottomBar: some View {
         HStack(spacing: 16) {
             statBlock(label: "Conservé",
-                      value: formatTime(keptDuration),
+                      value: formatAudioTime(keptDuration),
                       dotColor: Color.accentColor)
             statBlock(label: "Supprimé",
-                      value: formatTime(droppedDuration),
+                      value: formatAudioTime(droppedDuration),
                       dotColor: Color.secondary.opacity(0.6))
             Spacer()
             primaryCTA
@@ -184,34 +198,36 @@ struct AudioEditorSheet: View {
     @ViewBuilder
     private var primaryCTA: some View {
         switch currentMode {
-        case .trim, .trimStart:
-            Button(role: .destructive) {
-                Task { await runTrimStart() }
-            } label: {
-                Label("Couper le début à \(formatTime(markerSeconds))",
-                      systemImage: "checkmark")
-            }
-            .controlSize(.large)
-            .disabled(markerSeconds < 0.5 || markerSeconds >= totalDuration - 0.5 || isWorking)
+        case .trimStart:
+            trimCTAButton(label: "Couper le début à \(formatAudioTime(markerSeconds))",
+                          from: markerSeconds, to: nil, jobSuffix: "trim début")
         case .trimEnd:
-            Button(role: .destructive) {
-                Task { await runTrimEnd() }
-            } label: {
-                Label("Couper la fin à \(formatTime(markerSeconds))",
-                      systemImage: "checkmark")
-            }
-            .controlSize(.large)
-            .disabled(markerSeconds < 0.5 || markerSeconds >= totalDuration - 0.5 || isWorking)
+            trimCTAButton(label: "Couper la fin à \(formatAudioTime(markerSeconds))",
+                          from: nil, to: markerSeconds, jobSuffix: "trim fin")
         case .split:
             Button {
                 splitStage = .pickTarget
             } label: {
-                Label("Diviser à \(formatTime(markerSeconds))",
+                Label("Diviser à \(formatAudioTime(markerSeconds))",
                       systemImage: "rectangle.split.2x1")
             }
             .controlSize(.large)
             .disabled(markerSeconds < 1 || markerSeconds >= totalDuration - 1 || isWorking)
         }
+    }
+
+    @ViewBuilder
+    private func trimCTAButton(label: String,
+                                from: Double?,
+                                to: Double?,
+                                jobSuffix: String) -> some View {
+        Button(role: .destructive) {
+            Task { await runTrim(from: from, to: to, jobSuffix: jobSuffix) }
+        } label: {
+            Label(label, systemImage: "checkmark")
+        }
+        .controlSize(.large)
+        .disabled(markerSeconds < 0.5 || markerSeconds >= totalDuration - 0.5 || isWorking)
     }
 
     // MARK: - Stats helpers
@@ -222,7 +238,7 @@ struct AudioEditorSheet: View {
 
     private var keptDuration: Double {
         switch currentMode {
-        case .trim, .trimStart: return max(0, totalDuration - markerSeconds)
+        case .trimStart: return max(0, totalDuration - markerSeconds)
         case .trimEnd:          return max(0, markerSeconds)
         case .split:            return totalDuration  // les 2 parties restent
         }
@@ -230,15 +246,15 @@ struct AudioEditorSheet: View {
 
     private var droppedDuration: Double {
         switch currentMode {
-        case .trim, .trimStart: return max(0, markerSeconds)
+        case .trimStart: return max(0, markerSeconds)
         case .trimEnd:          return max(0, totalDuration - markerSeconds)
         case .split:            return 0
         }
     }
 
-    // MARK: - Trim actions
+    // MARK: - Trim action (unifié pour début/fin)
 
-    private func runTrimStart() async {
+    private func runTrim(from: Double?, to: Double?, jobSuffix: String) async {
         guard let url = meeting.wavFileURL else { return }
         isWorking = true
         defer { isWorking = false }
@@ -246,30 +262,10 @@ struct AudioEditorSheet: View {
         _ = queue.start(
             kind: .audioEdit,
             meetingID: meeting.persistentModelID,
-            meetingTitle: meeting.title + " · trim début"
+            meetingTitle: meeting.title + " · \(jobSuffix)"
         ) { _ in
             do {
-                try await AudioFileEditor.trim(url: url, from: markerSeconds, to: nil)
-                await MainActor.run { self.finishTrim(url: url) }
-            } catch {
-                await MainActor.run { self.error = error.localizedDescription }
-                throw error
-            }
-        }
-    }
-
-    private func runTrimEnd() async {
-        guard let url = meeting.wavFileURL else { return }
-        isWorking = true
-        defer { isWorking = false }
-        let queue = JobQueue.shared
-        _ = queue.start(
-            kind: .audioEdit,
-            meetingID: meeting.persistentModelID,
-            meetingTitle: meeting.title + " · trim fin"
-        ) { _ in
-            do {
-                try await AudioFileEditor.trim(url: url, from: nil, to: markerSeconds)
+                try await AudioFileEditor.trim(url: url, from: from, to: to)
                 await MainActor.run { self.finishTrim(url: url) }
             } catch {
                 await MainActor.run { self.error = error.localizedDescription }
@@ -301,13 +297,10 @@ struct AudioEditorSheet: View {
             .pickerStyle(.radioGroup)
 
             if splitTarget == .existing {
-                Picker("Réunion", selection: Binding(
-                    get: { existingTargetID },
-                    set: { existingTargetID = $0 }
-                )) {
+                Picker("Réunion", selection: $existingTargetID) {
                     Text("— choisir —").tag(PersistentIdentifier?.none)
                     ForEach(candidateMeetings, id: \.persistentModelID) { m in
-                        Text("\(formatDate(m.date)) — \(m.title)")
+                        Text("\(audioEditorDateFormatter.string(from: m.date)) — \(m.title)")
                             .tag(Optional(m.persistentModelID))
                     }
                 }
@@ -364,9 +357,10 @@ struct AudioEditorSheet: View {
         let cal = Calendar.current
         let lower = cal.date(byAdding: .day, value: -1, to: meeting.date) ?? meeting.date
         let upper = cal.date(byAdding: .day, value: 1, to: meeting.date) ?? meeting.date
-        return allMeetings
-            .filter { $0.persistentModelID != meeting.persistentModelID }
-            .filter { $0.date >= lower && $0.date <= upper }
+        let sourceID = meeting.persistentModelID
+        return allMeetings.filter {
+            $0.persistentModelID != sourceID && $0.date >= lower && $0.date <= upper
+        }
     }
 
     private func runSplit() async {
@@ -443,30 +437,15 @@ struct AudioEditorSheet: View {
         guard let url = meeting.wavFileURL else { return }
         let tmp = url.deletingLastPathComponent()
             .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".tmp.wav")
-        guard FileManager.default.fileExists(atPath: tmp.path),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: tmp.path),
-              let mtime = attrs[.modificationDate] as? Date else { return }
-        if Date().timeIntervalSince(mtime) > 5 * 60 {
+        // Tente attributesOfItem direct ; absent ou inaccessible → no-op
+        // (évite la double-tour fileExists + attributesOfItem qui était TOCTOU).
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: tmp.path),
+           let mtime = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mtime) > 5 * 60 {
             try? FileManager.default.removeItem(at: tmp)
         }
     }
 
-    private func formatTime(_ s: Double) -> String {
-        let total = Int(s.rounded())
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let sec = total % 60
-        return h > 0
-            ? String(format: "%d:%02d:%02d", h, m, sec)
-            : String(format: "%d:%02d", m, sec)
-    }
-
-    private func formatDate(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "fr_FR")
-        f.dateFormat = "d MMM HH:mm"
-        return f.string(from: d)
-    }
 }
 
 /// Vide les artefacts de transcription après une édition audio. Les

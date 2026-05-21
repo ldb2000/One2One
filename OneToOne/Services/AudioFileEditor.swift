@@ -46,9 +46,7 @@ extension AudioFileEditor {
             while src.framePosition < endFrame {
                 try Task.checkCancellation()
                 let remaining = AVAudioFrameCount(endFrame - src.framePosition)
-                let toRead = min(chunk, remaining)
-                buf.frameLength = 0
-                try src.read(into: buf, frameCount: toRead)
+                try src.read(into: buf, frameCount: min(chunk, remaining))
                 if buf.frameLength == 0 { break }
                 try dst.write(from: buf)
             }
