@@ -391,8 +391,9 @@ struct MeetingView: View {
     private func retranscribe(wavURL: URL) async {
         transcribeError = nil
         print("[MeetingView] retranscribe: \(wavURL.path)")
-        // Drop old segments before re-running so the new diarization can write fresh ones.
-        for old in meeting.transcriptSegments { context.delete(old) }
+        // Segments existants supprimés DANS le job, juste avant insertion des
+        // nouveaux — pas avant le démarrage du job. Annulation pendant le
+        // download des modèles ou le STT préserve donc les anciens segments.
         transcriptionPhase = .transcribing
         transcriptionProgress = nil
         transcriptionProgressStatus = nil
@@ -405,6 +406,10 @@ struct MeetingView: View {
         ) { jobID in
             do {
                 try Task.checkCancellation()
+                // Purge des anciens segments déléguée à
+                // `TranscriptionService.persistAligned/AnonymousSegments`
+                // qui efface juste avant d'insérer les nouveaux. Préserve
+                // les segments existants en cas d'annulation / d'erreur STT.
                 let result = try await stt.transcribeWithDiarization(
                     audioURL: wavURL,
                     meeting: meeting,
@@ -1383,8 +1388,11 @@ struct MeetingView: View {
     private func runCritique() async {
         ensureBaselineRevision()
         guard let rev = currentRevision else { return }
+        // ⚠ Flag activé ici puis désactivé DANS la closure du Task (succès,
+        // cancel ou erreur). Le précédent `defer` se déclenchait à la sortie
+        // immédiate de `runCritique` (queue.start retourne tout de suite),
+        // réactivant le bouton avant même le début du travail.
         isCritiquing = true
-        defer { isCritiquing = false }
 
         let queue = JobQueue.shared
         _ = queue.start(
@@ -1392,6 +1400,7 @@ struct MeetingView: View {
             meetingID: meeting.persistentModelID,
             meetingTitle: meeting.title + " · critique"
         ) { jobID in
+            defer { Task { @MainActor in self.isCritiquing = false } }
             do {
                 try Task.checkCancellation()
                 let critique = try await AIReportService.critique(
@@ -1430,8 +1439,8 @@ struct MeetingView: View {
     private func runRevise() async {
         ensureBaselineRevision()
         guard let rev = currentRevision, !rev.critique.isEmpty else { return }
+        // Flag activé ici, désactivé dans la closure (cf. note sur runCritique).
         isRevising = true
-        defer { isRevising = false }
 
         let queue = JobQueue.shared
         _ = queue.start(
@@ -1439,6 +1448,7 @@ struct MeetingView: View {
             meetingID: meeting.persistentModelID,
             meetingTitle: meeting.title + " · révision"
         ) { jobID in
+            defer { Task { @MainActor in self.isRevising = false } }
             do {
                 try Task.checkCancellation()
                 let result = try await AIReportService.revise(
@@ -1490,8 +1500,8 @@ struct MeetingView: View {
     private func runAutoLoop() async {
         ensureBaselineRevision()
         guard let startRev = currentRevision else { return }
+        // Flag activé ici, désactivé dans la closure (cf. note sur runCritique).
         isAutoLooping = true
-        defer { isAutoLooping = false }
 
         let queue = JobQueue.shared
         _ = queue.start(
@@ -1499,6 +1509,7 @@ struct MeetingView: View {
             meetingID: meeting.persistentModelID,
             meetingTitle: meeting.title + " · auto"
         ) { jobID in
+            defer { Task { @MainActor in self.isAutoLooping = false } }
             var workingRev: ReportRevision = startRev
             var iteration = 0
             let maxIter = self.autoLoopMaxIterations
@@ -2426,11 +2437,12 @@ struct MeetingView: View {
                         "ambiguous": a.ambiguous,
                         "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
                     ]
-                    if a.auto, let collab = a.collaborator {
-                        for seg in meeting.transcriptSegments where seg.speakerID == cid + 1 {
-                            seg.speaker = collab
-                        }
-                    }
+                    // ⚠ NE PAS remapper `seg.speaker` depuis `cid` ici :
+                    // pyannote ne garantit pas la stabilité des cluster IDs
+                    // entre deux runs. Seul `speakerAssignmentsJSON` est
+                    // rafraîchi ; les segments existants gardent leur
+                    // `speakerID` historique. L'utilisateur peut re-tagger
+                    // via le picker si nécessaire.
                 }
                 if let data = try? JSONSerialization.data(withJSONObject: assignmentsDict),
                    let s = String(data: data, encoding: .utf8) {

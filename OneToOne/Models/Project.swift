@@ -98,6 +98,17 @@ final class Project {
         self.projectType = projectType
         self.phase = phase
         self.status = status
+        self.stableID = UUID()
+    }
+
+    /// Renvoie `stableID` en backfillant un nouvel UUID si la DB contient `nil`
+    /// (cas des projets créés avant l'ajout du champ). Persiste immédiatement.
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 }
 

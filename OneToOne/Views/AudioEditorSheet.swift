@@ -21,6 +21,7 @@ struct AudioEditorSheet: View {
     @State private var isWorking = false
     @State private var splitStage: SplitStage = .pickPosition
     @State private var splitTarget: SplitTarget = .newMeeting
+    @State private var showOverwriteTargetConfirm: Bool = false
     @State private var existingTargetID: PersistentIdentifier?
     @Query(sort: \Meeting.date, order: .reverse) private var allMeetings: [Meeting]
 
@@ -165,11 +166,26 @@ struct AudioEditorSheet: View {
                 .pickerStyle(.menu)
             }
 
+            if targetHasExistingWav {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("La réunion cible a déjà un audio — il sera remplacé et supprimé du disque.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                .padding(.top, 4)
+            }
+
             HStack {
                 Button("Retour") { splitStage = .pickPosition }
                 Spacer()
                 Button(role: .destructive) {
-                    Task { await runSplit() }
+                    if targetHasExistingWav {
+                        showOverwriteTargetConfirm = true
+                    } else {
+                        Task { await runSplit() }
+                    }
                 } label: {
                     Label("Confirmer", systemImage: "checkmark")
                 }
@@ -178,6 +194,24 @@ struct AudioEditorSheet: View {
             }
             .padding(.top, 4)
         }
+        .alert("Remplacer l'audio existant ?",
+               isPresented: $showOverwriteTargetConfirm) {
+            Button("Annuler", role: .cancel) {}
+            Button("Remplacer", role: .destructive) {
+                Task { await runSplit() }
+            }
+        } message: {
+            Text("La réunion cible a déjà un fichier audio. Il sera supprimé du disque et remplacé par la seconde partie du split.")
+        }
+    }
+
+    /// True si la cible existante a un wavFilePath non vide.
+    private var targetHasExistingWav: Bool {
+        guard splitTarget == .existing,
+              let id = existingTargetID,
+              let m = allMeetings.first(where: { $0.persistentModelID == id })
+        else { return false }
+        return !(m.wavFilePath ?? "").isEmpty
     }
 
     /// Réunions du même jour ± 1 jour, excluant la source.
@@ -216,8 +250,16 @@ struct AudioEditorSheet: View {
                     meeting.durationSeconds = Int(AudioFileEditor.duration(url: urlA))
                     invalidateTranscriptArtifacts(of: meeting, in: context)
 
-                    // Part B → target meeting
+                    // Part B → target meeting. Si la cible avait déjà un
+                    // fichier wav, on le supprime du disque (sinon orphelin)
+                    // avant de pointer vers la partie B.
                     let target = resolveTargetMeeting(cutSec: cut)
+                    if let oldPath = target.wavFilePath,
+                       !oldPath.isEmpty,
+                       oldPath != urlB.path,
+                       FileManager.default.fileExists(atPath: oldPath) {
+                        try? FileManager.default.removeItem(atPath: oldPath)
+                    }
                     target.wavFilePath = urlB.path
                     target.durationSeconds = Int(AudioFileEditor.duration(url: urlB))
                     invalidateTranscriptArtifacts(of: target, in: context)

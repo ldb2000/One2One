@@ -567,7 +567,7 @@ final class MenuBarController: NSObject {
                                     action: #selector(openProjectPrep(_:)),
                                     keyEquivalent: "")
                 mi.target = self
-                mi.representedObject = (p.stableID ?? UUID()).uuidString
+                mi.representedObject = p.ensuredStableID.uuidString
                 submenu.addItem(mi)
             }
         }

@@ -88,8 +88,11 @@ enum TodayStatsCalculator {
 enum MenubarBadgeText {
 
     /// Returns the title suffix to append to the status item, or "" if none.
+    /// `hasOverdue == true` swaps the round bullet for a warning glyph so the
+    /// user immediately spots that at least one urgent task is past due.
     static func suffix(urgentCount: Int, hasOverdue: Bool) -> String {
         guard urgentCount > 0 else { return "" }
-        return " ●\(urgentCount)"
+        let glyph = hasOverdue ? "⚠" : "●"
+        return " \(glyph)\(urgentCount)"
     }
 }

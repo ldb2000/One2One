@@ -366,6 +366,10 @@ final class TranscriptionService: ObservableObject {
     private func persistAnonymousSegments(sttResult: STTResult,
                                            meeting: Meeting,
                                            in context: ModelContext) {
+        // Purge atomique des segments existants juste avant insertion des
+        // nouveaux. Si on arrive ici, c'est que STT + diarisation ont réussi
+        // — sûr d'écraser. Annulation antérieure préserve les anciens.
+        for old in meeting.transcriptSegments { context.delete(old) }
         var idx = 0
         for chunk in sttResult.segments {
             let s = TranscriptSegment(
@@ -385,6 +389,8 @@ final class TranscriptionService: ObservableObject {
                                          assignments: [Int: SpeakerMatcher.Assignment],
                                          meeting: Meeting,
                                          in context: ModelContext) {
+        // Purge atomique des segments existants — cf. note dans persistAnonymousSegments.
+        for old in meeting.transcriptSegments { context.delete(old) }
         var idx = 0
         var assignmentsDict: [String: Any] = [:]
         var metaDict: [String: [String: Any]] = [:]

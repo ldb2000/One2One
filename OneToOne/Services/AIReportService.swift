@@ -101,9 +101,18 @@ struct AIReportService {
         // 1. Resolve {{vars}} in the body
         var resolved = TemplateVariableResolver.resolve(prompt: body, for: meeting, in: context)
 
-        // 2. Substitute {{historique_n}} with the history bloc
+        // 2. Substitute {{historique_n}} with the history bloc. Si le template
+        // a un mode != .none mais ne contient pas le placeholder, l'historique
+        // serait silencieusement perdu — on l'append en queue de prompt dans
+        // ce cas pour garantir qu'il atteint le LLM.
+        let hasHistoryPlaceholder = resolved.contains("{{historique_n}}")
+            || resolved.contains("{{project.historique_n}}")
         resolved = resolved.replacingOccurrences(of: "{{historique_n}}", with: history)
         resolved = resolved.replacingOccurrences(of: "{{project.historique_n}}", with: history)
+        var historyAppendix = ""
+        if !history.isEmpty, !hasHistoryPlaceholder {
+            historyAppendix = "\n\nContexte historique (extraits de réunions précédentes) :\n\(history)\n"
+        }
 
         // 3. Append the sections schema so the LLM structures its output
         var sectionsBlock = ""
@@ -117,7 +126,7 @@ struct AIReportService {
         let finalPrompt = """
         Tu es l'assistant de synthèse de OneToOne.
 
-        \(resolved)
+        \(resolved)\(historyAppendix)
         \(sectionsBlock)
 
         Produis un compte-rendu en markdown structuré autour des sections demandées,
