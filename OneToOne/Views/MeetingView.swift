@@ -1610,36 +1610,15 @@ struct MeetingView: View {
 
     /// Bullet row used in the Rapport tab for each entry in
     /// faits marquants / points clés / décisions / questions ouvertes.
-    /// Original Label + trailing "Ajouter au rapport manager" affordance.
     @ViewBuilder
     private func bulletRow(text: String, systemImage: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Label {
-                Text(text).font(.callout)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } icon: {
-                Image(systemName: systemImage)
-            }
-            .labelStyle(.titleAndIcon)
-
-            Button {
-                startManagerReportFlow(range: NSRange(location: 0, length: 0),
-                                       snippet: text,
-                                       field: "summary")
-            } label: {
-                Image(systemName: "plus.bubble")
-                    .foregroundColor(.accentColor.opacity(0.75))
-            }
-            .buttonStyle(.plain)
-            .help("Ajouter au rapport manager")
+        Label {
+            Text(text).font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } icon: {
+            Image(systemName: systemImage)
         }
-        .contextMenu {
-            Button {
-                startManagerReportFlow(range: NSRange(location: 0, length: 0),
-                                       snippet: text,
-                                       field: "summary")
-            } label: { Label("Ajouter au rapport manager", systemImage: "plus.bubble") }
-        }
+        .labelStyle(.titleAndIcon)
     }
 
     private func managerHighlightedRanges(for field: String) -> [NSRange] {
