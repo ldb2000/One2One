@@ -132,14 +132,25 @@ struct JobQueueSidebar: View {
                 || job.status == .running
                 || job.status == .cancelling {
                 Button {
-                    queue.cancel(job.id)
+                    if job.status == .cancelling {
+                        queue.forceCancel(job.id)
+                    } else {
+                        queue.cancel(job.id)
+                    }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    Image(systemName: job.status == .cancelling
+                          ? "xmark.octagon.fill"
+                          : "xmark.circle.fill")
+                        .foregroundStyle(job.status == .cancelling ? .red : .secondary)
                 }
                 .buttonStyle(.borderless)
-                .disabled(job.status == .cancelling)
-                .help(job.status == .queued ? "Retirer de la file" : "Annuler ce job")
+                .help({
+                    switch job.status {
+                    case .queued:     return "Retirer de la file"
+                    case .cancelling: return "Forcer l'annulation (le travail peut continuer en arrière-plan)"
+                    default:          return "Annuler ce job"
+                    }
+                }())
             }
         }
         .padding(8)

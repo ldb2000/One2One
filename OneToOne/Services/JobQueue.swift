@@ -118,6 +118,22 @@ final class JobQueue: ObservableObject {
         }
     }
 
+    /// Force la finalisation côté UI/queue d'un job bloqué en `.cancelling`
+    /// (cas où le worker n'honore pas `Task.checkCancellation`, p.ex. un
+    /// streaming HTTP qui ne réveille pas la Task). Le travail sous-jacent
+    /// peut continuer en arrière-plan mais le slot du kind est libéré et le
+    /// job suivant peut démarrer.
+    func forceCancel(_ id: UUID) {
+        guard let idx = jobs.firstIndex(where: { $0.id == id }) else { return }
+        let kind = jobs[idx].kind
+        jobs[idx].task?.cancel()
+        jobs[idx].task = nil
+        jobs[idx].status = .cancelled
+        jobs[idx].finishedAt = Date()
+        jobs[idx].work = nil
+        dispatchNextIfPossible(kind: kind)
+    }
+
     func clearTerminal() {
         jobs.removeAll { $0.status.isTerminal }
     }
