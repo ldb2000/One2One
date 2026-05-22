@@ -13,11 +13,20 @@ struct ActionsListView: View {
     @State private var filterProject: Project?
     @State private var filterEntity: Entity?
     @State private var filterCollaborator: Collaborator?
+    @State private var filterDueDate: DueDateFilter = .any
 
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
         case completed = "Terminées"
         case all = "Toutes"
+    }
+
+    enum DueDateFilter: String, CaseIterable, Identifiable {
+        case any         = "Toutes échéances"
+        case withDate    = "Avec échéance"
+        case withoutDate = "Sans échéance"
+        case overdue     = "En retard"
+        var id: String { rawValue }
     }
 
     private var filteredTasks: [ActionTask] {
@@ -40,6 +49,18 @@ struct ActionsListView: View {
 
         if let collaborator = filterCollaborator {
             tasks = tasks.filter { $0.collaborator?.persistentModelID == collaborator.persistentModelID }
+        }
+
+        switch filterDueDate {
+        case .any:
+            break
+        case .withDate:
+            tasks = tasks.filter { $0.dueDate != nil }
+        case .withoutDate:
+            tasks = tasks.filter { $0.dueDate == nil }
+        case .overdue:
+            let startOfToday = Calendar.current.startOfDay(for: Date())
+            tasks = tasks.filter { ($0.dueDate ?? .distantFuture) < startOfToday }
         }
 
         if !searchText.isEmpty {
@@ -69,6 +90,14 @@ struct ActionsListView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 180)
+
+                Picker("Échéance", selection: $filterDueDate) {
+                    ForEach(DueDateFilter.allCases) { f in
+                        Text(f.rawValue).tag(f)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 170)
 
                 Spacer()
 
