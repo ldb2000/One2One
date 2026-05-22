@@ -297,6 +297,11 @@ final class Meeting {
     var prepCarryoverDone: Bool = false
 
     // Audio
+    /// Marqué comme "à conserver" — exclus du cleanup automatique.
+    var keepWavForever: Bool = false
+    /// Indique que `wavFilePath` pointe vers un .m4a compressé (AAC 32 kbps mono)
+    /// au lieu d'un .wav original.
+    var wavIsCompressed: Bool = false
     var wavFilePath: String?
     /// Durée d'enregistrement audio (≠ durée réelle de la réunion).
     var durationSeconds: Int = 0
@@ -398,4 +403,22 @@ final class Meeting {
         guard let path = wavFilePath, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path)
     }
+}
+
+extension Meeting {
+    enum AudioAvailability {
+        case original     // .wav présent
+        case compressed   // .m4a présent
+        case deleted      // wavFilePath nil ou fichier absent
+    }
+
+    var audioAvailability: AudioAvailability {
+        guard let path = wavFilePath, !path.isEmpty,
+              FileManager.default.fileExists(atPath: path) else {
+            return .deleted
+        }
+        return wavIsCompressed ? .compressed : .original
+    }
+
+    var hasPlayableAudio: Bool { audioAvailability != .deleted }
 }

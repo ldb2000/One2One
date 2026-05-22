@@ -150,6 +150,16 @@ final class AppSettings {
     /// (souvent 2 speakers seulement) — on monte à 0.85 pour mieux séparer.
     var diarizationClusterThreshold: Double = 0.85
 
+    // MARK: - Maintenance / cleanup audio
+    /// Compresse les WAV plus vieux que ce nombre de jours.
+    var wavCompressionDays: Int = 7
+    /// Supprime définitivement les WAV plus vieux que ce nombre de jours
+    /// (à condition qu'un rapport existe).
+    var wavDeletionDays: Int = 30
+    /// Si activé, lance le cleanup au démarrage (max 1×/24h).
+    var autoCleanupOnLaunch: Bool = false
+    var lastCleanupAt: Date?
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
