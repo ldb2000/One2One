@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import PDFKit
+import WebKit
 
 /// Options pour l'export mail d'une réunion.
 /// `includeTranscript` ajoute la transcription brute en bas du corps.
@@ -194,15 +195,26 @@ class ExportService {
     }
 
     func exportMeetingPDF(meeting: Meeting, fileName: String) {
-        let markdown = exportMeetingMarkdown(meeting: meeting)
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
-        textView.string = markdown
-        textView.font = .systemFont(ofSize: 11)
-        let printInfo = NSPrintInfo.shared
-        let op = NSPrintOperation(view: textView, printInfo: printInfo)
-        op.jobTitle = fileName
-        op.showsPrintPanel = true
-        op.run()
+        let html = buildMeetingHTML(meeting: meeting, includeTranscript: false)
+
+        // NSSavePanel pour cible.
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = fileName.hasSuffix(".pdf") ? fileName : fileName + ".pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        // WKWebView headless : charger HTML, attendre fin nav, createPDF.
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 1000))
+        let delegate = PDFExportDelegate(targetURL: url)
+        webView.navigationDelegate = delegate
+        // Ancre forte sur le delegate via objc_setAssociatedObject pour éviter
+        // qu'il soit dealloc avant didFinish.
+        objc_setAssociatedObject(webView, &PDFExportDelegate.assocKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // Garde aussi une référence forte sur la webView elle-même (sinon
+        // après que cette fonction retourne, ARC libère webView et l'export
+        // n'a jamais lieu).
+        delegate.ownedWebView = webView
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     /// Ouvre une fenêtre de composition dans Apple Mail avec le rapport
@@ -774,5 +786,43 @@ class ExportService {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+}
+
+/// Délégué qui attend la fin du chargement HTML d'une WKWebView puis
+/// produit un PDF à l'URL cible. Référence forte sur sa propre webView
+/// pour rester en vie jusqu'à la fin de l'export.
+@MainActor
+private final class PDFExportDelegate: NSObject, WKNavigationDelegate {
+    nonisolated(unsafe) static var assocKey: UInt8 = 0
+    let targetURL: URL
+    var ownedWebView: WKWebView?
+
+    init(targetURL: URL) {
+        self.targetURL = targetURL
+        super.init()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Petit délai pour laisser le rendering finir (fonts, layouts).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            let config = WKPDFConfiguration()
+            webView.createPDF(configuration: config) { result in
+                switch result {
+                case .success(let data):
+                    do {
+                        try data.write(to: self.targetURL)
+                        print("[Export] PDF écrit : \(self.targetURL.path) (\(data.count) octets)")
+                    } catch {
+                        print("[Export] échec écriture PDF : \(error)")
+                    }
+                case .failure(let error):
+                    print("[Export] createPDF échec : \(error)")
+                }
+                // Relâcher la webView et donc le delegate.
+                self.ownedWebView = nil
+            }
+        }
     }
 }
