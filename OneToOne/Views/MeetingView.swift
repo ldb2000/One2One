@@ -83,6 +83,7 @@ struct MeetingView: View {
     @State private var participantsRefreshID = UUID()
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
+    @State private var reportEditMode: Bool = false
     @State private var reportError: String?
     @State private var transcribeError: String?
     @State private var transcriptionPhase: TranscriptionPhase = .idle
@@ -833,70 +834,50 @@ struct MeetingView: View {
     }
 
     private var reportView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if !meeting.reportRevisions.isEmpty,
-                   meeting.rawTranscript.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        Text("Transcription supprimée après édition audio — re-transcrire pour mettre à jour le rapport.")
-                            .font(.caption)
-                        Spacer()
-                    }
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.08)))
+        VStack(spacing: 0) {
+            // Bandeau d'avertissement si transcription supprimée
+            if !meeting.reportRevisions.isEmpty,
+               meeting.rawTranscript.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text("Transcription supprimée après édition audio — re-transcrire pour mettre à jour le rapport.")
+                        .font(.caption)
+                    Spacer()
                 }
-                if meeting.summary.isEmpty {
-                    ContentUnavailableView(
-                        "Aucun rapport",
-                        systemImage: "wand.and.stars",
-                        description: Text("Génère le rapport une fois la transcription prête.")
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.08)))
+                .padding(.horizontal).padding(.top, 8)
+            }
+
+            if meeting.summary.isEmpty {
+                ContentUnavailableView(
+                    "Aucun rapport",
+                    systemImage: "wand.and.stars",
+                    description: Text("Génère le rapport une fois la transcription prête.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                generateToolbar
+                    .padding(.horizontal, 8).padding(.top, 4)
+                Divider()
+                if reportEditMode {
+                    MarkdownEditorView(
+                        text: Binding(
+                            get: { meeting.summary },
+                            set: { meeting.summary = $0; try? context.save() }
+                        ),
+                        textViewID: "reportEditor.\(meeting.persistentModelID.hashValue)"
                     )
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .padding(12)
                 } else {
-                    generateToolbar
-                    if !meeting.highlights.isEmpty {
-                        section("Faits marquants") {
-                            ForEach(meeting.highlights, id: \.self) { item in
-                                bulletRow(text: item, systemImage: "sparkles")
-                            }
-                        }
-                    }
-                    section("Résumé") {
-                        MeetingHighlightableTextView(
-                            text: .constant(meeting.summary),
-                            isEditable: false,
-                            highlightedRanges: managerHighlightedRanges(for: "summary"),
-                            onAddToManagerReport: { range, snippet in
-                                startManagerReportFlow(range: range, snippet: snippet, field: "summary")
-                            }
-                        )
-                        .frame(minHeight: 240)
-                    }
-                    if !meeting.keyPoints.isEmpty {
-                        section("Points clés") {
-                            ForEach(meeting.keyPoints, id: \.self) { p in
-                                bulletRow(text: p, systemImage: "circle.fill")
-                            }
-                        }
-                    }
-                    if !meeting.decisions.isEmpty {
-                        section("Décisions") {
-                            ForEach(meeting.decisions, id: \.self) { d in
-                                bulletRow(text: d, systemImage: "checkmark.seal")
-                            }
-                        }
-                    }
-                    if !meeting.openQuestions.isEmpty {
-                        section("Questions ouvertes") {
-                            ForEach(meeting.openQuestions, id: \.self) { q in
-                                bulletRow(text: q, systemImage: "questionmark.circle")
-                            }
-                        }
-                    }
+                    MeetingReportPreview(html: ReportHTMLBuilder.build(
+                        meeting: meeting,
+                        template: meeting.reportTemplate,
+                        includeTranscript: false
+                    ))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .padding()
         }
     }
 
@@ -1203,6 +1184,16 @@ struct MeetingView: View {
             } else {
                 Text("Template : Auto").font(.caption).foregroundStyle(.secondary)
             }
+
+            Picker("", selection: $reportEditMode) {
+                Image(systemName: "eye").tag(false)
+                Image(systemName: "pencil").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .help("Aperçu / Éditer markdown")
+            .padding(.leading, 8)
+
             Spacer()
             Button {
                 Task { await runGenerate() }
