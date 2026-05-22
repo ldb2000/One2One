@@ -288,12 +288,34 @@ final class MenuBarController: NSObject {
         for task in urgent.prefix(3) {
             let key = UUID().uuidString
             urgentTaskByKey[key] = task
-            let item = NSMenuItem(title: urgentLabel(for: task),
+
+            let parent = NSMenuItem(title: urgentLabel(for: task),
+                                    action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+
+            let done = NSMenuItem(title: "✓  Marquer comme fait",
+                                  action: #selector(markUrgentDone(_:)),
+                                  keyEquivalent: "")
+            done.target = self
+            done.representedObject = key
+            sub.addItem(done)
+
+            let open = NSMenuItem(title: "Ouvrir…",
                                   action: #selector(showUrgent(_:)),
                                   keyEquivalent: "")
-            item.target = self
-            item.representedObject = key
-            menu.addItem(item)
+            open.target = self
+            open.representedObject = key
+            sub.addItem(open)
+
+            parent.submenu = sub
+            menu.addItem(parent)
+        }
+        if urgent.count > 3 {
+            let overflow = NSMenuItem(title: "Voir toutes (\(urgent.count))…",
+                                      action: #selector(openMainWindow),
+                                      keyEquivalent: "")
+            overflow.target = self
+            menu.addItem(overflow)
         }
         menu.addItem(.separator())
     }
@@ -468,6 +490,16 @@ final class MenuBarController: NSObject {
             onDismiss: { [weak self] in self?.searchPopover.performClose(nil) }
         ))
         show(searchPopover, content: host)
+    }
+
+    @objc private func markUrgentDone(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String,
+              let task = urgentTaskByKey[key],
+              let container = container else { return }
+        task.isCompleted = true
+        task.completedAt = Date()
+        try? container.mainContext.save()
+        refresh()
     }
 
     @objc private func showUrgent(_ sender: NSMenuItem) {
