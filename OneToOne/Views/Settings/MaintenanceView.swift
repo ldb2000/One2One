@@ -13,6 +13,7 @@ struct MaintenanceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             storageSection
+            batchJobsSection
         }
         .padding(8)
         .task { refreshStats(force: false) }
@@ -97,5 +98,137 @@ struct MaintenanceView: View {
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: b)
+    }
+
+    // MARK: - Batch Jobs Section
+
+    @ViewBuilder
+    private var batchJobsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("TRAITEMENTS EN LOT", systemImage: "rectangle.stack.badge.play")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            batchRow(
+                count: BatchJobsService.meetingsWithoutReport(in: context).count,
+                label: "réunions sans rapport",
+                buttonLabel: "Générer les rapports manquants",
+                action: enqueueMissingReports
+            )
+            batchRow(
+                count: BatchJobsService.meetingsWithoutTranscript(in: context).count,
+                label: "réunions sans transcription",
+                buttonLabel: "Transcrire les réunions sans transcript",
+                action: enqueueMissingTranscripts
+            )
+            batchRow(
+                count: BatchJobsService.meetingsWithoutDiarisation(in: context).count,
+                label: "réunions sans diarisation",
+                buttonLabel: "Diariser les locuteurs",
+                action: enqueueMissingDiarisations
+            )
+        }
+    }
+
+    private func batchRow(count: Int,
+                          label: String,
+                          buttonLabel: String,
+                          action: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: count > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(count > 0 ? .orange : .green)
+            Text("\(count) \(label)").font(.callout)
+            Spacer()
+            Button(buttonLabel, action: action)
+                .buttonStyle(.borderedProminent)
+                .disabled(count == 0)
+        }
+    }
+
+    private func enqueueMissingReports() {
+        let queue = JobQueue.shared
+        let candidates = BatchJobsService.meetingsWithoutReport(in: context)
+        let snap = settings
+        for meeting in candidates {
+            let title = meeting.title
+            let id = meeting.persistentModelID
+            _ = queue.start(
+                kind: .report,
+                meetingID: id,
+                meetingTitle: title + " · batch"
+            ) { _ in
+                let result = try await AIReportService.generate(
+                    meeting: meeting,
+                    in: context,
+                    settings: snap
+                )
+                await MainActor.run {
+                    meeting.summary = result.summary
+                    meeting.keyPoints = result.keyPoints
+                    meeting.decisions = result.decisions
+                    meeting.openQuestions = result.openQuestions
+                    try? context.save()
+                }
+            }
+        }
+    }
+
+    private func enqueueMissingTranscripts() {
+        let queue = JobQueue.shared
+        let candidates = BatchJobsService.meetingsWithoutTranscript(in: context)
+        let snap = settings
+        for meeting in candidates {
+            guard let wavURL = meeting.wavFileURL else { continue }
+            let title = meeting.title
+            let id = meeting.persistentModelID
+            _ = queue.start(
+                kind: .transcription,
+                meetingID: id,
+                meetingTitle: title + " · batch"
+            ) { _ in
+                let stt = TranscriptionService.shared
+                _ = try await stt.transcribeWithDiarization(
+                    audioURL: wavURL,
+                    meeting: meeting,
+                    settings: snap,
+                    in: context
+                )
+            }
+        }
+    }
+
+    private func enqueueMissingDiarisations() {
+        let queue = JobQueue.shared
+        let candidates = BatchJobsService.meetingsWithoutDiarisation(in: context)
+        let snap = settings
+        for meeting in candidates {
+            guard let wavURL = meeting.wavFileURL else { continue }
+            let title = meeting.title
+            let id = meeting.persistentModelID
+            _ = queue.start(
+                kind: .diarization,
+                meetingID: id,
+                meetingTitle: title + " · batch"
+            ) { _ in
+                let out = try await PyannoteDiarizer.shared.diarize(audioURL: wavURL)
+                await MainActor.run {
+                    let assignments = SpeakerMatcher.match(
+                        clusterEmbeddings: out.perClusterEmbedding,
+                        meeting: meeting,
+                        in: context,
+                        settings: snap
+                    )
+                    var dict: [String: Any] = [:]
+                    for (cid, a) in assignments {
+                        dict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: dict),
+                       let s = String(data: data, encoding: .utf8) {
+                        meeting.speakerAssignmentsJSON = s
+                    }
+                    try? context.save()
+                }
+            }
+        }
     }
 }
