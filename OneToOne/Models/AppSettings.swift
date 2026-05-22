@@ -109,6 +109,21 @@ final class AppSettings {
     /// standing (collab ou projet) à la fin d'une meeting.
     var prepAutoCarryover: Bool = true
 
+    /// Liste d'apps (par nom exact) à cacher dans le sélecteur de capture
+    /// d'écran. Stockée en JSON pour migration douce.
+    var captureBlacklistJSON: String = "[]"
+
+    var captureBlacklist: [String] {
+        get {
+            (try? JSONDecoder().decode([String].self,
+                from: Data(captureBlacklistJSON.utf8))) ?? []
+        }
+        set {
+            captureBlacklistJSON = (try? String(data: JSONEncoder().encode(newValue),
+                encoding: .utf8)) ?? "[]"
+        }
+    }
+
     // MARK: - Contact photo sync
     var contactPhotoSyncEnabled: Bool = false
     var contactPhotoSyncIntervalMinutes: Int = 60

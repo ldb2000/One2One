@@ -658,6 +658,11 @@ struct SettingsView: View {
                     .padding(8)
                 }
 
+                GroupBox("Capture d'écran") {
+                    captureBlacklistSection
+                        .padding(8)
+                }
+
                 GroupBox("Templates de rapport") {
                     ReportTemplateListView()
                         .padding(8)
@@ -1067,6 +1072,31 @@ struct SettingsView: View {
             context.delete(candidate)
         }
         try? context.save()
+    }
+
+    @ViewBuilder
+    private var captureBlacklistSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Apps masquées du sélecteur de fenêtre (capture)")
+                .font(.subheadline.bold())
+            Text("Une app par ligne, nom exact (ex. \"1Password\", \"Slack\"). OneToOne est toujours filtré.")
+                .font(.caption2).foregroundStyle(.secondary)
+
+            TextEditor(text: Binding(
+                get: { settings.captureBlacklist.joined(separator: "\n") },
+                set: { newValue in
+                    let lines = newValue
+                        .components(separatedBy: .newlines)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    settings.captureBlacklist = lines
+                    saveSettings()
+                }
+            ))
+            .font(.body.monospaced())
+            .frame(minHeight: 100)
+            .border(Color.secondary.opacity(0.2))
+        }
     }
 
     @ViewBuilder
