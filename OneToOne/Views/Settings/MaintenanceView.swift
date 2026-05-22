@@ -14,6 +14,7 @@ struct MaintenanceView: View {
         VStack(alignment: .leading, spacing: 22) {
             storageSection
             batchJobsSection
+            cleanupAudioSection
         }
         .padding(8)
         .task { refreshStats(force: false) }
@@ -228,6 +229,105 @@ struct MaintenanceView: View {
                     }
                     try? context.save()
                 }
+            }
+        }
+    }
+
+    // MARK: - Cleanup Audio Section
+
+    @ViewBuilder
+    private var cleanupAudioSection: some View {
+        let plan = WavRetentionService.plan(in: context, settings: settings)
+        VStack(alignment: .leading, spacing: 10) {
+            Label("NETTOYAGE AUDIO", systemImage: "sparkles")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("Compresser les WAV (AAC 32 kbps mono) après")
+                Stepper("\(settings.wavCompressionDays) jours",
+                        value: Binding(
+                            get: { settings.wavCompressionDays },
+                            set: { settings.wavCompressionDays = $0; saveCtx() }
+                        ),
+                        in: 1...365)
+                    .labelsHidden()
+                Text("\(settings.wavCompressionDays) jours")
+                    .font(.callout.monospacedDigit())
+            }
+            HStack {
+                Text("Supprimer définitivement les WAV après")
+                Stepper("\(settings.wavDeletionDays) jours",
+                        value: Binding(
+                            get: { settings.wavDeletionDays },
+                            set: { settings.wavDeletionDays = $0; saveCtx() }
+                        ),
+                        in: 1...365)
+                    .labelsHidden()
+                Text("\(settings.wavDeletionDays) jours")
+                    .font(.callout.monospacedDigit())
+            }
+            Toggle("Lancer automatiquement au démarrage de l'app",
+                   isOn: Binding(
+                    get: { settings.autoCleanupOnLaunch },
+                    set: { settings.autoCleanupOnLaunch = $0; saveCtx() }
+                   ))
+
+            Text("Sera affecté : \(plan.toCompress.count) WAV à compresser · \(plan.toDelete.count) à supprimer")
+                .font(.caption).foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("Lancer le cleanup maintenant") {
+                    runCleanup(plan: plan)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(plan.toCompress.isEmpty && plan.toDelete.isEmpty)
+            }
+        }
+    }
+
+    private func saveCtx() {
+        try? context.save()
+    }
+
+    private func runCleanup(plan: WavRetentionService.CleanupPlan) {
+        let queue = JobQueue.shared
+        let snapshotPlan = plan
+        _ = queue.start(
+            kind: .maintenance,
+            meetingTitle: "Cleanup audio"
+        ) { jobID in
+            var done = 0
+            let total = snapshotPlan.toCompress.count + snapshotPlan.toDelete.count
+            for m in snapshotPlan.toCompress {
+                try Task.checkCancellation()
+                await MainActor.run {
+                    queue.updateProgress(jobID,
+                                         fraction: Double(done) / Double(max(1, total)),
+                                         status: "Compression : \(m.title)")
+                }
+                do {
+                    try await WavRetentionService.compress(m, in: context)
+                } catch {
+                    print("[Maintenance] compress échec \(m.title): \(error)")
+                }
+                done += 1
+            }
+            for m in snapshotPlan.toDelete {
+                try Task.checkCancellation()
+                await MainActor.run {
+                    queue.updateProgress(jobID,
+                                         fraction: Double(done) / Double(max(1, total)),
+                                         status: "Suppression : \(m.title)")
+                    WavRetentionService.delete(m, in: context)
+                }
+                done += 1
+            }
+            await MainActor.run {
+                settings.lastCleanupAt = Date()
+                saveCtx()
+                StorageStatsService.shared.invalidate()
             }
         }
     }
