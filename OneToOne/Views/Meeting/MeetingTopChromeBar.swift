@@ -68,10 +68,33 @@ struct MeetingTopChromeBar: View {
             } else {
                 Text(meeting.kind.label).fontWeight(.semibold).foregroundColor(.primary)
             }
+            audioStatusBadge
         }
         .font(.caption)
         .lineLimit(1)
         .truncationMode(.middle)
+    }
+
+    @ViewBuilder
+    private var audioStatusBadge: some View {
+        switch meeting.audioAvailability {
+        case .original:
+            EmptyView()
+        case .compressed:
+            Label("Audio compressé", systemImage: "archivebox")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .help("Audio compressé (AAC 32 kbps mono) — qualité STT dégradée si re-transcription")
+        case .deleted:
+            Label("Audio archivé", systemImage: "trash")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .help("Audio supprimé après 30 jours (politique de rétention). Rapport et transcription conservés.")
+        }
     }
 
     private var chevron: some View {
@@ -133,6 +156,9 @@ struct MeetingTopChromeBar: View {
                     .foregroundColor(.white).font(.caption2)
             }
             .buttonStyle(.plain)
+            .disabled(!meeting.hasPlayableAudio)
+            .opacity(meeting.hasPlayableAudio ? 1.0 : 0.4)
+            .help(meeting.hasPlayableAudio ? "Lecture" : "Audio supprimé après politique de rétention")
             Text("\(formatDuration(player.currentTime)) / \(formatDuration(max(player.duration, TimeInterval(meeting.durationSeconds))))")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.white)
@@ -376,9 +402,9 @@ struct MeetingTopChromeBar: View {
             Button(action: onImportCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
             Button(action: onImportExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
             Button(action: onEditAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
-                .disabled(!hasWAV)
+                .disabled(!meeting.hasPlayableAudio)
             Button(action: onRevealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
-                .disabled(!hasWAV)
+                .disabled(!meeting.hasPlayableAudio)
             Divider()
             Button(action: onSaveNow) { Label("Enregistrer maintenant", systemImage: "checkmark.circle") }
         } label: {
