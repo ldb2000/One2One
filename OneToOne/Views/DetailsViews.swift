@@ -963,9 +963,18 @@ struct CollaboratorDetailView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             ForEach(pendingTasks) { task in
                                 HStack {
-                                    Image(systemName: "circle")
-                                        .foregroundColor(.gray)
-                                        .font(.caption)
+                                    Button {
+                                        task.isCompleted = true
+                                        task.completedAt = Date()
+                                        try? context.save()
+                                    } label: {
+                                        Image(systemName: "circle")
+                                            .foregroundColor(.gray)
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Marquer comme fait")
+
                                     Text(task.title)
                                     Spacer()
                                     if let project = task.project {
@@ -985,9 +994,18 @@ struct CollaboratorDetailView: View {
                                 DisclosureGroup("Terminées (\(doneTasks.count))") {
                                     ForEach(doneTasks) { task in
                                         HStack {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundColor(.green)
-                                                .font(.caption)
+                                            Button {
+                                                task.isCompleted = false
+                                                task.completedAt = nil
+                                                try? context.save()
+                                            } label: {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .foregroundColor(.green)
+                                                    .font(.caption)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Marquer comme à faire")
+
                                             Text(task.title)
                                                 .strikethrough()
                                                 .foregroundColor(.secondary)
