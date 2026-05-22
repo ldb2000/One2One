@@ -127,6 +127,7 @@ struct ContentView: View {
             }
 
             registerHotkeys()
+            maybeRunAutoCleanup()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -168,6 +169,44 @@ struct ContentView: View {
             QuickLaunchURLHandler.handle(activity: activity,
                                          router: router,
                                          context: context)
+        }
+    }
+
+    @MainActor
+    private func maybeRunAutoCleanup() {
+        let descriptor = FetchDescriptor<AppSettings>()
+        guard let settings = (try? context.fetch(descriptor))?.first,
+              settings.autoCleanupOnLaunch else { return }
+        if let last = settings.lastCleanupAt,
+           Date().timeIntervalSince(last) < 24 * 60 * 60 {
+            return
+        }
+        let plan = WavRetentionService.plan(in: context, settings: settings)
+        guard !plan.toCompress.isEmpty || !plan.toDelete.isEmpty else { return }
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .maintenance,
+            meetingTitle: "Cleanup audio (auto)"
+        ) { _ in
+            for m in plan.toCompress {
+                try Task.checkCancellation()
+                do {
+                    try await WavRetentionService.compress(m, in: context)
+                } catch {
+                    print("[AutoCleanup] compress échec: \(error)")
+                }
+            }
+            for m in plan.toDelete {
+                try Task.checkCancellation()
+                await MainActor.run {
+                    WavRetentionService.delete(m, in: context)
+                }
+            }
+            await MainActor.run {
+                settings.lastCleanupAt = Date()
+                try? context.save()
+                StorageStatsService.shared.invalidate()
+            }
         }
     }
 
