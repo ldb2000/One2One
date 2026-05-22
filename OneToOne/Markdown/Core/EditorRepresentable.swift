@@ -44,6 +44,9 @@ struct EditorRepresentable: NSViewRepresentable {
             let attr = MarkdownParser.parse(incoming)
             let savedSelection = editor.selectedRange()
             editor.textStorage?.setAttributedString(attr)
+            if let storage = editor.textStorage {
+                StyleRenderer.applyVisualStyle(to: storage)
+            }
             let clampedLocation = min(savedSelection.location, attr.length)
             editor.setSelectedRange(NSRange(location: clampedLocation, length: 0))
             context.coordinator.lastKnownMarkdown = incoming
@@ -56,6 +59,9 @@ struct EditorRepresentable: NSViewRepresentable {
         editor.isEditable = !readOnly
         let attr = MarkdownParser.parse(markdown)
         editor.textStorage?.setAttributedString(attr)
+        if let storage = editor.textStorage {
+            StyleRenderer.applyVisualStyle(to: storage)
+        }
         coordinator.lastKnownMarkdown = markdown
     }
 
@@ -91,6 +97,9 @@ struct EditorRepresentable: NSViewRepresentable {
                 ShortcutDetector.apply(after: inserted, in: storage,
                                        cursor: cursor, features: features)
             }
+            // Ré-applique le styling visuel après chaque mutation pour que
+            // bold/italic/headings/lists apparaissent immédiatement.
+            StyleRenderer.applyVisualStyle(to: storage)
             pushMarkdownToBinding(force: false)
         }
 
