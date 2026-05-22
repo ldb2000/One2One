@@ -80,6 +80,7 @@ struct ActionsListView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .frame(maxWidth: 250)
 
                 projectFilterMenu
@@ -310,12 +311,12 @@ struct ActionTaskRow: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 Button(action: toggleCompleted) {
-                    Image(systemName: "circle.dashed")
-                        .foregroundColor(Color(red: 0.16, green: 0.65, blue: 0.27))  // GitHub-green
+                    Image(systemName: statusIcon)
+                        .foregroundColor(statusColor)
                         .font(.system(size: 18, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .help("Marquer comme terminée")
+                .help(statusHelp)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -398,30 +399,104 @@ struct ActionTaskRow: View {
 
     private var metaLine: some View {
         HStack(spacing: 4) {
+            // ID technique gardé en très discret (caption2 tertiary) pour
+            // ne pas saturer la ligne.
             Text("#\(task.persistentModelID.hashValue & 0xFFFF, specifier: "%X")")
-                .foregroundColor(.secondary)
-            Text("·").foregroundColor(.secondary)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             if let createdAt = task.createdAt {
+                Text("·").foregroundStyle(.tertiary)
                 Text("ouverte le \(Self.dateFmt.string(from: createdAt))")
-            } else {
-                Text("ouverte (date inconnue)")
             }
+            // "ouverte (date inconnue)" supprimé : pas d'info utile, juste du bruit.
             if let project = task.project {
-                Text("·").foregroundColor(.secondary)
+                Text("·").foregroundStyle(.tertiary)
                 Label(project.name, systemImage: "folder")
             }
             if let collab = task.collaborator {
-                Text("·").foregroundColor(.secondary)
+                Text("·").foregroundStyle(.tertiary)
                 Label(collab.name, systemImage: "person.fill")
             }
             if let due = task.dueDate {
-                Text("·").foregroundColor(.secondary)
-                Label(Self.dateFmt.string(from: due), systemImage: "calendar")
-                    .foregroundStyle(due < Date() ? .red : .secondary)
+                Text("·").foregroundStyle(.tertiary)
+                Label(Self.relativeDueLabel(due), systemImage: "calendar")
+                    .foregroundStyle(Self.dueColor(due))
+                    .help(Self.dateFmt.string(from: due))
             }
         }
         .font(.caption)
         .foregroundColor(.secondary)
+    }
+
+    // MARK: - Status visuals
+
+    private enum TaskStatus {
+        case overdue, dueToday, dueSoon, upcoming, undated
+    }
+
+    private var taskStatus: TaskStatus {
+        guard let due = task.dueDate else { return .undated }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today) ?? today
+        let in48h = cal.date(byAdding: .day, value: 2, to: today) ?? today
+        if due < today { return .overdue }
+        if due < tomorrow { return .dueToday }
+        if due < in48h { return .dueSoon }
+        return .upcoming
+    }
+
+    private var statusIcon: String {
+        switch taskStatus {
+        case .overdue:  return "exclamationmark.circle.fill"
+        case .dueToday: return "circle.fill"
+        case .dueSoon:  return "circle.fill"
+        case .upcoming: return "circle"
+        case .undated:  return "circle.dashed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch taskStatus {
+        case .overdue:  return .red
+        case .dueToday: return .orange
+        case .dueSoon:  return .blue
+        case .upcoming: return .secondary
+        case .undated:  return .secondary.opacity(0.6)
+        }
+    }
+
+    private var statusHelp: String {
+        switch taskStatus {
+        case .overdue:  return "En retard — cliquer pour marquer comme terminée"
+        case .dueToday: return "À échéance aujourd'hui"
+        case .dueSoon:  return "Échéance dans les 48h"
+        case .upcoming: return "À venir"
+        case .undated:  return "Sans date"
+        }
+    }
+
+    static func relativeDueLabel(_ due: Date) -> String {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let dueDay = cal.startOfDay(for: due)
+        let days = cal.dateComponents([.day], from: today, to: dueDay).day ?? 0
+        switch days {
+        case ..<0:  return "En retard de \(-days)j"
+        case 0:     return "Aujourd'hui"
+        case 1:     return "Demain"
+        case 2...7: return "Dans \(days)j"
+        default:    return dateFmt.string(from: due)
+        }
+    }
+
+    static func dueColor(_ due: Date) -> Color {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let in48h = cal.date(byAdding: .day, value: 2, to: today) ?? today
+        if due < today { return .red }
+        if due < in48h { return .orange }
+        return .secondary
     }
 
     private var expandedDetails: some View {
