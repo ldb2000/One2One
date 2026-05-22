@@ -159,17 +159,41 @@ struct MeetingTopChromeBar: View {
     @ViewBuilder
     private var captureButton: some View {
         if captureService.isCapturing {
-            Button(action: onShowSlides) {
-                HStack(spacing: 4) {
-                    Circle().fill(Color.blue).frame(width: 6, height: 6)
-                    Text("\(captureService.capturedSlidesCount) slides")
+            HStack(spacing: 4) {
+                Button(action: onShowSlides) {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.blue).frame(width: 6, height: 6)
+                        Text("\(captureService.capturedSlidesCount) slides")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(Color.blue.opacity(0.15)))
+                    .foregroundColor(.blue)
                 }
-                .font(.caption)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Capsule().fill(Color.blue.opacity(0.15)))
-                .foregroundColor(.blue)
+                .buttonStyle(.plain)
+                .help("Voir les slides capturées")
+
+                Menu {
+                    Button {
+                        onShowCaptureSetup()
+                    } label: {
+                        Label("Changer la source…", systemImage: "rectangle.dashed.badge.record")
+                    }
+                    Button(role: .destructive) {
+                        Task { await captureService.stop() }
+                    } label: {
+                        Label("Arrêter la capture", systemImage: "stop.circle")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Options de capture")
             }
-            .buttonStyle(.plain)
         } else if capturedSlidesCount > 0 {
             Button(action: onShowSlides) {
                 Label("Capture", systemImage: "camera.viewfinder")

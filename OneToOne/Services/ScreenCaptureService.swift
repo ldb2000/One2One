@@ -48,11 +48,17 @@ final class ScreenCaptureService: NSObject, ObservableObject, SCStreamOutput {
     // Config
     var selectedSource: CaptureSource?
     
-    func start(mode: CaptureMode, 
-               interval: TimeInterval = 2.0, 
-               threshold: Int = 12, 
-               meeting: Meeting, 
+    func start(mode: CaptureMode,
+               interval: TimeInterval = 2.0,
+               threshold: Int = 12,
+               meeting: Meeting,
                context: ModelContext) async {
+        // Si une capture est déjà en cours (changement de source live),
+        // on l'arrête proprement d'abord pour éviter de laisser un SCStream
+        // orphelin.
+        if isCapturing {
+            await stop()
+        }
         self.mode = mode
         self.autoInterval = interval
         self.autoThreshold = threshold
