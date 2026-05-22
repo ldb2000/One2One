@@ -95,24 +95,26 @@ enum ShortcutDetector {
     private static func matchInline(closer: String, opener: String,
                                     before cursor: Int,
                                     in ns: NSString) -> NSRange? {
-        // `cursor` points just after the inserted space ; we want the closer
-        // to end at `cursor - 1`.
-        let closerEnd = cursor - 1
-        guard closerEnd >= closer.count else { return nil }
-        let closerStart = closerEnd - closer.count
+        // `cursor` = insertion point AFTER the trailing space. Donc l'espace
+        // est à `cursor - 1` et la fin exclusive du closer est aussi à
+        // `cursor - 1` (closer juste avant l'espace).
+        let closerEndExclusive = cursor - 1
+        guard closerEndExclusive >= closer.count else { return nil }
+        let closerStart = closerEndExclusive - closer.count
         let closerCandidate = ns.substring(with: NSRange(location: closerStart, length: closer.count))
         guard closerCandidate == closer else { return nil }
-        // Search backwards for opener.
         let searchEnd = closerStart
         guard searchEnd >= opener.count else { return nil }
         let openerRange = ns.range(of: opener,
                                    options: [.backwards],
                                    range: NSRange(location: 0, length: searchEnd))
         guard openerRange.location != NSNotFound else { return nil }
-        let inner = NSRange(location: openerRange.location + openerRange.length,
-                            length: closerStart - (openerRange.location + openerRange.length))
-        guard inner.length > 0 else { return nil }
-        return NSRange(location: openerRange.location, length: closerEnd + closer.count - openerRange.location)
+        let innerStart = openerRange.location + openerRange.length
+        let innerLength = closerStart - innerStart
+        guard innerLength > 0 else { return nil }
+        // Full match = opener + inner + closer (l'espace reste en place).
+        return NSRange(location: openerRange.location,
+                       length: closerEndExclusive - openerRange.location)
     }
 
     /// Wraps a range `[opener…inner…closer]` by deleting opener and closer

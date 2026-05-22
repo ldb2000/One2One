@@ -99,6 +99,10 @@ struct EditorRepresentable: NSViewRepresentable {
         var features: Set<MarkdownFeature>
         var debounce: TimeInterval
         private var debounceTask: Task<Void, Never>?
+        /// Garde anti-récursion : `ShortcutDetector.apply` mute le storage,
+        /// ce qui re-déclenche `textDidChange`. Sans ce flag on appliquerait
+        /// les shortcuts en boucle.
+        private var isApplyingShortcut: Bool = false
 
         init(parent: EditorRepresentable) {
             self.parent = parent
@@ -113,18 +117,22 @@ struct EditorRepresentable: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let tv = textView, let storage = tv.textStorage else { return }
+            if isApplyingShortcut { return }
             // Apply shortcuts after the change took effect.
             let cursor = tv.selectedRange().location
-            // The last inserted character is at cursor - 1 if non-empty.
             if cursor > 0 {
                 let inserted = (storage.string as NSString)
                     .substring(with: NSRange(location: cursor - 1, length: 1))
+                isApplyingShortcut = true
                 ShortcutDetector.apply(after: inserted, in: storage,
                                        cursor: cursor, features: features)
+                isApplyingShortcut = false
             }
             // Ré-applique le styling visuel après chaque mutation pour que
             // bold/italic/headings/lists apparaissent immédiatement.
+            isApplyingShortcut = true
             StyleRenderer.applyVisualStyle(to: storage)
+            isApplyingShortcut = false
             pushMarkdownToBinding(force: false)
         }
 
