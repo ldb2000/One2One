@@ -99,16 +99,14 @@ struct AIReportService {
     ) async throws -> MeetingReportData {
         let template = meeting.reportTemplate ?? defaultTemplate(for: meeting.kind, in: context)
         let history = template.map { HistoryContextBuilder.build(for: meeting, template: $0, in: context) } ?? ""
+        let preamble = template?.preamble ?? "Tu es l'assistant de synthèse de OneToOne."
         let body = template?.promptBody ?? ""
         let sections = template?.sections ?? []
 
-        // 1. Resolve {{vars}} in the body
+        // 1. Resolve {{vars}} in the body.
         var resolved = TemplateVariableResolver.resolve(prompt: body, for: meeting, in: context)
 
-        // 2. Substitute {{historique_n}} with the history bloc. Si le template
-        // a un mode != .none mais ne contient pas le placeholder, l'historique
-        // serait silencieusement perdu — on l'append en queue de prompt dans
-        // ce cas pour garantir qu'il atteint le LLM.
+        // 2. Historique inline ou append.
         let hasHistoryPlaceholder = resolved.contains("{{historique_n}}")
             || resolved.contains("{{project.historique_n}}")
         resolved = resolved.replacingOccurrences(of: "{{historique_n}}", with: history)
@@ -121,7 +119,13 @@ struct AIReportService {
             historyAppendix += "\n\nContexte sémantique (RAG, extraits pertinents) :\n\(additionalContext)\n"
         }
 
-        // 3. Append the sections schema so the LLM structures its output
+        // 3. Documents joints (extraction script).
+        let attachmentsBlock = buildAttachmentsBlock(
+            for: meeting,
+            promptLen: resolved.count + historyAppendix.count
+        )
+
+        // 4. Sections schema.
         var sectionsBlock = ""
         if !sections.isEmpty {
             sectionsBlock = "\n\n# Sections attendues (respecte cet ordre, un # par titre):\n"
@@ -130,34 +134,55 @@ struct AIReportService {
             }
         }
 
+        // 5. Prompt final — markdown libre, plus de schéma JSON.
         let finalPrompt = """
-        Tu es l'assistant de synthèse de OneToOne.
+        \(preamble)
 
-        \(resolved)\(historyAppendix)
+        \(resolved)\(historyAppendix)\(attachmentsBlock)
         \(sectionsBlock)
 
-        Réponds EXCLUSIVEMENT en JSON strict avec ce schéma :
-        {
-          "summary": "<le compte-rendu complet en markdown, structuré autour des sections demandées ci-dessus, en français, concis et factuel>",
-          "keyPoints": ["point clé 1", "point clé 2"],
-          "decisions": ["décision 1", "décision 2"],
-          "openQuestions": ["question ouverte 1"],
-          "actions": [
-            { "title": "Action exacte", "assignee": "Nom complet ou null", "deadline": "YYYY-MM-DD ou null" }
-          ],
-          "alerts": [
-            { "title": "Titre alerte", "detail": "Description", "severity": "Critique|Élevé|Modéré|Faible" }
-          ]
-        }
-
-        Le champ `summary` est obligatoire et contient le rapport en markdown
-        (sections, listes, gras). Les autres tableaux peuvent être vides `[]`
-        si rien ne s'applique.
+        Produis un rapport en markdown français, structuré autour des sections
+        demandées ci-dessus, concis et factuel. Pas de JSON, pas d'en-tête XML —
+        uniquement le markdown du rapport.
         """
 
-        reportLog.info("generate(meeting): template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count)")
-        let raw = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress)
-        return parse(raw)
+        reportLog.info("generate(meeting): template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count) attachmentsChars=\(attachmentsBlock.count)")
+        let markdown = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress)
+
+        // 6. Extraction structurée 2e passe (Task 6 fournira la fonction).
+        let extracted = await extractStructured(markdown: markdown, meeting: meeting, settings: settings)
+
+        return MeetingReportData(
+            summary: markdown,
+            keyPoints: extracted.keyPoints,
+            decisions: extracted.decisions,
+            openQuestions: extracted.openQuestions,
+            actions: extracted.actions,
+            alerts: extracted.alerts
+        )
+    }
+
+    /// Concatène les `extractedText` des attachments du meeting (pptx, pdf,
+    /// docx…) en un bloc markdown injecté dans le prompt de génération.
+    /// Plafonné par `promptLen` pour ne pas dépasser un budget total de
+    /// ~30 000 caractères. Au-delà → on saute le bloc, le RAG (indexé
+    /// séparément) prend le relais via `additionalContext`.
+    private static func buildAttachmentsBlock(for meeting: Meeting, promptLen: Int) -> String {
+        let docs = meeting.attachments.compactMap { att -> (String, String)? in
+            let txt = att.extractedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !txt.isEmpty else { return nil }
+            return (att.fileName, txt)
+        }
+        guard !docs.isEmpty else { return "" }
+        let totalBudget = 30_000 - promptLen
+        guard totalBudget > 1000 else { return "" }
+        let perDoc = max(500, totalBudget / docs.count)
+        var block = "\n\n# Documents joints à cette réunion\n"
+        for (name, txt) in docs {
+            block += "## \(name)\n"
+            block += String(txt.prefix(perDoc)) + "\n\n"
+        }
+        return block
     }
 
     // MARK: - Critique pass (inspiré tevslin/meeting-reporter)
@@ -413,6 +438,79 @@ struct AIReportService {
         - Toutes les chaînes en français.
         - Pas de texte avant ou après le JSON. Pas de bloc markdown ``` ```.
         """
+    }
+
+    // MARK: - ExtractedFacts
+
+    /// Faits structurés extraits depuis le markdown du rapport par la 2e
+    /// passe LLM. Permet d'alimenter actions / alerts SwiftData sans imposer
+    /// un schéma JSON dans le prompt de génération principal.
+    struct ExtractedFacts {
+        var keyPoints: [String]
+        var decisions: [String]
+        var openQuestions: [String]
+        var actions: [MeetingReportData.ActionProposal]
+        var alerts: [MeetingReportData.AlertProposal]
+
+        static let empty = ExtractedFacts(
+            keyPoints: [], decisions: [], openQuestions: [], actions: [], alerts: []
+        )
+    }
+
+    /// Passe 2 : extrait actions / alerts / décisions / questions / points clés
+    /// depuis le markdown produit par `generate`. Le prompt ci-dessous est
+    /// volontairement hardcoded (pas éditable côté template) car il garantit
+    /// le contrat JSON attendu par le parser `parse(...)`. Si on rendait ce
+    /// schéma éditable, le parser casserait silencieusement à la première
+    /// dérive de format.
+    @MainActor
+    static func extractStructured(
+        markdown: String,
+        meeting: Meeting,
+        settings: AppSettings
+    ) async -> ExtractedFacts {
+        let prompt = """
+        Analyse ce compte-rendu de réunion et extrais les éléments structurés
+        pour alimenter la base de données. Réponds EXCLUSIVEMENT en JSON strict
+        avec ce schéma :
+        {
+          "summary": "",
+          "keyPoints": ["..."],
+          "decisions": ["..."],
+          "openQuestions": ["..."],
+          "actions": [
+            { "title": "...", "assignee": "Nom complet ou null", "deadline": "YYYY-MM-DD ou null" }
+          ],
+          "alerts": [
+            { "title": "...", "detail": "...", "severity": "Critique|Élevé|Modéré|Faible" }
+          ]
+        }
+
+        Règles :
+        - Tableaux vides `[]` si rien ne s'applique
+        - `assignee` = nom complet exact si mentionné, sinon null
+        - `deadline` = format ISO YYYY-MM-DD ou null
+        - Pas d'invention — uniquement ce qui est explicitement dans le compte-rendu
+        - Le champ `summary` doit rester vide ("") car on conserve le markdown original
+
+        Compte-rendu à analyser :
+        \(markdown)
+        """
+
+        do {
+            let raw = try await AIClient.send(prompt: prompt, settings: settings)
+            let parsed = parse(raw)
+            return ExtractedFacts(
+                keyPoints: parsed.keyPoints,
+                decisions: parsed.decisions,
+                openQuestions: parsed.openQuestions,
+                actions: parsed.actions,
+                alerts: parsed.alerts
+            )
+        } catch {
+            reportLog.warning("extractStructured failed: \(error.localizedDescription, privacy: .public) — keeping markdown only")
+            return .empty
+        }
     }
 
     // MARK: - Parsing
