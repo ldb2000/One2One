@@ -10,6 +10,7 @@ enum AudioCompressionService {
 
     static func compress(url: URL) async throws -> URL {
         guard FileManager.default.fileExists(atPath: url.path) else {
+            compLog.error("compress failed url=\(url.lastPathComponent, privacy: .public) reason=source-missing")
             throw NSError(domain: "AudioCompressionService", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Source introuvable"])
         }
@@ -25,6 +26,7 @@ enum AudioCompressionService {
             asset: asset,
             presetName: AVAssetExportPresetAppleM4A
         ) else {
+            compLog.error("compress failed url=\(url.lastPathComponent, privacy: .public) reason=no-export-session")
             throw NSError(domain: "AudioCompressionService", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "AVAssetExportSession indisponible"])
         }
@@ -35,6 +37,7 @@ enum AudioCompressionService {
         await export.export()
         guard export.status == .completed else {
             try? FileManager.default.removeItem(at: tmp)
+            compLog.error("compress failed url=\(url.lastPathComponent, privacy: .public) reason=export-incomplete")
             throw export.error ?? NSError(
                 domain: "AudioCompressionService", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "Export AVAssetExportSession incomplet"])
@@ -42,8 +45,16 @@ enum AudioCompressionService {
 
         let origDuration = AudioFileEditor.duration(url: url)
         let newDuration = AudioFileEditor.duration(url: tmp)
+        guard origDuration > 0.1 && newDuration > 0.1 else {
+            try? FileManager.default.removeItem(at: tmp)
+            compLog.error("compress failed url=\(url.lastPathComponent, privacy: .public) reason=duration-invalid orig=\(origDuration)s new=\(newDuration)s")
+            throw NSError(domain: "AudioCompressionService", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "Durée invalide (orig=\(origDuration)s, new=\(newDuration)s)"])
+        }
         guard abs(newDuration - origDuration) <= 0.5 else {
             try? FileManager.default.removeItem(at: tmp)
+            compLog.error("compress failed url=\(url.lastPathComponent, privacy: .public) reason=duration-mismatch orig=\(origDuration)s new=\(newDuration)s")
             throw NSError(domain: "AudioCompressionService", code: 4,
                           userInfo: [NSLocalizedDescriptionKey:
                             "Durée incohérente après compression (\(newDuration)s vs \(origDuration)s)"])
