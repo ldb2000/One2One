@@ -809,6 +809,7 @@ struct CollaboratorDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingPhotoImporter = false
     @State private var showingPhotoSearch = false
+    @State private var prepExpanded: Bool = false
     @Query private var allMeetings: [Meeting]
     @Query private var appSettings: [AppSettings]
 
@@ -884,8 +885,19 @@ struct CollaboratorDetailView: View {
                 }
 
                 GroupBox {
-                    DisclosureGroup(isExpanded: .constant(!collaborator.standingPrepNotes.isEmpty)) {
+                    DisclosureGroup(isExpanded: $prepExpanded) {
                         VStack(alignment: .leading, spacing: 6) {
+                            if collaborator.standingPrepNotes.isEmpty {
+                                HStack {
+                                    Spacer()
+                                    Text("Aucune préparation. Saisis directement ci-dessous ou clique sur « Générer brouillon IA ».")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                    Spacer()
+                                }
+                                .padding(.bottom, 4)
+                            }
                             MarkdownEditorView(
                                 text: Binding(
                                     get: { collaborator.standingPrepNotes },
@@ -917,6 +929,22 @@ struct CollaboratorDetailView: View {
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                         }
+                    }
+                    .onAppear {
+                        if !prepExpanded {
+                            prepExpanded = !collaborator.standingPrepNotes.isEmpty
+                        }
+                    }
+                    if !prepExpanded && collaborator.standingPrepNotes.isEmpty {
+                        HStack {
+                            Spacer()
+                            Button("Créer une préparation") {
+                                prepExpanded = true
+                            }
+                            .buttonStyle(.bordered)
+                            Spacer()
+                        }
+                        .padding(.top, 4)
                     }
                 }
 
