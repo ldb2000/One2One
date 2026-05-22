@@ -663,6 +663,11 @@ struct SettingsView: View {
                         .padding(8)
                 }
 
+                GroupBox("Maintenance") {
+                    MaintenanceView()
+                        .padding(8)
+                }
+
                 GroupBox("Templates de rapport") {
                     ReportTemplateListView()
                         .padding(8)
