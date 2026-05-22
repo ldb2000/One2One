@@ -311,74 +311,23 @@ final class MarkdownEditorRegistry {
     }
 }
 
-/// Editable NSTextView that registers itself for toolbar access.
-struct MarkdownEditorView: NSViewRepresentable {
+/// Back-compat wrapper kept for the historical call-sites that pass
+/// `textViewID:`. Under the hood this is the new WYSIWYG
+/// `MarkdownTextEditor`. The `textViewID` argument is now ignored — the
+/// internal NSTextView no longer needs an external identity because focus
+/// is handled by SwiftUI's `.focused()` modifier on the host.
+struct MarkdownEditorView: View {
     @Binding var text: String
     let textViewID: String
 
-    func makeNSView(context: Context) -> NSScrollView {
-        // Use PastableMarkdownTextView to support Cmd+V image paste
-        let textView = PastableMarkdownTextView()
-        textView.string = text
-        textView.isRichText = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.delegate = context.coordinator
-        textView.textContainerInset = NSSize(width: 8, height: 8)
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-
-        MarkdownEditorRegistry.shared.register(textView, id: textViewID)
-        return scrollView
+    init(text: Binding<String>, textViewID: String = "") {
+        self._text = text
+        self.textViewID = textViewID
     }
 
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? PastableMarkdownTextView else { return }
-        if textView.string != text {
-            let selectedRange = textView.selectedRange()
-            textView.string = text
-            // Restore cursor if valid
-            if selectedRange.location <= text.count {
-                textView.setSelectedRange(selectedRange)
-            }
-        }
-    }
-
-    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        coordinator.unregister()
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, textViewID: textViewID)
-    }
-
-    class Coordinator: NSObject, NSTextViewDelegate {
-        var text: Binding<String>
-        let textViewID: String
-
-        init(text: Binding<String>, textViewID: String) {
-            self.text = text
-            self.textViewID = textViewID
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
-        }
-
-        func unregister() {
-            MarkdownEditorRegistry.shared.unregister(id: textViewID)
-        }
+    var body: some View {
+        MarkdownTextEditor(text: $text)
+            .markdownFeatures(.prep)
     }
 }
 
