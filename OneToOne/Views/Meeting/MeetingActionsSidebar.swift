@@ -350,18 +350,18 @@ struct MeetingActionsSidebar: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                if let c = task.collaborator {
-                    AvatarMini(collaborator: c, tint: settings.meetingParticipantColor)
-                    Text(c.name).font(.caption).foregroundColor(.secondary)
-                } else {
-                    Image(systemName: "person.crop.circle")
-                        .font(.caption2).foregroundColor(.secondary)
-                    Text("Non assigné").font(.caption).foregroundColor(.secondary)
-                }
-                Image(systemName: "chevron.down")
-                    .font(.caption2).foregroundStyle(.tertiary)
-            }
+            // macOS Menu .borderlessButton n'accepte qu'un Text/Label plat
+            // dans son label. AvatarMini + HStack complexe disparait. On
+            // utilise un Label SwiftUI standard avec SF Symbol + nom.
+            Label(
+                task.collaborator?.name ?? "Non assigné",
+                systemImage: task.collaborator != nil
+                    ? "person.crop.circle.fill"
+                    : "person.crop.circle"
+            )
+            .font(.caption)
+            .foregroundColor(task.collaborator != nil ? .primary : .secondary)
+            .labelStyle(.titleAndIcon)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -387,16 +387,13 @@ struct MeetingActionsSidebar: View {
                 saveContext()
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar").font(.caption2).foregroundColor(.secondary)
-                if let dd = task.dueDate {
-                    Text(shortDate(dd)).font(.caption).foregroundColor(.secondary)
-                } else {
-                    Text("Pas d'échéance").font(.caption).foregroundColor(.secondary)
-                }
-                Image(systemName: "chevron.down")
-                    .font(.caption2).foregroundStyle(.tertiary)
-            }
+            Label(
+                task.dueDate.map(shortDate) ?? "Pas d'échéance",
+                systemImage: "calendar"
+            )
+            .font(.caption)
+            .foregroundColor(task.dueDate != nil ? .primary : .secondary)
+            .labelStyle(.titleAndIcon)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
