@@ -200,14 +200,19 @@ struct JobQueueSidebar: View {
     @ViewBuilder
     private func progressLine(_ job: JobQueue.Job) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            if let p = job.progress {
-                ProgressView(value: p)
-                    .progressViewStyle(.linear)
-                    .controlSize(.small)
-            } else {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .controlSize(.small)
+            HStack(spacing: 6) {
+                if let p = job.progress {
+                    ProgressView(value: max(0, min(1, p)))
+                        .progressViewStyle(.linear)
+                        .controlSize(.small)
+                    Text("\(Int((max(0, min(1, p))) * 100))%")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .controlSize(.small)
+                }
             }
             if let s = job.statusText, !s.isEmpty {
                 Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
