@@ -18,16 +18,41 @@ struct EditorRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
-        guard let tv = scroll.documentView as? NSTextView else { return scroll }
-        // Replace AppKit-provided NSTextView with our subclass while keeping
-        // the layout setup that scrollableTextView() returned.
-        let editor = EditorTextView(frame: tv.frame, textContainer: tv.textContainer)
-        scroll.documentView = editor
+        // Build the TextKit stack manually : NSTextStorage → NSLayoutManager →
+        // NSTextContainer → NSTextView. Le pattern `scrollableTextView()` +
+        // remplacement de documentView casse la chaîne (le layout manager
+        // d'origine reste branché sur l'ancien NSTextView).
+        let scroll = NSScrollView()
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let huge: CGFloat = 1_000_000
+        let container = NSTextContainer(
+            containerSize: NSSize(width: 0, height: huge)
+        )
+        container.widthTracksTextView = true
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+
+        let initialFrame = NSRect(origin: .zero, size: NSSize(width: 200, height: 100))
+        let editor = EditorTextView(frame: initialFrame, textContainer: container)
+        editor.minSize = NSSize(width: 0, height: 0)
+        editor.maxSize = NSSize(width: huge, height: huge)
+        editor.isVerticallyResizable = true
+        editor.isHorizontallyResizable = false
+        editor.autoresizingMask = [NSView.AutoresizingMask.width]
+
         editor.delegate = context.coordinator
-        editor.onTaskToggle = { [weak coord = context.coordinator] _, _ in
+        editor.onTaskToggle = { [weak coord = context.coordinator] (_: NSRange, _: Bool) in
             coord?.pushMarkdownToBinding(force: true)
         }
+        scroll.documentView = editor
         context.coordinator.textView = editor
         applyInitialState(editor: editor, coordinator: context.coordinator)
         return scroll
