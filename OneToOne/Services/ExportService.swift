@@ -17,6 +17,7 @@ enum MeetingMailClient {
     case outlook     // Microsoft Outlook
 }
 
+@MainActor
 class ExportService {
     func exportToMarkdown(interview: Interview) -> String {
         if interview.type == .job {
@@ -445,107 +446,14 @@ class ExportService {
     /// projet, participants) + résumé + points clés + décisions + questions
     /// ouvertes + actions + notes live + (optionnel) transcript intégral.
     private func buildMeetingHTML(meeting: Meeting, includeTranscript: Bool) -> String {
-        let dateStr = meeting.date.formatted(date: .long, time: .shortened)
-        let title = meeting.title.isEmpty ? "Réunion" : meeting.title
-        let projectLine = meeting.project.map { p in
-            "<div class=\"meta-line\"><strong>Projet</strong> · \(escapeHTML(p.code)) — \(escapeHTML(p.name))</div>"
-        } ?? ""
-        let participants = meeting.participants.map(\.name).sorted().joined(separator: ", ")
-        let participantsLine = participants.isEmpty ? "" :
-            "<div class=\"meta-line\"><strong>Participants</strong> · \(escapeHTML(participants))</div>"
-
-        let summaryHTML = htmlParagraphs(from: meeting.summary)
-        let keyPointsHTML = htmlList(meeting.keyPoints.map { escapeHTML($0) })
-        let decisionsHTML = htmlList(meeting.decisions.map { escapeHTML($0) })
-        let questionsHTML = htmlList(meeting.openQuestions.map { escapeHTML($0) })
-
-        let openTasks = meeting.tasks.filter { !$0.isCompleted }
-        let actionsHTML = htmlList(openTasks.map { task in
-            let who = task.collaborator?.name ?? "Non assigné"
-            let due = task.dueDate.map { " <span class=\"muted\">(échéance \($0.formatted(date: .numeric, time: .omitted)))</span>" } ?? ""
-            return "<strong>\(escapeHTML(who))</strong> — \(escapeHTML(task.title))\(due)"
-        })
-
-        let liveNotesHTML: String
-        if meeting.liveNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            liveNotesHTML = ""
-        } else {
-            liveNotesHTML = """
-            <h2>Notes prises en live</h2>
-            \(htmlParagraphs(from: meeting.liveNotes))
-            """
-        }
-
-        let transcriptSection: String
-        if includeTranscript, !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            transcriptSection = """
-            <h2>Transcription complète</h2>
-            <div class="transcript">\(htmlParagraphs(from: meeting.rawTranscript))</div>
-            """
-        } else {
-            transcriptSection = ""
-        }
-
-        return """
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head>
-        <meta charset="utf-8">
-        <style>
-        body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1f2937; font-size: 13px; line-height: 1.55; margin: 0; }
-        .header { width: 100%; border-bottom: 2px solid #d71920; padding-bottom: 16px; margin-bottom: 18px; }
-        .header td { vertical-align: top; }
-        .logo { font-size: 26px; font-weight: 800; color: #d71920; letter-spacing: 1px; }
-        .meta { text-align: right; }
-        .meta .date { font-size: 14px; font-weight: 700; color: #111827; }
-        .title { font-size: 22px; font-weight: 750; color: #111827; margin: 0 0 4px 0; }
-        .meta-line { color: #374151; margin: 2px 0; font-size: 12px; }
-        h2 { font-size: 14px; color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-top: 22px; margin-bottom: 10px; }
-        p { margin: 0 0 8px 0; }
-        ul { margin: 0; padding-left: 18px; }
-        li { margin-bottom: 6px; }
-        .muted { color: #6b7280; }
-        .empty { color: #9ca3af; font-style: italic; }
-        .transcript { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; font-size: 12px; color: #374151; white-space: normal; }
-        </style>
-        </head>
-        <body>
-            <table class="header" cellspacing="0" cellpadding="0" width="100%">
-                <tr>
-                    <td>\(logoHTML())</td>
-                    <td class="meta">
-                        <div class="date">\(escapeHTML(dateStr))</div>
-                        <div class="muted">Type · \(escapeHTML(meeting.kind.label))</div>
-                        <div class="muted">Laurent DE BERTI</div>
-                    </td>
-                </tr>
-            </table>
-
-            <div class="title">\(escapeHTML(title))</div>
-            \(projectLine)
-            \(participantsLine)
-
-            <h2>Résumé</h2>
-            \(summaryHTML)
-
-            <h2>Points clés</h2>
-            \(keyPointsHTML)
-
-            <h2>Décisions</h2>
-            \(decisionsHTML)
-
-            <h2>Questions ouvertes</h2>
-            \(questionsHTML)
-
-            <h2>Actions</h2>
-            \(actionsHTML)
-
-            \(liveNotesHTML)
-
-            \(transcriptSection)
-        </body>
-        </html>
-        """
+        // Délégué au builder thémé (rapport styling 2026-05-22).
+        // Le template courant du meeting est utilisé pour eyebrow + subtitle ;
+        // si nil, fallback à template kind par défaut depuis meeting.kind.
+        return ReportHTMLBuilder.build(
+            meeting: meeting,
+            template: meeting.reportTemplate,
+            includeTranscript: includeTranscript
+        )
     }
 
     /// Exporte une réunion vers Apple Notes en HTML formaté avec les mêmes
