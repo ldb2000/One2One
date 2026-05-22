@@ -16,6 +16,7 @@ struct ScreenCaptureConfigView: View {
     @State private var interval: Double = 2.0
     @State private var threshold: Double = 12.0
     @State private var selectedRect: CGRect?
+    @State private var selectedDisplayID: CGDirectDisplayID?
 
     private var settings: AppSettings {
         settingsList.canonicalSettings ?? AppSettings()
@@ -66,8 +67,9 @@ struct ScreenCaptureConfigView: View {
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Button("Définir la zone…") {
-                        RectSelectorWindow.show(onSelected: { rect in
+                        RectSelectorWindow.show(onSelected: { rect, displayID in
                             self.selectedRect = rect
+                            self.selectedDisplayID = displayID
                         }, onCancel: {})
                     }
                     .buttonStyle(.bordered)
@@ -184,8 +186,19 @@ struct ScreenCaptureConfigView: View {
                   let window = sources.windows.first(where: { $0.windowID == windowID }) else { return }
             service.selectedSource = .window(window)
         } else {
-            guard let rect = selectedRect,
-                  let display = sources.displays.first else { return } // On prend le premier display par défaut
+            guard let rect = selectedRect else { return }
+            // Résout le SCDisplay qui correspond au CGDirectDisplayID renvoyé
+            // par le sélecteur multi-écrans. Fallback sur le premier display
+            // si l'ID n'est pas trouvé (cas dégénéré : écran déconnecté).
+            let display: SCDisplay
+            if let id = selectedDisplayID,
+               let match = sources.displays.first(where: { $0.displayID == id }) {
+                display = match
+            } else if let first = sources.displays.first {
+                display = first
+            } else {
+                return
+            }
             service.selectedSource = .display(display, rect)
         }
         
