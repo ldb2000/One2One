@@ -29,7 +29,21 @@ final class AppSettings {
     var cloudToken: String = ""
     var apiEndpoint: String = "https://api.openai.com/v1"
     var modelName: String = "gpt-4o"
-    var provider: AIProvider = AIProvider.claudeOAuth
+
+    /// Stockage stable du provider en `String` plutôt qu'enum Codable.
+    /// Contournement du bug SwiftData où les enums `Codable` non-Optionnels
+    /// avec valeur par défaut ne sont pas restaurés correctement après
+    /// relaunch (le champ est réinitialisé à la valeur par défaut à chaque
+    /// chargement). En stockant le rawValue en String pur, SwiftData
+    /// persiste de manière fiable.
+    var providerRaw: String = AIProvider.claudeOAuth.rawValue
+
+    /// Provider exposé en enum — lecture/écriture transparente via
+    /// `providerRaw`. Computed donc non-stocké : pas de doublon en DB.
+    var provider: AIProvider {
+        get { AIProvider(rawValue: providerRaw) ?? .claudeOAuth }
+        set { providerRaw = newValue.rawValue }
+    }
 
     // Per-feature AI toggles
     var useAIForImport: Bool = true
