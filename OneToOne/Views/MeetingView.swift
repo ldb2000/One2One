@@ -861,14 +861,27 @@ struct MeetingView: View {
                     .padding(.horizontal, 8).padding(.top, 4)
                 Divider()
                 if reportEditMode {
-                    MarkdownEditorView(
-                        text: Binding(
-                            get: { meeting.summary },
-                            set: { meeting.summary = $0; try? context.save() }
-                        ),
-                        textViewID: "reportEditor.\(meeting.persistentModelID.hashValue)"
-                    )
-                    .padding(12)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            MarkdownEditorView(
+                                text: Binding(
+                                    get: { meeting.summary },
+                                    set: { meeting.summary = $0; try? context.save() }
+                                ),
+                                textViewID: "reportEditor.\(meeting.persistentModelID.hashValue)"
+                            )
+                            .frame(minHeight: 280)
+
+                            Divider()
+
+                            decisionsEditor
+
+                            Divider()
+
+                            actionsNotice
+                        }
+                        .padding(12)
+                    }
                 } else {
                     MeetingReportPreview(html: ReportHTMLBuilder.build(
                         meeting: meeting,
@@ -879,6 +892,85 @@ struct MeetingView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var decisionsEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("DÉCISIONS")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .tracking(1.2)
+                Text("(\(meeting.decisions.count))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button {
+                    meeting.decisions.append("")
+                    try? context.save()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Ajouter une décision")
+            }
+
+            if meeting.decisions.isEmpty {
+                Text("Aucune décision. Ces lignes apparaîtront automatiquement comme tableau « Relevé de décisions » dans le rapport.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(Array(meeting.decisions.enumerated()), id: \.offset) { idx, _ in
+                    HStack(spacing: 6) {
+                        Text("D\(idx + 1)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, alignment: .leading)
+                        TextField("Décision…", text: Binding(
+                            get: { idx < meeting.decisions.count ? meeting.decisions[idx] : "" },
+                            set: { newValue in
+                                guard idx < meeting.decisions.count else { return }
+                                meeting.decisions[idx] = newValue
+                                try? context.save()
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        Button {
+                            guard idx < meeting.decisions.count else { return }
+                            meeting.decisions.remove(at: idx)
+                            try? context.save()
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Supprimer cette décision")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionsNotice: some View {
+        HStack(spacing: 6) {
+            Text("PLAN D'ACTIONS")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .tracking(1.2)
+            Text("(\(meeting.tasks.count))")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Text("↗ Éditer via le panneau Actions (droite)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .italic()
+        }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
