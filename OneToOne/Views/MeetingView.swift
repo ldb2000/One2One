@@ -2382,66 +2382,89 @@ struct MeetingView: View {
     private func reidentifySpeakers() {
         guard let wavPath = meeting.wavFilePath, !wavPath.isEmpty else { return }
         let url = URL(fileURLWithPath: wavPath)
-        Task { @MainActor in
-            transcriptionPhase = .reidentifying
-            transcriptionProgress = nil
-            transcriptionProgressStatus = nil
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .diarization,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title + " · diarisation"
+        ) { jobID in
+            await MainActor.run {
+                self.transcriptionPhase = .reidentifying
+                self.transcriptionProgress = nil
+                self.transcriptionProgressStatus = nil
+            }
             do {
+                try Task.checkCancellation()
                 let out = try await PyannoteDiarizer.shared.diarize(
                     audioURL: url,
                     onPhase: { phase in
-                        if case .loadingModel = phase {
-                            transcriptionPhase = .loadingModel
-                        } else {
-                            transcriptionPhase = .reidentifying
+                        Task { @MainActor in
+                            if case .loadingModel = phase {
+                                self.transcriptionPhase = .loadingModel
+                            } else {
+                                self.transcriptionPhase = .reidentifying
+                            }
                         }
                     },
                     onProgress: { fraction, status in
-                        transcriptionProgress = fraction
-                        transcriptionProgressStatus = status
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
+                        queue.updateProgress(jobID, fraction: fraction, status: status)
                     }
                 )
-                lastDiarizationEmbeddings = out.perClusterEmbedding
-                let assignments = SpeakerMatcher.match(
-                    clusterEmbeddings: out.perClusterEmbedding,
-                    meeting: meeting,
-                    in: context,
-                    settings: settings
-                )
-                var assignmentsDict: [String: Any] = [:]
-                var metaDict: [String: [String: Any]] = [:]
-                for (cid, a) in assignments {
-                    assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
-                    metaDict[String(cid)] = [
-                        "confidence": a.confidence,
-                        "auto": a.auto,
-                        "ambiguous": a.ambiguous,
-                        "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
-                    ]
-                    // ⚠ NE PAS remapper `seg.speaker` depuis `cid` ici :
-                    // pyannote ne garantit pas la stabilité des cluster IDs
-                    // entre deux runs. Seul `speakerAssignmentsJSON` est
-                    // rafraîchi ; les segments existants gardent leur
-                    // `speakerID` historique. L'utilisateur peut re-tagger
-                    // via le picker si nécessaire.
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.lastDiarizationEmbeddings = out.perClusterEmbedding
+                    let assignments = SpeakerMatcher.match(
+                        clusterEmbeddings: out.perClusterEmbedding,
+                        meeting: self.meeting,
+                        in: self.context,
+                        settings: self.settings
+                    )
+                    var assignmentsDict: [String: Any] = [:]
+                    var metaDict: [String: [String: Any]] = [:]
+                    for (cid, a) in assignments {
+                        assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
+                        metaDict[String(cid)] = [
+                            "confidence": a.confidence,
+                            "auto": a.auto,
+                            "ambiguous": a.ambiguous,
+                            "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
+                        ]
+                        // ⚠ NE PAS remapper `seg.speaker` depuis `cid` ici :
+                        // pyannote ne garantit pas la stabilité des cluster
+                        // IDs entre deux runs.
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: assignmentsDict),
+                       let s = String(data: data, encoding: .utf8) {
+                        self.meeting.speakerAssignmentsJSON = s
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: metaDict),
+                       let s = String(data: data, encoding: .utf8) {
+                        self.meeting.speakerMatchMetaJSON = s
+                    }
+                    try? self.context.save()
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
                 }
-                if let data = try? JSONSerialization.data(withJSONObject: assignmentsDict),
-                   let s = String(data: data, encoding: .utf8) {
-                    meeting.speakerAssignmentsJSON = s
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
                 }
-                if let data = try? JSONSerialization.data(withJSONObject: metaDict),
-                   let s = String(data: data, encoding: .utf8) {
-                    meeting.speakerMatchMetaJSON = s
-                }
-                try? context.save()
-                transcriptionPhase = .idle
-                transcriptionProgress = nil
-                transcriptionProgressStatus = nil
+                throw CancellationError()
             } catch {
                 print("[MeetingView] reidentifySpeakers failed: \(error)")
-                transcriptionPhase = .error(error.localizedDescription)
-                transcriptionProgress = nil
-                transcriptionProgressStatus = nil
+                await MainActor.run {
+                    self.transcriptionPhase = .error(error.localizedDescription)
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                }
+                throw error
             }
         }
     }

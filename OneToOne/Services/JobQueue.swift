@@ -15,7 +15,7 @@ final class JobQueue: ObservableObject {
 
     static let shared = JobQueue()
 
-    enum JobKind: String { case transcription, report, audioEdit }
+    enum JobKind: String { case transcription, report, audioEdit, diarization }
 
     enum JobStatus: Equatable {
         case queued       // attente — limite de concurrence par kind
@@ -59,7 +59,8 @@ final class JobQueue: ObservableObject {
     private let maxConcurrentByKind: [JobKind: Int] = [
         .report:        1,
         .transcription: 1,
-        .audioEdit:     1
+        .audioEdit:     1,
+        .diarization:   1
     ]
 
     @discardableResult

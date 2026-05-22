@@ -173,6 +173,8 @@ struct JobQueueSidebar: View {
                 Image(systemName: "wand.and.stars").foregroundStyle(Color.accentColor)
             case .audioEdit:
                 Image(systemName: "scissors").foregroundStyle(Color.accentColor)
+            case .diarization:
+                Image(systemName: "person.wave.2").foregroundStyle(Color.accentColor)
             }
         case .cancelling: Image(systemName: "xmark.circle").foregroundStyle(.orange)
         case .succeeded:  Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -231,6 +233,7 @@ struct JobQueueSidebar: View {
         case .transcription: return "Transcription"
         case .report:        return "Rapport IA"
         case .audioEdit:     return "Édition audio"
+        case .diarization:   return "Diarisation"
         }
     }
 }
