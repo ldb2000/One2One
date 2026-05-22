@@ -363,6 +363,15 @@ enum HistoryContextBuilder {
     }
 
     /// Returns Meetings in the scope of `meeting.kind`, sorted desc by date.
+    ///
+    /// Stratégie auto :
+    /// - `.project` avec projet rattaché → mêmes projets
+    /// - `.oneToOne` avec partenaire → même partenaire
+    /// - `.manager` → toutes les réunions manager
+    /// - sinon (workshop, copil sans projet, comité hebdo récurrent…) →
+    ///   réunions au même titre (normalisation diacritique-insensible).
+    ///   Couvre le cas du « Comité hebdomadaire de tri » qui revient chaque
+    ///   semaine sans projet attaché.
     @MainActor
     private static func peerMeetings(for meeting: Meeting, in context: ModelContext) -> [Meeting] {
         let descriptor = FetchDescriptor<Meeting>(
@@ -371,8 +380,12 @@ enum HistoryContextBuilder {
         let all = (try? context.fetch(descriptor)) ?? []
         switch meeting.kind {
         case .project:
-            guard let pid = meeting.project?.persistentModelID else { return all }
-            return all.filter { $0.project?.persistentModelID == pid }
+            if let pid = meeting.project?.persistentModelID {
+                return all.filter { $0.project?.persistentModelID == pid }
+            }
+            // Projet absent → fallback titre (rare mais possible si meeting
+            // marqué .project sans rattachement).
+            return sameTitleMeetings(as: meeting, among: all)
         case .oneToOne:
             guard let partner = meeting.participants.first else { return [] }
             let cid = partner.persistentModelID
@@ -383,7 +396,22 @@ enum HistoryContextBuilder {
         case .manager:
             return all.filter { $0.kind == .manager }
         case .global, .work:
-            return all
+            return sameTitleMeetings(as: meeting, among: all)
         }
+    }
+
+    /// Filtre `pool` aux réunions dont le titre est identique à celui de
+    /// `meeting` après normalisation (lowercased + diacriticInsensitive + trim).
+    private static func sameTitleMeetings(as meeting: Meeting,
+                                          among pool: [Meeting]) -> [Meeting] {
+        let target = normalizeTitle(meeting.title)
+        guard !target.isEmpty else { return [] }
+        return pool.filter { normalizeTitle($0.title) == target }
+    }
+
+    private static func normalizeTitle(_ s: String) -> String {
+        s.folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
