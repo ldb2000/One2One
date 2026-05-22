@@ -47,6 +47,21 @@ struct ReportTemplateEditorView: View {
                 .frame(width: 220)
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Préambule système")
+                    .font(.subheadline.bold())
+                Text("Injecté en tête du prompt. Définit le rôle/ton de l'assistant.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                TextEditor(text: Binding(
+                    get: { template.preamble },
+                    set: { template.preamble = $0; template.updatedAt = Date() }
+                ))
+                .font(.body)
+                .frame(minHeight: 60)
+                .border(Color.secondary.opacity(0.2))
+            }
+            .padding(.bottom, 8)
+
             Text("Prompt").font(.headline)
             TextEditor(text: $promptBody)
                 .font(.system(size: 12, weight: .regular, design: .monospaced))
