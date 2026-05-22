@@ -15,7 +15,7 @@ final class JobQueue: ObservableObject {
 
     static let shared = JobQueue()
 
-    enum JobKind: String { case transcription, report, audioEdit, diarization }
+    enum JobKind: String { case transcription, report, audioEdit, diarization, maintenance }
 
     enum JobStatus: Equatable {
         case queued       // attente — limite de concurrence par kind
@@ -36,7 +36,7 @@ final class JobQueue: ObservableObject {
     struct Job: Identifiable {
         let id: UUID
         let kind: JobKind
-        let meetingID: PersistentIdentifier
+        let meetingID: PersistentIdentifier?
         let meetingTitle: String
         let queuedAt: Date
         var startedAt: Date?
@@ -60,12 +60,13 @@ final class JobQueue: ObservableObject {
         .report:        1,
         .transcription: 1,
         .audioEdit:     1,
-        .diarization:   1
+        .diarization:   1,
+        .maintenance:   1
     ]
 
     @discardableResult
     func start(kind: JobKind,
-               meetingID: PersistentIdentifier,
+               meetingID: PersistentIdentifier? = nil,
                meetingTitle: String,
                work: @escaping (UUID) async throws -> Void) -> UUID {
         let id = UUID()

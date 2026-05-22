@@ -151,7 +151,8 @@ struct JobQueueSidebar: View {
         .onTapGesture {
             // Naviguer vers la réunion via pendingToken (même mécanique que
             // les notifs et la menubar).
-            if let meeting = lookupMeeting(persistentID: job.meetingID) {
+            guard let id = job.meetingID else { return }
+            if let meeting = lookupMeeting(persistentID: id) {
                 router.pendingToken = OneToOneLaunchToken(
                     meetingID: meeting.ensuredStableID,
                     autoStartRecording: false
@@ -175,6 +176,8 @@ struct JobQueueSidebar: View {
                 Image(systemName: "scissors").foregroundStyle(Color.accentColor)
             case .diarization:
                 Image(systemName: "person.wave.2").foregroundStyle(Color.accentColor)
+            case .maintenance:
+                Image(systemName: "wrench.and.screwdriver").foregroundStyle(Color.accentColor)
             }
         case .cancelling: Image(systemName: "xmark.circle").foregroundStyle(.orange)
         case .succeeded:  Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -234,6 +237,7 @@ struct JobQueueSidebar: View {
         case .report:        return "Rapport IA"
         case .audioEdit:     return "Édition audio"
         case .diarization:   return "Diarisation"
+        case .maintenance:   return "Maintenance"
         }
     }
 }
