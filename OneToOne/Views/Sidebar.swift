@@ -49,20 +49,38 @@ struct MainSidebarView: View {
         }
     }
 
-    private var collabsFilterLabel: String {
-        switch collabsFilter {
-        case "pinned":     return "Collaborateurs épinglés"
-        case "favourites": return "Collaborateurs favoris"
-        default:           return "Collaborateurs (épinglés + favoris)"
+    /// 3 puces icônes pour basculer le filtre (pinned / favourites / both).
+    /// L'option active a un fond accent ; les autres sont en outline secondary.
+    @ViewBuilder
+    private var collabsFilterPills: some View {
+        HStack(spacing: 2) {
+            filterPill(value: "pinned",     icon: "pin.fill",     help: "Épinglés uniquement")
+            filterPill(value: "favourites", icon: "star.fill",    help: "Favoris uniquement")
+            filterPill(value: "both",       icon: "person.2.fill", help: "Épinglés + favoris")
         }
     }
 
-    private var collabsFilterIcon: String {
-        switch collabsFilter {
-        case "pinned":     return "pin.fill"
-        case "favourites": return "star.fill"
-        default:           return "person.2.fill"
+    @ViewBuilder
+    private func filterPill(value: String, icon: String, help: String) -> some View {
+        let isActive = (collabsFilter == value)
+        Button {
+            collabsFilter = value
+        } label: {
+            Image(systemName: icon)
+                .font(.caption2)
+                .frame(width: 20, height: 18)
+                .foregroundColor(isActive ? .white : .secondary)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isActive ? Color.accentColor : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(isActive ? Color.clear : Color.secondary.opacity(0.25), lineWidth: 0.5)
+                )
         }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var filteredArchivedCollaborators: [Collaborator] {
@@ -162,15 +180,14 @@ struct MainSidebarView: View {
                     Label("Suivi manager", systemImage: "person.crop.square.filled.and.at.rectangle")
                 }
 
+                NavigationLink {
+                    AllCollaboratorsView()
+                } label: {
+                    Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
+                }
+
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
-                    NavigationLink {
-                        AllCollaboratorsView()
-                    } label: {
-                        Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
-                            .foregroundColor(.accentColor)
-                    }
-
                     ForEach(filteredActiveCollaborators) { collaborator in
                         NavigationLink {
                             CollaboratorDetailView(collaborator: collaborator)
@@ -227,27 +244,10 @@ struct MainSidebarView: View {
                     .buttonStyle(.plain)
                     } label: {
                         HStack(spacing: 6) {
-                            Label(collabsFilterLabel, systemImage: collabsFilterIcon)
+                            Text("Collaborateurs")
                                 .font(.subheadline.weight(.semibold))
                             Spacer()
-                            Menu {
-                                Picker("Filtre", selection: $collabsFilter) {
-                                    Label("Épinglés + favoris", systemImage: "person.2.fill")
-                                        .tag("both")
-                                    Label("Épinglés uniquement", systemImage: "pin.fill")
-                                        .tag("pinned")
-                                    Label("Favoris uniquement", systemImage: "star.fill")
-                                        .tag("favourites")
-                                }
-                            } label: {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
-                            .help("Choisir le filtre de la liste")
+                            collabsFilterPills
                         }
                     }
                 }
