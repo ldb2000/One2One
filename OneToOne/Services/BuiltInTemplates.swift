@@ -9,6 +9,7 @@ enum BuiltInTemplates {
     struct Seed {
         let name: String
         let kind: ReportTemplateKind
+        let preamble: String
         let sections: [TemplateSection]
         let historyMode: HistoryMode
         let historyN: Int
@@ -45,6 +46,7 @@ enum BuiltInTemplates {
                 name: seed.name,
                 kind: seed.kind,
                 promptBody: seed.promptBody,
+                preamble: seed.preamble,
                 sections: seed.sections,
                 historyMode: seed.historyMode,
                 historyN: seed.historyN,
@@ -53,6 +55,17 @@ enum BuiltInTemplates {
             )
             context.insert(t)
         }
+
+        // Backfill: ensure all existing built-in templates have a non-empty preamble.
+        let existingBuiltIns = (try? context.fetch(FetchDescriptor<ReportTemplate>(
+            predicate: #Predicate { $0.isBuiltIn == true }
+        ))) ?? []
+        for tpl in existingBuiltIns {
+            if tpl.preamble.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                tpl.preamble = "Tu es l'assistant de synthèse de OneToOne."
+            }
+        }
+        try? context.save()
     }
 
     // MARK: - D1 Global
@@ -60,6 +73,7 @@ enum BuiltInTemplates {
     static let d1_global = Seed(
         name: "Global",
         kind: .general,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Contexte général", hint: "Ce qui se passe au moment de la réunion (top actions, alertes, sujets actifs)."),
             .init(title: "Résumé", hint: "Synthèse en 3-5 lignes."),
@@ -102,6 +116,7 @@ enum BuiltInTemplates {
     static let d2_oneToOne = Seed(
         name: "1:1 Collaborateur",
         kind: .oneToOne,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Suivi du précédent", hint: "Reprise des actions du précédent 1:1."),
             .init(title: "Sujets abordés", hint: "Points discutés en synthèse."),
@@ -136,6 +151,7 @@ enum BuiltInTemplates {
     static let d3_manager = Seed(
         name: "1:1 Manager",
         kind: .manager,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Suivi semaine", hint: "Points repris du précédent 1:1 manager."),
             .init(title: "Sujets", hint: "Sujets abordés."),
@@ -173,6 +189,7 @@ enum BuiltInTemplates {
     static let d4_copil = Seed(
         name: "COPIL",
         kind: .copil,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Contexte projet", hint: "Rappel rapide du contexte."),
             .init(title: "Avancement", hint: "Où on en est sur le planning."),
@@ -210,6 +227,7 @@ enum BuiltInTemplates {
     static let d5_cosui = Seed(
         name: "COSUI",
         kind: .cosui,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Avancement par sujet", hint: "Un bloc par sujet abordé."),
             .init(title: "Points bloquants", hint: ""),
@@ -243,6 +261,7 @@ enum BuiltInTemplates {
     static let d6_codir = Seed(
         name: "CODIR",
         kind: .codir,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Synthèse stratégique", hint: "Vision haut niveau."),
             .init(title: "Décisions", hint: ""),
@@ -276,6 +295,7 @@ enum BuiltInTemplates {
     static let d7_preparation = Seed(
         name: "Préparation",
         kind: .preparation,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Objectifs", hint: "Ce qu'on cherche à obtenir."),
             .init(title: "Points à aborder", hint: ""),
@@ -303,6 +323,7 @@ enum BuiltInTemplates {
     static let d8_restitution = Seed(
         name: "Restitution / Démo",
         kind: .restitution,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Contexte", hint: "Ce qu'on présente et pourquoi."),
             .init(title: "Démo", hint: "Ce qui a été montré."),
@@ -335,6 +356,7 @@ enum BuiltInTemplates {
     static let d9_workshop = Seed(
         name: "Séance de travail / Workshop",
         kind: .workshop,
+        preamble: "Tu es l'assistant de synthèse de OneToOne.",
         sections: [
             .init(title: "Objet & contexte",
                   hint: "1–3 lignes : sujet traité, raison de la séance, format."),
