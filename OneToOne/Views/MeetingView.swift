@@ -82,13 +82,7 @@ struct MeetingView: View {
     @State private var activeSection: MeetingSection = .liveNotes
     @State private var participantsRefreshID = UUID()
     @State private var isGeneratingReport = false
-    @State private var isCritiquing = false
-    @State private var isRevising = false
-    @State private var isAutoLooping = false
-    @State private var selectedRevisionVersion: Int? = nil  // nil = current
-    /// Plafond d'itérations de la boucle auto (Critique → Révise). 3 tours
-    /// suffisent en pratique ; au-delà le LLM tourne en rond.
-    private let autoLoopMaxIterations: Int = 3
+    @State private var isGenerating: Bool = false
     @State private var reportError: String?
     @State private var transcribeError: String?
     @State private var transcriptionPhase: TranscriptionPhase = .idle
@@ -860,10 +854,7 @@ struct MeetingView: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 240)
                 } else {
-                    revisionToolbar
-                    if let critique = currentCritique, !critique.isEmpty {
-                        critiquePanel(critique)
-                    }
+                    generateToolbar
                     if !meeting.highlights.isEmpty {
                         section("Faits marquants") {
                             ForEach(meeting.highlights, id: \.self) { item in
@@ -873,7 +864,7 @@ struct MeetingView: View {
                     }
                     section("Résumé") {
                         MeetingHighlightableTextView(
-                            text: .constant(displayedReportBody),
+                            text: .constant(meeting.summary),
                             isEditable: false,
                             highlightedRanges: managerHighlightedRanges(for: "summary"),
                             onAddToManagerReport: { range, snippet in
@@ -1199,401 +1190,62 @@ struct MeetingView: View {
         }
     }
 
-    // MARK: - Revision workflow (Writer / Critique / Revise / Validate)
+    // MARK: - Generate toolbar
 
-    /// Révisions triées par version croissante.
-    private var sortedRevisions: [ReportRevision] {
-        meeting.reportRevisions.sorted { $0.version < $1.version }
-    }
-
-    /// Révision affichée : sélection explicite via picker, sinon la plus
-    /// récente.
-    private var currentRevision: ReportRevision? {
-        if let v = selectedRevisionVersion {
-            return sortedRevisions.first { $0.version == v }
-        }
-        return sortedRevisions.last
-    }
-
-    private var displayedReportBody: String {
-        currentRevision?.body ?? meeting.summary
-    }
-
-    private var currentCritique: String? {
-        let c = currentRevision?.critique ?? ""
-        return c.isEmpty ? nil : c
-    }
-
-    /// Toolbar au-dessus du rapport : sélecteur version + actions
-    /// Critiquer / Réviser / Valider.
+    /// Toolbar minimaliste au-dessus du rapport : template affiché + bouton unique Générer.
     @ViewBuilder
-    private var revisionToolbar: some View {
-        HStack(spacing: 10) {
-            if !sortedRevisions.isEmpty {
-                Picker("Version", selection: Binding<Int>(
-                    get: { selectedRevisionVersion ?? (sortedRevisions.last?.version ?? 1) },
-                    set: { selectedRevisionVersion = $0 }
-                )) {
-                    ForEach(sortedRevisions, id: \.version) { rev in
-                        Text(versionLabel(rev)).tag(rev.version)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 200)
+    private var generateToolbar: some View {
+        HStack {
+            if let template = meeting.reportTemplate {
+                Text("Template :")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(template.name).font(.caption.bold())
+            } else {
+                Text("Template : Auto").font(.caption).foregroundStyle(.secondary)
             }
-
             Spacer()
-
             Button {
-                Task { await runAutoLoop() }
+                Task { await runGenerate() }
             } label: {
-                Label(isAutoLooping ? "Auto…" : "Auto",
-                      systemImage: "wand.and.rays")
+                Label(isGenerating ? "Génère…" : "Générer",
+                      systemImage: "wand.and.stars")
             }
-            .disabled(isAutoLooping || isCritiquing || isRevising || meeting.summary.isEmpty)
-            .help("Boucle automatique Critique → Révise jusqu'à OK (\(autoLoopMaxIterations) tours max)")
-
-            Button {
-                Task { await runCritique() }
-            } label: {
-                Label(isCritiquing ? "Critique…" : "Critiquer",
-                      systemImage: "checkmark.shield")
-            }
-            .disabled(isCritiquing || isRevising || isAutoLooping || meeting.summary.isEmpty)
-            .help("Demande au LLM relecteur d'auditer le brouillon courant")
-
-            Button {
-                Task { await runRevise() }
-            } label: {
-                Label(isRevising ? "Révise…" : "Réviser",
-                      systemImage: "arrow.triangle.2.circlepath")
-            }
-            .disabled(isRevising || isCritiquing || isAutoLooping || (currentCritique ?? "").isEmpty)
-            .help("Produit une nouvelle version corrigeant les critiques")
-
-            Button {
-                validateCurrentRevision()
-            } label: {
-                Label(
-                    currentRevision?.isValidated == true ? "Validée" : "Valider",
-                    systemImage: currentRevision?.isValidated == true
-                        ? "checkmark.seal.fill" : "checkmark.seal"
-                )
-            }
-            .disabled(currentRevision == nil || currentRevision?.isValidated == true)
-            .help("Fige cette version comme rapport final")
+            .disabled(isGenerating || meeting.rawTranscript.isEmpty)
+            .help("Génère un nouveau rapport (écrase la version actuelle)")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 6).padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
     }
 
-    private func versionLabel(_ r: ReportRevision) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "d MMM HH:mm"
-        let prefix = "v\(r.version)"
-        let suffix = r.isValidated ? " ✓" : ""
-        return "\(prefix) — \(f.string(from: r.createdAt))\(suffix)"
-    }
-
-    /// Encart d'affichage du retour du critique LLM.
-    @ViewBuilder
-    private func critiquePanel(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.shield.fill")
-                    .foregroundStyle(.orange)
-                Text("Retour du relecteur")
-                    .font(.subheadline.bold())
-                Spacer()
-                if let msg = currentRevision?.writerMessage, !msg.isEmpty {
-                    Text("Réponse rédacteur: \(msg)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-            Text(text)
-                .font(.callout)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.orange.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.orange.opacity(0.3), lineWidth: 0.5)
-        )
-    }
-
-    /// Construit la description des participants — utilisée dans les prompts
-    /// critique/revise pour garder les noms réels en contexte.
-    private func participantsContextString() -> String {
-        meeting.participants
-            .filter { !$0.isArchived }
-            .map { "- \($0.name)" + ($0.role.isEmpty ? "" : " (\($0.role))") }
-            .joined(separator: "\n")
-    }
-
-    /// Snapshot du draft courant en tant que ReportRevision v1 si nécessaire
-    /// (cas où on a déjà un meeting.summary mais aucune révision en base —
-    /// migration douce des anciennes réunions).
-    private func ensureBaselineRevision() {
-        if meeting.reportRevisions.isEmpty && !meeting.summary.isEmpty {
-            let rev = ReportRevision(
-                meeting: meeting,
-                version: 1,
-                body: meeting.summary,
-                critique: "",
-                writerMessage: "",
-                isValidated: false
-            )
-            context.insert(rev)
-            saveContext()
-        }
-    }
-
     @MainActor
-    private func runCritique() async {
-        ensureBaselineRevision()
-        guard let rev = currentRevision else { return }
-        // ⚠ Flag activé ici puis désactivé DANS la closure du Task (succès,
-        // cancel ou erreur). Le précédent `defer` se déclenchait à la sortie
-        // immédiate de `runCritique` (queue.start retourne tout de suite),
-        // réactivant le bouton avant même le début du travail.
-        isCritiquing = true
-
+    private func runGenerate() async {
+        isGenerating = true
         let queue = JobQueue.shared
+        let title = meeting.title
+        let id = meeting.persistentModelID
         _ = queue.start(
             kind: .report,
-            meetingID: meeting.persistentModelID,
-            meetingTitle: meeting.title + " · critique"
-        ) { jobID in
-            defer { Task { @MainActor in self.isCritiquing = false } }
+            meetingID: id,
+            meetingTitle: title + " · rapport"
+        ) { _ in
+            defer { Task { @MainActor in self.isGenerating = false } }
             do {
-                try Task.checkCancellation()
-                let critique = try await AIReportService.critique(
-                    draft: rev.body,
-                    mergedTranscript: meeting.mergedTranscript.isEmpty
-                        ? meeting.rawTranscript : meeting.mergedTranscript,
-                    participantsDescription: self.participantsContextString(),
+                let result = try await AIReportService.generate(
+                    meeting: meeting,
+                    in: context,
                     settings: settings,
-                    onProgress: { partial in
-                        let count = partial.count
-                        await MainActor.run {
-                            queue.updateProgress(jobID, fraction: nil,
-                                                  status: "\(count) chars")
-                        }
-                    }
+                    additionalContext: ""
                 )
-                try Task.checkCancellation()
                 await MainActor.run {
-                    rev.critique = critique ?? ""
-                    if critique == nil {
-                        // OK — auto-valide la révision.
-                        rev.isValidated = true
-                    }
-                    self.saveContext()
+                    self.apply(report: result)
                 }
-            } catch is CancellationError {
-                throw CancellationError()
             } catch {
-                await MainActor.run { self.reportError = error.localizedDescription }
-                throw error
+                print("[Rapport] génération échec: \(error)")
             }
         }
-    }
-
-    @MainActor
-    private func runRevise() async {
-        ensureBaselineRevision()
-        guard let rev = currentRevision, !rev.critique.isEmpty else { return }
-        // Flag activé ici, désactivé dans la closure (cf. note sur runCritique).
-        isRevising = true
-
-        let queue = JobQueue.shared
-        _ = queue.start(
-            kind: .report,
-            meetingID: meeting.persistentModelID,
-            meetingTitle: meeting.title + " · révision"
-        ) { jobID in
-            defer { Task { @MainActor in self.isRevising = false } }
-            do {
-                try Task.checkCancellation()
-                let result = try await AIReportService.revise(
-                    draft: rev.body,
-                    critique: rev.critique,
-                    mergedTranscript: meeting.mergedTranscript.isEmpty
-                        ? meeting.rawTranscript : meeting.mergedTranscript,
-                    participantsDescription: self.participantsContextString(),
-                    previousWriterMessage: rev.writerMessage,
-                    settings: settings,
-                    onProgress: { partial in
-                        let count = partial.count
-                        await MainActor.run {
-                            queue.updateProgress(jobID, fraction: nil,
-                                                  status: "\(count) chars")
-                        }
-                    }
-                )
-                try Task.checkCancellation()
-                await MainActor.run {
-                    let nextVersion = (self.sortedRevisions.last?.version ?? 0) + 1
-                    let newRev = ReportRevision(
-                        meeting: self.meeting,
-                        version: nextVersion,
-                        body: result.body,
-                        critique: "",
-                        writerMessage: result.writerMessage,
-                        isValidated: false
-                    )
-                    self.context.insert(newRev)
-                    self.selectedRevisionVersion = nextVersion
-                    self.saveContext()
-                }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                await MainActor.run { self.reportError = error.localizedDescription }
-                throw error
-            }
-        }
-    }
-
-    /// Boucle automatique : Critique → Révise → Critique → … jusqu'à `nil`
-    /// (rapport jugé OK = auto-validé) ou `autoLoopMaxIterations` atteint.
-    /// Tout passe par un seul `JobQueue` job — statusText évolue à chaque
-    /// phase. Annulable depuis la sidebar (Task.checkCancellation entre
-    /// chaque étape).
-    @MainActor
-    private func runAutoLoop() async {
-        ensureBaselineRevision()
-        guard let startRev = currentRevision else { return }
-        // Flag activé ici, désactivé dans la closure (cf. note sur runCritique).
-        isAutoLooping = true
-
-        let queue = JobQueue.shared
-        _ = queue.start(
-            kind: .report,
-            meetingID: meeting.persistentModelID,
-            meetingTitle: meeting.title + " · auto"
-        ) { jobID in
-            defer { Task { @MainActor in self.isAutoLooping = false } }
-            var workingRev: ReportRevision = startRev
-            var iteration = 0
-            let maxIter = self.autoLoopMaxIterations
-            let transcript = meeting.mergedTranscript.isEmpty
-                ? meeting.rawTranscript : meeting.mergedTranscript
-            let participants = self.participantsContextString()
-
-            while iteration < maxIter {
-                iteration += 1
-                try Task.checkCancellation()
-
-                // ---- Phase 1 : critique ----
-                await MainActor.run {
-                    queue.updateProgress(jobID,
-                                          fraction: Double(iteration - 1) / Double(maxIter),
-                                          status: "Critique v\(workingRev.version) (tour \(iteration)/\(maxIter))")
-                }
-                let critique = try await AIReportService.critique(
-                    draft: workingRev.body,
-                    mergedTranscript: transcript,
-                    participantsDescription: participants,
-                    settings: settings,
-                    onProgress: { partial in
-                        let count = partial.count
-                        await MainActor.run {
-                            queue.updateProgress(jobID, fraction: nil,
-                                                  status: "Critique v\(workingRev.version) · \(count) chars")
-                        }
-                    }
-                )
-                try Task.checkCancellation()
-                await MainActor.run {
-                    workingRev.critique = critique ?? ""
-                    self.saveContext()
-                }
-
-                // ---- Cas OK : on auto-valide et on sort ----
-                if critique == nil {
-                    await MainActor.run {
-                        for r in self.sortedRevisions { r.isValidated = false }
-                        workingRev.isValidated = true
-                        self.meeting.summary = workingRev.body
-                        queue.updateProgress(jobID, fraction: 1.0,
-                                              status: "OK à v\(workingRev.version)")
-                        self.saveContext()
-                    }
-                    return
-                }
-
-                // ---- Phase 2 : révise ----
-                try Task.checkCancellation()
-                await MainActor.run {
-                    queue.updateProgress(jobID,
-                                          fraction: (Double(iteration - 1) + 0.5) / Double(maxIter),
-                                          status: "Révision après v\(workingRev.version)")
-                }
-                let result = try await AIReportService.revise(
-                    draft: workingRev.body,
-                    critique: workingRev.critique,
-                    mergedTranscript: transcript,
-                    participantsDescription: participants,
-                    previousWriterMessage: workingRev.writerMessage,
-                    settings: settings,
-                    onProgress: { partial in
-                        let count = partial.count
-                        await MainActor.run {
-                            queue.updateProgress(jobID, fraction: nil,
-                                                  status: "Révision · \(count) chars")
-                        }
-                    }
-                )
-                try Task.checkCancellation()
-                let newRevHolder: ReportRevision = await MainActor.run {
-                    let nextVersion = (self.sortedRevisions.last?.version ?? 0) + 1
-                    let newRev = ReportRevision(
-                        meeting: self.meeting,
-                        version: nextVersion,
-                        body: result.body,
-                        critique: "",
-                        writerMessage: result.writerMessage,
-                        isValidated: false
-                    )
-                    self.context.insert(newRev)
-                    self.selectedRevisionVersion = nextVersion
-                    self.saveContext()
-                    return newRev
-                }
-                workingRev = newRevHolder
-            }
-
-            // Cap atteint sans OK — on s'arrête, l'utilisateur jugera.
-            await MainActor.run {
-                queue.updateProgress(jobID, fraction: 1.0,
-                                      status: "Cap \(maxIter) tours atteint — relecture manuelle")
-            }
-        }
-    }
-
-    @MainActor
-    private func validateCurrentRevision() {
-        guard let rev = currentRevision else { return }
-        // Toutes les révisions à false sauf celle-ci.
-        for r in sortedRevisions { r.isValidated = false }
-        rev.isValidated = true
-        // Fige meeting.summary = body de la révision validée (pour exports,
-        // partages mail, etc. qui lisent encore meeting.summary).
-        meeting.summary = rev.body
-        saveContext()
     }
 
     // MARK: - Report generation
@@ -1782,7 +1434,6 @@ struct MeetingView: View {
             isValidated: false
         )
         context.insert(rev)
-        selectedRevisionVersion = nextVersion
 
         for a in report.actions {
             let task = ActionTask(title: a.title)
