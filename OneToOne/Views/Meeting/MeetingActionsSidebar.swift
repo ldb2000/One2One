@@ -147,20 +147,9 @@ struct MeetingActionsSidebar: View {
             }
 
             HStack(spacing: 10) {
-                if let c = task.collaborator {
-                    HStack(spacing: 4) {
-                        AvatarMini(collaborator: c, tint: settings.meetingParticipantColor)
-                        Text(c.name).font(.caption).foregroundColor(.secondary)
-                    }
-                } else {
-                    Text("Non assigné").font(.caption).foregroundColor(.secondary)
-                }
+                rowAssigneeMenu(task)
                 Text("·").foregroundColor(.secondary)
-                if let dd = task.dueDate {
-                    Text(shortDate(dd)).font(MeetingTheme.meta).foregroundColor(.secondary)
-                } else {
-                    Text("Pas d'échéance").font(.caption).foregroundColor(.secondary)
-                }
+                rowDueDateMenu(task)
                 Spacer()
             }
             .padding(.leading, 30)
@@ -304,6 +293,94 @@ struct MeetingActionsSidebar: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Assigner à un participant, un favori, ou un nouveau collaborateur")
+    }
+
+    // MARK: - Per-task inline menus
+
+    @ViewBuilder
+    private func rowAssigneeMenu(_ task: ActionTask) -> some View {
+        Menu {
+            Button {
+                task.collaborator = nil
+                task.unresolvedAssigneeName = nil
+                saveContext()
+            } label: { Text("Non assigné") }
+
+            if !participantCandidates.isEmpty {
+                Divider()
+                Section("Participants") {
+                    ForEach(participantCandidates) { c in
+                        Button(c.name) {
+                            task.collaborator = c
+                            task.unresolvedAssigneeName = nil
+                            saveContext()
+                        }
+                    }
+                }
+            }
+            if !favoriteCandidates.isEmpty {
+                Divider()
+                Section("Favoris") {
+                    ForEach(favoriteCandidates) { c in
+                        Button(c.name) {
+                            task.collaborator = c
+                            task.unresolvedAssigneeName = nil
+                            saveContext()
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                if let c = task.collaborator {
+                    AvatarMini(collaborator: c, tint: settings.meetingParticipantColor)
+                    Text(c.name).font(.caption).foregroundColor(.secondary)
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .font(.caption2).foregroundColor(.secondary)
+                    Text("Non assigné").font(.caption).foregroundColor(.secondary)
+                }
+                Image(systemName: "chevron.down")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func rowDueDateMenu(_ task: ActionTask) -> some View {
+        Menu {
+            Button("Aucune") {
+                task.dueDate = nil
+                saveContext()
+            }
+            Button("Aujourd'hui") {
+                task.dueDate = Date()
+                saveContext()
+            }
+            Button("Demain") {
+                task.dueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())
+                saveContext()
+            }
+            Button("Dans 1 semaine") {
+                task.dueDate = Calendar.current.date(byAdding: .day, value: 7, to: Date())
+                saveContext()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "calendar").font(.caption2).foregroundColor(.secondary)
+                if let dd = task.dueDate {
+                    Text(shortDate(dd)).font(.caption).foregroundColor(.secondary)
+                } else {
+                    Text("Pas d'échéance").font(.caption).foregroundColor(.secondary)
+                }
+                Image(systemName: "chevron.down")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     @ViewBuilder
