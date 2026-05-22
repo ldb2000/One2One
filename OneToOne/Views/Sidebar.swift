@@ -29,7 +29,13 @@ struct MainSidebarView: View {
 
     private var filteredEntities: [Entity] {
         guard !searchText.isEmpty else { return entities }
-        return entities.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        // Inclure une entité si son nom matche OU si elle contient au moins
+        // un projet qui matche — sinon une recherche sur un nom de projet
+        // cache TOUS les projets de l'entité.
+        return entities.filter { entity in
+            if entity.name.localizedCaseInsensitiveContains(searchText) { return true }
+            return entity.projects.contains { projectMatches($0, searchText) }
+        }
     }
 
     /// Sidebar : filtre `pinned` / `favourites` / `both` selon `collabsFilter`.
