@@ -22,41 +22,43 @@ Reproduire le style visuel d'un compte-rendu professionnel (référence : `CR_Ar
 Meeting (summary markdown) + Template + Tasks
             │
             ▼
-ReportHTMLBuilder.build(meeting:settings:template:)
+ReportHTMLBuilder.build(meeting:template:)
             │
-            ├── eyebrow + h1 + subtitle (from meeting.kind / template / participants)
+            ├── eyebrow + h1 + subtitle (depuis meeting.kind / template / participants)
             ├── meta-table (OBJET / DATE / PARTICIPANTS)
-            ├── MarkdownToHTMLRenderer.render(meeting.summary)
-            │       ├── swift-markdown parser
-            │       ├── handle :::vigilance / :::reserve directives
-            │       └── emit standard HTML (<h2>, <table>, <blockquote>, …)
-            ├── inject "Relevé de décisions" (from extractStructured.decisions)
-            └── inject "Plan d'actions" (from meeting.tasks)
-                ── détecte doublon par H2 normalisé ─→ remplace ou append
+            ├── MarkdownDirectivePreprocessor.process(summary)
+            │       └── transforme :::vigilance / :::reserve en <div class="callout …">
+            ├── MarkdownToHTMLRenderer.render(processedMarkdown)
+            │       └── swift-markdown standard (préserve les blocs HTML inline)
+            ├── inject "Relevé de décisions" (depuis ExtractedFacts.decisions
+            │   stockés dans meeting.keyPoints/decisions OU re-derived)
+            └── inject "Plan d'actions" (depuis meeting.tasks)
+                ── détecte doublon par H2 normalisé → remplace ou append
             │
             ▼
-       Themed HTML string (CSS inliné depuis ReportThemeCSS)
+       Themed HTML string (CSS via <style> block inliné)
             │
             ├──▶ WKWebView (preview onglet Rapport)
-            ├──▶ WKWebView.createPDF (export PDF)
-            └──▶ NSSharingService Mail body (HTML inliné)
+            ├──▶ WKWebView.createPDF (export PDF, remplace NSPrintOperation actuel)
+            └──▶ AppleScript Mail/Outlook (réutilise composeMeetingMail existant)
 ```
 
 ### 3.1 Fichiers
 
 | Path | Responsabilité |
 |---|---|
-| `OneToOne/Services/Report/MarkdownToHTMLRenderer.swift` (new) | swift-markdown → HTML standard + directives `:::vigilance` / `:::reserve` |
-| `OneToOne/Services/Report/ReportHTMLBuilder.swift` (new) | Assemble eyebrow + h1 + meta + body + tables auto |
-| `OneToOne/Services/Report/ReportThemeCSS.swift` (new) | `static let css: String` (inliné dans `<style>` ou par balise pour mail) |
-| `OneToOne/Services/Report/ReportInlineStyler.swift` (new) | Applique le CSS en `style="…"` direct sur chaque balise (mode mail) |
-| `OneToOne/Views/Meeting/MeetingReportPreview.swift` (new) | `NSViewRepresentable` autour de WKWebView |
-| `OneToOne/Views/MeetingView.swift` (modify) | onglet Rapport : toggle Aperçu/Éditer ; route vers preview HTML ou MarkdownEditorView |
-| `OneToOne/Services/ExportService.swift` (modify) | `exportMeetingPDF` → `WKWebView.createPDF` ; nouveau `exportMeetingMail(meeting:)` → NSSharingService body HTML |
-| `Tests/MarkdownToHTMLRendererTests.swift` (new) | Tests parsing directives + tables + headings |
+| `OneToOne/Services/Report/MarkdownDirectivePreprocessor.swift` (new) | Transforme `:::vigilance` / `:::reserve` → `<div class="callout …">` AVANT swift-markdown |
+| `OneToOne/Services/Report/MarkdownToHTMLRenderer.swift` (new) | swift-markdown `Markdown.Document(parsing: …)` → HTML via visitor pattern. Préserve les blocs HTML inline produits par le préprocesseur. |
+| `OneToOne/Services/Report/ReportHTMLBuilder.swift` (new) | Assemble eyebrow + h1 + meta + body + tables Décisions/Actions auto. Détecte doublons H2 par titre normalisé. |
+| `OneToOne/Services/Report/ReportThemeCSS.swift` (new) | `static let css: String` constante avec tout le CSS du §7 |
+| `OneToOne/Views/Meeting/MeetingReportPreview.swift` (new) | `NSViewRepresentable` autour de WKWebView pour preview in-app |
+| `OneToOne/Views/MeetingView.swift` (modify) | Onglet Rapport : toggle Aperçu/Éditer ; route vers `MeetingReportPreview(html:)` ou `MarkdownEditorView($meeting.summary)` |
+| `OneToOne/Services/ExportService.swift` (modify) | **Refactor `buildMeetingHTML`** (l.447) → délègue à `ReportHTMLBuilder`. **Refactor `exportMeetingPDF`** (l.195) → utilise WKWebView createPDF avec le même HTML. `exportMeetingMail` / `exportMeetingOutlook` inchangés en surface — ils consomment le nouveau HTML via `composeMeetingMail`. |
+| `Tests/MarkdownDirectivePreprocessorTests.swift` (new) | Tests `:::vigilance` / `:::reserve` round-trip |
+| `Tests/MarkdownToHTMLRendererTests.swift` (new) | Tests parsing standard (h2, table, blockquote, list) |
 | `Tests/ReportHTMLBuilderTests.swift` (new) | Tests détection doublon H2 + injection Décisions/Actions |
 
-Total : 6 nouveaux, 2 modifications.
+Total : 5 nouveaux services/vues, 3 nouveaux tests, 2 modifications.
 
 ## 4. Convention markdown
 
@@ -83,6 +85,24 @@ Pas d'autres directives (YAGNI). Les autres encarts métiers passent par `> bloc
 
 Le `template.promptBody` peut mentionner ces directives en exemples pour guider le LLM. Sinon il produit du markdown standard, parfaitement rendu.
 
+**Implémentation** : swift-markdown ne supporte pas nativement les directives `:::name`. `MarkdownDirectivePreprocessor` traite le markdown brut AVANT swift-markdown :
+
+```
+:::vigilance
+Attention au cas PEGA…
+:::
+```
+→ remplacé par un bloc HTML inline :
+```html
+<div class="callout vigilance">
+
+Attention au cas PEGA…
+
+</div>
+```
+
+Les lignes vides autour du contenu permettent à swift-markdown de re-parser le contenu interne comme du markdown (inline emphasis, liens). Le bloc `<div>` lui-même est préservé en HTML pass-through.
+
 ## 5. Header auto-rempli depuis Meeting
 
 ```html
@@ -99,12 +119,12 @@ Le `template.promptBody` peut mentionner ces directives en exemples pour guider 
 ```
 
 **Sources** :
-- **Eyebrow** = `template.kind.label.uppercased() + " · " + (project.code ou "") + " · CONFIDENTIEL — USAGE INTERNE"` (suffixe fixe ; project.code omis si pas de projet)
-- **h1** = `meeting.title`
-- **subtitle** = `template.kind.label + " — " + formattedDate`
-- **OBJET** = première phrase du markdown extraite par builder (`first sentence before "."`) OU fallback `meeting.title`
-- **DATE** = `meeting.date` formaté `"d MMMM yyyy à HH:mm"` + durée si non-nulle
-- **PARTICIPANTS** = `meeting.participants` triés alpha, joined par `", "`
+- **Eyebrow** = `template.kind.label.uppercased() + " · " + (meeting.project.map(\.code) ou "") + " · CONFIDENTIEL — USAGE INTERNE"` (suffixe fixe ; project.code omis si pas de projet — c'est-à-dire que la séparation `·` ne s'affiche pas)
+- **h1** = `meeting.title` (escapeHTML pour sécurité)
+- **subtitle** = `template?.kind.label ?? meeting.kind.label + " — " + formattedDate`
+- **OBJET** = première phrase du markdown extraite par builder (`first sentence before "."` après `MarkdownDirectivePreprocessor` ; on saute les directives HTML) OU fallback `meeting.title` si markdown vide
+- **DATE** = `meeting.date` formaté `"d MMMM yyyy à HH:mm"` + durée extraite de `meeting.durationSeconds` si > 0 (format "(durée 1h00)")
+- **PARTICIPANTS** = `meeting.participants` triés alpha par nom, joined par `", "`
 
 ## 6. Tables Décisions / Actions auto-injectées
 
@@ -114,7 +134,7 @@ Le `template.promptBody` peut mentionner ces directives en exemples pour guider 
 
 Si match → remplace la `<table>` qui suit le `<h2>` par la version canonique. Sinon → append en fin de body avec un nouveau `<h2>`.
 
-**Décisions canoniques** depuis `extractStructured.decisions` :
+**Décisions canoniques** depuis `meeting.decisions: [String]` (champ SwiftData existant alimenté par `extractStructured` via `apply(report:)`) :
 ```html
 <h2>Relevé de décisions</h2>
 <table>
@@ -126,7 +146,8 @@ Si match → remplace la `<table>` qui suit le `<h2>` par la version canonique. 
 </table>
 ```
 
-**Actions canoniques** depuis `meeting.tasks` (filtre `task.meeting == meeting`) :
+**Actions canoniques** depuis `meeting.tasks` (relation inverse, sans filtre — toutes les tasks attachées à ce meeting). Tri par `task.dueDate ?? .distantFuture` ascendant. `Porteur` = `task.collaborator?.name ?? task.unresolvedAssigneeName ?? "—"`. `Échéance` = `task.dueDate` formatée fr ou `"—"` si nil.
+
 ```html
 <h2>Plan d'actions</h2>
 <table>
@@ -291,18 +312,18 @@ strong { color: var(--navy-dark); }
 em { color: var(--muted); }
 ```
 
-## 8. Mail HTML inliné
+## 8. Mail / Outlook — flow existant réutilisé
 
-Outlook/Gmail ignorent `<style>` ou les `:root` variables. Le builder produit deux variantes :
+L'app utilise déjà `composeMeetingMail` (`ExportService.swift:228`) qui :
+1. Construit le HTML via `buildMeetingHTML(meeting:includeTranscript:)` (l.447)
+2. Route vers `runMailCompose` (AppleScript Mail.app) ou `runOutlookCompose` (AppleScript Outlook.app)
+3. Les deux apps natives macOS rendent les `<style>…</style>` blocks correctement
 
-- **Mode `.preview`** : HTML avec `<style>…</style>` (le CSS du §7 tel quel). Cible WKWebView et createPDF.
-- **Mode `.inline`** : `ReportInlineStyler` applique `style="…"` direct sur chaque balise. Plus verbeux mais robuste pour mail. Implémentation : parcourt l'arbre HTML (SwiftSoup ou string-replace ciblé), injecte la propriété CSS calculée par balise. Variables `:root` résolues à la valeur littérale.
+**Refactor minimal** : `buildMeetingHTML` délègue à `ReportHTMLBuilder.build(meeting:template:)`. Les fonctions publiques (`exportMeetingMail`, `exportMeetingOutlook`) restent inchangées en surface — elles bénéficient automatiquement du nouveau style.
 
-`ExportService.exportMeetingMail(meeting:)` :
-1. Construit le HTML via `ReportHTMLBuilder.build(mode: .inline)`
-2. Encode en `String`
-3. `NSSharingService(named: .composeEmail)` avec body HTML
-4. Sujet pré-rempli `[CR] meeting.title — date`
+**Pas besoin** de `ReportInlineStyler` en V1 : Mail.app et Outlook.app rendent le `<style>` block normalement. Si plus tard on cible Gmail webmail (qui strip `<style>`), un styler inline pourra être ajouté.
+
+**Détail conservé** : l'option `MeetingMailExportOptions.includeTranscript` (transcript intégral en annexe) reste — le builder accepte un paramètre `includeTranscript: Bool` et ajoute une dernière section `<h2>Transcription complète</h2>` si demandée. Idem pour `includeSlidesPDF` (pièce jointe inchangée).
 
 ## 9. Édition
 
@@ -328,11 +349,9 @@ Toggle entre 2 modes dans l'onglet Rapport :
 
 ## 10. Boutons Export
 
-Dans la toolbar de l'onglet Rapport, à droite de Aperçu/Éditer :
-- `📄 PDF` → `ExportService.exportMeetingPDF(meeting:)` (utilise WKWebView createPDF, `NSSavePanel`)
-- `✉ Mail` → `ExportService.exportMeetingMail(meeting:)` (compose mail avec body HTML inliné)
+L'onglet rapport a déjà un menu Export (PDF / Mail / Outlook / Notes) via `MeetingTopChromeBar` ou similaire. Les boutons restent inchangés en surface ; ils consomment le HTML produit par `ReportHTMLBuilder` (via `buildMeetingHTML` refactoré). Désactivés si `meeting.summary.isEmpty`.
 
-Les deux boutons toujours visibles, désactivés si `meeting.summary.isEmpty`.
+**`exportMeetingPDF` (l.195)** : refactor body. Avant = `NSPrintOperation` sur `NSTextView`. Après = WKWebView headless qui charge le HTML, attend `didFinishNavigation`, appelle `createPDF(configuration:)` → `Data` → écrit à l'URL choisie par `NSSavePanel`. Le signature publique `exportMeetingPDF(meeting:fileName:)` ne change pas.
 
 ## 11. Erreurs
 
@@ -371,14 +390,40 @@ Aucun modèle SwiftData impacté. Pure couche de rendu en complément du markdow
 
 ## 15. Livrables
 
+- `OneToOne/Services/Report/MarkdownDirectivePreprocessor.swift`
 - `OneToOne/Services/Report/MarkdownToHTMLRenderer.swift`
 - `OneToOne/Services/Report/ReportHTMLBuilder.swift`
 - `OneToOne/Services/Report/ReportThemeCSS.swift`
-- `OneToOne/Services/Report/ReportInlineStyler.swift`
 - `OneToOne/Views/Meeting/MeetingReportPreview.swift`
-- `OneToOne/Views/MeetingView.swift` (modifié)
-- `OneToOne/Services/ExportService.swift` (modifié)
+- `OneToOne/Views/MeetingView.swift` (modifié — onglet rapport)
+- `OneToOne/Services/ExportService.swift` (refactor `buildMeetingHTML` + `exportMeetingPDF`)
+- `Tests/MarkdownDirectivePreprocessorTests.swift`
 - `Tests/MarkdownToHTMLRendererTests.swift`
 - `Tests/ReportHTMLBuilderTests.swift`
+
+## 16. Types existants utilisés (audit code réel)
+
+- `Meeting.summary: String` ✓
+- `Meeting.title: String` ✓
+- `Meeting.date: Date` ✓
+- `Meeting.kind: MeetingKind` ✓ (enum avec `.label`)
+- `Meeting.participants: [Collaborator]` ✓
+- `Meeting.project: Project?` ✓
+- `Meeting.tasks: [ActionTask]` ✓ (relation)
+- `Meeting.decisions: [String]` ✓ (champ stocké, alimenté par `apply(report:)`)
+- `Meeting.keyPoints / openQuestions` ✓ (idem)
+- `Meeting.liveNotes: String` ✓
+- `Meeting.rawTranscript: String` ✓
+- `Meeting.durationSeconds: Double` ✓
+- `Project.code: String` / `Project.name: String` ✓
+- `Collaborator.name: String` ✓
+- `ActionTask.title / dueDate / collaborator / unresolvedAssigneeName` ✓ (tous confirmés Task 1 + 7 du report-refactor précédent)
+- `ReportTemplate.kind: ReportTemplateKind` ✓ (avec `.label` computed)
+- `ReportTemplate.preamble` ✓ (ajouté Task 1 report-refactor)
+- `swift-markdown` `import Markdown` ✓ déjà linké
+- `WebKit` `import WebKit` + `WKWebView` ✓ déjà utilisé dans `MermaidView.swift`
+- `MarkdownEditorView(text: Binding<String>, textViewID: String)` ✓ `EditableTextField.swift:319`
+- `ExportService.composeMeetingMail` AppleScript Mail/Outlook ✓ existe
+- `MeetingMailExportOptions.includeTranscript / .includeSlidesPDF` ✓
 
 Spec ready.
