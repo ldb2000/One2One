@@ -28,6 +28,7 @@ struct MeetingTopChromeBar: View {
     let onImportCalendar: () -> Void
     let onImportExistingWAV: () -> Void
     let onRevealWAV: () -> Void
+    let onEditAudio: () -> Void
     let hasWAV: Bool
     let onExportMarkdown: () -> Void
     let onExportPDF: () -> Void
@@ -350,6 +351,8 @@ struct MeetingTopChromeBar: View {
             Button(action: onToggleCustomPrompt) { Label("Prompt spécifique", systemImage: "text.bubble") }
             Button(action: onImportCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
             Button(action: onImportExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
+            Button(action: onEditAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
+                .disabled(!hasWAV)
             Button(action: onRevealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
                 .disabled(!hasWAV)
             Divider()

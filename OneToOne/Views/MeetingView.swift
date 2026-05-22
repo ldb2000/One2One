@@ -185,6 +185,7 @@ struct MeetingView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([url])
                     }
                 },
+                onEditAudio: { audioEditMode = .trimStart },
                 hasWAV: meeting.wavFileURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
                 onExportMarkdown: {
                     let md = ExportService().exportMeetingMarkdown(meeting: meeting)
@@ -496,10 +497,7 @@ struct MeetingView: View {
         case .liveNotes:
             MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
         case .transcript:
-            VStack(spacing: 0) {
-                audioEditingToolbar
-                transcriptView
-            }
+            transcriptView
         case .report:
             reportView
         case .documents:
@@ -756,23 +754,6 @@ struct MeetingView: View {
         }
     }
 
-    @ViewBuilder
-    private var audioEditingToolbar: some View {
-        HStack(spacing: 8) {
-            Button {
-                audioEditMode = .trimStart
-            } label: {
-                Label("Éditer l'audio", systemImage: "waveform.path")
-            }
-            .disabled(!canEditAudio)
-            .help("Couper début, couper fin ou diviser le fichier")
-
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
     // MARK: - Prep badge
 
     private enum PrepBadge { case none, toPrepare, prepared }
@@ -815,16 +796,6 @@ struct MeetingView: View {
         }
     }
 
-    /// Boutons disabled si pas de WAV, enregistrement en cours sur cette
-    /// réunion, ou job actif (transcription/rapport/édition).
-    private var canEditAudio: Bool {
-        guard meeting.wavFileURL != nil else { return false }
-        if recorder.isRecording, recorder.activeMeetingID == meeting.ensuredStableID {
-            return false
-        }
-        let active = JobQueue.shared.activeJobs.contains { $0.meetingID == meeting.persistentModelID }
-        return !active
-    }
 
     private var transcriptView: some View {
         ScrollView {
