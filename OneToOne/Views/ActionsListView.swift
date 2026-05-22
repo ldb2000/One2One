@@ -223,40 +223,53 @@ struct ActionsListView: View {
     }
 }
 
-/// Renders Collaborator picker options with pinned (sidebar) at the top,
-/// then favourites (star), a divider, then the rest sorted A–Z.
-/// Includes ad-hoc collaborators so favourited ones aren't silently hidden.
+/// Renders Collaborator picker options groupés selon le filtre de la sidebar
+/// (`sidebar.collabsFilter`) :
+/// - `pinned`     → épinglés au top, divider, le reste A–Z
+/// - `favourites` → favoris au top, divider, le reste A–Z
+/// - `both`       → épinglés ET favoris au top (alpha mixé), divider, le reste A–Z
+/// Inclut tous les collaborateurs non-archivés pour ne pas masquer un favori.
 struct CollaboratorPickerOptions: View {
     let collaborators: [Collaborator]
+    @AppStorage("sidebar.collabsFilter") private var collabsFilter: String = "both"
 
     var body: some View {
-        let active = collaborators.filter { !$0.isArchived }
-        let pinned = active
-            .filter { $0.pinLevel >= 2 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let favourites = active
-            .filter { $0.pinLevel == 1 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let rest = active
-            .filter { $0.pinLevel == 0 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
+        let groups = partitioned()
         Group {
-            ForEach(pinned) { c in
-                Label(c.name, systemImage: "pin.fill").tag(c as Collaborator?)
+            ForEach(groups.top) { c in
+                Label(c.name, systemImage: pillIcon(for: c)).tag(c as Collaborator?)
             }
-            if !pinned.isEmpty && (!favourites.isEmpty || !rest.isEmpty) {
+            if !groups.top.isEmpty && !groups.rest.isEmpty {
                 Divider()
             }
-            ForEach(favourites) { c in
-                Label(c.name, systemImage: "star.fill").tag(c as Collaborator?)
-            }
-            if !favourites.isEmpty && !rest.isEmpty {
-                Divider()
-            }
-            ForEach(rest) { c in
+            ForEach(groups.rest) { c in
                 Text(c.name).tag(c as Collaborator?)
             }
+        }
+    }
+
+    private func partitioned() -> (top: [Collaborator], rest: [Collaborator]) {
+        let active = collaborators
+            .filter { !$0.isArchived }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        switch collabsFilter {
+        case "pinned":
+            return (active.filter { $0.pinLevel == 2 },
+                    active.filter { $0.pinLevel != 2 })
+        case "favourites":
+            return (active.filter { $0.pinLevel == 1 },
+                    active.filter { $0.pinLevel != 1 })
+        default:  // both
+            return (active.filter { $0.pinLevel >= 1 },
+                    active.filter { $0.pinLevel == 0 })
+        }
+    }
+
+    private func pillIcon(for c: Collaborator) -> String {
+        switch c.pinLevel {
+        case 2:  return "pin.fill"
+        case 1:  return "star.fill"
+        default: return "person"
         }
     }
 }
