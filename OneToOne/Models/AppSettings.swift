@@ -139,7 +139,10 @@ final class AppSettings {
     var braveSearchKey: String = ""
 
     // MARK: - Speaker identification (diarization + matching)
-    var speakerIdEnabled: Bool = true
+    /// Diarisation = process coûteux (modèles MLX + minutes de calcul) qui
+    /// reste OPT-IN. L'utilisateur l'active explicitement dans Réglages ou
+    /// déclenche manuellement via "Détecter les speakers".
+    var speakerIdEnabled: Bool = false
     var speakerIdAutoThreshold: Double = 0.75
     var speakerIdSuggestThreshold: Double = 0.60
     /// Pyannote cluster merge threshold (0.0-2.0). Higher = less merging =
