@@ -461,10 +461,13 @@ class ExportService {
         // Délégué au builder thémé (rapport styling 2026-05-22).
         // Le template courant du meeting est utilisé pour eyebrow + subtitle ;
         // si nil, fallback à template kind par défaut depuis meeting.kind.
+        // Mode .outlook : styles inlinés + numérotation H2 + alternance lignes
+        // pour contourner le renderer Word d'Outlook (Mac) qui ignore les CSS.
         return ReportHTMLBuilder.build(
             meeting: meeting,
             template: meeting.reportTemplate,
-            includeTranscript: includeTranscript
+            includeTranscript: includeTranscript,
+            mode: .outlook
         )
     }
 

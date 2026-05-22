@@ -9,9 +9,12 @@ import SwiftData
 @MainActor
 enum ReportHTMLBuilder {
 
+    enum RenderMode { case preview, outlook }
+
     static func build(meeting: Meeting,
                       template: ReportTemplate?,
-                      includeTranscript: Bool) -> String {
+                      includeTranscript: Bool,
+                      mode: RenderMode = .preview) -> String {
         let eyebrow = makeEyebrow(meeting: meeting, template: template)
         let title = escape(meeting.title.isEmpty ? "Réunion" : meeting.title)
         let subtitle = makeSubtitle(meeting: meeting, template: template)
@@ -33,7 +36,7 @@ enum ReportHTMLBuilder {
             }
         }
 
-        return """
+        let rawHTML = """
         <!DOCTYPE html>
         <html lang="fr">
         <head>
@@ -52,6 +55,168 @@ enum ReportHTMLBuilder {
         </body>
         </html>
         """
+
+        switch mode {
+        case .preview:
+            return rawHTML
+        case .outlook:
+            return inlineForOutlook(rawHTML)
+        }
+    }
+
+    // MARK: - Outlook inlining
+
+    private static func inlineForOutlook(_ html: String) -> String {
+        var out = html
+
+        // 1. Numérotation des H2 (avant style replacements).
+        out = injectH2Numbers(out)
+
+        // 2. Supprimer le bloc <style>…</style>.
+        out = stripStyleBlock(out)
+
+        // 3. Body.
+        out = out.replacingOccurrences(of: "<body>",
+            with: "<body style=\"font-family:-apple-system,'Segoe UI',Helvetica,sans-serif;color:#2d2d2d;line-height:1.55;font-size:13px;\">")
+
+        // 4. Éléments d'en-tête.
+        out = out.replacingOccurrences(of: "<div class=\"header-rule\">",
+            with: "<div style=\"height:4px;background:#1a2a44;margin-bottom:18px;\">")
+        out = out.replacingOccurrences(of: "<div class=\"eyebrow\">",
+            with: "<div style=\"font-size:11px;letter-spacing:0.18em;color:#1a2a44;font-weight:600;margin-bottom:6px;\">")
+        out = out.replacingOccurrences(of: "<h1>",
+            with: "<h1 style=\"font-size:28px;color:#0d1f3a;line-height:1.2;margin:6px 0 4px;font-weight:700;\">")
+        out = out.replacingOccurrences(of: "<p class=\"subtitle\">",
+            with: "<p style=\"color:#7a7a7a;font-size:14px;font-weight:600;margin:0 0 18px;\">")
+
+        // 5. Table meta.
+        out = out.replacingOccurrences(of: "<table class=\"meta\">",
+            with: "<table cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;border-collapse:collapse;margin-bottom:28px;\">")
+        // Cellules th/td dans la meta : on utilise des classes intermédiaires
+        // (th et td de la meta n'ont pas de classe, on inspecte le contexte
+        // après remplacement via un pass séparé sur la meta block).
+        out = inlineMeatCells(out)
+
+        // 6. Tables de contenu (sans classe).
+        out = out.replacingOccurrences(of: "<table>",
+            with: "<table cellspacing=\"0\" cellpadding=\"8\" border=\"0\" style=\"width:100%;border-collapse:collapse;margin:8px 0 18px;\">")
+        out = out.replacingOccurrences(of: "<th>",
+            with: "<th style=\"background:#1a2a44;color:#ffffff;text-align:left;padding:8px 10px;font-size:11px;letter-spacing:0.06em;font-weight:700;\">")
+        out = out.replacingOccurrences(of: "<td>",
+            with: "<td style=\"padding:8px 10px;border-bottom:1px solid #e8d9b8;vertical-align:top;\">")
+
+        // 7. Alternance de lignes dans les tbody.
+        out = alternateRows(out)
+
+        // 8. H2 (style uniquement, numérotation déjà injectée).
+        out = out.replacingOccurrences(of: "<h2>",
+            with: "<h2 style=\"font-size:16px;color:#0d1f3a;margin:22px 0 10px;padding-bottom:6px;border-bottom:1.5px solid #1a2a44;font-weight:700;\">")
+
+        // 9. Blockquote.
+        out = out.replacingOccurrences(of: "<blockquote>",
+            with: "<blockquote style=\"background:#fbf4e3;border-radius:3px;padding:12px 14px;margin:12px 0;font-size:13px;border-left:3px solid #e8d9b8;\">")
+
+        // 10. Callouts : préfixe label inline (remplace le ::before CSS).
+        out = out.replacingOccurrences(of: "<div class=\"callout vigilance\">",
+            with: "<div style=\"background:#fbf4e3;border-radius:3px;padding:12px 14px;margin:12px 0;font-size:13px;\"><strong style=\"color:#b07020;\">● Point de vigilance.</strong> ")
+        out = out.replacingOccurrences(of: "<div class=\"callout reserve\">",
+            with: "<div style=\"background:#fbf4e3;border-radius:3px;padding:12px 14px;margin:12px 0;font-size:13px;\"><strong style=\"color:#7a7a7a;\">● Réserve exprimée.</strong> ")
+
+        // 11. Strong / em.
+        out = out.replacingOccurrences(of: "<strong>",
+            with: "<strong style=\"color:#0d1f3a;font-weight:700;\">")
+        out = out.replacingOccurrences(of: "<em>",
+            with: "<em style=\"color:#7a7a7a;font-style:italic;\">")
+
+        return out
+    }
+
+    /// Supprime le bloc <style>…</style> (y compris multi-lignes).
+    private static func stripStyleBlock(_ html: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "<style>.*?</style>",
+                                                   options: [.dotMatchesLineSeparators]) else { return html }
+        let range = NSRange(location: 0, length: (html as NSString).length)
+        return regex.stringByReplacingMatches(in: html, options: [], range: range, withTemplate: "")
+    }
+
+    /// Préfixe le contenu de chaque <h2> avec un badge numéroté.
+    private static func injectH2Numbers(_ html: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "<h2>(.*?)</h2>",
+                                                   options: [.dotMatchesLineSeparators]) else { return html }
+        let nsHTML = html as NSString
+        let matches = regex.matches(in: html, options: [], range: NSRange(location: 0, length: nsHTML.length))
+        var modified = html
+        for (idx, match) in matches.enumerated().reversed() {
+            let content = (modified as NSString).substring(with: match.range(at: 1))
+            let badge = "<span style=\"display:inline-block;background:#1a2a44;color:#ffffff;font-size:12px;font-weight:700;padding:2px 8px;margin-right:10px;border-radius:2px;\">\(idx + 1)</span>"
+            let newTag = "<h2>\(badge)\(content)</h2>"
+            modified = (modified as NSString).replacingCharacters(in: match.range, with: newTag)
+        }
+        return modified
+    }
+
+    /// Injecte les styles inline sur les th/td de la table meta.
+    /// La table meta est délimitée par `<table cellspacing="0" cellpadding="0" border="0" style="...margin-bottom:28px;">…</table>`.
+    private static func inlineMeatCells(_ html: String) -> String {
+        // Pattern : trouve le bloc de la table meta (déjà remplacée par son style) et
+        // remplace les <th>/<td> à l'intérieur par des versions stylées.
+        let metaStyle = "width:100%;border-collapse:collapse;margin-bottom:28px;"
+        guard let startRange = html.range(of: "style=\"\(metaStyle)\"") else { return html }
+
+        // Trouver le </table> correspondant après ce point.
+        let afterMeta = html[startRange.lowerBound...]
+        guard let tableEnd = afterMeta.range(of: "</table>") else { return html }
+
+        let metaBlock = String(html[startRange.lowerBound..<tableEnd.upperBound])
+        var styledMeta = metaBlock
+        styledMeta = styledMeta.replacingOccurrences(of: "<th>",
+            with: "<th style=\"background:#f5f3ee;text-align:left;width:160px;padding:10px 12px;font-size:11px;letter-spacing:0.06em;color:#1a2a44;font-weight:700;vertical-align:top;\">")
+        styledMeta = styledMeta.replacingOccurrences(of: "<td>",
+            with: "<td style=\"padding:10px 12px;background:#f5f3ee;vertical-align:top;\">")
+
+        return html.replacingOccurrences(of: metaBlock, with: styledMeta)
+    }
+
+    /// Alterne la couleur de fond des lignes dans chaque <tbody>.
+    private static func alternateRows(_ html: String) -> String {
+        guard let tbodyRegex = try? NSRegularExpression(pattern: "<tbody>(.*?)</tbody>",
+                                                        options: [.dotMatchesLineSeparators]) else { return html }
+        let nsHTML = html as NSString
+        let matches = tbodyRegex.matches(in: html, options: [], range: NSRange(location: 0, length: nsHTML.length))
+        var modified = html
+        for match in matches.reversed() {
+            let tbodyContent = (modified as NSString).substring(with: match.range(at: 1))
+            guard let rowRegex = try? NSRegularExpression(pattern: "<tr>(.*?)</tr>",
+                                                          options: [.dotMatchesLineSeparators]) else { continue }
+            let tbodyNS = tbodyContent as NSString
+            let rowMatches = rowRegex.matches(in: tbodyContent, options: [],
+                                              range: NSRange(location: 0, length: tbodyNS.length))
+            var newContent = ""
+            var lastEnd = 0
+            for (rowIdx, rowMatch) in rowMatches.enumerated() {
+                if rowMatch.range.location > lastEnd {
+                    newContent += tbodyNS.substring(with: NSRange(location: lastEnd,
+                                                                  length: rowMatch.range.location - lastEnd))
+                }
+                let row = tbodyNS.substring(with: rowMatch.range)
+                if rowIdx % 2 == 1 {
+                    let striped = row.replacingOccurrences(
+                        of: "<td style=\"padding:8px 10px;border-bottom:1px solid #e8d9b8;vertical-align:top;\">",
+                        with: "<td style=\"padding:8px 10px;border-bottom:1px solid #e8d9b8;vertical-align:top;background:#f5f3ee;\">")
+                    newContent += striped
+                } else {
+                    newContent += row
+                }
+                lastEnd = rowMatch.range.location + rowMatch.range.length
+            }
+            if lastEnd < tbodyNS.length {
+                newContent += tbodyNS.substring(with: NSRange(location: lastEnd,
+                                                              length: tbodyNS.length - lastEnd))
+            }
+            let fullTbody = "<tbody>\(newContent)</tbody>"
+            modified = (modified as NSString).replacingCharacters(in: match.range, with: fullTbody)
+        }
+        return modified
     }
 
     // MARK: - Eyebrow / subtitle / meta
