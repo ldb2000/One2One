@@ -72,6 +72,10 @@ final class ReportTemplate {
     var name: String
     var kindRaw: String
     var promptBody: String
+    /// Préambule système injecté en tête du prompt de génération. Permet de
+    /// personnaliser le ton/rôle de l'assistant par template. Default = ancien
+    /// préambule hardcoded de `AIReportService.generate`.
+    var preamble: String = "Tu es l'assistant de synthèse de OneToOne."
     var sectionsJSON: String
     var historyModeRaw: String = HistoryMode.none.rawValue
     var historyN: Int = 0
@@ -84,6 +88,7 @@ final class ReportTemplate {
     init(name: String,
          kind: ReportTemplateKind,
          promptBody: String = "",
+         preamble: String = "Tu es l'assistant de synthèse de OneToOne.",
          sections: [TemplateSection] = [],
          historyMode: HistoryMode = .none,
          historyN: Int = 0,
@@ -93,6 +98,7 @@ final class ReportTemplate {
         self.name = name
         self.kindRaw = kind.rawValue
         self.promptBody = promptBody
+        self.preamble = preamble
         self.sectionsJSON = Self.encodeSections(sections)
         self.historyModeRaw = historyMode.rawValue
         self.historyN = historyN

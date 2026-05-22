@@ -207,6 +207,11 @@ final class ActionTask {
     /// keep nil and we display "Date inconnue" rather than crashing.
     var createdAt: Date? = nil
     var completedAt: Date? = nil
+    /// Quand l'extraction LLM 2e passe renvoie un nom d'assignee qui ne matche
+    /// AUCUN collaborator (même via CollaboratorMatcher fuzzy), on stocke le
+    /// nom brut ici. L'UI affiche un chip orange "💡 Auto : <nom>" cliquable
+    /// qui ouvre la sheet de recherche pré-remplie sur ce nom.
+    var unresolvedAssigneeName: String? = nil
 
     @Relationship(deleteRule: .cascade, inverse: \ActionComment.task)
     var comments: [ActionComment] = []
