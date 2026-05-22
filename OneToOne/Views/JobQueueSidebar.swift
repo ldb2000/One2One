@@ -109,7 +109,11 @@ struct JobQueueSidebar: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                if job.status == .running || job.status == .cancelling {
+                if job.status == .queued {
+                    Text("En attente…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if job.status == .running || job.status == .cancelling {
                     progressLine(job)
                 } else if case .failed(let msg) = job.status {
                     Text(msg)
@@ -124,7 +128,9 @@ struct JobQueueSidebar: View {
             }
             Spacer(minLength: 0)
 
-            if job.status == .running || job.status == .cancelling {
+            if job.status == .queued
+                || job.status == .running
+                || job.status == .cancelling {
                 Button {
                     queue.cancel(job.id)
                 } label: {
@@ -133,7 +139,7 @@ struct JobQueueSidebar: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(job.status == .cancelling)
-                .help("Annuler ce job")
+                .help(job.status == .queued ? "Retirer de la file" : "Annuler ce job")
             }
         }
         .padding(8)
@@ -157,6 +163,8 @@ struct JobQueueSidebar: View {
     @ViewBuilder
     private func jobIcon(_ job: JobQueue.Job) -> some View {
         switch job.status {
+        case .queued:
+            Image(systemName: "hourglass").foregroundStyle(.secondary)
         case .running:
             switch job.kind {
             case .transcription:
@@ -192,7 +200,8 @@ struct JobQueueSidebar: View {
     }
 
     private func terminalLabel(_ job: JobQueue.Job) -> String {
-        let dur = (job.finishedAt ?? Date()).timeIntervalSince(job.startedAt)
+        let start = job.startedAt ?? job.queuedAt
+        let dur = (job.finishedAt ?? Date()).timeIntervalSince(start)
         let secs = Int(dur)
         let suffix = secs >= 60 ? "\(secs / 60)m \(secs % 60)s" : "\(secs)s"
         switch job.status {
@@ -204,6 +213,7 @@ struct JobQueueSidebar: View {
 
     private func rowBackground(for job: JobQueue.Job) -> Color {
         switch job.status {
+        case .queued:               return Color.secondary.opacity(0.07)
         case .running, .cancelling: return Color.accentColor.opacity(0.08)
         case .failed:               return Color.red.opacity(0.06)
         default:                    return Color(nsColor: .controlBackgroundColor)
