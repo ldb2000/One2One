@@ -810,8 +810,14 @@ struct CollaboratorDetailView: View {
     @State private var showingPhotoImporter = false
     @State private var showingPhotoSearch = false
     @State private var prepExpanded: Bool = false
+    @State private var showingQuickAdd: Bool = false
+    @State private var quickAddTitle: String = ""
+    @State private var quickAddProject: Project? = nil
+    @State private var quickAddDueDate: Date? = nil
     @Query private var allMeetings: [Meeting]
     @Query private var appSettings: [AppSettings]
+    @Query(filter: #Predicate<Project> { !$0.isArchived },
+           sort: \Project.name) private var availableProjects: [Project]
 
     var body: some View {
         ScrollView {
@@ -957,10 +963,14 @@ struct CollaboratorDetailView: View {
                     let pendingTasks = collaborator.assignedTasks.filter { !$0.isCompleted }
                     let doneTasks = collaborator.assignedTasks.filter { $0.isCompleted }
 
-                    if pendingTasks.isEmpty && doneTasks.isEmpty {
+                    if pendingTasks.isEmpty && doneTasks.isEmpty && !showingQuickAdd {
                         Text("Aucune action assignée").foregroundColor(.secondary)
                     } else {
                         VStack(alignment: .leading, spacing: 5) {
+                            if showingQuickAdd {
+                                quickAddRow
+                                    .padding(.bottom, 6)
+                            }
                             ForEach(pendingTasks) { task in
                                 HStack {
                                     Button {
@@ -1029,6 +1039,20 @@ struct CollaboratorDetailView: View {
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
+                        Spacer()
+                        Button {
+                            showingQuickAdd.toggle()
+                            if showingQuickAdd {
+                                quickAddTitle = ""
+                                quickAddProject = nil
+                                quickAddDueDate = nil
+                            }
+                        } label: {
+                            Image(systemName: showingQuickAdd ? "xmark.circle" : "plus.circle.fill")
+                                .foregroundStyle(showingQuickAdd ? .secondary : Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(showingQuickAdd ? "Annuler" : "Ajouter une action")
                     }
                 }
 
@@ -1268,6 +1292,86 @@ struct CollaboratorDetailView: View {
         } catch {
             print("[CollaboratorDetail] savePhotoData failed: \(error)")
         }
+    }
+
+    // MARK: - Quick-add action row
+
+    @ViewBuilder
+    private var quickAddRow: some View {
+        HStack(spacing: 8) {
+            TextField("Titre de l'action…", text: $quickAddTitle)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(submitQuickAdd)
+
+            Menu {
+                Button("Aucun") { quickAddProject = nil }
+                Divider()
+                ForEach(availableProjects) { p in
+                    Button(p.name) { quickAddProject = p }
+                }
+            } label: {
+                Text(quickAddProject?.name ?? "Projet")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .frame(maxWidth: 120)
+            }
+            .menuStyle(.borderlessButton)
+
+            Menu {
+                Button("Aucune") { quickAddDueDate = nil }
+                Button("Aujourd'hui") { quickAddDueDate = Date() }
+                Button("Demain") { quickAddDueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) }
+                Button("Dans une semaine") { quickAddDueDate = Calendar.current.date(byAdding: .day, value: 7, to: Date()) }
+            } label: {
+                Text(quickAddDueDate.map { quickAddDateLabel($0) } ?? "Échéance")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .frame(maxWidth: 110)
+            }
+            .menuStyle(.borderlessButton)
+
+            Button {
+                submitQuickAdd()
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(canSubmitQuickAdd ? .green : .secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmitQuickAdd)
+
+            Button {
+                showingQuickAdd = false
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var canSubmitQuickAdd: Bool {
+        !quickAddTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func submitQuickAdd() {
+        let trimmed = quickAddTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let task = ActionTask(title: trimmed, dueDate: quickAddDueDate)
+        task.collaborator = collaborator
+        task.project = quickAddProject
+        context.insert(task)
+        try? context.save()
+        quickAddTitle = ""
+        quickAddProject = nil
+        quickAddDueDate = nil
+        showingQuickAdd = false
+    }
+
+    private func quickAddDateLabel(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "d MMM"
+        return f.string(from: d)
     }
 }
 
