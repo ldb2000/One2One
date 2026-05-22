@@ -146,6 +146,25 @@ struct MeetingActionsSidebar: View {
                 .fixedSize()
             }
 
+            if let hint = task.unresolvedAssigneeName, task.collaborator == nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption2)
+                    Text("Auto : \(hint)")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Choisir") {
+                        showingAddCollaboratorSheet = true
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption2)
+                }
+                .padding(.leading, 30)
+                .padding(.vertical, 2)
+            }
+
             HStack(spacing: 10) {
                 rowAssigneeMenu(task)
                 Text("·").foregroundColor(.secondary)
