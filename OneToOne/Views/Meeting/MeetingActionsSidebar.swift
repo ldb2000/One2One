@@ -20,6 +20,9 @@ struct MeetingActionsSidebar: View {
     let onShowCaptureSetup: () -> Void
     let saveContext: () -> Void
 
+    @Environment(\.modelContext) private var context
+    @State private var showingAddCollaboratorSheet: Bool = false
+
     var body: some View {
         if collapsed {
             collapsedRail
@@ -174,11 +177,7 @@ struct MeetingActionsSidebar: View {
             EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle)
                 .frame(height: 24)
             HStack(spacing: 8) {
-                Picker("Assigné à", selection: $selectedCollaborator) {
-                    Text("Non assigné").tag(nil as Collaborator?)
-                    ForEach(allCollaborators.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in Text(c.name).tag(c as Collaborator?) }
-                }
-                .pickerStyle(.menu)
+                assigneeMenu
                 Toggle(isOn: $showNewTaskDueDate) {
                     Label("Échéance", systemImage: "calendar").font(.caption)
                 }
@@ -199,6 +198,112 @@ struct MeetingActionsSidebar: View {
         }
         .padding(14)
         .background(MeetingTheme.canvasCream)
+        .sheet(isPresented: $showingAddCollaboratorSheet) {
+            AddCollaboratorSheet(
+                allCollaborators: allCollaborators,
+                onPick: { collab in
+                    selectedCollaborator = collab
+                    showingAddCollaboratorSheet = false
+                },
+                onCreate: { name in
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    let c = Collaborator(name: trimmed)
+                    context.insert(c)
+                    try? context.save()
+                    selectedCollaborator = c
+                    showingAddCollaboratorSheet = false
+                }
+            )
+        }
+    }
+
+    // MARK: - Assignee menu
+
+    private var participantCandidates: [Collaborator] {
+        meeting.participants
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var favoriteCandidates: [Collaborator] {
+        let participantIDs = Set(meeting.participants.map { $0.persistentModelID })
+        return allCollaborators
+            .filter { $0.pinLevel >= 1 && !participantIDs.contains($0.persistentModelID) && !$0.isArchived }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var assigneeLabel: String {
+        selectedCollaborator?.name ?? "Non assigné"
+    }
+
+    @ViewBuilder
+    private var assigneeMenu: some View {
+        Menu {
+            Button {
+                selectedCollaborator = nil
+            } label: {
+                if selectedCollaborator == nil {
+                    Label("Non assigné", systemImage: "checkmark")
+                } else {
+                    Text("Non assigné")
+                }
+            }
+
+            if !participantCandidates.isEmpty {
+                Divider()
+                Section("Participants") {
+                    ForEach(participantCandidates) { c in
+                        Button {
+                            selectedCollaborator = c
+                        } label: {
+                            if selectedCollaborator?.persistentModelID == c.persistentModelID {
+                                Label(c.name, systemImage: "checkmark")
+                            } else {
+                                Text(c.name)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !favoriteCandidates.isEmpty {
+                Divider()
+                Section("Favoris") {
+                    ForEach(favoriteCandidates) { c in
+                        Button {
+                            selectedCollaborator = c
+                        } label: {
+                            if selectedCollaborator?.persistentModelID == c.persistentModelID {
+                                Label(c.name, systemImage: "checkmark")
+                            } else {
+                                Text(c.name)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button {
+                showingAddCollaboratorSheet = true
+            } label: {
+                Label("Ajouter un collaborateur…", systemImage: "plus")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "person.crop.circle")
+                    .font(.caption)
+                Text(assigneeLabel)
+                    .font(.caption)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.primary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Assigner à un participant, un favori, ou un nouveau collaborateur")
     }
 
     @ViewBuilder
@@ -334,5 +439,102 @@ struct MeetingActionsSidebar: View {
         df.timeZone = .current
         df.dateFormat = "dd/MM/yyyy"
         return df.string(from: d)
+    }
+}
+
+// MARK: - Add collaborator search sheet
+
+private struct AddCollaboratorSheet: View {
+    let allCollaborators: [Collaborator]
+    let onPick: (Collaborator) -> Void
+    let onCreate: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query: String = ""
+
+    private var filtered: [Collaborator] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = allCollaborators.filter { !$0.isArchived }
+        guard !trimmed.isEmpty else {
+            return base.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+        return base
+            .filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var exactMatchExists: Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return allCollaborators.contains { $0.name.lowercased() == trimmed }
+    }
+
+    private var canCreate: Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && !exactMatchExists
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Choisir un collaborateur").font(.headline)
+                Spacer()
+                Button("Fermer") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+            Divider()
+
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Rechercher par nom…", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        if let first = filtered.first { onPick(first) }
+                        else if canCreate { onCreate(query) }
+                    }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+
+            List {
+                if canCreate {
+                    Button {
+                        onCreate(query)
+                    } label: {
+                        Label("Créer « \(query.trimmingCharacters(in: .whitespacesAndNewlines)) »",
+                              systemImage: "plus.circle.fill")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(filtered) { c in
+                    Button {
+                        onPick(c)
+                    } label: {
+                        HStack {
+                            Text(c.name)
+                            if c.pinLevel >= 1 {
+                                Image(systemName: "star.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.yellow)
+                            }
+                            Spacer()
+                            if !c.role.isEmpty {
+                                Text(c.role)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                if filtered.isEmpty && !canCreate {
+                    Text("Aucun résultat. Tape un nom pour créer un nouveau collaborateur.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .listStyle(.inset)
+        }
+        .frame(minWidth: 360, minHeight: 380)
     }
 }
