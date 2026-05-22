@@ -15,6 +15,9 @@ struct MaintenanceView: View {
             storageSection
             batchJobsSection
             cleanupAudioSection
+            filesCleanupSection
+            databaseSection
+            footerSection
         }
         .padding(8)
         .task { refreshStats(force: false) }
@@ -289,6 +292,97 @@ struct MaintenanceView: View {
 
     private func saveCtx() {
         try? context.save()
+    }
+
+    // MARK: - Files Cleanup Section
+
+    @ViewBuilder
+    private var filesCleanupSection: some View {
+        let orphans = OrphanCleanupService.orphanAttachments(in: context)
+        let staleTmp = OrphanCleanupService.staleTmpWavs(
+            in: applicationSupportDir().appendingPathComponent("recordings")
+        )
+        VStack(alignment: .leading, spacing: 10) {
+            Label("NETTOYAGE FICHIERS", systemImage: "trash")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Image(systemName: orphans.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(orphans.isEmpty ? .green : .orange)
+                Text("\(orphans.count) attachements pointent vers des fichiers introuvables")
+                    .font(.callout)
+                Spacer()
+                Button("Nettoyer") {
+                    OrphanCleanupService.deleteAttachments(orphans, in: context)
+                }
+                .disabled(orphans.isEmpty)
+            }
+            HStack {
+                Image(systemName: staleTmp.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(staleTmp.isEmpty ? .green : .orange)
+                Text("\(staleTmp.count) fichiers .tmp.wav orphelins")
+                    .font(.callout)
+                Spacer()
+                Button("Supprimer") {
+                    OrphanCleanupService.deleteFiles(staleTmp)
+                    StorageStatsService.shared.invalidate()
+                }
+                .disabled(staleTmp.isEmpty)
+            }
+        }
+    }
+
+    // MARK: - Database Section
+
+    @ViewBuilder
+    private var databaseSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("BASE DE DONNÉES", systemImage: "cylinder.split.1x2")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            HStack {
+                Text("Compaction SQLite — récupère l'espace après suppressions massives")
+                    .font(.callout)
+                Spacer()
+                Button("Compacter (VACUUM)") {
+                    do {
+                        let r = try DatabaseVacuumService.vacuum()
+                        print("[Maintenance] VACUUM \(r.bytesBefore)B → \(r.bytesAfter)B")
+                        StorageStatsService.shared.invalidate()
+                    } catch {
+                        print("[Maintenance] VACUUM failed: \(error)")
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Footer Section
+
+    @ViewBuilder
+    private var footerSection: some View {
+        if let date = settings.lastCleanupAt {
+            Text("Dernier cleanup : \(Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date()))")
+                .font(.caption2).foregroundStyle(.tertiary)
+        } else {
+            Text("Dernier cleanup : jamais")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        return f
+    }()
+
+    private func applicationSupportDir() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("OneToOne")
     }
 
     private func runCleanup(plan: WavRetentionService.CleanupPlan) {
