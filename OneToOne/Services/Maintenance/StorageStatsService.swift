@@ -68,9 +68,25 @@ final class StorageStatsService {
 
         // Slide captures live under Application Support/OneToOne/recordings/
         // organised as <meetingUUID>/slides/<file>.png
+        // Only count files within slides/ subdirs; recordings/ also contains wav files
+        // which are already counted separately via Meeting.wavFilePath.
         let supportDir = applicationSupportDir()
         let recordingsDir = supportDir.appendingPathComponent("recordings")
-        let (slidesBytes, slidesCount) = directorySize(at: recordingsDir)
+        var slidesBytes: Int64 = 0
+        var slidesCount = 0
+        if let meetingDirs = try? FileManager.default.contentsOfDirectory(
+            at: recordingsDir, includingPropertiesForKeys: [.isDirectoryKey]
+        ) {
+            for dir in meetingDirs {
+                guard (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                    continue
+                }
+                let slidesSub = dir.appendingPathComponent("slides")
+                let (b, c) = directorySize(at: slidesSub)
+                slidesBytes += b
+                slidesCount += c
+            }
+        }
         stats.slidesBytes = slidesBytes
         stats.slidesCount = slidesCount
 
