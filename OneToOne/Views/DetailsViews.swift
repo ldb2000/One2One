@@ -935,6 +935,11 @@ struct CollaboratorDetailView: View {
                             prepExpanded = !collaborator.standingPrepNotes.isEmpty
                         }
                     }
+                    .onChange(of: collaborator.standingPrepNotes) { _, newValue in
+                        if !newValue.isEmpty && !prepExpanded {
+                            prepExpanded = true
+                        }
+                    }
                     if !prepExpanded && collaborator.standingPrepNotes.isEmpty {
                         HStack {
                             Spacer()
