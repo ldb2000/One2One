@@ -1792,9 +1792,13 @@ struct MeetingView: View {
                 task.dueDate = ISO8601DateFormatter().date(from: iso)
                     ?? DateFormatter.yyyyMMdd.date(from: iso)
             }
-            if let assignee = a.assignee,
-               let collab = allCollaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(assignee) == .orderedSame }) {
-                task.collaborator = collab
+            if let assignee = a.assignee?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !assignee.isEmpty {
+                if let match = CollaboratorMatcher.match(name: assignee, in: meeting, all: allCollaborators) {
+                    task.collaborator = match
+                } else {
+                    task.unresolvedAssigneeName = assignee
+                }
             }
             context.insert(task)
         }
