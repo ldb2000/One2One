@@ -8,6 +8,22 @@ import SpeechVAD
 
 private let diarLog = Logger(subsystem: "com.onetoone.app", category: "PyannoteDiarizer")
 
+/// Drapeau d'annulation partagé entre la Task parente et le worker MLX détaché.
+/// `Task.detached` casse la propagation structured concurrency, donc on relaie
+/// l'annulation via cette boîte atomique consultée dans `progressHandler`.
+private final class CancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _cancelled = false
+    var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _cancelled
+    }
+    func markCancelled() {
+        lock.lock(); defer { lock.unlock() }
+        _cancelled = true
+    }
+}
+
 /// Wraps speech-swift's `PyannoteDiarizationPipeline`.
 /// Provides:
 /// - turns: [(startSec, endSec, clusterID)]
@@ -70,37 +86,50 @@ final class PyannoteDiarizer {
             }
         }
 
-        return try await Task.detached(priority: .userInitiated) {
-            progressForward?(0.02, "Lecture du fichier audio")
-            let samples = try Self.loadMono16k(url: url)
-            progressForward?(0.05, "Démarrage de la diarisation")
-            let result = boxed.value.diarize(
-                audio: samples,
-                sampleRate: 16000,
-                config: configToUse,
-                progressHandler: { fraction, status in
-                    // 0.05–0.95 range to leave headroom for post-processing.
-                    let scaled = 0.05 + Double(fraction) * 0.90
-                    progressForward?(scaled, status)
-                    return true  // never cancel from here
-                }
-            )
-            progressForward?(0.98, "Finalisation")
-
-            let turns = result.segments.map { seg in
-                TurnAligner.DiarTurn(
-                    startSec: Double(seg.startTime),
-                    endSec: Double(seg.endTime),
-                    clusterID: seg.speakerId
+        // Capture la cancellation parente pour la propager au worker MLX :
+        // `Task.detached` n'hérite pas de la structured concurrency, donc on
+        // pose un flag atomique qu'on consulte dans le progressHandler.
+        let cancelFlag = CancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                try Task.checkCancellation()
+                progressForward?(0.02, "Lecture du fichier audio")
+                let samples = try Self.loadMono16k(url: url)
+                try Task.checkCancellation()
+                progressForward?(0.05, "Démarrage de la diarisation")
+                let result = boxed.value.diarize(
+                    audio: samples,
+                    sampleRate: 16000,
+                    config: configToUse,
+                    progressHandler: { fraction, status in
+                        // 0.05–0.95 range to leave headroom for post-processing.
+                        let scaled = 0.05 + Double(fraction) * 0.90
+                        progressForward?(scaled, status)
+                        return !cancelFlag.isCancelled
+                    }
                 )
-            }
-            var embeddings: [Int: [Float]] = [:]
-            for (idx, emb) in result.speakerEmbeddings.enumerated() {
-                embeddings[idx] = emb
-            }
-            diarLog.info("diarize done turns=\(turns.count) speakers=\(result.numSpeakers)")
-            return DiarizeOutput(turns: turns, perClusterEmbedding: embeddings)
-        }.value
+                try Task.checkCancellation()
+                progressForward?(0.96, "Finalisation")
+
+                let turns = result.segments.map { seg in
+                    TurnAligner.DiarTurn(
+                        startSec: Double(seg.startTime),
+                        endSec: Double(seg.endTime),
+                        clusterID: seg.speakerId
+                    )
+                }
+                var embeddings: [Int: [Float]] = [:]
+                for (idx, emb) in result.speakerEmbeddings.enumerated() {
+                    embeddings[idx] = emb
+                }
+                progressForward?(1.0, "Terminé")
+                diarLog.info("diarize done turns=\(turns.count) speakers=\(result.numSpeakers)")
+                return DiarizeOutput(turns: turns, perClusterEmbedding: embeddings)
+            }.value
+        } onCancel: {
+            cancelFlag.markCancelled()
+            diarLog.info("diarize cancelled by parent task")
+        }
         #else
         throw NSError(domain: "PyannoteDiarizer", code: -1,
                       userInfo: [NSLocalizedDescriptionKey: "SpeechVAD non disponible — speech-swift pas linké."])
