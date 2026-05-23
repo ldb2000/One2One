@@ -119,6 +119,17 @@ struct AIReportService {
             historyAppendix += "\n\nContexte sémantique (RAG, extraits pertinents) :\n\(additionalContext)\n"
         }
 
+        // Fallback append du contexte projets si le template ne contient pas
+        // `{{collab.projects_context}}`. Si présent, TemplateVariableResolver
+        // a déjà fait la substitution dans `resolved`.
+        let hasProjectsPlaceholder = body.contains("{{collab.projects_context}}")
+        if !hasProjectsPlaceholder {
+            let projectsBlock = ProjectsContextBuilder.build(for: meeting, in: context)
+            if !projectsBlock.isEmpty {
+                historyAppendix += "\n\nContexte projets affectés au collaborateur :\n\(projectsBlock)\n"
+            }
+        }
+
         // 3. Documents joints (extraction script).
         let attachmentsBlock = buildAttachmentsBlock(
             for: meeting,
