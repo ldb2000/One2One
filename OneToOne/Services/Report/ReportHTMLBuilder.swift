@@ -379,7 +379,10 @@ enum ReportHTMLBuilder {
         for (i, m) in matches.enumerated() {
             let titleText = nsHTML.substring(with: m.range(at: 1))
             let normalized = normalize(titleText)
-            if titleAliases.contains(normalized) {
+            // Prefix-match : matche "actions pour Nicolas", "décisions clés", etc.
+            // L'aliase étant déjà normalisé (lowercased + diacritic-insensitive),
+            // un prefix match capture les variantes courantes.
+            if titleAliases.contains(where: { normalized.hasPrefix($0) }) {
                 let start = m.range.location
                 let nextStart: Int
                 if i + 1 < matches.count {
