@@ -415,3 +415,126 @@ enum HistoryContextBuilder {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+// MARK: - Projects context (sub-projet 2b)
+
+/// Construit le bloc de contexte projets pour une réunion 1:1. Pour chaque
+/// projet où le partenaire est architecte technique ou chef de projet :
+/// statut + top-3 résumés de réunions sur ce projet + actions ouvertes.
+///
+/// Tronqué à ~15 000 caractères au global, max 5 projets, top 3 résumés par
+/// projet (1500 chars chacun), max 10 actions ouvertes par projet.
+@MainActor
+enum ProjectsContextBuilder {
+
+    private static let maxProjects: Int = 5
+    private static let summariesPerProject: Int = 3
+    private static let summaryMaxChars: Int = 1500
+    private static let actionsPerProject: Int = 10
+    private static let totalBudgetChars: Int = 15_000
+
+    static func build(for meeting: Meeting, in context: ModelContext) -> String {
+        guard meeting.kind == .oneToOne,
+              let partner = meeting.participants.first else {
+            return ""
+        }
+
+        var seen = Set<PersistentIdentifier>()
+        var projects: [Project] = []
+        for p in partner.projectsAsArchitect + partner.projectsAsManager {
+            guard !p.isArchived else { continue }
+            if seen.insert(p.persistentModelID).inserted {
+                projects.append(p)
+            }
+        }
+        guard !projects.isEmpty else { return "" }
+
+        let sorted = ProjectStatusPalette.sortedByStatus(projects)
+        let topProjects = Array(sorted.prefix(maxProjects))
+
+        var pieces: [String] = []
+        for p in topProjects {
+            pieces.append(renderProject(p, partner: partner, in: context))
+        }
+        let full = pieces.joined(separator: "\n\n")
+        if full.count <= totalBudgetChars { return full }
+        let truncated = String(full.prefix(totalBudgetChars))
+        if let lastNewline = truncated.lastIndex(of: "\n") {
+            return String(truncated[..<lastNewline])
+        }
+        return truncated
+    }
+
+    private static func renderProject(_ p: Project,
+                                       partner: Collaborator,
+                                       in context: ModelContext) -> String {
+        let role = projectRole(p, partner: partner)
+        var out = "## \(p.code) · \(p.name) (statut: \(p.status))\n"
+        out += "Rôle de \(partner.name) : \(role)\n\n"
+
+        let descriptor = FetchDescriptor<Meeting>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        let allMeetings = (try? context.fetch(descriptor)) ?? []
+        let projectMeetings = allMeetings.filter {
+            $0.project?.persistentModelID == p.persistentModelID
+                && !$0.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let topSummaries = Array(projectMeetings.prefix(summariesPerProject))
+        out += "### \(summariesPerProject) derniers points discutés sur ce projet\n"
+        if topSummaries.isEmpty {
+            out += "(aucun historique disponible)\n"
+        } else {
+            let fmt = DateFormatter()
+            fmt.locale = Locale(identifier: "fr_FR")
+            fmt.dateFormat = "d MMM yyyy"
+            for m in topSummaries {
+                out += "--- \(fmt.string(from: m.date)) · \(m.title) ---\n"
+                let truncated = truncateAtBoundary(m.summary, max: summaryMaxChars)
+                out += truncated + "\n\n"
+            }
+        }
+
+        let openActions = p.tasks
+            .filter { !$0.isCompleted }
+            .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+            .prefix(actionsPerProject)
+        out += "### Actions ouvertes sur ce projet (\(openActions.count))\n"
+        if openActions.isEmpty {
+            out += "(aucune action ouverte)\n"
+        } else {
+            let fmt = DateFormatter()
+            fmt.locale = Locale(identifier: "fr_FR")
+            fmt.dateFormat = "d MMM yyyy"
+            for t in openActions {
+                let who = t.collaborator?.name ?? t.unresolvedAssigneeName ?? "—"
+                let when = t.dueDate.map { fmt.string(from: $0) } ?? "—"
+                out += "- \(t.title) — \(who), \(when)\n"
+            }
+        }
+        return out
+    }
+
+    private static func projectRole(_ p: Project, partner: Collaborator) -> String {
+        let isArchi = p.technicalArchitect?.persistentModelID == partner.persistentModelID
+        let isPM = p.projectManager?.persistentModelID == partner.persistentModelID
+        switch (isArchi, isPM) {
+        case (true, true):  return "Architecte technique et chef de projet"
+        case (true, false): return "Architecte technique"
+        case (false, true): return "Chef de projet"
+        default:            return "—"
+        }
+    }
+
+    private static func truncateAtBoundary(_ s: String, max: Int) -> String {
+        guard s.count > max else { return s }
+        let cut = String(s.prefix(max))
+        if let dot = cut.lastIndex(of: ".") {
+            return String(cut[...dot]) + "…"
+        }
+        if let nl = cut.lastIndex(of: "\n") {
+            return String(cut[..<nl]) + "…"
+        }
+        return cut + "…"
+    }
+}
