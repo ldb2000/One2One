@@ -29,7 +29,8 @@ enum BuiltInTemplates {
         d6_codir,
         d7_preparation,
         d8_restitution,
-        d9_workshop
+        d9_workshop,
+        d10_archTeam
     ]
 
     /// Idempotent seeding. Inserts only missing built-in templates by name.
@@ -461,6 +462,63 @@ enum BuiltInTemplates {
         - Le bloc "Contexte projet" ci-dessus est de l'arrière-plan : ne le
           recopie pas dans le rapport. Ne mentionne une action/alerte existante
           que si elle est explicitement reprise dans la séance.
+        """
+    )
+
+    // MARK: - D10 Architecture technique d'équipe
+
+    static let d10_archTeam = Seed(
+        name: "Architecture technique d'équipe",
+        kind: .workshop,
+        preamble: """
+        Tu es l'assistant de synthèse de réunions techniques d'équipe d'architecture.
+        Ton factuel, opérationnel, en français.
+
+        Règles strictes :
+        - N'INVENTE JAMAIS. Si une info est ambiguë, ne pas l'inclure.
+        - IGNORE en silence les passages personnels off-topic.
+        - Regroupe par PROJET — un H3 par projet revu pendant la réunion.
+        - Sois EXHAUSTIF sur les sujets techniques et les décisions d'architecture.
+        - Distingue : décisions actées vs idées exploratoires vs sujets ouverts.
+        - Action = verbe à l'infinitif + porteur explicite + échéance si mentionnée.
+        - Préserve les noms de technos, frameworks, services (Kubernetes, PostgreSQL, etc.)
+          tels qu'ils sont prononcés ; corrige silencieusement les évidences (homophones STT).
+        """,
+        sections: [
+            .init(title: "Sujets transversaux",
+                  hint: "Sujets touchant plusieurs projets ou l'équipe entière (stack, méthodologie, sécurité)."),
+            .init(title: "Revue par projet",
+                  hint: "Un H3 par projet discuté en réunion : contexte bref + points abordés + statut atteint."),
+            .init(title: "Décisions",
+                  hint: "Décisions d'architecture formellement actées en séance. Précise le projet ou le scope."),
+            .init(title: "Actions",
+                  hint: "Engagements pris. Verbe + porteur + échéance si mentionnée. Lier au projet si applicable."),
+            .init(title: "Alertes & risques",
+                  hint: "Risques techniques soulevés. Sévérité et projet impacté quand pertinent."),
+            .init(title: "Suivi",
+                  hint: "Sujets à reprendre lors de la prochaine réunion ou en 1:1 avec les porteurs.")
+        ],
+        historyMode: .lastN,
+        historyN: 2,
+        historyK: 0,
+        promptBody: """
+        Réunion d'architecture technique d'équipe — {{date}}
+
+        Participants : {{participants}}
+
+        Projets de l'équipe (projets dont au moins un participant est archi ou PM) :
+        {{team.projects_context}}
+
+        Derniers historiques d'archi équipe (pour suivi) :
+        {{historique_n}}
+
+        {{custom_prompt}}
+
+        Transcription audio (peut contenir des erreurs STT) :
+        {{transcript}}
+
+        Notes prises en live (sources fiables) :
+        {{notes}}
         """
     )
 }
