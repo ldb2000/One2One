@@ -30,7 +30,8 @@ enum ReportHTMLBuilder {
             bodyHTML: bodyHTML,
             decisions: meeting.decisions,
             tasks: meeting.tasks,
-            alerts: meeting.meetingAlerts
+            alerts: meeting.meetingAlerts,
+            meeting: meeting
         )
 
         if includeTranscript {
@@ -377,10 +378,11 @@ enum ReportHTMLBuilder {
     private static func dedupeAndInject(bodyHTML: String,
                                         decisions: [String],
                                         tasks: [ActionTask],
-                                        alerts: [ProjectAlert] = []) -> String {
+                                        alerts: [ProjectAlert] = [],
+                                        meeting: Meeting) -> String {
         var html = bodyHTML
         let decisionsBlock = decisions.isEmpty ? nil : renderDecisionsBlock(decisions)
-        let actionsBlock = tasks.isEmpty ? nil : renderActionsBlock(tasks)
+        let actionsBlock = tasks.isEmpty ? nil : renderActionsBlock(tasks, meeting: meeting)
         let alertsBlock = alerts.isEmpty ? nil : renderAlertsBlock(alerts)
 
         if let block = decisionsBlock {
@@ -410,21 +412,34 @@ enum ReportHTMLBuilder {
         """
     }
 
-    private static func renderActionsBlock(_ tasks: [ActionTask]) -> String {
+    private static func renderActionsBlock(_ tasks: [ActionTask], meeting: Meeting) -> String {
         let sorted = tasks.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "fr_FR")
         fmt.dateFormat = "d MMM yyyy"
+
+        // Colonne Projet : uniquement en 1:1 avec actions sur ≥2 projets distincts.
+        let distinctProjects = Set(sorted.compactMap { $0.project?.persistentModelID })
+        let includeProjectColumn = meeting.kind == .oneToOne && distinctProjects.count >= 2
+
         var rows = ""
         for (idx, t) in sorted.enumerated() {
             let porteur = t.collaborator?.name ?? t.unresolvedAssigneeName ?? "—"
             let dueRaw = t.dueDate.map(fmt.string(from:)) ?? "—"
-            rows += "<tr><td>A\(idx + 1)</td><td>\(escape(t.title))</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
+            if includeProjectColumn {
+                let proj = t.project?.code ?? "—"
+                rows += "<tr><td>A\(idx + 1)</td><td>\(escape(t.title))</td><td>\(escape(proj))</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
+            } else {
+                rows += "<tr><td>A\(idx + 1)</td><td>\(escape(t.title))</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
+            }
         }
+        let header = includeProjectColumn
+            ? "<thead><tr><th>#</th><th>Action</th><th>Projet</th><th>Porteur</th><th>Échéance</th></tr></thead>"
+            : "<thead><tr><th>#</th><th>Action</th><th>Porteur</th><th>Échéance</th></tr></thead>"
         return """
         <h2>Plan d'actions</h2>
         <table>
-        <thead><tr><th>#</th><th>Action</th><th>Porteur</th><th>Échéance</th></tr></thead>
+        \(header)
         <tbody>
         \(rows)</tbody>
         </table>
