@@ -44,6 +44,8 @@ struct SettingsView: View {
     // Manager section
     @State private var managerName: String = ""
     @State private var managerEmail: String = ""
+    @State private var ownerName: String = ""
+    @State private var ownerRole: String = ""
     @State private var managerCategories: [String] = []
     @State private var managerReportPrompt: String = ""
 
@@ -403,6 +405,27 @@ struct SettingsView: View {
                                         .frame(minHeight: 150)
                                 }
                             }
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+
+                GroupBox("Mon identité (rédacteur des comptes-rendus)") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Nom et rôle utilisés pour te marquer \"(rédacteur)\" dans la ligne PARTICIPANTS du rapport, et pour afficher ton titre.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        HStack {
+                            Text("Mon nom :")
+                            TextField("ex. Laurent DE BERTI", text: $ownerName)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { saveSettings() }
+                        }
+                        HStack {
+                            Text("Mon rôle :")
+                            TextField("ex. Responsable de l'architecture technique",
+                                      text: $ownerRole)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { saveSettings() }
                         }
                     }
                     .padding(.vertical, 5)
@@ -798,6 +821,8 @@ struct SettingsView: View {
             weeklyExportPrompt = settings.weeklyExportPrompt
             managerName = settings.managerName
             managerEmail = settings.managerEmail
+            ownerName = settings.ownerName
+            ownerRole = settings.ownerRole
             managerCategories = settings.managerCategories
             managerReportPrompt = settings.managerReportPrompt
 
@@ -977,6 +1002,8 @@ struct SettingsView: View {
         settings.weeklyExportPrompt = weeklyExportPrompt
         settings.managerName = managerName
         settings.managerEmail = managerEmail
+        settings.ownerName = ownerName
+        settings.ownerRole = ownerRole
         settings.managerCategories = managerCategories
         settings.managerReportPrompt = managerReportPrompt
         do {

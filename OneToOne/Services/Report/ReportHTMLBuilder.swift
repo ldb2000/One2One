@@ -15,18 +15,22 @@ enum ReportHTMLBuilder {
                       template: ReportTemplate?,
                       includeTranscript: Bool,
                       managerName: String = "",
+                      managerRole: String = "",
                       mode: RenderMode = .preview) -> String {
         let eyebrow = makeEyebrow(meeting: meeting, template: template)
         let title = escape(meeting.title.isEmpty ? "Réunion" : meeting.title)
         let subtitle = makeSubtitle(meeting: meeting, template: template)
-        let meta = makeMetaTable(meeting: meeting, managerName: managerName)
+        let meta = makeMetaTable(meeting: meeting,
+                                  managerName: managerName,
+                                  managerRole: managerRole)
 
         let bodyHTML = MarkdownToHTMLRenderer.render(meeting.summary)
 
         var assembled = dedupeAndInject(
             bodyHTML: bodyHTML,
             decisions: meeting.decisions,
-            tasks: meeting.tasks
+            tasks: meeting.tasks,
+            alerts: meeting.meetingAlerts
         )
 
         if includeTranscript {
@@ -249,7 +253,9 @@ enum ReportHTMLBuilder {
         return "\(escape(kindLabel)) — \(fmt.string(from: meeting.date))"
     }
 
-    private static func makeMetaTable(meeting: Meeting, managerName: String) -> String {
+    private static func makeMetaTable(meeting: Meeting,
+                                       managerName: String,
+                                       managerRole: String) -> String {
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "fr_FR")
         fmt.dateFormat = "d MMMM yyyy 'à' HH:mm"
@@ -263,7 +269,9 @@ enum ReportHTMLBuilder {
 
         // Participants : "Nom — Rôle (rédacteur si match managerName)".
         // Sortie multi-lignes <br/> pour reproduire le format du PDF référence.
-        let participantsCell = makeParticipantsCell(meeting: meeting, managerName: managerName)
+        let participantsCell = makeParticipantsCell(meeting: meeting,
+                                                     managerName: managerName,
+                                                     managerRole: managerRole)
 
         let objet = makeObjet(meeting: meeting)
 
@@ -292,18 +300,26 @@ enum ReportHTMLBuilder {
         """
     }
 
-    private static func makeParticipantsCell(meeting: Meeting, managerName: String) -> String {
+    private static func makeParticipantsCell(meeting: Meeting,
+                                              managerName: String,
+                                              managerRole: String) -> String {
         guard !meeting.participants.isEmpty else { return "—" }
         let normalizedManager = normalizeName(managerName)
         let lines = meeting.participants
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { c -> String in
                 var line = escape(c.name)
-                if !c.role.isEmpty {
-                    line += " — \(escape(c.role))"
+                let isManager = !normalizedManager.isEmpty
+                    && normalizeName(c.name) == normalizedManager
+                // Rôle : si match manager → préférer AppSettings.managerRole.
+                let displayRole: String = {
+                    if isManager && !managerRole.isEmpty { return managerRole }
+                    return c.role
+                }()
+                if !displayRole.isEmpty {
+                    line += " — \(escape(displayRole))"
                 }
-                if !normalizedManager.isEmpty,
-                   normalizeName(c.name) == normalizedManager {
+                if isManager {
                     line += " <em style=\"color:#7a7a7a;font-style:italic;\">(rédacteur)</em>"
                 }
                 return line
@@ -351,18 +367,30 @@ enum ReportHTMLBuilder {
         "prochaines étapes"
     ]
 
+    private static let alertsTitleAliases: Set<String> = [
+        "alertes",
+        "risques",
+        "points de vigilance",
+        "vigilance"
+    ]
+
     private static func dedupeAndInject(bodyHTML: String,
                                         decisions: [String],
-                                        tasks: [ActionTask]) -> String {
+                                        tasks: [ActionTask],
+                                        alerts: [ProjectAlert] = []) -> String {
         var html = bodyHTML
         let decisionsBlock = decisions.isEmpty ? nil : renderDecisionsBlock(decisions)
         let actionsBlock = tasks.isEmpty ? nil : renderActionsBlock(tasks)
+        let alertsBlock = alerts.isEmpty ? nil : renderAlertsBlock(alerts)
 
         if let block = decisionsBlock {
             html = replaceOrAppend(html, titleAliases: decisionsTitleAliases, block: block)
         }
         if let block = actionsBlock {
             html = replaceOrAppend(html, titleAliases: actionsTitleAliases, block: block)
+        }
+        if let block = alertsBlock {
+            html = replaceOrAppend(html, titleAliases: alertsTitleAliases, block: block)
         }
         return html
     }
@@ -400,6 +428,35 @@ enum ReportHTMLBuilder {
         <tbody>
         \(rows)</tbody>
         </table>
+        """
+    }
+
+    /// Rend les alertes en série de callouts cream (style "Point de vigilance")
+    /// précédés d'un H2 "Alertes". Chaque alerte = un `<div class="callout vigilance">`
+    /// avec titre en gras + détail. Sévérité affichée en suffix coloré.
+    private static func renderAlertsBlock(_ alerts: [ProjectAlert]) -> String {
+        var blocks = ""
+        for a in alerts {
+            let severityColor: String = {
+                switch a.severity.lowercased() {
+                case "critique": return "#b71c1c"
+                case "élevé", "eleve": return "#e89a3c"
+                case "modéré", "modere": return "#7a7a7a"
+                case "faible": return "#9aa0a6"
+                default: return "#7a7a7a"
+                }
+            }()
+            blocks += """
+            <div class="callout vigilance">
+            <strong>\(escape(a.title))</strong> <span style="color:\(severityColor);font-weight:700;">(\(escape(a.severity)))</span>
+            \(a.detail.isEmpty ? "" : "<br/>\(escape(a.detail))")
+            </div>
+
+            """
+        }
+        return """
+        <h2>Alertes</h2>
+        \(blocks)
         """
     }
 

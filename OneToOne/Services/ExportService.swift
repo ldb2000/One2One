@@ -464,23 +464,25 @@ class ExportService {
         // si nil, fallback à template kind par défaut depuis meeting.kind.
         // Mode .outlook : styles inlinés + numérotation H2 + alternance lignes
         // pour contourner le renderer Word d'Outlook (Mac) qui ignore les CSS.
-        let managerName = fetchManagerName(for: meeting)
+        let (name, role) = fetchOwnerIdentity(for: meeting)
         return ReportHTMLBuilder.build(
             meeting: meeting,
             template: meeting.reportTemplate,
             includeTranscript: includeTranscript,
-            managerName: managerName,
+            managerName: name,
+            managerRole: role,
             mode: .outlook
         )
     }
 
-    /// Récupère `AppSettings.managerName` depuis le ModelContext du meeting,
-    /// fallback "" si pas de settings persistés.
-    private func fetchManagerName(for meeting: Meeting) -> String {
-        guard let context = meeting.modelContext else { return "" }
+    /// Récupère `AppSettings.ownerName` + `ownerRole` (rédacteur du rapport)
+    /// depuis le ModelContext du meeting, fallback "" si non configuré.
+    private func fetchOwnerIdentity(for meeting: Meeting) -> (name: String, role: String) {
+        guard let context = meeting.modelContext else { return ("", "") }
         let descriptor = FetchDescriptor<AppSettings>()
         let all = (try? context.fetch(descriptor)) ?? []
-        return all.canonicalSettings?.managerName ?? ""
+        let s = all.canonicalSettings
+        return (s?.ownerName ?? "", s?.ownerRole ?? "")
     }
 
     /// Exporte une réunion vers Apple Notes en HTML formaté avec les mêmes

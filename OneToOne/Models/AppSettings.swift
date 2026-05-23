@@ -74,6 +74,15 @@ final class AppSettings {
     /// Email du manager (optionnel, pour export futur — non utilisé en V1).
     var managerEmail: String = ""
 
+    /// Nom de l'utilisateur de l'app (rédacteur des comptes-rendus).
+    /// Si non vide ET matche un participant de la réunion → l'utilisateur
+    /// est marqué "(rédacteur)" dans la ligne PARTICIPANTS du rapport.
+    var ownerName: String = ""
+
+    /// Rôle / titre de l'utilisateur (ex: "Responsable de l'architecture technique").
+    /// Affiché à côté du nom owner dans la ligne PARTICIPANTS du rapport.
+    var ownerRole: String = ""
+
     /// Liste des catégories de classification utilisateur (éditable).
     /// Stockée en JSON pour rester migration-friendly.
     var managerCategoriesJSON: String = AppSettings.defaultManagerCategoriesJSON

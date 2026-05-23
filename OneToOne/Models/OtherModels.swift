@@ -244,6 +244,9 @@ final class ProjectAlert {
     var isResolved: Bool = false
     var project: Project?
     var interview: Interview?
+    /// Lien vers la réunion qui a soulevé l'alerte (rendu dans la meta-table
+    /// du rapport sous forme de callout cream).
+    var meeting: Meeting?
 
     var severity: String { severityRaw }
 
@@ -360,6 +363,12 @@ final class Meeting {
 
     @Relationship(deleteRule: .cascade, inverse: \MeetingAttachment.meeting)
     var attachments: [MeetingAttachment] = []
+
+    /// Alertes soulevées pendant cette réunion (rendues comme callouts cream
+    /// dans le rapport). Extraites par `AIReportService.extractStructured`
+    /// puis reliées via `apply(report:)`.
+    @Relationship(deleteRule: .cascade, inverse: \ProjectAlert.meeting)
+    var meetingAlerts: [ProjectAlert] = []
 
     @Relationship(deleteRule: .cascade, inverse: \TranscriptChunk.meeting)
     var transcriptChunks: [TranscriptChunk] = []

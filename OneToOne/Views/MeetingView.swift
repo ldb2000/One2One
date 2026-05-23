@@ -891,7 +891,8 @@ struct MeetingView: View {
                         meeting: meeting,
                         template: meeting.reportTemplate,
                         includeTranscript: false,
-                        managerName: settings.managerName
+                        managerName: settings.ownerName,
+                        managerRole: settings.ownerRole
                     ))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -1578,6 +1579,7 @@ struct MeetingView: View {
             let alert = ProjectAlert(title: a.title, detail: a.detail, severity: a.severity)
             alert.project = meeting.project
             alert.interview = nil
+            alert.meeting = meeting
             context.insert(alert)
         }
 
