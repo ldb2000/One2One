@@ -95,6 +95,9 @@ struct ConfigurableRightSidebar: View {
                 collapsed = true
             } label: {
                 Image(systemName: "sidebar.right")
+                    .font(.body)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Replier la sidebar")
