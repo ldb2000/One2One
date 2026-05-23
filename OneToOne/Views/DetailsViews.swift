@@ -70,6 +70,22 @@ struct ProjectDetailView: View {
                             EditableTextField(placeholder: "Sponsor", text: $project.sponsor)
                                 .frame(height: 24)
                         }
+                        LabeledContent("Chef de projet") {
+                            OwnerPickerMenu(
+                                label: "Aucun",
+                                selection: $project.projectManager,
+                                allCollaborators: collaborators,
+                                onSaved: { try? context.save() }
+                            )
+                        }
+                        LabeledContent("Architecte technique") {
+                            OwnerPickerMenu(
+                                label: "Aucun",
+                                selection: $project.technicalArchitect,
+                                allCollaborators: collaborators,
+                                onSaved: { try? context.save() }
+                            )
+                        }
 
                         Picker("Type", selection: $project.projectType) {
                             ForEach(projectTypes, id: \.self) { type in
@@ -819,6 +835,79 @@ struct CollaboratorDetailView: View {
     @Query(filter: #Predicate<Project> { !$0.isArchived },
            sort: \Project.name) private var availableProjects: [Project]
 
+    @ViewBuilder
+    private func ownershipSection(title: String, projects: [Project]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .tracking(1.0)
+                Text("(\(projects.count))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            ForEach(sortedByStatus(projects)) { p in
+                NavigationLink {
+                    ProjectDetailView(project: p)
+                } label: {
+                    projectRow(p)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func projectRow(_ p: Project) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(projectStatusColor(p.status))
+                .frame(width: 8, height: 8)
+            Text(p.code)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+            Text("·").foregroundStyle(.tertiary)
+            Text(p.name)
+                .font(.callout)
+                .lineLimit(1)
+            Spacer()
+            Text(p.status)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(projectStatusColor(p.status).opacity(0.18)))
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
+    /// Tri : Red → Yellow → Green → Unknown, puis alpha par nom.
+    private func sortedByStatus(_ projects: [Project]) -> [Project] {
+        let rank: [String: Int] = ["Red": 0, "Yellow": 1, "Green": 2, "Unknown": 3]
+        return projects.sorted { a, b in
+            let ra = rank[a.status] ?? 3
+            let rb = rank[b.status] ?? 3
+            if ra != rb { return ra < rb }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
+    /// Couleur statut projet — copie locale de `statusColor` qui est privé dans
+    /// ProjectDetailView. Si plus tard on factor : extraire dans un helper de
+    /// module (`ProjectStatusPalette.color(_:)`).
+    private func projectStatusColor(_ s: String) -> Color {
+        switch s {
+        case "Red":     return .red
+        case "Yellow":  return .orange
+        case "Green":   return .green
+        default:        return .gray
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -888,6 +977,28 @@ struct CollaboratorDetailView: View {
                         }
                     }
                     .padding(.vertical, 5)
+                }
+
+                // Projets dont ce collab est archi technique ou chef de projet.
+                if !collaborator.projectsAsArchitect.isEmpty
+                    || !collaborator.projectsAsManager.isEmpty {
+                    GroupBox("Projets") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            if !collaborator.projectsAsArchitect.isEmpty {
+                                ownershipSection(
+                                    title: "EN TANT QU'ARCHITECTE TECHNIQUE",
+                                    projects: collaborator.projectsAsArchitect
+                                )
+                            }
+                            if !collaborator.projectsAsManager.isEmpty {
+                                ownershipSection(
+                                    title: "EN TANT QUE CHEF DE PROJET",
+                                    projects: collaborator.projectsAsManager
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
 
                 GroupBox {
