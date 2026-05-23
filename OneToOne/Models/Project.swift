@@ -57,6 +57,16 @@ final class Project {
 
     var entity: Entity?
 
+    /// Chef de projet — Optional FK (Collaborator). Affiché dans
+    /// ProjectDetailView § Informations Générales et utilisé pour
+    /// la reverse query depuis la fiche collab.
+    var projectManager: Collaborator?
+
+    /// Architecte technique du projet — Optional FK (Collaborator).
+    /// Cas d'usage : dans un 1:1 avec un collab architecte, on liste
+    /// automatiquement tous les projets où il endosse ce rôle.
+    var technicalArchitect: Collaborator?
+
     /// Free-text planning notes. Surfaced via {{project.planning}} variable
     /// in report templates.
     var planningText: String = ""

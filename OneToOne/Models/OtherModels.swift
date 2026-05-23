@@ -66,6 +66,14 @@ final class Collaborator {
     @Relationship(deleteRule: .cascade, inverse: \Note.collaborator)
     var notes: [Note] = []
 
+    /// Projets où ce collab est désigné Chef de projet (reverse query).
+    @Relationship(inverse: \Project.projectManager)
+    var projectsAsManager: [Project] = []
+
+    /// Projets où ce collab est désigné Architecte technique (reverse query).
+    @Relationship(inverse: \Project.technicalArchitect)
+    var projectsAsArchitect: [Project] = []
+
     init(name: String, role: String = "Architecte", isArchived: Bool = false) {
         self.stableID = UUID()
         self.name = name
