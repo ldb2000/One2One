@@ -43,9 +43,7 @@ struct ConfigurableRightSidebar: View {
     private var collapsedRail: some View {
         VStack(spacing: 12) {
             Button {
-                print("[Sidebar] EXPAND button tapped, was=\(collapsed)")
                 collapsed = false
-                print("[Sidebar] after toggle, now=\(collapsed)")
             } label: {
                 Image(systemName: "chevron.left.2")
                     .font(.title3)
@@ -92,9 +90,7 @@ struct ConfigurableRightSidebar: View {
             Spacer()
             configMenu
             Button {
-                print("[Sidebar] COLLAPSE button tapped, was=\(collapsed)")
                 collapsed = true
-                print("[Sidebar] after toggle, now=\(collapsed)")
             } label: {
                 Image(systemName: "chevron.right.2")
                     .font(.body)
