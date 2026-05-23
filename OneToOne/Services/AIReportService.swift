@@ -130,6 +130,18 @@ struct AIReportService {
             }
         }
 
+        // Fallback append du contexte projets de l'équipe pour les réunions
+        // de travail (.work). Si le template ne contient pas
+        // `{{team.projects_context}}` mais que la réunion .work a des
+        // participants avec projets affectés, append en queue.
+        let hasTeamPlaceholder = body.contains("{{team.projects_context}}")
+        if !hasTeamPlaceholder {
+            let teamBlock = ProjectsContextBuilder.buildForTeam(meeting: meeting, in: context)
+            if !teamBlock.isEmpty {
+                historyAppendix += "\n\nContexte projets de l'équipe :\n\(teamBlock)\n"
+            }
+        }
+
         // 3. Documents joints (extraction script).
         let attachmentsBlock = buildAttachmentsBlock(
             for: meeting,
