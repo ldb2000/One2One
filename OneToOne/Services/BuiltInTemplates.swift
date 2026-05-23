@@ -71,7 +71,7 @@ enum BuiltInTemplates {
         // évite la ré-application à chaque lancement. Pour pousser un nouveau
         // backfill plus tard : bumper `d2OneToOneRevisionTarget`.
         let d2Key = "BuiltInTemplates.d2OneToOneRevision"
-        let d2Target = 1
+        let d2Target = 2
         if UserDefaults.standard.integer(forKey: d2Key) < d2Target {
             if let row = existingBuiltIns.first(where: { $0.kindRaw == ReportTemplateKind.oneToOne.rawValue }) {
                 row.preamble = d2_oneToOne.preamble
@@ -148,8 +148,12 @@ enum BuiltInTemplates {
           thème). Sois EXHAUSTIF sur les sujets pro — n'omets rien d'important.
         - Distingue clairement : décisions actées vs idées exploratoires vs
           sujets ouverts à trancher.
-        - Action = verbe à l'infinitif + porteur explicite (collab ou manager)
-          + échéance si mentionnée.
+        - Action = verbe à l'infinitif + porteur explicite + échéance si mentionnée.
+          Porteur possible : (1) le collaborateur, (2) le manager (toi, rédacteur),
+          (3) un tiers nommé.
+        - Capture les engagements pris dans CE 1:1 (manager ET collaborateur).
+          N'inclus PAS les tâches perso du manager qui n'ont pas été discutées
+          ici, même si elles sont en cours par ailleurs.
         - La transcription audio (STT) peut contenir des homophones et des
           coquilles. Corrige silencieusement les évidences (noms propres,
           acronymes connus) mais ne reformule pas le sens.
@@ -161,8 +165,8 @@ enum BuiltInTemplates {
                   hint: "Un H3 par thème métier (catalogue, projet X, RH/IAM, infra…). Pour chaque thème : contexte bref + points discutés. Exhaustif sur les sujets pro, ignore l'off-topic personnel."),
             .init(title: "Décisions",
                   hint: "Uniquement les décisions formellement actées en séance. Phrase courte au passé. Vide si rien d'acté."),
-            .init(title: "Actions pour {{collab.name}}",
-                  hint: "Verbe à l'infinitif. Porteur explicite (collab OU manager). Échéance précise si mentionnée, sinon '—'."),
+            .init(title: "Actions",
+                  hint: "Engagements pris dans CE 1:1. Verbe à l'infinitif, porteur explicite (le collaborateur, le manager toi-même, ou un tiers nommé), échéance précise si mentionnée sinon '—'. N'inclus PAS les tâches perso du manager non discutées ici."),
             .init(title: "Ressenti / Climat",
                   hint: "Signaux faibles sur motivation, charge, blocages, points sensibles. Descriptif, sans jugement ni interprétation. Vide si rien à signaler.")
         ],
