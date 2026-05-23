@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import PDFKit
+import SwiftData
 import WebKit
 
 /// Options pour l'export mail d'une réunion.
@@ -463,12 +464,23 @@ class ExportService {
         // si nil, fallback à template kind par défaut depuis meeting.kind.
         // Mode .outlook : styles inlinés + numérotation H2 + alternance lignes
         // pour contourner le renderer Word d'Outlook (Mac) qui ignore les CSS.
+        let managerName = fetchManagerName(for: meeting)
         return ReportHTMLBuilder.build(
             meeting: meeting,
             template: meeting.reportTemplate,
             includeTranscript: includeTranscript,
+            managerName: managerName,
             mode: .outlook
         )
+    }
+
+    /// Récupère `AppSettings.managerName` depuis le ModelContext du meeting,
+    /// fallback "" si pas de settings persistés.
+    private func fetchManagerName(for meeting: Meeting) -> String {
+        guard let context = meeting.modelContext else { return "" }
+        let descriptor = FetchDescriptor<AppSettings>()
+        let all = (try? context.fetch(descriptor)) ?? []
+        return all.canonicalSettings?.managerName ?? ""
     }
 
     /// Exporte une réunion vers Apple Notes en HTML formaté avec les mêmes

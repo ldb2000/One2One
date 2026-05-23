@@ -14,11 +14,12 @@ enum ReportHTMLBuilder {
     static func build(meeting: Meeting,
                       template: ReportTemplate?,
                       includeTranscript: Bool,
+                      managerName: String = "",
                       mode: RenderMode = .preview) -> String {
         let eyebrow = makeEyebrow(meeting: meeting, template: template)
         let title = escape(meeting.title.isEmpty ? "Réunion" : meeting.title)
         let subtitle = makeSubtitle(meeting: meeting, template: template)
-        let meta = makeMetaTable(meeting: meeting)
+        let meta = makeMetaTable(meeting: meeting, managerName: managerName)
 
         let bodyHTML = MarkdownToHTMLRenderer.render(meeting.summary)
 
@@ -248,7 +249,7 @@ enum ReportHTMLBuilder {
         return "\(escape(kindLabel)) — \(fmt.string(from: meeting.date))"
     }
 
-    private static func makeMetaTable(meeting: Meeting) -> String {
+    private static func makeMetaTable(meeting: Meeting, managerName: String) -> String {
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "fr_FR")
         fmt.dateFormat = "d MMMM yyyy 'à' HH:mm"
@@ -259,21 +260,61 @@ enum ReportHTMLBuilder {
             let dur = h > 0 ? "(durée \(h)h\(String(format: "%02d", m)))" : "(durée \(m) min)"
             dateCell += " \(dur)"
         }
-        let participants = meeting.participants
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { escape($0.name) }
-            .joined(separator: ", ")
-        let participantsCell = participants.isEmpty ? "—" : participants
+
+        // Participants : "Nom — Rôle (rédacteur si match managerName)".
+        // Sortie multi-lignes <br/> pour reproduire le format du PDF référence.
+        let participantsCell = makeParticipantsCell(meeting: meeting, managerName: managerName)
 
         let objet = makeObjet(meeting: meeting)
 
-        return """
-        <table class="meta">
+        var rows = """
         <tr><th>OBJET</th><td>\(objet)</td></tr>
         <tr><th>DATE</th><td>\(escape(dateCell))</td></tr>
         <tr><th>PARTICIPANTS</th><td>\(participantsCell)</td></tr>
+        """
+
+        // Référencés (non présents) — uniquement si champ rempli.
+        let ref = meeting.referencedAbsent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ref.isEmpty {
+            rows += "\n<tr><th>RÉFÉRENCÉS<br/>(NON PRÉSENTS)</th><td>\(escape(ref))</td></tr>"
+        }
+
+        // Prochaine échéance — uniquement si champ rempli.
+        let next = meeting.nextDeadline.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !next.isEmpty {
+            rows += "\n<tr><th>PROCHAINE<br/>ÉCHÉANCE</th><td>\(escape(next))</td></tr>"
+        }
+
+        return """
+        <table class="meta">
+        \(rows)
         </table>
         """
+    }
+
+    private static func makeParticipantsCell(meeting: Meeting, managerName: String) -> String {
+        guard !meeting.participants.isEmpty else { return "—" }
+        let normalizedManager = normalizeName(managerName)
+        let lines = meeting.participants
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { c -> String in
+                var line = escape(c.name)
+                if !c.role.isEmpty {
+                    line += " — \(escape(c.role))"
+                }
+                if !normalizedManager.isEmpty,
+                   normalizeName(c.name) == normalizedManager {
+                    line += " <em style=\"color:#7a7a7a;font-style:italic;\">(rédacteur)</em>"
+                }
+                return line
+            }
+        return lines.joined(separator: "<br/>")
+    }
+
+    private static func normalizeName(_ s: String) -> String {
+        s.folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func makeObjet(meeting: Meeting) -> String {

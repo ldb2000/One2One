@@ -878,6 +878,10 @@ struct MeetingView: View {
 
                             Divider()
 
+                            metaHeaderEditor
+
+                            Divider()
+
                             actionsNotice
                         }
                         .padding(12)
@@ -886,7 +890,8 @@ struct MeetingView: View {
                     MeetingReportPreview(html: ReportHTMLBuilder.build(
                         meeting: meeting,
                         template: meeting.reportTemplate,
-                        includeTranscript: false
+                        includeTranscript: false,
+                        managerName: settings.managerName
                     ))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -950,6 +955,38 @@ struct MeetingView: View {
                         .help("Supprimer cette décision")
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var metaHeaderEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("EN-TÊTE DU RAPPORT")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .tracking(1.2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Référencés (non présents)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                TextField("ex: Zied · Nicolas Hauvinet · Travaux McKinsey",
+                          text: Binding(
+                            get: { meeting.referencedAbsent },
+                            set: { meeting.referencedAbsent = $0; try? context.save() }
+                          ))
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Prochaine échéance")
+                    .font(.caption2).foregroundStyle(.secondary)
+                TextField("ex: Partage du modèle puis présentation McKinsey",
+                          text: Binding(
+                            get: { meeting.nextDeadline },
+                            set: { meeting.nextDeadline = $0; try? context.save() }
+                          ))
+                    .textFieldStyle(.roundedBorder)
             }
         }
     }

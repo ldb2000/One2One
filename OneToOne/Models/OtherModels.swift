@@ -301,6 +301,16 @@ final class Meeting {
     /// transcription.
     var prepCarryoverDone: Bool = false
 
+    // MARK: - Métadonnées d'en-tête rapport
+    /// Personnes/équipes mentionnées dans la séance mais non présentes
+    /// (affiché dans la meta-table d'en-tête du rapport).
+    /// Format libre (ex: "Zied (embarquement) · Nicolas Hauvinet · Travaux McKinsey").
+    var referencedAbsent: String = ""
+    /// Prochaine échéance / jalon à venir (affiché dans la meta-table).
+    /// Format libre (ex: "Partage du modèle avec N. Hauvinet, puis présentation
+    /// à la prochaine réunion McKinsey").
+    var nextDeadline: String = ""
+
     // Audio
     /// Marqué comme "à conserver" — exclus du cleanup automatique.
     var keepWavForever: Bool = false
