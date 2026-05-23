@@ -65,6 +65,25 @@ enum BuiltInTemplates {
                 tpl.preamble = "Tu es l'assistant de synthèse de OneToOne."
             }
         }
+
+        // Backfill ciblé : d2_oneToOne révision 2026-05-23
+        // Écrase preamble/promptBody/sections une fois. UserDefaults marker
+        // évite la ré-application à chaque lancement. Pour pousser un nouveau
+        // backfill plus tard : bumper `d2OneToOneRevisionTarget`.
+        let d2Key = "BuiltInTemplates.d2OneToOneRevision"
+        let d2Target = 1
+        if UserDefaults.standard.integer(forKey: d2Key) < d2Target {
+            if let row = existingBuiltIns.first(where: { $0.kindRaw == ReportTemplateKind.oneToOne.rawValue }) {
+                row.preamble = d2_oneToOne.preamble
+                row.promptBody = d2_oneToOne.promptBody
+                row.sections = d2_oneToOne.sections
+                row.historyMode = d2_oneToOne.historyMode
+                row.historyN = d2_oneToOne.historyN
+                row.updatedAt = Date()
+            }
+            UserDefaults.standard.set(d2Target, forKey: d2Key)
+        }
+
         try? context.save()
     }
 
@@ -116,32 +135,57 @@ enum BuiltInTemplates {
     static let d2_oneToOne = Seed(
         name: "1:1 Collaborateur",
         kind: .oneToOne,
-        preamble: "Tu es l'assistant de synthèse de OneToOne.",
+        preamble: """
+        Tu es l'assistant de synthèse de réunions 1:1 manager/collaborateur.
+        Ton factuel, opérationnel, en français.
+
+        Règles strictes :
+        - N'INVENTE JAMAIS. Si une info est ambiguë, ne pas l'inclure.
+        - IGNORE en silence les passages personnels off-topic (équipement perso,
+          vacances, météo, sport, lunettes, télé…). Ne mentionne pas qu'ils ont
+          été ignorés.
+        - Regroupe les échanges par bloc thématique métier explicite (un H3 par
+          thème). Sois EXHAUSTIF sur les sujets pro — n'omets rien d'important.
+        - Distingue clairement : décisions actées vs idées exploratoires vs
+          sujets ouverts à trancher.
+        - Action = verbe à l'infinitif + porteur explicite (collab ou manager)
+          + échéance si mentionnée.
+        - La transcription audio (STT) peut contenir des homophones et des
+          coquilles. Corrige silencieusement les évidences (noms propres,
+          acronymes connus) mais ne reformule pas le sens.
+        """,
         sections: [
-            .init(title: "Suivi du précédent", hint: "Reprise des actions du précédent 1:1."),
-            .init(title: "Sujets abordés", hint: "Points discutés en synthèse."),
-            .init(title: "Décisions", hint: ""),
-            .init(title: "Actions pour {{collab.name}}", hint: "Avec échéance."),
-            .init(title: "Ressenti / Climat", hint: "Signal faible côté ambiance / motivation.")
+            .init(title: "Suivi du précédent",
+                  hint: "Pour chaque action ouverte héritée, indique son statut : discutée, mise à jour (nouvelle échéance / précisions), ou non évoquée. Si pas d'historique : 'Pas de suivi disponible.'"),
+            .init(title: "Sujets abordés",
+                  hint: "Un H3 par thème métier (catalogue, projet X, RH/IAM, infra…). Pour chaque thème : contexte bref + points discutés. Exhaustif sur les sujets pro, ignore l'off-topic personnel."),
+            .init(title: "Décisions",
+                  hint: "Uniquement les décisions formellement actées en séance. Phrase courte au passé. Vide si rien d'acté."),
+            .init(title: "Actions pour {{collab.name}}",
+                  hint: "Verbe à l'infinitif. Porteur explicite (collab OU manager). Échéance précise si mentionnée, sinon '—'."),
+            .init(title: "Ressenti / Climat",
+                  hint: "Signaux faibles sur motivation, charge, blocages, points sensibles. Descriptif, sans jugement ni interprétation. Vide si rien à signaler.")
         ],
         historyMode: .lastN,
         historyN: 2,
         historyK: 0,
         promptBody: """
-        1:1 avec {{collab.name}} ({{collab.role}}) · {{date}}
+        1:1 avec {{collab.name}} ({{collab.role}}) — {{date}}
 
-        Actions ouvertes du collaborateur:
+        Tu rédiges le compte-rendu de ce 1:1. Le manager est le rédacteur.
+
+        Actions ouvertes héritées de {{collab.name}} :
         {{collab.actions_ouvertes}}
 
-        Derniers 1:1 (pour suivi):
+        Derniers 1:1 (pour suivi des actions précédentes) :
         {{historique_n}}
 
         {{custom_prompt}}
 
-        Transcription:
+        Transcription audio (peut contenir des erreurs STT) :
         {{transcript}}
 
-        Notes:
+        Notes prises en live (sources fiables) :
         {{notes}}
         """
     )
