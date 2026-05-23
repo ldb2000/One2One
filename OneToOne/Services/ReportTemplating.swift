@@ -472,7 +472,18 @@ enum ProjectsContextBuilder {
         let role = projectRole(p, partner: partner)
         var out = "## \(p.code) · \(p.name) (statut: \(p.status))\n"
         out += "Rôle de \(partner.name) : \(role)\n\n"
+        out += renderProjectSummariesAndActions(p, in: context)
+        return out
+    }
 
+    /// Rendu commun à 1:1 et équipe : top-3 résumés de meetings sur ce projet
+    /// + actions ouvertes. Partagé entre `renderProject` (sub-projet 2b) et
+    /// `renderTeamProject` (sub-projet 3).
+    private static func renderProjectSummariesAndActions(_ p: Project,
+                                                          in context: ModelContext) -> String {
+        var out = ""
+
+        // Top 3 résumés de meetings sur ce projet.
         let descriptor = FetchDescriptor<Meeting>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
@@ -496,6 +507,7 @@ enum ProjectsContextBuilder {
             }
         }
 
+        // Actions ouvertes (top N par dueDate asc).
         let openActions = p.tasks
             .filter { !$0.isCompleted }
             .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
