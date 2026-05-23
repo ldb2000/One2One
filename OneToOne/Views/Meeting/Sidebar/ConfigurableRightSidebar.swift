@@ -75,7 +75,10 @@ struct ConfigurableRightSidebar: View {
                 }
             }
         }
-        .frame(minWidth: 300, maxWidth: 460)
+        // Pas de .frame ici : le parent (MeetingView HStack) impose la largeur
+        // déterministe (36 ou 360). Une range minWidth/maxWidth déclenche des
+        // oscillations du constraint solver et crashe AppKit.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MeetingTheme.surfaceCream)
         .onAppear { hydrateLayoutAndExpansion() }
     }

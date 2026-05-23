@@ -242,11 +242,16 @@ struct MeetingView: View {
 
             transcriptionPhaseBanner
 
-            HSplitView {
-                mainPanel.frame(minWidth: 520)
+            // HStack au lieu de HSplitView : NSSplitView ne gère pas bien
+                // les changements drastiques de largeur (36px rail ↔ 360px expand)
+                // — provoque récursion infinie dans
+                // `_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines`
+                // et crash AppKit. HStack avec frame fixe au call-site = stable.
+            HStack(spacing: 0) {
+                mainPanel.frame(minWidth: 520, maxWidth: .infinity)
                 if meeting.kind == .manager {
                     ManagerAgendaSidebar(meeting: meeting, settings: settings)
-                        .frame(minWidth: 320, maxWidth: 460)
+                        .frame(width: 380)
                 } else {
                     ConfigurableRightSidebar(
                         meeting: meeting,
@@ -271,8 +276,9 @@ struct MeetingView: View {
                         onShowCaptureSetup: { showCaptureSetup = true },
                         saveContext: saveContext
                     )
-                    // Le sidebar enfant gère sa propre largeur (rail 36px / expand 300-460px).
-                    // Ne pas imposer de frame ici : conflit layout cause freeze à la transition.
+                    // Largeur déterministe (pas de range) : évite oscillations
+                    // de constraint solver entre min/max.
+                    .frame(width: actionsCollapsed ? 36 : 360)
                 }
             }
         }
