@@ -101,6 +101,7 @@ struct ConfigurableRightSidebar: View {
                     .frame(minWidth: 220)
             }
             Button {
+                showingConfigPopover = false
                 collapsed = true
             } label: {
                 Image(systemName: "sidebar.right")

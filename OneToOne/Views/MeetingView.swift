@@ -272,7 +272,8 @@ struct MeetingView: View {
                         onShowCaptureSetup: { showCaptureSetup = true },
                         saveContext: saveContext
                     )
-                    .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
+                    // Le sidebar enfant gère sa propre largeur (rail 36px / expand 300-460px).
+                    // Ne pas imposer de frame ici : conflit layout cause freeze à la transition.
                 }
             }
         }
