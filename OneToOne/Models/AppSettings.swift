@@ -136,6 +136,11 @@ final class AppSettings {
     /// d'écran. Stockée en JSON pour migration douce.
     var captureBlacklistJSON: String = "[]"
 
+    /// Layout configuré de la sidebar droite des réunions.
+    /// JSON : `[{"id":"actions","visible":true}, …]`. Vide → defaultLayout
+    /// est appliqué par le helper computed.
+    var rightSidebarLayoutJSON: String = ""
+
     var captureBlacklist: [String] {
         get {
             (try? JSONDecoder().decode([String].self,
