@@ -69,8 +69,10 @@ enum ReportHTMLBuilder {
     private static func inlineForOutlook(_ html: String) -> String {
         var out = html
 
-        // 1. Numérotation des H2 (avant style replacements).
-        out = injectH2Numbers(out)
+        // 1. Remplacer les <h2>...</h2> par une table 2-cellules (badge + titre).
+        // Outlook (Word renderer) ne supporte pas display:inline-block correctement,
+        // donc le badge dans un <span> tombe en block. Table = layout fiable.
+        out = replaceH2WithBadgeTable(out)
 
         // 2. Supprimer le bloc <style>…</style>.
         out = stripStyleBlock(out)
@@ -92,9 +94,6 @@ enum ReportHTMLBuilder {
         // 5. Table meta.
         out = out.replacingOccurrences(of: "<table class=\"meta\">",
             with: "<table cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;border-collapse:collapse;margin-bottom:28px;\">")
-        // Cellules th/td dans la meta : on utilise des classes intermédiaires
-        // (th et td de la meta n'ont pas de classe, on inspecte le contexte
-        // après remplacement via un pass séparé sur la meta block).
         out = inlineMeatCells(out)
 
         // 6. Tables de contenu (sans classe).
@@ -107,10 +106,6 @@ enum ReportHTMLBuilder {
 
         // 7. Alternance de lignes dans les tbody.
         out = alternateRows(out)
-
-        // 8. H2 (style uniquement, numérotation déjà injectée).
-        out = out.replacingOccurrences(of: "<h2>",
-            with: "<h2 style=\"font-size:16px;color:#0d1f3a;margin:22px 0 10px;padding-bottom:6px;border-bottom:1.5px solid #1a2a44;font-weight:700;\">")
 
         // 9. Blockquote.
         out = out.replacingOccurrences(of: "<blockquote>",
@@ -139,8 +134,11 @@ enum ReportHTMLBuilder {
         return regex.stringByReplacingMatches(in: html, options: [], range: range, withTemplate: "")
     }
 
-    /// Préfixe le contenu de chaque <h2> avec un badge numéroté.
-    private static func injectH2Numbers(_ html: String) -> String {
+    /// Remplace chaque `<h2>Titre</h2>` par une table à 2 cellules (badge
+    /// numéroté + titre) pour Outlook. Word ne respecte pas `display:inline-block`,
+    /// donc un `<span>` badge tombe en block et casse l'alignement. Une table
+    /// à 1 ligne 2 cellules est rendue fiablement par tous les clients mail.
+    private static func replaceH2WithBadgeTable(_ html: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: "<h2>(.*?)</h2>",
                                                    options: [.dotMatchesLineSeparators]) else { return html }
         let nsHTML = html as NSString
@@ -148,9 +146,16 @@ enum ReportHTMLBuilder {
         var modified = html
         for (idx, match) in matches.enumerated().reversed() {
             let content = (modified as NSString).substring(with: match.range(at: 1))
-            let badge = "<span style=\"display:inline-block;background:#1a2a44;color:#ffffff;font-size:12px;font-weight:700;padding:2px 8px;margin-right:10px;border-radius:2px;\">\(idx + 1)</span>"
-            let newTag = "<h2>\(badge)\(content)</h2>"
-            modified = (modified as NSString).replacingCharacters(in: match.range, with: newTag)
+            let n = idx + 1
+            let table = """
+            <table cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;margin:22px 0 10px;width:100%;border-bottom:1.5px solid #1a2a44;">
+            <tr>
+            <td style="background:#1a2a44;color:#ffffff;font-size:12px;font-weight:700;padding:2px 8px;width:28px;text-align:center;vertical-align:middle;">\(n)</td>
+            <td style="font-size:16px;color:#0d1f3a;font-weight:700;padding:0 0 6px 10px;vertical-align:middle;">\(content)</td>
+            </tr>
+            </table>
+            """
+            modified = (modified as NSString).replacingCharacters(in: match.range, with: table)
         }
         return modified
     }
