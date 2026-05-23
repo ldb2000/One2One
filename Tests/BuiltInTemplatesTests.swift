@@ -57,7 +57,8 @@ final class BuiltInTemplatesTests: XCTestCase {
             "Global", "1:1 Collaborateur", "1:1 Manager",
             "COPIL", "COSUI", "CODIR",
             "Préparation", "Restitution / Démo",
-            "Séance de travail / Workshop"
+            "Séance de travail / Workshop",
+            "Architecture technique d'équipe"
         ])
         XCTAssertEqual(names.count, BuiltInTemplates.all.count)
     }
