@@ -71,7 +71,7 @@ enum BuiltInTemplates {
         // évite la ré-application à chaque lancement. Pour pousser un nouveau
         // backfill plus tard : bumper `d2OneToOneRevisionTarget`.
         let d2Key = "BuiltInTemplates.d2OneToOneRevision"
-        let d2Target = 2
+        let d2Target = 3
         if UserDefaults.standard.integer(forKey: d2Key) < d2Target {
             if let row = existingBuiltIns.first(where: { $0.kindRaw == ReportTemplateKind.oneToOne.rawValue }) {
                 row.preamble = d2_oneToOne.preamble
@@ -180,6 +180,9 @@ enum BuiltInTemplates {
 
         Actions ouvertes héritées de {{collab.name}} :
         {{collab.actions_ouvertes}}
+
+        Projets dont {{collab.name}} est architecte ou chef de projet :
+        {{collab.projects_context}}
 
         Derniers 1:1 (pour suivi des actions précédentes) :
         {{historique_n}}
