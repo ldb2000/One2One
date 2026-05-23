@@ -847,7 +847,7 @@ struct CollaboratorDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            ForEach(sortedByStatus(projects)) { p in
+            ForEach(ProjectStatusPalette.sortedByStatus(projects)) { p in
                 NavigationLink {
                     ProjectDetailView(project: p)
                 } label: {
@@ -862,7 +862,7 @@ struct CollaboratorDetailView: View {
     private func projectRow(_ p: Project) -> some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(projectStatusColor(p.status))
+                .fill(ProjectStatusPalette.color(p.status))
                 .frame(width: 8, height: 8)
             Text(p.code)
                 .font(.caption.monospaced())
@@ -876,36 +876,13 @@ struct CollaboratorDetailView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(projectStatusColor(p.status).opacity(0.18)))
+                .background(Capsule().fill(ProjectStatusPalette.color(p.status).opacity(0.18)))
             Image(systemName: "chevron.right")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-    }
-
-    /// Tri : Red → Yellow → Green → Unknown, puis alpha par nom.
-    private func sortedByStatus(_ projects: [Project]) -> [Project] {
-        let rank: [String: Int] = ["Red": 0, "Yellow": 1, "Green": 2, "Unknown": 3]
-        return projects.sorted { a, b in
-            let ra = rank[a.status] ?? 3
-            let rb = rank[b.status] ?? 3
-            if ra != rb { return ra < rb }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
-    }
-
-    /// Couleur statut projet — copie locale de `statusColor` qui est privé dans
-    /// ProjectDetailView. Si plus tard on factor : extraire dans un helper de
-    /// module (`ProjectStatusPalette.color(_:)`).
-    private func projectStatusColor(_ s: String) -> Color {
-        switch s {
-        case "Red":     return .red
-        case "Yellow":  return .orange
-        case "Green":   return .green
-        default:        return .gray
-        }
     }
 
     var body: some View {
