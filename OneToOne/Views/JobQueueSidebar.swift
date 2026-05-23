@@ -216,13 +216,11 @@ struct JobQueueSidebar: View {
             }
             if let s = job.statusText, !s.isEmpty {
                 Text(s)
-                    .font(.caption2.monospaced())
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .truncationMode(.head)
-                    .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(s)
             }
         }
     }

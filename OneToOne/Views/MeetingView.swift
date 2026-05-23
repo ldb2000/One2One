@@ -1347,6 +1347,10 @@ struct MeetingView: View {
         let queue = JobQueue.shared
         let title = meeting.title
         let id = meeting.persistentModelID
+        // Throttle des updates UI pendant le streaming LLM. Sans ça, chaque
+        // token (~50-100/sec) déclenche un re-render SwiftUI et bloque le
+        // main thread sur les longs rapports.
+        let throttle = ProgressThrottle(minInterval: 0.25)
         _ = queue.start(
             kind: .report,
             meetingID: id,
@@ -1360,15 +1364,15 @@ struct MeetingView: View {
                     settings: settings,
                     additionalContext: "",
                     onProgress: { partial in
-                        // Affiche les ~120 derniers caractères du flux LLM
-                        // dans le statut du job (visible dans Jobs sidebar).
-                        let tail = partial.suffix(120)
+                        guard await throttle.shouldEmit() else { return }
+                        let count = partial.count
+                        let tail = partial.suffix(80)
                             .replacingOccurrences(of: "\n", with: " ")
                         await MainActor.run {
                             queue.updateProgress(
                                 jobID,
                                 fraction: nil,
-                                status: "…\(tail)"
+                                status: "\(count) chars · …\(tail)"
                             )
                         }
                     }
@@ -1379,6 +1383,22 @@ struct MeetingView: View {
             } catch {
                 print("[Rapport] génération échec: \(error)")
             }
+        }
+    }
+
+    /// Throttle simple actor-based pour limiter les updates UI streaming.
+    /// `shouldEmit()` retourne `true` au plus 1× par `minInterval` secondes.
+    private actor ProgressThrottle {
+        let minInterval: TimeInterval
+        var lastEmit: Date = .distantPast
+        init(minInterval: TimeInterval) { self.minInterval = minInterval }
+        func shouldEmit() -> Bool {
+            let now = Date()
+            if now.timeIntervalSince(lastEmit) >= minInterval {
+                lastEmit = now
+                return true
+            }
+            return false
         }
     }
 
