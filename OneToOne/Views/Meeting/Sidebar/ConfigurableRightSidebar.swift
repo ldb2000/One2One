@@ -44,15 +44,20 @@ struct ConfigurableRightSidebar: View {
     private var collapsedRail: some View {
         VStack(spacing: 12) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { collapsed = false }
+                // Pas de withAnimation : la transition layout 36↔460px provoque
+                // un freeze SwiftUI quand combinée à des re-renders nested.
+                collapsed = false
             } label: {
                 Image(systemName: "sidebar.right")
+                    .font(.title3)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Déplier la sidebar")
             Spacer()
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .frame(width: 36)
         .background(MeetingTheme.surfaceCream)
     }
@@ -96,7 +101,7 @@ struct ConfigurableRightSidebar: View {
                     .frame(minWidth: 220)
             }
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { collapsed = true }
+                collapsed = true
             } label: {
                 Image(systemName: "sidebar.right")
             }
