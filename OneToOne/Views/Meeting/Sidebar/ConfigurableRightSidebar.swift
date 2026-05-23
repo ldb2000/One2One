@@ -29,7 +29,6 @@ struct ConfigurableRightSidebar: View {
 
     @State private var entries: [PanelLayoutEntry] = []
     @State private var expanded: [RightSidebarPanelID: Bool] = [:]
-    @State private var showingConfigPopover: Bool = false
 
     var body: some View {
         if collapsed {
@@ -88,20 +87,8 @@ struct ConfigurableRightSidebar: View {
                 .tracking(1.2)
                 .foregroundStyle(.secondary)
             Spacer()
+            configMenu
             Button {
-                showingConfigPopover = true
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.plain)
-            .help("Configurer les panneaux")
-            .popover(isPresented: $showingConfigPopover, arrowEdge: .top) {
-                configPopoverBody
-                    .padding(12)
-                    .frame(minWidth: 220)
-            }
-            Button {
-                showingConfigPopover = false
                 collapsed = true
             } label: {
                 Image(systemName: "sidebar.right")
@@ -112,29 +99,31 @@ struct ConfigurableRightSidebar: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
     }
 
-    private var configPopoverBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Panneaux visibles")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-            ForEach(entries) { entry in
-                Toggle(entry.id.defaultTitle,
-                       isOn: Binding(
-                        get: { entry.visible },
-                        set: { newValue in
-                            // Defer la mutation hors du cycle SwiftUI courant.
-                            // Sinon : toggle → mutation entries → ForEach principal
-                            // re-render → panel disappears AVEC popover encore monté
-                            // sur son header → freeze. Le DispatchQueue.async laisse
-                            // SwiftUI terminer son cycle d'abord.
-                            DispatchQueue.main.async {
-                                if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
-                                    entries[idx].visible = newValue
-                                    persist()
-                                }
+    /// Menu de configuration via NSMenu (Menu SwiftUI). Remplace l'ancienne
+    /// `.popover` qui causait un crash récursif AppKit Auto Layout sur macOS :
+    /// le `_NSConstraintBasedLayoutHostingView` de la popover entrait en
+    /// récursion avec le parent sidebar à chaque toggle. NSMenu n'utilise
+    /// pas le pipeline Auto Layout SwiftUI → safe.
+    @ViewBuilder
+    private var configMenu: some View {
+        Menu {
+            Section("Panneaux visibles") {
+                ForEach(entries) { entry in
+                    Button {
+                        DispatchQueue.main.async {
+                            if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
+                                entries[idx].visible.toggle()
+                                persist()
                             }
                         }
-                       ))
+                    } label: {
+                        if entry.visible {
+                            Label(entry.id.defaultTitle, systemImage: "checkmark")
+                        } else {
+                            Text(entry.id.defaultTitle)
+                        }
+                    }
+                }
             }
             Divider()
             Button("Réinitialiser") {
@@ -143,9 +132,12 @@ struct ConfigurableRightSidebar: View {
                     persist()
                 }
             }
-            .buttonStyle(.borderless)
-            .font(.caption)
+        } label: {
+            Image(systemName: "gearshape")
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Configurer les panneaux")
     }
 
     @ViewBuilder
