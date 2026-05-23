@@ -80,7 +80,6 @@ struct MeetingView: View {
     @State private var newAdhocName = ""
     @State private var showCustomPrompt = false
     @State private var activeSection: MeetingSection = .liveNotes
-    @State private var participantsRefreshID = UUID()
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
     @State private var reportEditMode: Bool = false
@@ -102,7 +101,7 @@ struct MeetingView: View {
     @State private var wavImportError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
-    @State private var saveStatusMessage: String?
+    @State private var saveDebounceTask: Task<Void, Never>?
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
@@ -384,6 +383,15 @@ struct MeetingView: View {
         FileManager.default.fileExists(atPath: url.path)
     }
 
+    private func debouncedSave(delay: TimeInterval = 0.6) {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            try? context.save()
+        }
+    }
+
     @MainActor
     private func retranscribe(wavURL: URL) async {
         transcribeError = nil
@@ -459,26 +467,6 @@ struct MeetingView: View {
                 print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
                 throw error
             }
-        }
-    }
-
-    /// Replaces `meeting.transcriptSegments` with fresh ones (deletes existing
-    /// rows first so a re-transcribe doesn't accumulate stale segments).
-    /// New segments default to `speakerID = 0` (non-assigned) — the diarization
-    /// pass and/or user assignment fills speakers in afterwards.
-    private func persistTranscriptSegments(_ segments: [STTSegment]) {
-        for old in meeting.transcriptSegments {
-            context.delete(old)
-        }
-        for (idx, seg) in segments.enumerated() {
-            let row = TranscriptSegment(
-                orderIndex: idx,
-                startSeconds: seg.startSeconds,
-                endSeconds: seg.endSeconds,
-                text: seg.text
-            )
-            row.meeting = meeting
-            context.insert(row)
         }
     }
 
@@ -867,7 +855,7 @@ struct MeetingView: View {
                             MarkdownEditorView(
                                 text: Binding(
                                     get: { meeting.summary },
-                                    set: { meeting.summary = $0; try? context.save() }
+                                    set: { meeting.summary = $0; debouncedSave() }
                                 ),
                                 textViewID: "reportEditor.\(meeting.persistentModelID.hashValue)"
                             )
@@ -941,7 +929,7 @@ struct MeetingView: View {
                             set: { newValue in
                                 guard idx < meeting.decisions.count else { return }
                                 meeting.decisions[idx] = newValue
-                                try? context.save()
+                                debouncedSave()
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
@@ -975,7 +963,7 @@ struct MeetingView: View {
                 TextField("ex: Zied · Nicolas Hauvinet · Travaux McKinsey",
                           text: Binding(
                             get: { meeting.referencedAbsent },
-                            set: { meeting.referencedAbsent = $0; try? context.save() }
+                            set: { meeting.referencedAbsent = $0; debouncedSave() }
                           ))
                     .textFieldStyle(.roundedBorder)
             }
@@ -986,7 +974,7 @@ struct MeetingView: View {
                 TextField("ex: Partage du modèle puis présentation McKinsey",
                           text: Binding(
                             get: { meeting.nextDeadline },
-                            set: { meeting.nextDeadline = $0; try? context.save() }
+                            set: { meeting.nextDeadline = $0; debouncedSave() }
                           ))
                     .textFieldStyle(.roundedBorder)
             }
@@ -1033,20 +1021,17 @@ struct MeetingView: View {
         meeting.participants.append(c)
         meeting.setParticipantStatus(.participant, for: c)
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func removeParticipant(_ c: Collaborator) {
         meeting.participants.removeAll { $0.persistentModelID == c.persistentModelID }
         meeting.clearParticipantStatus(for: c)
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func setParticipantStatus(_ status: MeetingAttendanceStatus, for collaborator: Collaborator) {
         meeting.setParticipantStatus(status, for: collaborator)
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func participantStatus(for collaborator: Collaborator) -> MeetingAttendanceStatus {
@@ -1087,7 +1072,6 @@ struct MeetingView: View {
         }
 
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func resolveCollaborator(for attendee: CalendarMeetingAttendee) -> Collaborator {
@@ -1265,15 +1249,13 @@ struct MeetingView: View {
                 settings: settings,
                 in: context,
                 onPhase: { phase in
-                    transcriptionPhase = phase
-                    if case .transcribing = phase {
-                        transcriptionProgress = nil
-                        transcriptionProgressStatus = nil
-                    }
+                    Task { @MainActor in self.transcriptionPhase = phase }
                 },
                 onProgress: { fraction, status in
-                    transcriptionProgress = fraction
-                    transcriptionProgressStatus = status
+                    Task { @MainActor in
+                        self.transcriptionProgress = fraction
+                        self.transcriptionProgressStatus = status
+                    }
                 }
             )
             transcriptionPhase = .idle
@@ -1344,6 +1326,10 @@ struct MeetingView: View {
 
     @MainActor
     private func runGenerate() async {
+        guard !isGenerating && !isGeneratingReport else {
+            print("[Rapport] génération déjà en cours, abort")
+            return
+        }
         isGenerating = true
         let queue = JobQueue.shared
         let title = meeting.title
@@ -1406,6 +1392,10 @@ struct MeetingView: View {
     // MARK: - Report generation
 
     private func generateReport() async {
+        guard !isGenerating && !isGeneratingReport else {
+            print("[Rapport] génération déjà en cours, abort")
+            return
+        }
         guard !meeting.rawTranscript.isEmpty else { return }
 
         // Refresh merged transcript au cas où l'utilisateur a édité les notes.
@@ -1541,36 +1531,6 @@ struct MeetingView: View {
         }
     }
 
-    private func fetchAttachmentsContext() async -> String {
-        let meetingPID = meeting.persistentModelID
-        let totalChars = meeting.attachments
-            .map { $0.extractedText.count }
-            .reduce(0, +)
-
-        // Seuil : < 20_000 chars total → on injecte le texte brut cap par doc.
-        // Au-delà → on bascule sur top-K chunks via RAGQuery scope attachment + meeting.
-        if totalChars < 20_000 {
-            return meeting.attachments
-                .filter { !$0.extractedText.isEmpty }
-                .map { "### \($0.fileName) (\($0.kind))\n\($0.extractedText.prefix(8000))" }
-                .joined(separator: "\n\n")
-        }
-
-        let query = String(meeting.mergedTranscript.prefix(2000))
-        let scope = RAGQuery.Scope(
-            projectPID: nil,
-            collaboratorPID: nil,
-            meetingKind: nil,
-            excludeMeetingPID: nil,
-            sourceType: "attachment",
-            meetingPID: meetingPID
-        )
-        let results = try? await RAGQuery.search(query: query, topK: 8, scope: scope, context: context)
-        return (results ?? []).map { r in
-            "### \(r.chunk.attachment?.fileName ?? "?") — extrait\n\(r.chunk.text)"
-        }.joined(separator: "\n\n")
-    }
-
     private func apply(report: MeetingReportData) {
         meeting.summary = report.summary
         meeting.keyPoints = report.keyPoints
@@ -1639,15 +1599,6 @@ struct MeetingView: View {
     }
 
     // MARK: - Utils
-
-    private func formatDuration(_ s: TimeInterval) -> String {
-        let total = Int(s)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let sec = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, sec) }
-        return String(format: "%02d:%02d", m, sec)
-    }
 
     private var currentSlides: [SlideCapture] {
         // Pendant une session : source de vérité = service.
@@ -2273,14 +2224,6 @@ struct MeetingView: View {
 
     private func saveMeetingNow() {
         saveContext()
-        saveStatusMessage = "Réunion enregistrée"
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            if saveStatusMessage == "Réunion enregistrée" {
-                saveStatusMessage = nil
-            }
-        }
     }
 }
 
