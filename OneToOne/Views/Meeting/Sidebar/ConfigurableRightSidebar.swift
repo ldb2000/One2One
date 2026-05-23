@@ -43,16 +43,16 @@ struct ConfigurableRightSidebar: View {
     private var collapsedRail: some View {
         VStack(spacing: 12) {
             Button {
-                // Pas de withAnimation : la transition layout 36↔460px provoque
-                // un freeze SwiftUI quand combinée à des re-renders nested.
+                print("[Sidebar] EXPAND button tapped, was=\(collapsed)")
                 collapsed = false
+                print("[Sidebar] after toggle, now=\(collapsed)")
             } label: {
-                Image(systemName: "sidebar.right")
+                Image(systemName: "chevron.left.2")
                     .font(.title3)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help("Déplier la sidebar")
             Spacer()
         }
@@ -92,14 +92,16 @@ struct ConfigurableRightSidebar: View {
             Spacer()
             configMenu
             Button {
+                print("[Sidebar] COLLAPSE button tapped, was=\(collapsed)")
                 collapsed = true
+                print("[Sidebar] after toggle, now=\(collapsed)")
             } label: {
-                Image(systemName: "sidebar.right")
+                Image(systemName: "chevron.right.2")
                     .font(.body)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help("Replier la sidebar")
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
