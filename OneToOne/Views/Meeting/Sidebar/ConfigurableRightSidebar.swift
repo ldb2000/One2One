@@ -64,20 +64,20 @@ struct ConfigurableRightSidebar: View {
     // MARK: - Expanded
 
     private var expandedPanel: some View {
+        // PAS de ScrollView ici : `ActionsPanel.tasksList` a déjà son propre
+        // ScrollView interne. Imbriquer 2 ScrollView macOS déclenche
+        // `_NSDetectedLayoutRecursion` → freeze.
+        // VStack laisse chaque panel gérer son défilement individuellement.
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(entries.filter(\.visible)) { entry in
-                        panelSection(entry)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(entries.filter(\.visible)) { entry in
+                    panelSection(entry)
                 }
             }
+            Spacer(minLength: 0)
         }
-        // Pas de .frame ici : le parent (MeetingView HStack) impose la largeur
-        // déterministe (36 ou 360). Une range minWidth/maxWidth déclenche des
-        // oscillations du constraint solver et crashe AppKit.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MeetingTheme.surfaceCream)
         .onAppear { hydrateLayoutAndExpansion() }
