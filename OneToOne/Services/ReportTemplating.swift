@@ -77,6 +77,7 @@ enum TemplateVariableResolver {
         case "collab.role":  return Self.partnerCollaborator(of: meeting)?.role ?? ""
         case "collab.email": return Self.partnerCollaborator(of: meeting)?.email ?? ""
         case "collab.actions_ouvertes": return Self.actionsList(for: Self.partnerCollaborator(of: meeting), in: context)
+        case "collab.projects_context": return ProjectsContextBuilder.build(for: meeting, in: context)
         case "collab.dernier_1to1":     return Self.dernier1to1(for: Self.partnerCollaborator(of: meeting), excluding: meeting, in: context)
         case "collab.notes":            return Self.collabNotes(for: Self.partnerCollaborator(of: meeting), in: context)
 
