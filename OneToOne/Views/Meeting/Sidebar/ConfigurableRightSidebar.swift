@@ -111,17 +111,31 @@ struct ConfigurableRightSidebar: View {
             Text("Panneaux visibles")
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
-            ForEach(entries.indices, id: \.self) { idx in
-                Toggle(entries[idx].id.defaultTitle,
+            ForEach(entries) { entry in
+                Toggle(entry.id.defaultTitle,
                        isOn: Binding(
-                        get: { entries[idx].visible },
-                        set: { entries[idx].visible = $0; persist() }
+                        get: { entry.visible },
+                        set: { newValue in
+                            // Defer la mutation hors du cycle SwiftUI courant.
+                            // Sinon : toggle → mutation entries → ForEach principal
+                            // re-render → panel disappears AVEC popover encore monté
+                            // sur son header → freeze. Le DispatchQueue.async laisse
+                            // SwiftUI terminer son cycle d'abord.
+                            DispatchQueue.main.async {
+                                if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
+                                    entries[idx].visible = newValue
+                                    persist()
+                                }
+                            }
+                        }
                        ))
             }
             Divider()
             Button("Réinitialiser") {
-                entries = PanelLayoutEntry.defaultLayout
-                persist()
+                DispatchQueue.main.async {
+                    entries = PanelLayoutEntry.defaultLayout
+                    persist()
+                }
             }
             .buttonStyle(.borderless)
             .font(.caption)
