@@ -81,6 +81,9 @@ enum TemplateVariableResolver {
         case "collab.dernier_1to1":     return Self.dernier1to1(for: Self.partnerCollaborator(of: meeting), excluding: meeting, in: context)
         case "collab.notes":            return Self.collabNotes(for: Self.partnerCollaborator(of: meeting), in: context)
 
+        // --- Team
+        case "team.projects_context": return ProjectsContextBuilder.buildForTeam(meeting: meeting, in: context)
+
         // --- Manager
         case "manager.items_actuels": return Self.managerItemsActuels(in: context)
         case "manager.dernier_cr":    return Self.managerDernierCR(in: context)
