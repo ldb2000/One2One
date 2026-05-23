@@ -418,9 +418,10 @@ enum ReportHTMLBuilder {
         fmt.locale = Locale(identifier: "fr_FR")
         fmt.dateFormat = "d MMM yyyy"
 
-        // Colonne Projet : uniquement en 1:1 avec actions sur ≥2 projets distincts.
+        // Colonne Projet : en 1:1 ou .work avec actions sur ≥2 projets distincts.
         let distinctProjects = Set(sorted.compactMap { $0.project?.persistentModelID })
-        let includeProjectColumn = meeting.kind == .oneToOne && distinctProjects.count >= 2
+        let isMultiProjectMeeting = meeting.kind == .oneToOne || meeting.kind == .work
+        let includeProjectColumn = isMultiProjectMeeting && distinctProjects.count >= 2
 
         var rows = ""
         for (idx, t) in sorted.enumerated() {

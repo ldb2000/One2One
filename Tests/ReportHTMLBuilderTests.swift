@@ -201,4 +201,29 @@ final class ReportHTMLBuilderTests: XCTestCase {
         XCTAssertFalse(html.contains("<th>Projet</th>"),
                        "Non-1:1 → pas de colonne Projet même si multi projets")
     }
+
+    @MainActor
+    func test_workMeetingMultipleProjects_includesProjectColumn() throws {
+        let ctx = try makeContext()
+        let p1 = Project(code: "P1", name: "Projet 1", domain: "X", phase: "Build")
+        let p2 = Project(code: "P2", name: "Projet 2", domain: "Y", phase: "Build")
+        ctx.insert(p1); ctx.insert(p2)
+        let meeting = Meeting(title: "Archi équipe", date: Date())
+        meeting.kindRaw = MeetingKind.work.rawValue
+        meeting.summary = "x"
+        ctx.insert(meeting)
+        let t1 = ActionTask(title: "Tâche P1", dueDate: nil)
+        t1.meeting = meeting
+        t1.project = p1
+        ctx.insert(t1)
+        let t2 = ActionTask(title: "Tâche P2", dueDate: nil)
+        t2.meeting = meeting
+        t2.project = p2
+        ctx.insert(t2)
+        try ctx.save()
+
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil, includeTranscript: false)
+        XCTAssertTrue(html.contains("<th>Projet</th>"),
+                      ".work + multi-projets → colonne Projet présente")
+    }
 }
