@@ -131,6 +131,85 @@ final class ProjectsContextBuilderTests: XCTestCase {
     }
 
     @MainActor
+    func test_buildForTeam_nonWorkMeeting_returnsEmpty() throws {
+        let ctx = try makeContext()
+        let m = Meeting(title: "1:1", date: Date())
+        m.kindRaw = MeetingKind.oneToOne.rawValue
+        ctx.insert(m)
+        try ctx.save()
+        XCTAssertEqual(ProjectsContextBuilder.buildForTeam(meeting: m, in: ctx), "")
+    }
+
+    @MainActor
+    func test_buildForTeam_workMeetingWithoutParticipantsProjects_returnsEmpty() throws {
+        let ctx = try makeContext()
+        let alice = Collaborator(name: "Alice DUPONT")
+        ctx.insert(alice)
+        let m = Meeting(title: "Archi équipe", date: Date())
+        m.kindRaw = MeetingKind.work.rawValue
+        m.participants = [alice]
+        ctx.insert(m)
+        try ctx.save()
+        XCTAssertEqual(ProjectsContextBuilder.buildForTeam(meeting: m, in: ctx), "")
+    }
+
+    @MainActor
+    func test_buildForTeam_workMeetingUnionOfParticipantsProjects() throws {
+        let ctx = try makeContext()
+        let alice = Collaborator(name: "Alice DUPONT")
+        let bob = Collaborator(name: "Bob MARTIN")
+        ctx.insert(alice); ctx.insert(bob)
+
+        let p1 = Project(code: "NEVIDIS", name: "Projet Névidis", domain: "Infra", phase: "Build")
+        p1.status = "Yellow"
+        p1.technicalArchitect = alice
+        ctx.insert(p1)
+
+        let p2 = Project(code: "COOG", name: "Migration Coog", domain: "Infra", phase: "Run")
+        p2.status = "Red"
+        p2.projectManager = bob
+        ctx.insert(p2)
+
+        let m = Meeting(title: "Archi équipe", date: Date())
+        m.kindRaw = MeetingKind.work.rawValue
+        m.participants = [alice, bob]
+        ctx.insert(m)
+        try ctx.save()
+
+        let out = ProjectsContextBuilder.buildForTeam(meeting: m, in: ctx)
+        XCTAssertTrue(out.contains("NEVIDIS"), "Projet d'Alice présent")
+        XCTAssertTrue(out.contains("COOG"), "Projet de Bob présent")
+        if let red = out.range(of: "(statut: Red)")?.lowerBound,
+           let yellow = out.range(of: "(statut: Yellow)")?.lowerBound {
+            XCTAssertTrue(red < yellow, "Red doit apparaître avant Yellow")
+        }
+    }
+
+    @MainActor
+    func test_buildForTeam_dedupesProjectsAcrossParticipants() throws {
+        let ctx = try makeContext()
+        let alice = Collaborator(name: "Alice DUPONT")
+        let bob = Collaborator(name: "Bob MARTIN")
+        ctx.insert(alice); ctx.insert(bob)
+
+        let p = Project(code: "SHARED", name: "Projet partagé", domain: "X", phase: "Build")
+        p.status = "Green"
+        p.technicalArchitect = alice
+        p.projectManager = bob
+        ctx.insert(p)
+
+        let m = Meeting(title: "Archi équipe", date: Date())
+        m.kindRaw = MeetingKind.work.rawValue
+        m.participants = [alice, bob]
+        ctx.insert(m)
+        try ctx.save()
+
+        let out = ProjectsContextBuilder.buildForTeam(meeting: m, in: ctx)
+        let occurrences = out.components(separatedBy: "## SHARED").count - 1
+        XCTAssertEqual(occurrences, 1, "Le projet partagé ne doit apparaître qu'une fois (dédup)")
+    }
+
+    @MainActor
     func test_sortRedYellowGreenAndTruncatesAtFive() throws {
         let ctx = try makeContext()
         let alice = Collaborator(name: "Alice DUPONT")

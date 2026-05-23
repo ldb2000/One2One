@@ -466,6 +466,54 @@ enum ProjectsContextBuilder {
         return truncated
     }
 
+    /// Variante équipe : pour une réunion `.work`, agrège l'union des projets
+    /// dont les participants présents sont archi technique ou chef de projet.
+    /// Dédup par projet, tri statut Red→Yellow→Green→Unknown, max 5 projets.
+    static func buildForTeam(meeting: Meeting, in context: ModelContext) -> String {
+        guard meeting.kind == .work else { return "" }
+
+        var seen: Set<PersistentIdentifier> = []
+        var projects: [Project] = []
+        for participant in meeting.participants {
+            for p in participant.projectsAsArchitect + participant.projectsAsManager {
+                guard !p.isArchived, seen.insert(p.persistentModelID).inserted else { continue }
+                projects.append(p)
+            }
+        }
+        guard !projects.isEmpty else { return "" }
+
+        let sorted = ProjectStatusPalette.sortedByStatus(projects)
+        let topProjects = Array(sorted.prefix(maxProjects))
+
+        var pieces: [String] = []
+        for p in topProjects {
+            pieces.append(renderTeamProject(p, in: context))
+        }
+        let full = pieces.joined(separator: "\n\n")
+        if full.count <= totalBudgetChars { return full }
+        let truncated = String(full.prefix(totalBudgetChars))
+        if let lastNewline = truncated.lastIndex(of: "\n") {
+            return String(truncated[..<lastNewline])
+        }
+        return truncated
+    }
+
+    /// Rendu d'un projet pour le contexte équipe : header + rôles archi/PM
+    /// nommés + bloc summaries+actions partagé.
+    private static func renderTeamProject(_ p: Project,
+                                           in context: ModelContext) -> String {
+        var out = "## \(p.code) · \(p.name) (statut: \(p.status))\n\n"
+        if let archi = p.technicalArchitect {
+            out += "Architecte technique : \(archi.name)\n"
+        }
+        if let pm = p.projectManager {
+            out += "Chef de projet : \(pm.name)\n"
+        }
+        out += "\n"
+        out += renderProjectSummariesAndActions(p, in: context)
+        return out
+    }
+
     private static func renderProject(_ p: Project,
                                        partner: Collaborator,
                                        in context: ModelContext) -> String {
