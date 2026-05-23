@@ -249,7 +249,7 @@ struct MeetingView: View {
                     ManagerAgendaSidebar(meeting: meeting, settings: settings)
                         .frame(minWidth: 320, maxWidth: 460)
                 } else {
-                    MeetingActionsSidebar(
+                    ConfigurableRightSidebar(
                         meeting: meeting,
                         settings: settings,
                         allCollaborators: allCollaborators,
