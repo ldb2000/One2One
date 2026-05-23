@@ -1351,14 +1351,27 @@ struct MeetingView: View {
             kind: .report,
             meetingID: id,
             meetingTitle: title + " · rapport"
-        ) { _ in
+        ) { jobID in
             defer { Task { @MainActor in self.isGenerating = false } }
             do {
                 let result = try await AIReportService.generate(
                     meeting: meeting,
                     in: context,
                     settings: settings,
-                    additionalContext: ""
+                    additionalContext: "",
+                    onProgress: { partial in
+                        // Affiche les ~120 derniers caractères du flux LLM
+                        // dans le statut du job (visible dans Jobs sidebar).
+                        let tail = partial.suffix(120)
+                            .replacingOccurrences(of: "\n", with: " ")
+                        await MainActor.run {
+                            queue.updateProgress(
+                                jobID,
+                                fraction: nil,
+                                status: "…\(tail)"
+                            )
+                        }
+                    }
                 )
                 await MainActor.run {
                     self.apply(report: result)
