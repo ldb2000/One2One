@@ -117,3 +117,60 @@ extension AudioFileEditor {
         return (urlA, urlB)
     }
 }
+
+extension AudioFileEditor {
+
+    /// Supprime en place la portion `[fromSec, toSec]` du wav.
+    /// Implémentation : lit `[0, fromSec)` puis `[toSec, duration]` vers un
+    /// fichier temporaire, remplace l'original atomiquement.
+    /// Throw si `fromSec >= toSec` ou si l'I/O échoue.
+    static func cut(url: URL, from fromSec: Double, to toSec: Double) async throws {
+        let total = duration(url: url)
+        guard fromSec >= 0, fromSec < toSec else {
+            throw NSError(domain: "AudioFileEditor.cut", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Plage invalide [\(fromSec), \(toSec)]"])
+        }
+        let lo = fromSec
+        let hi = min(toSec, total)
+
+        let tmp = url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".cut.tmp.wav")
+        try? FileManager.default.removeItem(at: tmp)
+
+        try await Task.detached(priority: .userInitiated) {
+            let src = try AVAudioFile(forReading: url)
+            let format = src.processingFormat
+            let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
+            let chunk: AVAudioFrameCount = 8192
+            let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
+
+            // Head : [0, fromSec)
+            if lo > 0 {
+                let headEnd = AVAudioFramePosition(lo * format.sampleRate)
+                src.framePosition = 0
+                while src.framePosition < headEnd {
+                    try Task.checkCancellation()
+                    let remaining = AVAudioFrameCount(headEnd - src.framePosition)
+                    try src.read(into: buf, frameCount: min(chunk, remaining))
+                    if buf.frameLength == 0 { break }
+                    try dst.write(from: buf)
+                }
+            }
+
+            // Tail : [toSec, duration)
+            let tailStart = AVAudioFramePosition(hi * format.sampleRate)
+            if tailStart < src.length {
+                src.framePosition = tailStart
+                while src.framePosition < src.length {
+                    try Task.checkCancellation()
+                    try src.read(into: buf)
+                    if buf.frameLength == 0 { break }
+                    try dst.write(from: buf)
+                }
+            }
+        }.value
+
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        editorLog.info("cut done from=\(lo)s to=\(hi)s total=\(total)s")
+    }
+}
