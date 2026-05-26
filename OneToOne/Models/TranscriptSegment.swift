@@ -20,6 +20,11 @@ final class TranscriptSegment {
     /// 0 = pas encore diarized, sinon index de cluster (1, 2, …).
     var speakerID: Int = 0
 
+    /// Marqué par l'utilisateur comme passage important pour le reporting.
+    /// Injecté dans `{{transcript.highlights}}` et entouré de marqueurs
+    /// `**[IMPORTANT]**...**[/IMPORTANT]**` dans `{{transcript}}`.
+    var isHighlighted: Bool = false
+
     /// Quand l'utilisateur a renommé le speaker vers un participant.
     var speaker: Collaborator?
 
