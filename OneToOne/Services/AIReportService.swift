@@ -142,6 +142,18 @@ struct AIReportService {
             }
         }
 
+        // Fallback append des passages marqués importants par l'utilisateur.
+        // Si le template ne contient pas `{{transcript.highlights}}` mais que
+        // la réunion a des segments highlighted, append en queue pour donner
+        // au LLM le signal explicite.
+        let hasHighlightsPlaceholder = body.contains("{{transcript.highlights}}")
+        if !hasHighlightsPlaceholder {
+            let highlights = TranscriptHighlightsBuilder.build(meeting: meeting)
+            if !highlights.isEmpty {
+                historyAppendix += "\n\nPassages marqués importants par l'utilisateur :\n\(highlights)\n"
+            }
+        }
+
         // 3. Documents joints (extraction script).
         let attachmentsBlock = buildAttachmentsBlock(
             for: meeting,
