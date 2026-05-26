@@ -57,7 +57,9 @@ enum TemplateVariableResolver {
         case "duration":       return Self.formatDuration(meeting.effectiveDuration)
         case "kind":           return meeting.kind.label
         case "participants":   return meeting.participantsDescription
-        case "transcript":     return meeting.mergedTranscript
+        case "transcript":     return TranscriptTextBuilder.build(meeting: meeting)
+        case "transcript.highlights":
+            return TranscriptHighlightsBuilder.build(meeting: meeting)
         case "notes":          return meeting.notes
         case "custom_prompt":  return meeting.customPrompt
 
