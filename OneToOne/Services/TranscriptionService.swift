@@ -357,9 +357,12 @@ final class TranscriptionService: ObservableObject {
             settings: settings
         )
 
+        // 4b. Canonicalize: unify clusters mapped to same Collaborator, then re-merge.
+        let canonical = canonicalizeClusters(aligned, assignments: assignments)
+
         // 5. Persist segments + metadata.
         persistAlignedSegments(
-            aligned: aligned,
+            aligned: canonical,
             assignments: assignments,
             meeting: meeting,
             in: context
