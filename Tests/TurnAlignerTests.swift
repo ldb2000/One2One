@@ -59,4 +59,37 @@ final class TurnAlignerTests: XCTestCase {
         XCTAssertEqual(out.count, 1)
         XCTAssertEqual(out[0].clusterID, 0)
     }
+
+    // MARK: - mergeConsecutive
+
+    func test_mergeConsecutive_emptyInput_returnsEmpty() {
+        XCTAssertEqual(TurnAligner.mergeConsecutive([]).count, 0)
+    }
+
+    func test_mergeConsecutive_singleSegment_returnsSingle() {
+        let s = TurnAligner.AlignedSegment(startSec: 0, endSec: 5, text: "hello", clusterID: 1)
+        let out = TurnAligner.mergeConsecutive([s])
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out[0].text, "hello")
+    }
+
+    func test_mergeConsecutive_mergesAdjacentSameCluster() {
+        let a = TurnAligner.AlignedSegment(startSec: 0, endSec: 5, text: "hello", clusterID: 1)
+        let b = TurnAligner.AlignedSegment(startSec: 5, endSec: 10, text: "world", clusterID: 1)
+        let out = TurnAligner.mergeConsecutive([a, b])
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out[0].startSec, 0)
+        XCTAssertEqual(out[0].endSec, 10)
+        XCTAssertEqual(out[0].text, "hello world")
+        XCTAssertEqual(out[0].clusterID, 1)
+    }
+
+    func test_mergeConsecutive_preservesDistinctClusters() {
+        let a = TurnAligner.AlignedSegment(startSec: 0, endSec: 5, text: "hello", clusterID: 1)
+        let b = TurnAligner.AlignedSegment(startSec: 5, endSec: 10, text: "world", clusterID: 2)
+        let out = TurnAligner.mergeConsecutive([a, b])
+        XCTAssertEqual(out.count, 2)
+        XCTAssertEqual(out[0].clusterID, 1)
+        XCTAssertEqual(out[1].clusterID, 2)
+    }
 }

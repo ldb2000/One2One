@@ -32,25 +32,28 @@ enum TurnAligner {
         let mapped: [(STTChunkInput, Int)] = chunks.map { chunk in
             (chunk, clusterIDForChunk(chunk, turns: turns))
         }
+        let initial: [AlignedSegment] = mapped.map { chunk, cid in
+            AlignedSegment(startSec: chunk.startSec, endSec: chunk.endSec, text: chunk.text, clusterID: cid)
+        }
+        return mergeConsecutive(initial)
+    }
 
+    /// Merge consecutive segments sharing the same `clusterID`.
+    /// Pure helper, reusable post-canonicalization.
+    static func mergeConsecutive(_ segments: [AlignedSegment]) -> [AlignedSegment] {
         var merged: [AlignedSegment] = []
-        for (chunk, cid) in mapped {
-            if let last = merged.last, last.clusterID == cid {
+        for s in segments {
+            if let last = merged.last, last.clusterID == s.clusterID {
                 merged.removeLast()
-                let newText = (last.text + " " + chunk.text).trimmingCharacters(in: .whitespaces)
+                let newText = (last.text + " " + s.text).trimmingCharacters(in: .whitespaces)
                 merged.append(AlignedSegment(
                     startSec: last.startSec,
-                    endSec: chunk.endSec,
+                    endSec: s.endSec,
                     text: newText,
-                    clusterID: cid
+                    clusterID: s.clusterID
                 ))
             } else {
-                merged.append(AlignedSegment(
-                    startSec: chunk.startSec,
-                    endSec: chunk.endSec,
-                    text: chunk.text,
-                    clusterID: cid
-                ))
+                merged.append(s)
             }
         }
         return merged
