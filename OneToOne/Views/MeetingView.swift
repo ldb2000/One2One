@@ -128,6 +128,7 @@ struct MeetingView: View {
     // Speaker view toggle + rename popover state
     @State private var showSpeakersView: Bool = true
     @State private var renamingSpeakerID: Int?
+    @State private var segmentToDelete: TranscriptSegment?
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
@@ -1790,6 +1791,27 @@ struct MeetingView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .alert("Supprimer ce passage ?",
+               isPresented: Binding(get: { segmentToDelete != nil },
+                                     set: { if !$0 { segmentToDelete = nil } }),
+               presenting: segmentToDelete) { seg in
+            Button("Annuler", role: .cancel) { segmentToDelete = nil }
+            Button("Supprimer", role: .destructive) {
+                let target = seg
+                segmentToDelete = nil
+                Task {
+                    do {
+                        try await TranscriptEditService.deleteSegment(
+                            target, in: meeting, context: context
+                        )
+                    } catch {
+                        print("[MeetingView] deleteSegment failed: \(error)")
+                    }
+                }
+            }
+        } message: { _ in
+            Text("Le texte et la portion audio correspondante seront supprimés définitivement.")
+        }
     }
 
     private func segmentRow(_ seg: TranscriptSegment) -> some View {
@@ -1828,12 +1850,21 @@ struct MeetingView: View {
                   ? "Aucun audio attaché à la réunion"
                   : "Lire l'audio à partir de \(seg.formattedTimestamp)")
 
-            Text(seg.text)
-                .font(.body)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+            HStack(spacing: 4) {
+                if seg.isHighlighted {
+                    Image(systemName: "star.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                }
+                Text(seg.text)
+                    .font(.body)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
         }
+        .padding(.vertical, 2)
+        .background(seg.isHighlighted ? Color.yellow.opacity(0.08) : Color.clear)
     }
 
     /// Charge le wav si besoin et positionne le curseur sans démarrer la lecture.
@@ -1860,6 +1891,23 @@ struct MeetingView: View {
         player.seek(to: seg.startSeconds)
         player.play()
         print("[MeetingView] play segment from \(seg.startSeconds)s (was playing: \(wasPlaying))")
+    }
+
+    @ViewBuilder
+    private func segmentActionsMenu(_ seg: TranscriptSegment) -> some View {
+        Button {
+            seg.isHighlighted.toggle()
+            try? context.save()
+        } label: {
+            Label(seg.isHighlighted ? "Retirer l'importance" : "Marquer comme important",
+                  systemImage: seg.isHighlighted ? "star.slash" : "star.fill")
+        }
+        Divider()
+        Button(role: .destructive) {
+            segmentToDelete = seg
+        } label: {
+            Label("Supprimer ce passage", systemImage: "trash")
+        }
     }
 
     @ViewBuilder
@@ -1894,6 +1942,7 @@ struct MeetingView: View {
             )) {
                 speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
             }
+            .contextMenu { segmentActionsMenu(seg) }
         } else if let m = meta,
                   m.confidence >= settings.speakerIdSuggestThreshold,
                   let suggested = firstCandidate(stableIDs: m.candidateStableIDs) {
@@ -1914,6 +1963,7 @@ struct MeetingView: View {
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Color.orange.opacity(0.10))
             .clipShape(Capsule())
+            .contextMenu { segmentActionsMenu(seg) }
         } else {
             // Anonymous fallback (existing flow).
             Button { renamingSpeakerID = seg.speakerID } label: {
@@ -1936,6 +1986,7 @@ struct MeetingView: View {
             )) {
                 speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
             }
+            .contextMenu { segmentActionsMenu(seg) }
         }
     }
 
