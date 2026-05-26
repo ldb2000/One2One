@@ -394,6 +394,51 @@ final class TranscriptionService: ObservableObject {
         }
     }
 
+    // MARK: - Canonicalisation des clusters
+
+    /// Pour chaque cluster mappé à un Collaborator, réécrit clusterID vers
+    /// un cluster canonique (1er rencontré pour ce collab), puis re-merge
+    /// consécutifs via `TurnAligner.mergeConsecutive`. Réduit la sur-segmentation
+    /// quand Pyannote produit plusieurs clusters pour la même voix réelle.
+    func canonicalizeClusters(_ aligned: [TurnAligner.AlignedSegment],
+                               assignments: [Int: SpeakerMatcher.Assignment])
+        -> [TurnAligner.AlignedSegment]
+    {
+        var canonicalByCollab: [PersistentIdentifier: Int] = [:]
+        for cid in assignments.keys.sorted() {
+            guard let collab = assignments[cid]?.collaborator else { continue }
+            let pid = collab.persistentModelID
+            if canonicalByCollab[pid] == nil {
+                canonicalByCollab[pid] = cid
+            }
+        }
+        guard !canonicalByCollab.isEmpty else { return aligned }
+
+        let rewritten: [TurnAligner.AlignedSegment] = aligned.map { seg in
+            guard let collab = assignments[seg.clusterID]?.collaborator,
+                  let canonical = canonicalByCollab[collab.persistentModelID] else {
+                return seg
+            }
+            if canonical == seg.clusterID { return seg }
+            return TurnAligner.AlignedSegment(
+                startSec: seg.startSec,
+                endSec: seg.endSec,
+                text: seg.text,
+                clusterID: canonical
+            )
+        }
+        return TurnAligner.mergeConsecutive(rewritten)
+    }
+
+    #if DEBUG
+    func canonicalizeClustersForTest(_ aligned: [TurnAligner.AlignedSegment],
+                                      assignments: [Int: SpeakerMatcher.Assignment])
+        -> [TurnAligner.AlignedSegment]
+    {
+        canonicalizeClusters(aligned, assignments: assignments)
+    }
+    #endif
+
     private func persistAlignedSegments(aligned: [TurnAligner.AlignedSegment],
                                          assignments: [Int: SpeakerMatcher.Assignment],
                                          meeting: Meeting,
