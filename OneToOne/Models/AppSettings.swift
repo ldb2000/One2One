@@ -176,7 +176,7 @@ final class AppSettings {
     /// Pyannote cluster merge threshold (0.0-2.0). Higher = less merging =
     /// more speakers détectés. Default speech-swift 0.715 fusionne agressivement
     /// (souvent 2 speakers seulement) — on monte à 0.85 pour mieux séparer.
-    var diarizationClusterThreshold: Double = 0.85
+    var diarizationClusterThreshold: Double = 0.70
 
     // MARK: - Maintenance / cleanup audio
     /// Compresse les WAV plus vieux que ce nombre de jours.

@@ -668,6 +668,25 @@ struct SettingsView: View {
                                 .font(.caption)
                             Text("Plus haut = plus de speakers distincts. Plus bas = fusionne davantage.")
                                 .font(.caption2).foregroundColor(.secondary)
+                            HStack(spacing: 8) {
+                                Button("Plus de speakers") {
+                                    settings.diarizationClusterThreshold = 0.95
+                                    saveSettings()
+                                }
+                                .fontWeight(settings.diarizationClusterThreshold == 0.95 ? .bold : .regular)
+                                Button("Équilibré") {
+                                    settings.diarizationClusterThreshold = 0.85
+                                    saveSettings()
+                                }
+                                .fontWeight(settings.diarizationClusterThreshold == 0.85 ? .bold : .regular)
+                                Button("Moins de speakers") {
+                                    settings.diarizationClusterThreshold = 0.70
+                                    saveSettings()
+                                }
+                                .fontWeight(settings.diarizationClusterThreshold == 0.70 ? .bold : .regular)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                             Slider(value: Binding(
                                 get: { settings.diarizationClusterThreshold },
                                 set: { settings.diarizationClusterThreshold = $0; saveSettings() }
