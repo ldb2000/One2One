@@ -63,7 +63,8 @@ protocol STTEngine: AnyObject {
     var isLoaded: Bool { get }
     func load() async throws
     #if canImport(MLX)
-    func transcribe(clip: MLXArray, language: String, maxTokens: Int) -> String
+    /// async : l'implémentation offload le calcul MLX (lourd) hors du main actor.
+    func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String
     #endif
 }
 
@@ -192,15 +193,24 @@ final class CohereEngine: STTEngine {
     }
 
     #if canImport(MLX)
-    func transcribe(clip: MLXArray, language: String, maxTokens: Int) -> String {
+    func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String {
         #if canImport(MLXAudioSTT)
         guard let model else { return "" }
         let params = STTGenerateParameters(
             maxTokens: maxTokens, temperature: 0.0, topP: 1.0, topK: 0,
             verbose: false, language: language,
             chunkDuration: 1200.0, minChunkDuration: 1.0)
-        return model.generate(audio: clip, generationParameters: params)
-            .text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Offload MLX compute off the main actor (lourd). Box @unchecked car
+        // CohereTranscribeModel/MLXArray ne sont pas Sendable — pattern repris
+        // de PyannoteDiarizer.
+        struct Box: @unchecked Sendable {
+            let model: CohereTranscribeModel; let clip: MLXArray; let params: STTGenerateParameters
+        }
+        let box = Box(model: model, clip: clip, params: params)
+        return await Task.detached(priority: .userInitiated) {
+            box.model.generate(audio: box.clip, generationParameters: box.params)
+                .text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value
         #else
         return ""
         #endif
@@ -301,15 +311,22 @@ final class VoxtralEngine: STTEngine {
     }
 
     #if canImport(MLX)
-    func transcribe(clip: MLXArray, language: String, maxTokens: Int) -> String {
+    func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String {
         #if canImport(MLXAudioSTT)
         guard let model else { return "" }
         let params = STTGenerateParameters(
             maxTokens: maxTokens, temperature: 0.0, topP: 1.0, topK: 0,
             verbose: false, language: language,
             chunkDuration: 1200.0, minChunkDuration: 1.0)
-        return model.generate(audio: clip, generationParameters: params)
-            .text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Offload MLX compute off the main actor — cf. CohereEngine.
+        struct Box: @unchecked Sendable {
+            let model: VoxtralRealtimeModel; let clip: MLXArray; let params: STTGenerateParameters
+        }
+        let box = Box(model: model, clip: clip, params: params)
+        return await Task.detached(priority: .userInitiated) {
+            box.model.generate(audio: box.clip, generationParameters: box.params)
+                .text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value
         #else
         return ""
         #endif
@@ -672,7 +689,7 @@ enum DiarizeFirstTranscriber {
             let b = min(total, Int((t.endSec * Double(sampleRate)).rounded(.down)))
             guard b > a else { continue }
             let clip = audio[a..<b]
-            let text = engine.transcribe(clip: clip, language: language, maxTokens: maxTokensPerTurn)
+            let text = await engine.transcribe(clip: clip, language: language, maxTokens: maxTokensPerTurn)
             guard !text.isEmpty else { continue }
             blocks.append(TurnMerger.Block(speaker: t.clusterID, start: t.startSec, end: t.endSec, text: text))
         }
@@ -793,7 +810,7 @@ Ajouter cette méthode privée (réutilise la boucle 60s, mais via `STTEngine`) 
             let end = min(start + segmentSamples, sampleCount)
             onProgress?(Double(i) / Double(segmentCount), "Segment \(i + 1) / \(segmentCount)")
             let clip = audio[start..<end]
-            let segText = engine.transcribe(clip: clip, language: self.language, maxTokens: perSegmentMaxTokens)
+            let segText = await engine.transcribe(clip: clip, language: self.language, maxTokens: perSegmentMaxTokens)
             let segClean = Self.collapseRepetitions(segText)
             pieces.append(segClean)
             if !segClean.isEmpty {
