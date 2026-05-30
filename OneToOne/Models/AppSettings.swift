@@ -2,6 +2,18 @@ import Foundation
 import SwiftData
 import SwiftUI
 
+/// Mode de transcription. Remplace l'ancien booléen `speakerIdEnabled`.
+enum TranscriptionMode: String, Codable, CaseIterable, Sendable {
+    case transcriptionOnly
+    case diarizeFirst
+}
+
+/// Moteur STT pour le mode transcription seule.
+enum STTEngineKind: String, Codable, CaseIterable, Sendable {
+    case cohere
+    case voxtral
+}
+
 enum AIProvider: String, Codable, CaseIterable {
     case claudeOAuth = "Claude OAuth (setup-token)"
     case anthropic = "Claude (API Key)"
@@ -170,7 +182,30 @@ final class AppSettings {
     /// Diarisation = process coûteux (modèles MLX + minutes de calcul) qui
     /// reste OPT-IN. L'utilisateur l'active explicitement dans Réglages ou
     /// déclenche manuellement via "Détecter les speakers".
-    var speakerIdEnabled: Bool = false
+
+    /// Mode de transcription. `diarizeFirst` = diarisation Pyannote puis Voxtral
+    /// par tour ; `transcriptionOnly` = texte brut sans locuteurs.
+    var transcriptionModeRaw: String = TranscriptionMode.transcriptionOnly.rawValue
+    /// Moteur du mode transcription seule.
+    var transcriptionEngineRaw: String = STTEngineKind.cohere.rawValue
+    /// Variante de poids Voxtral (utilisée dès que Voxtral est actif).
+    var voxtralVariantRaw: String = VoxtralVariant.realtime4bit.rawValue
+
+    var transcriptionMode: TranscriptionMode {
+        get { TranscriptionMode(rawValue: transcriptionModeRaw) ?? .transcriptionOnly }
+        set { transcriptionModeRaw = newValue.rawValue }
+    }
+    var transcriptionEngine: STTEngineKind {
+        get { STTEngineKind(rawValue: transcriptionEngineRaw) ?? .cohere }
+        set { transcriptionEngineRaw = newValue.rawValue }
+    }
+    var voxtralVariant: VoxtralVariant {
+        get { VoxtralVariant(rawValue: voxtralVariantRaw) ?? .realtime4bit }
+        set { voxtralVariantRaw = newValue.rawValue }
+    }
+    /// Diarisation active ssi mode diarize-first (remplace `speakerIdEnabled`).
+    var speakerIdEnabled: Bool { transcriptionMode == .diarizeFirst }
+
     var speakerIdAutoThreshold: Double = 0.75
     var speakerIdSuggestThreshold: Double = 0.60
     /// Pyannote cluster merge threshold (0.0-2.0). Higher = less merging =

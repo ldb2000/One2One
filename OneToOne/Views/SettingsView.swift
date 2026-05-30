@@ -640,9 +640,10 @@ struct SettingsView: View {
 
                 GroupBox("Reconnaissance vocale") {
                     VStack(alignment: .leading, spacing: 10) {
+                        // TODO(diarize-first): replaced by mode picker in SettingsView (Task 9)
                         Toggle("Identification automatique des speakers", isOn: Binding(
                             get: { settings.speakerIdEnabled },
-                            set: { settings.speakerIdEnabled = $0; saveSettings() }
+                            set: { settings.transcriptionMode = $0 ? .diarizeFirst : .transcriptionOnly; saveSettings() }
                         ))
 
                         VStack(alignment: .leading, spacing: 4) {
