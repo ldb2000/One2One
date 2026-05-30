@@ -640,58 +640,81 @@ struct SettingsView: View {
 
                 GroupBox("Reconnaissance vocale") {
                     VStack(alignment: .leading, spacing: 10) {
-                        // TODO(diarize-first): replaced by mode picker in SettingsView (Task 9)
-                        Toggle("Identification automatique des speakers", isOn: Binding(
-                            get: { settings.speakerIdEnabled },
-                            set: { settings.transcriptionMode = $0 ? .diarizeFirst : .transcriptionOnly; saveSettings() }
-                        ))
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Seuil auto-assign: \(Int(settings.speakerIdAutoThreshold * 100))%")
-                                .font(.caption)
-                            Slider(value: Binding(
-                                get: { settings.speakerIdAutoThreshold },
-                                set: { settings.speakerIdAutoThreshold = $0; saveSettings() }
-                            ), in: 0.65...0.90, step: 0.01)
+                        Picker("Mode de transcription", selection: Binding(
+                            get: { settings.transcriptionMode },
+                            set: { settings.transcriptionMode = $0; saveSettings() }
+                        )) {
+                            Text("Transcription seule").tag(TranscriptionMode.transcriptionOnly)
+                            Text("Diarisation (locuteurs)").tag(TranscriptionMode.diarizeFirst)
                         }
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Seuil suggestion: \(Int(settings.speakerIdSuggestThreshold * 100))%")
-                                .font(.caption)
-                            Slider(value: Binding(
-                                get: { settings.speakerIdSuggestThreshold },
-                                set: { settings.speakerIdSuggestThreshold = $0; saveSettings() }
-                            ), in: 0.50...0.70, step: 0.01)
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Séparation des voix (pyannote): \(String(format: "%.2f", settings.diarizationClusterThreshold))")
-                                .font(.caption)
-                            Text("Plus haut = plus de speakers distincts. Plus bas = fusionne davantage.")
-                                .font(.caption2).foregroundColor(.secondary)
-                            HStack(spacing: 8) {
-                                Button("Plus de speakers") {
-                                    settings.diarizationClusterThreshold = 0.95
-                                    saveSettings()
-                                }
-                                .fontWeight(settings.diarizationClusterThreshold == 0.95 ? .bold : .regular)
-                                Button("Équilibré") {
-                                    settings.diarizationClusterThreshold = 0.85
-                                    saveSettings()
-                                }
-                                .fontWeight(settings.diarizationClusterThreshold == 0.85 ? .bold : .regular)
-                                Button("Moins de speakers") {
-                                    settings.diarizationClusterThreshold = 0.70
-                                    saveSettings()
-                                }
-                                .fontWeight(settings.diarizationClusterThreshold == 0.70 ? .bold : .regular)
+                        if settings.transcriptionMode == .transcriptionOnly {
+                            Picker("Moteur STT", selection: Binding(
+                                get: { settings.transcriptionEngine },
+                                set: { settings.transcriptionEngine = $0; saveSettings() }
+                            )) {
+                                Text("Cohere Transcribe").tag(STTEngineKind.cohere)
+                                Text("Voxtral").tag(STTEngineKind.voxtral)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            Slider(value: Binding(
-                                get: { settings.diarizationClusterThreshold },
-                                set: { settings.diarizationClusterThreshold = $0; saveSettings() }
-                            ), in: 0.50...1.10, step: 0.01)
+                        }
+
+                        Picker("Variante Voxtral", selection: Binding(
+                            get: { settings.voxtralVariant },
+                            set: { settings.voxtralVariant = $0; saveSettings() }
+                        )) {
+                            ForEach(VoxtralVariant.allCases, id: \.self) { v in
+                                Text(v.label).tag(v)
+                            }
+                        }
+
+                        if settings.transcriptionMode == .diarizeFirst {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Seuil auto-assign: \(Int(settings.speakerIdAutoThreshold * 100))%")
+                                    .font(.caption)
+                                Slider(value: Binding(
+                                    get: { settings.speakerIdAutoThreshold },
+                                    set: { settings.speakerIdAutoThreshold = $0; saveSettings() }
+                                ), in: 0.65...0.90, step: 0.01)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Seuil suggestion: \(Int(settings.speakerIdSuggestThreshold * 100))%")
+                                    .font(.caption)
+                                Slider(value: Binding(
+                                    get: { settings.speakerIdSuggestThreshold },
+                                    set: { settings.speakerIdSuggestThreshold = $0; saveSettings() }
+                                ), in: 0.50...0.70, step: 0.01)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Séparation des voix (pyannote): \(String(format: "%.2f", settings.diarizationClusterThreshold))")
+                                    .font(.caption)
+                                Text("Plus haut = plus de speakers distincts. Plus bas = fusionne davantage.")
+                                    .font(.caption2).foregroundColor(.secondary)
+                                HStack(spacing: 8) {
+                                    Button("Plus de speakers") {
+                                        settings.diarizationClusterThreshold = 0.95
+                                        saveSettings()
+                                    }
+                                    .fontWeight(settings.diarizationClusterThreshold == 0.95 ? .bold : .regular)
+                                    Button("Équilibré") {
+                                        settings.diarizationClusterThreshold = 0.85
+                                        saveSettings()
+                                    }
+                                    .fontWeight(settings.diarizationClusterThreshold == 0.85 ? .bold : .regular)
+                                    Button("Moins de speakers") {
+                                        settings.diarizationClusterThreshold = 0.70
+                                        saveSettings()
+                                    }
+                                    .fontWeight(settings.diarizationClusterThreshold == 0.70 ? .bold : .regular)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                Slider(value: Binding(
+                                    get: { settings.diarizationClusterThreshold },
+                                    set: { settings.diarizationClusterThreshold = $0; saveSettings() }
+                                ), in: 0.50...1.10, step: 0.01)
+                            }
                         }
 
                         Divider()
