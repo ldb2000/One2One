@@ -3,6 +3,7 @@ import AVFoundation
 import Combine
 import AppKit
 import os
+import SwiftData
 
 private let audioLog = Logger(subsystem: "com.onetoone.app", category: "audio")
 
@@ -159,6 +160,22 @@ final class AudioRecorderService: NSObject, ObservableObject {
             self.pauseStartDate = nil
             self.startDate = Date()
             self.activeMeetingID = meetingID
+            // Bannière "Enregistrement en cours" si activée dans les réglages.
+            if let container = OneToOneApp.sharedContainer {
+                let ctx = container.mainContext
+                if let settings = (try? ctx.fetch(FetchDescriptor<AppSettings>()))?.first,
+                   settings.notifRecordingStart {
+                    let title: String
+                    if let id = meetingID {
+                        let descriptor = FetchDescriptor<Meeting>()
+                        let all = (try? ctx.fetch(descriptor)) ?? []
+                        title = all.first { $0.ensuredStableID == id }?.title ?? ""
+                    } else {
+                        title = ""
+                    }
+                    MeetingNotificationService.shared.notifyRecordingStarted(meetingTitle: title)
+                }
+            }
             startTimers()
             audioLog.info("AudioRecorder: start \(fileURL.path, privacy: .public)")
             print("[Audio] start → \(fileURL.path)")

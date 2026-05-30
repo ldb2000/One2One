@@ -1,0 +1,158 @@
+import SwiftUI
+import AppKit
+import Combine
+
+/// SwiftUI bridge that owns the `EditorTextView`. Translates the markdown
+/// `@Binding String` ↔ internal `NSAttributedString` using `MarkdownParser` /
+/// `MarkdownSerializer`. Debounces outgoing changes so SwiftData isn't
+/// notified on every keystroke.
+struct EditorRepresentable: NSViewRepresentable {
+    @Binding var markdown: String
+    var placeholder: String
+    var features: Set<MarkdownFeature>
+    var debounce: TimeInterval
+    var readOnly: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        // Build the TextKit stack manually : NSTextStorage → NSLayoutManager →
+        // NSTextContainer → NSTextView. Le pattern `scrollableTextView()` +
+        // remplacement de documentView casse la chaîne (le layout manager
+        // d'origine reste branché sur l'ancien NSTextView).
+        let scroll = NSScrollView()
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let huge: CGFloat = 1_000_000
+        let container = NSTextContainer(
+            containerSize: NSSize(width: 0, height: huge)
+        )
+        container.widthTracksTextView = true
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+
+        let initialFrame = NSRect(origin: .zero, size: NSSize(width: 200, height: 100))
+        let editor = EditorTextView(frame: initialFrame, textContainer: container)
+        editor.minSize = NSSize(width: 0, height: 0)
+        editor.maxSize = NSSize(width: huge, height: huge)
+        editor.isVerticallyResizable = true
+        editor.isHorizontallyResizable = false
+        editor.autoresizingMask = [NSView.AutoresizingMask.width]
+
+        editor.delegate = context.coordinator
+        editor.onTaskToggle = { [weak coord = context.coordinator] (_: NSRange, _: Bool) in
+            coord?.pushMarkdownToBinding(force: true)
+        }
+        scroll.documentView = editor
+        context.coordinator.textView = editor
+        applyInitialState(editor: editor, coordinator: context.coordinator)
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let editor = scroll.documentView as? EditorTextView else { return }
+        editor.isEditable = !readOnly
+        context.coordinator.features = features
+        context.coordinator.debounce = debounce
+        let incoming = markdown
+        if context.coordinator.lastKnownMarkdown != incoming {
+            // External update — re-parse and apply, preserving caret best-effort.
+            let attr = MarkdownParser.parse(incoming)
+            let savedSelection = editor.selectedRange()
+            editor.textStorage?.setAttributedString(attr)
+            if let storage = editor.textStorage {
+                StyleRenderer.applyVisualStyle(to: storage)
+            }
+            let clampedLocation = min(savedSelection.location, attr.length)
+            editor.setSelectedRange(NSRange(location: clampedLocation, length: 0))
+            context.coordinator.lastKnownMarkdown = incoming
+        }
+    }
+
+    // MARK: - Initial state
+
+    private func applyInitialState(editor: EditorTextView, coordinator: Coordinator) {
+        editor.isEditable = !readOnly
+        let attr = MarkdownParser.parse(markdown)
+        editor.textStorage?.setAttributedString(attr)
+        if let storage = editor.textStorage {
+            StyleRenderer.applyVisualStyle(to: storage)
+        }
+        coordinator.lastKnownMarkdown = markdown
+    }
+
+    // MARK: - Coordinator
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: EditorRepresentable
+        weak var textView: EditorTextView?
+        var lastKnownMarkdown: String = ""
+        var features: Set<MarkdownFeature>
+        var debounce: TimeInterval
+        private var debounceTask: Task<Void, Never>?
+        /// Garde anti-récursion : `ShortcutDetector.apply` mute le storage,
+        /// ce qui re-déclenche `textDidChange`. Sans ce flag on appliquerait
+        /// les shortcuts en boucle.
+        private var isApplyingShortcut: Bool = false
+
+        init(parent: EditorRepresentable) {
+            self.parent = parent
+            self.features = parent.features
+            self.debounce = parent.debounce
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange,
+                      replacementString: String?) -> Bool {
+            true
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let tv = textView, let storage = tv.textStorage else { return }
+            if isApplyingShortcut { return }
+            // Apply shortcuts after the change took effect.
+            let cursor = tv.selectedRange().location
+            if cursor > 0 {
+                let inserted = (storage.string as NSString)
+                    .substring(with: NSRange(location: cursor - 1, length: 1))
+                isApplyingShortcut = true
+                ShortcutDetector.apply(after: inserted, in: storage,
+                                       cursor: cursor, features: features)
+                isApplyingShortcut = false
+            }
+            // Ré-applique le styling visuel après chaque mutation pour que
+            // bold/italic/headings/lists apparaissent immédiatement.
+            isApplyingShortcut = true
+            StyleRenderer.applyVisualStyle(to: storage)
+            isApplyingShortcut = false
+            pushMarkdownToBinding(force: false)
+        }
+
+        func pushMarkdownToBinding(force: Bool) {
+            guard let tv = textView, let storage = tv.textStorage else { return }
+            let md = MarkdownSerializer.serialize(storage)
+            if md == lastKnownMarkdown { return }
+            lastKnownMarkdown = md
+            if force {
+                parent.markdown = md
+                return
+            }
+            debounceTask?.cancel()
+            let delay = debounce
+            debounceTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int(delay * 1000)))
+                guard let self else { return }
+                if Task.isCancelled { return }
+                self.parent.markdown = md
+            }
+        }
+    }
+}

@@ -54,6 +54,54 @@ final class QuickLaunchRouter: ObservableObject {
         return meeting
     }
 
+    /// Creates a `kind=.global` meeting with no participants and publishes
+    /// a launch token that opens the 1to1-meeting window with recording on.
+    @discardableResult
+    func startAdHocMeeting(in context: ModelContext) -> Meeting {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        let meeting = Meeting(
+            title: "Réunion ad-hoc \(formatter.string(from: Date()))",
+            date: Date()
+        )
+        meeting.kind = .global
+        context.insert(meeting)
+        do { try context.save() } catch {
+            print("[QuickLaunchRouter] save failed: \(error)")
+        }
+
+        NSApp?.activate(ignoringOtherApps: true)
+        pendingToken = OneToOneLaunchToken(
+            meetingID: meeting.ensuredStableID,
+            autoStartRecording: true
+        )
+        return meeting
+    }
+
+    /// Same as `startOneToOne` but stamps `kind=.manager`. Caller provides
+    /// the manager collaborator (resolved from `AppSettings.managerEmail`).
+    @discardableResult
+    func startManagerMeeting(collaborator: Collaborator,
+                              in context: ModelContext) -> Meeting {
+        let meeting = Meeting(
+            title: "1:1 Manager — \(collaborator.name)",
+            date: Date()
+        )
+        meeting.kind = .manager
+        context.insert(meeting)
+        meeting.participants = [collaborator]
+        do { try context.save() } catch {
+            print("[QuickLaunchRouter] save failed: \(error)")
+        }
+
+        NSApp?.activate(ignoringOtherApps: true)
+        pendingToken = OneToOneLaunchToken(
+            meetingID: meeting.ensuredStableID,
+            autoStartRecording: true
+        )
+        return meeting
+    }
+
     /// Consommé par la vue qui ouvre la fenêtre — reset le token pour ne
     /// pas re-tirer.
     func consumePendingToken() -> OneToOneLaunchToken? {

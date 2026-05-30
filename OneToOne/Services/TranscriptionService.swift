@@ -3,6 +3,7 @@ import Foundation
 import Combine
 import AppKit
 import os
+import SwiftData
 
 #if canImport(MLXAudioSTT)
 import MLXAudioSTT
@@ -27,6 +28,10 @@ struct STTResult {
     /// Segments timestampés (1 par chunk de 60s par défaut). Vide pour
     /// les chemins legacy qui n'auraient pas conservé les segments.
     let segments: [STTSegment]
+    /// Embeddings 256-dim par cluster issus de la diarisation (vide si pas
+    /// de diarisation ou si SpeechVAD indisponible). Utilisé par MeetingView
+    /// pour déclencher l'EMA voiceprint update lors d'un labeling manuel.
+    var clusterEmbeddings: [Int: [Float]] = [:]
 }
 
 // MARK: - Errors
@@ -266,14 +271,18 @@ final class TranscriptionService: ObservableObject {
                 return String(out.text).trimmingCharacters(in: .whitespacesAndNewlines)
             }.value
 
-            pieces.append(segText)
+            // Collapse pathological loops ("Je. Je. Je. …") inside each chunk too,
+            // otherwise the segmented view still shows the raw loop while the
+            // global `text` is clean.
+            let segClean = Self.collapseRepetitions(segText)
+            pieces.append(segClean)
             // Capture timestamped segment alongside text (60s chunks for now).
             // Phase B (VAD) refines speaker turns within these chunks.
-            if !segText.isEmpty {
+            if !segClean.isEmpty {
                 sttSegments.append(STTSegment(
                     startSeconds: Double(start) / 16_000.0,
                     endSeconds: Double(end) / 16_000.0,
-                    text: segText
+                    text: segClean
                 ))
             }
             self.progressFraction = Double(i + 1) / Double(segmentCount)
@@ -293,6 +302,187 @@ final class TranscriptionService: ObservableObject {
         #else
         throw STTError.mlxNotLinked
         #endif
+    }
+
+    // MARK: - Diarization pipeline
+
+    /// Full pipeline: Cohere transcribe → Pyannote diarize → align → match speakers.
+    /// Mutates `meeting`: inserts TranscriptSegments, sets `speakerAssignmentsJSON`
+    /// + `speakerMatchMetaJSON`. Does **not** call `context.save()` — the caller
+    /// (`MeetingView.runTranscription`) decides when to persist.
+    func transcribeWithDiarization(audioURL: URL,
+                                    meeting: Meeting,
+                                    settings: AppSettings,
+                                    in context: ModelContext,
+                                    onPhase: ((TranscriptionPhase) -> Void)? = nil,
+                                    onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
+        // 1. Cohere transcribe (existing path).
+        onPhase?(.transcribing)
+        let sttResult = try await transcribe(audioURL: audioURL)
+
+        // If speaker identification disabled in settings, return early with cluster=0.
+        guard settings.speakerIdEnabled else {
+            persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)
+            return sttResult
+        }
+
+        // 2. Diarize. PyannoteDiarizer will itself emit .loadingModel before
+        // first-call `fromPretrained` and .diarizing once compute starts.
+        let diarOutput: PyannoteDiarizer.DiarizeOutput
+        do {
+            diarOutput = try await PyannoteDiarizer.shared.diarize(
+                audioURL: audioURL,
+                clusterThreshold: Float(settings.diarizationClusterThreshold),
+                onPhase: onPhase,
+                onProgress: onProgress
+            )
+        } catch {
+            print("[TranscriptionService] diarization failed: \(error). Falling back to anonymous.")
+            persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)
+            return sttResult
+        }
+
+        // 3. Align chunks ↔ turns.
+        onPhase?(.matching)
+        let chunks = sttResult.segments.map { c in
+            TurnAligner.STTChunkInput(startSec: c.startSeconds, endSec: c.endSeconds, text: c.text)
+        }
+        let aligned = TurnAligner.align(chunks: chunks, turns: diarOutput.turns)
+
+        // 4. Match clusters → Collaborators.
+        let assignments = SpeakerMatcher.match(
+            clusterEmbeddings: diarOutput.perClusterEmbedding,
+            meeting: meeting,
+            in: context,
+            settings: settings
+        )
+
+        // 4b. Canonicalize: unify clusters mapped to same Collaborator, then re-merge.
+        let canonical = canonicalizeClusters(aligned, assignments: assignments)
+
+        // 5. Persist segments + metadata.
+        persistAlignedSegments(
+            aligned: canonical,
+            assignments: assignments,
+            meeting: meeting,
+            in: context
+        )
+
+        // 6. Renvoie les embeddings au caller pour permettre l'EMA voiceprint
+        // update au premier labeling manuel.
+        var resultWithEmbeddings = sttResult
+        resultWithEmbeddings.clusterEmbeddings = diarOutput.perClusterEmbedding
+        return resultWithEmbeddings
+    }
+
+    private func persistAnonymousSegments(sttResult: STTResult,
+                                           meeting: Meeting,
+                                           in context: ModelContext) {
+        // Purge atomique des segments existants juste avant insertion des
+        // nouveaux. Si on arrive ici, c'est que STT + diarisation ont réussi
+        // — sûr d'écraser. Annulation antérieure préserve les anciens.
+        for old in meeting.transcriptSegments { context.delete(old) }
+        var idx = 0
+        for chunk in sttResult.segments {
+            let s = TranscriptSegment(
+                orderIndex: idx,
+                startSeconds: chunk.startSeconds,
+                endSeconds: chunk.endSeconds,
+                text: chunk.text,
+                speakerID: 1
+            )
+            s.meeting = meeting
+            context.insert(s)
+            idx += 1
+        }
+    }
+
+    // MARK: - Canonicalisation des clusters
+
+    /// Pour chaque cluster mappé à un Collaborator, réécrit clusterID vers
+    /// un cluster canonique (1er rencontré pour ce collab), puis re-merge
+    /// consécutifs via `TurnAligner.mergeConsecutive`. Réduit la sur-segmentation
+    /// quand Pyannote produit plusieurs clusters pour la même voix réelle.
+    func canonicalizeClusters(_ aligned: [TurnAligner.AlignedSegment],
+                               assignments: [Int: SpeakerMatcher.Assignment])
+        -> [TurnAligner.AlignedSegment]
+    {
+        var canonicalByCollab: [PersistentIdentifier: Int] = [:]
+        for cid in assignments.keys.sorted() {
+            guard let collab = assignments[cid]?.collaborator else { continue }
+            let pid = collab.persistentModelID
+            if canonicalByCollab[pid] == nil {
+                canonicalByCollab[pid] = cid
+            }
+        }
+        guard !canonicalByCollab.isEmpty else { return aligned }
+
+        let rewritten: [TurnAligner.AlignedSegment] = aligned.map { seg in
+            guard let collab = assignments[seg.clusterID]?.collaborator,
+                  let canonical = canonicalByCollab[collab.persistentModelID] else {
+                return seg
+            }
+            if canonical == seg.clusterID { return seg }
+            return TurnAligner.AlignedSegment(
+                startSec: seg.startSec,
+                endSec: seg.endSec,
+                text: seg.text,
+                clusterID: canonical
+            )
+        }
+        return TurnAligner.mergeConsecutive(rewritten)
+    }
+
+    #if DEBUG
+    func canonicalizeClustersForTest(_ aligned: [TurnAligner.AlignedSegment],
+                                      assignments: [Int: SpeakerMatcher.Assignment])
+        -> [TurnAligner.AlignedSegment]
+    {
+        canonicalizeClusters(aligned, assignments: assignments)
+    }
+    #endif
+
+    private func persistAlignedSegments(aligned: [TurnAligner.AlignedSegment],
+                                         assignments: [Int: SpeakerMatcher.Assignment],
+                                         meeting: Meeting,
+                                         in context: ModelContext) {
+        // Purge atomique des segments existants — cf. note dans persistAnonymousSegments.
+        for old in meeting.transcriptSegments { context.delete(old) }
+        var idx = 0
+        var assignmentsDict: [String: Any] = [:]
+        var metaDict: [String: [String: Any]] = [:]
+        for seg in aligned {
+            let s = TranscriptSegment(
+                orderIndex: idx,
+                startSeconds: seg.startSec,
+                endSeconds: seg.endSec,
+                text: seg.text,
+                speakerID: seg.clusterID + 1
+            )
+            s.meeting = meeting
+            if let a = assignments[seg.clusterID], let collab = a.collaborator, a.auto {
+                s.speaker = collab
+            }
+            context.insert(s)
+            idx += 1
+        }
+        for (cid, a) in assignments {
+            assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
+            metaDict[String(cid)] = [
+                "confidence": a.confidence,
+                "auto": a.auto,
+                "ambiguous": a.ambiguous,
+                "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
+            ]
+        }
+        if let assignmentsJSON = try? JSONSerialization.data(withJSONObject: assignmentsDict),
+           let s = String(data: assignmentsJSON, encoding: .utf8) {
+            meeting.speakerAssignmentsJSON = s
+        }
+        if let metaJSON = try? JSONSerialization.data(withJSONObject: metaDict),
+           let s = String(data: metaJSON, encoding: .utf8) {
+            meeting.speakerMatchMetaJSON = s
+        }
     }
 
     // MARK: - Audio loader
@@ -390,14 +580,16 @@ final class TranscriptionService: ObservableObject {
             }
         }
 
-        // 2. Collapse de groupes de mots (2-5 tokens) répétés immédiatement.
+        // 2. Collapse de groupes de mots (1-5 tokens) répétés immédiatement.
+        // n=1 attrape les boucles mono-token type "Je. Je. Je. …" qu'on voit
+        // sur des fins de chunk silencieuses.
         let words = out.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        if words.count > 10 {
+        if words.count > 4 {
             var cleaned: [String] = []
             var i = 0
             while i < words.count {
                 var replaced = false
-                for n in stride(from: 5, through: 2, by: -1) where i + n * 3 <= words.count {
+                for n in stride(from: 5, through: 1, by: -1) where i + n * 3 <= words.count {
                     let pattern = Array(words[i..<i + n])
                     var repeats = 1
                     var j = i + n

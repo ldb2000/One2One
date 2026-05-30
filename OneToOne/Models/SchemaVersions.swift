@@ -44,7 +44,9 @@ enum SchemaV1: VersionedSchema {
             NoteAttachment.self,
             ManagerReportItem.self,
             ManagerMeetingReport.self,
-            TranscriptSegment.self
+            TranscriptSegment.self,
+            ReportTemplate.self,
+            ReportRevision.self
         ]
     }
 }

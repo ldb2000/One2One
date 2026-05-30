@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import ScreenCaptureKit
 
 struct ScreenCaptureConfigView: View {
@@ -6,7 +7,8 @@ struct ScreenCaptureConfigView: View {
     var meeting: Meeting
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    
+    @Query private var settingsList: [AppSettings]
+
     @State private var sources: SCShareableContent?
     @State private var selectedWindowID: CGWindowID?
     @State private var captureType: CaptureType = .window
@@ -14,6 +16,11 @@ struct ScreenCaptureConfigView: View {
     @State private var interval: Double = 2.0
     @State private var threshold: Double = 12.0
     @State private var selectedRect: CGRect?
+    @State private var selectedDisplayID: CGDirectDisplayID?
+
+    private var settings: AppSettings {
+        settingsList.canonicalSettings ?? AppSettings()
+    }
     
     enum CaptureType {
         case window
@@ -34,10 +41,21 @@ struct ScreenCaptureConfigView: View {
                 HStack {
                     Picker("Fenêtre", selection: $selectedWindowID) {
                         Text("Sélectionner une fenêtre").tag(nil as CGWindowID?)
-                        if let windows = sources?.windows {
-                            ForEach(windows.filter { $0.windowLayer == 0 && !($0.title?.isEmpty ?? true) }, id: \.windowID) { window in
-                                Text("\(window.owningApplication?.applicationName ?? "?") — \(window.title ?? "?")")
-                                    .tag(window.windowID as CGWindowID?)
+                        let buckets = groupedWindows()
+                        // Teams en tête (priorité visuelle)
+                        if !buckets.teams.isEmpty {
+                            Section("Teams") {
+                                ForEach(buckets.teams, id: \.windowID) { w in
+                                    Text(windowLabel(w)).tag(w.windowID as CGWindowID?)
+                                }
+                            }
+                        }
+                        // Autres fenêtres (exclut OneToOne + blacklist utilisateur)
+                        if !buckets.others.isEmpty {
+                            Section("Autres fenêtres") {
+                                ForEach(buckets.others, id: \.windowID) { w in
+                                    Text(windowLabel(w)).tag(w.windowID as CGWindowID?)
+                                }
                             }
                         }
                     }
@@ -49,8 +67,9 @@ struct ScreenCaptureConfigView: View {
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Button("Définir la zone…") {
-                        RectSelectorWindow.show(onSelected: { rect in
+                        RectSelectorWindow.show(onSelected: { rect, displayID in
                             self.selectedRect = rect
+                            self.selectedDisplayID = displayID
                         }, onCancel: {})
                     }
                     .buttonStyle(.bordered)
@@ -116,6 +135,39 @@ struct ScreenCaptureConfigView: View {
         }
     }
     
+    /// Trie les fenêtres : Teams en premier, "OneToOne" et la blacklist
+    /// utilisateur exclus, le reste alpha par (app, titre).
+    private func groupedWindows() -> (teams: [SCWindow], others: [SCWindow]) {
+        guard let all = sources?.windows else { return ([], []) }
+        let visible = all.filter { $0.windowLayer == 0 && !($0.title?.isEmpty ?? true) }
+        let blacklist = Set(settings.captureBlacklist.map { $0.lowercased() })
+        let ownAppNames: Set<String> = ["onetoone", "one2one"]
+
+        var teams: [SCWindow] = []
+        var others: [SCWindow] = []
+        for w in visible {
+            let appName = (w.owningApplication?.applicationName ?? "").lowercased()
+            if ownAppNames.contains(appName) { continue }
+            if blacklist.contains(appName) { continue }
+            if appName.contains("teams") || appName.contains("microsoft teams") {
+                teams.append(w)
+            } else {
+                others.append(w)
+            }
+        }
+        let byAppTitle: (SCWindow, SCWindow) -> Bool = { a, b in
+            let na = (a.owningApplication?.applicationName ?? "")
+            let nb = (b.owningApplication?.applicationName ?? "")
+            if na != nb { return na.localizedCaseInsensitiveCompare(nb) == .orderedAscending }
+            return (a.title ?? "").localizedCaseInsensitiveCompare(b.title ?? "") == .orderedAscending
+        }
+        return (teams.sorted(by: byAppTitle), others.sorted(by: byAppTitle))
+    }
+
+    private func windowLabel(_ w: SCWindow) -> String {
+        "\(w.owningApplication?.applicationName ?? "?") — \(w.title ?? "?")"
+    }
+
     private func refreshSources() {
         Task {
             do {
@@ -134,8 +186,19 @@ struct ScreenCaptureConfigView: View {
                   let window = sources.windows.first(where: { $0.windowID == windowID }) else { return }
             service.selectedSource = .window(window)
         } else {
-            guard let rect = selectedRect,
-                  let display = sources.displays.first else { return } // On prend le premier display par défaut
+            guard let rect = selectedRect else { return }
+            // Résout le SCDisplay qui correspond au CGDirectDisplayID renvoyé
+            // par le sélecteur multi-écrans. Fallback sur le premier display
+            // si l'ID n'est pas trouvé (cas dégénéré : écran déconnecté).
+            let display: SCDisplay
+            if let id = selectedDisplayID,
+               let match = sources.displays.first(where: { $0.displayID == id }) {
+                display = match
+            } else if let first = sources.displays.first {
+                display = first
+            } else {
+                return
+            }
             service.selectedSource = .display(display, rect)
         }
         

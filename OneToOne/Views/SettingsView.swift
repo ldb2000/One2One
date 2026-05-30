@@ -44,6 +44,8 @@ struct SettingsView: View {
     // Manager section
     @State private var managerName: String = ""
     @State private var managerEmail: String = ""
+    @State private var ownerName: String = ""
+    @State private var ownerRole: String = ""
     @State private var managerCategories: [String] = []
     @State private var managerReportPrompt: String = ""
 
@@ -408,6 +410,27 @@ struct SettingsView: View {
                     .padding(.vertical, 5)
                 }
 
+                GroupBox("Mon identité (rédacteur des comptes-rendus)") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Nom et rôle utilisés pour te marquer \"(rédacteur)\" dans la ligne PARTICIPANTS du rapport, et pour afficher ton titre.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        HStack {
+                            Text("Mon nom :")
+                            TextField("ex. Laurent DE BERTI", text: $ownerName)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { saveSettings() }
+                        }
+                        HStack {
+                            Text("Mon rôle :")
+                            TextField("ex. Responsable de l'architecture technique",
+                                      text: $ownerRole)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { saveSettings() }
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+
                 GroupBox("Manager (1:1 manager)") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
@@ -486,6 +509,34 @@ struct SettingsView: View {
 
                         Divider()
 
+                        Toggle("Notification au démarrage de l'enregistrement", isOn: Binding(
+                            get: { settings.notifRecordingStart },
+                            set: { settings.notifRecordingStart = $0; saveSettings() }
+                        ))
+                        Toggle("Pré-rappel avant la réunion (style Outlook)", isOn: Binding(
+                            get: { settings.notifMeetingPreStart },
+                            set: { settings.notifMeetingPreStart = $0; saveSettings() }
+                        ))
+                        if settings.notifMeetingPreStart {
+                            HStack {
+                                Text("Délai du pré-rappel:")
+                                Picker("", selection: Binding(
+                                    get: { settings.notifMeetingPreStartMinutes },
+                                    set: { settings.notifMeetingPreStartMinutes = $0; saveSettings(); resyncNotifs() }
+                                )) {
+                                    Text("1 min").tag(1)
+                                    Text("2 min").tag(2)
+                                    Text("5 min").tag(5)
+                                    Text("10 min").tag(10)
+                                    Text("15 min").tag(15)
+                                    Text("30 min").tag(30)
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 120)
+                                Spacer()
+                            }
+                            .font(.caption)
+                        }
                         Toggle("Notification au début de réunion", isOn: Binding(
                             get: { settings.notifMeetingStart },
                             set: { settings.notifMeetingStart = $0; saveSettings() }
@@ -585,6 +636,83 @@ struct SettingsView: View {
                         }
                     }
                     .padding(8)
+                }
+
+                GroupBox("Reconnaissance vocale") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Identification automatique des speakers", isOn: Binding(
+                            get: { settings.speakerIdEnabled },
+                            set: { settings.speakerIdEnabled = $0; saveSettings() }
+                        ))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Seuil auto-assign: \(Int(settings.speakerIdAutoThreshold * 100))%")
+                                .font(.caption)
+                            Slider(value: Binding(
+                                get: { settings.speakerIdAutoThreshold },
+                                set: { settings.speakerIdAutoThreshold = $0; saveSettings() }
+                            ), in: 0.65...0.90, step: 0.01)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Seuil suggestion: \(Int(settings.speakerIdSuggestThreshold * 100))%")
+                                .font(.caption)
+                            Slider(value: Binding(
+                                get: { settings.speakerIdSuggestThreshold },
+                                set: { settings.speakerIdSuggestThreshold = $0; saveSettings() }
+                            ), in: 0.50...0.70, step: 0.01)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Séparation des voix (pyannote): \(String(format: "%.2f", settings.diarizationClusterThreshold))")
+                                .font(.caption)
+                            Text("Plus haut = plus de speakers distincts. Plus bas = fusionne davantage.")
+                                .font(.caption2).foregroundColor(.secondary)
+                            HStack(spacing: 8) {
+                                Button("Plus de speakers") {
+                                    settings.diarizationClusterThreshold = 0.95
+                                    saveSettings()
+                                }
+                                .fontWeight(settings.diarizationClusterThreshold == 0.95 ? .bold : .regular)
+                                Button("Équilibré") {
+                                    settings.diarizationClusterThreshold = 0.85
+                                    saveSettings()
+                                }
+                                .fontWeight(settings.diarizationClusterThreshold == 0.85 ? .bold : .regular)
+                                Button("Moins de speakers") {
+                                    settings.diarizationClusterThreshold = 0.70
+                                    saveSettings()
+                                }
+                                .fontWeight(settings.diarizationClusterThreshold == 0.70 ? .bold : .regular)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            Slider(value: Binding(
+                                get: { settings.diarizationClusterThreshold },
+                                set: { settings.diarizationClusterThreshold = $0; saveSettings() }
+                            ), in: 0.50...1.10, step: 0.01)
+                        }
+
+                        Divider()
+                        Text("Collaborateurs enrôlés").font(.caption.bold()).foregroundColor(.secondary)
+                        enrolledCollabsList
+                    }
+                    .padding(8)
+                }
+
+                GroupBox("Capture d'écran") {
+                    captureBlacklistSection
+                        .padding(8)
+                }
+
+                GroupBox("Maintenance") {
+                    MaintenanceView()
+                        .padding(8)
+                }
+
+                GroupBox("Templates de rapport") {
+                    ReportTemplateListView()
+                        .padding(8)
                 }
 
                 GroupBox("Entités") {
@@ -712,6 +840,8 @@ struct SettingsView: View {
             weeklyExportPrompt = settings.weeklyExportPrompt
             managerName = settings.managerName
             managerEmail = settings.managerEmail
+            ownerName = settings.ownerName
+            ownerRole = settings.ownerRole
             managerCategories = settings.managerCategories
             managerReportPrompt = settings.managerReportPrompt
 
@@ -873,6 +1003,13 @@ struct SettingsView: View {
         }
     }
 
+    /// Re-applique tous les notifs avec les nouveaux paramètres. Utilisé
+    /// quand l'utilisateur change le délai du pré-rappel — les pending
+    /// existants restent armés sur l'ancien délai jusqu'à un resync.
+    private func resyncNotifs() {
+        MeetingNotificationService.shared.syncPending(context: context, settings: settings)
+    }
+
     private func saveSettings() {
 
         settings.cloudToken = cloudToken
@@ -884,6 +1021,8 @@ struct SettingsView: View {
         settings.weeklyExportPrompt = weeklyExportPrompt
         settings.managerName = managerName
         settings.managerEmail = managerEmail
+        settings.ownerName = ownerName
+        settings.ownerRole = ownerRole
         settings.managerCategories = managerCategories
         settings.managerReportPrompt = managerReportPrompt
         do {
@@ -984,5 +1123,55 @@ struct SettingsView: View {
             context.delete(candidate)
         }
         try? context.save()
+    }
+
+    @ViewBuilder
+    private var captureBlacklistSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Apps masquées du sélecteur de fenêtre (capture)")
+                .font(.subheadline.bold())
+            Text("Une app par ligne, nom exact (ex. \"1Password\", \"Slack\"). OneToOne est toujours filtré.")
+                .font(.caption2).foregroundStyle(.secondary)
+
+            TextEditor(text: Binding(
+                get: { settings.captureBlacklist.joined(separator: "\n") },
+                set: { newValue in
+                    let lines = newValue
+                        .components(separatedBy: .newlines)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    settings.captureBlacklist = lines
+                    saveSettings()
+                }
+            ))
+            .font(.body.monospaced())
+            .frame(minHeight: 100)
+            .border(Color.secondary.opacity(0.2))
+        }
+    }
+
+    @ViewBuilder
+    private var enrolledCollabsList: some View {
+        let enrolled = collaborators.filter { $0.voicePrint != nil && $0.voicePrintSamples > 0 }
+        if enrolled.isEmpty {
+            Text("Aucun collaborateur enrôlé. Assignez un speaker dans une réunion pour démarrer l'enrôlement.")
+                .font(.caption2).foregroundStyle(.secondary)
+        } else {
+            ForEach(enrolled.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { c in
+                HStack {
+                    Text(c.name)
+                    Text("· \(c.voicePrintSamples) réunion(s)").font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset voiceprint", role: .destructive) {
+                        c.voicePrint = nil
+                        c.voicePrintSamples = 0
+                        c.voicePrintUpdatedAt = nil
+                        saveSettings()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
     }
 }

@@ -60,13 +60,17 @@ enum AIClient {
                     let process = Process()
                     let pipe = Pipe()
                     let errorPipe = Pipe()
+                    let inputPipe = Pipe()
 
                     // Find claude in PATH
                     let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
                     process.executableURL = URL(fileURLWithPath: shell)
-                    process.arguments = ["-l", "-c", "claude -p \(quoteShellArg(prompt)) --model \(quoteShellArg(model)) --output-format text 2>&1"]
+                    // Prompt passé via stdin (pas en argument) : un transcript long
+                    // dépasserait ARG_MAX. Pas de `2>&1` : stderr va sur errorPipe.
+                    process.arguments = ["-l", "-c", "claude -p --model \(quoteShellArg(model)) --output-format text"]
                     process.standardOutput = pipe
                     process.standardError = errorPipe
+                    process.standardInput = inputPipe
 
                     // Inherit user environment for PATH, HOME, etc.
                     var env = ProcessInfo.processInfo.environment
@@ -74,6 +78,12 @@ enum AIClient {
                     process.environment = env
 
                     try process.run()
+
+                    // Écrit le prompt sur stdin puis ferme pour signaler EOF.
+                    let handle = inputPipe.fileHandleForWriting
+                    handle.write(Data(prompt.utf8))
+                    try? handle.close()
+
                     process.waitUntilExit()
 
                     let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -225,7 +235,10 @@ enum AIClient {
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             var body = Data()
-            for try await b in bytes { body.append(b) }
+            for try await b in bytes {
+                body.append(b)
+                if body.count >= 65_536 { break }  // cap mémoire body d'erreur
+            }
             throw IngestionError.apiError(code, String(data: body, encoding: .utf8) ?? "")
         }
 
@@ -283,7 +296,10 @@ enum AIClient {
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             var body = Data()
-            for try await b in bytes { body.append(b) }
+            for try await b in bytes {
+                body.append(b)
+                if body.count >= 65_536 { break }  // cap mémoire body d'erreur
+            }
             throw IngestionError.apiError(code, String(data: body, encoding: .utf8) ?? "")
         }
 

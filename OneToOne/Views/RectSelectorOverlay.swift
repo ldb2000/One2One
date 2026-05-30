@@ -4,19 +4,16 @@ import AppKit
 struct RectSelectorOverlay: View {
     @State private var startPoint: CGPoint?
     @State private var currentPoint: CGPoint?
-    
+
     var onSelected: (CGRect) -> Void
     var onCancel: () -> Void
-    
+
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Background semi-transparent
             Color.black.opacity(0.3)
                 .edgesIgnoringSafeArea(.all)
-                .onContinuousHover { _ in
-                    // Just to capture mouse if needed, but we use Gesture
-                }
-            
+                .onContinuousHover { _ in }
+
             if let start = startPoint, let current = currentPoint {
                 let rect = CGRect(
                     x: min(start.x, current.x),
@@ -24,14 +21,14 @@ struct RectSelectorOverlay: View {
                     width: abs(start.x - current.x),
                     height: abs(start.y - current.y)
                 )
-                
+
                 Rectangle()
                     .fill(Color.blue.opacity(0.2))
                     .overlay(Rectangle().stroke(Color.blue, lineWidth: 2))
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.origin.x, y: rect.origin.y)
             }
-            
+
             VStack {
                 Text("Dessinez un rectangle pour définir la zone de capture")
                     .font(.headline)
@@ -59,9 +56,7 @@ struct RectSelectorOverlay: View {
                     }
                     currentPoint = value.location
                 }
-                .onEnded { _ in
-                    // Selection remains until validation or cancellation
-                }
+                .onEnded { _ in }
         )
         .onAppear {
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -69,7 +64,7 @@ struct RectSelectorOverlay: View {
                     onCancel()
                     return nil
                 }
-                if event.keyCode == 36 || event.keyCode == 76 { // Enter / Return
+                if event.keyCode == 36 || event.keyCode == 76 { // Enter
                     if let start = startPoint, let current = currentPoint {
                         let rect = CGRect(
                             x: min(start.x, current.x),
@@ -89,36 +84,65 @@ struct RectSelectorOverlay: View {
     }
 }
 
+/// Sélecteur multi-écrans : ouvre une fenêtre transparente sur CHAQUE
+/// `NSScreen`. La validation renvoie le rect en coordonnées locales de
+/// l'écran + son `CGDirectDisplayID` pour permettre au caller de passer
+/// la bonne `SCDisplay` à ScreenCaptureKit.
 class RectSelectorWindow: NSWindow {
-    static func show(onSelected: @escaping (CGRect) -> Void, onCancel: @escaping () -> Void) {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        let window = RectSelectorWindow(
-            contentRect: screen.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = false
-        window.level = .statusBar
-        window.ignoresMouseEvents = false
-        
-        let contentView = RectSelectorOverlay(
-            onSelected: { rect in
-                window.close()
-                // On convertit les coordonnées locales SwiftUI (top-left) en coordonnées écran Cocoa (bottom-left)
-                // En fait, ScreenCaptureKit utilise le système de coordonnées écran (0,0 en haut à gauche pour SCDisplay).
-                // Les coordonnées SwiftUI ici sont déjà relatives à l'écran si la fenêtre couvre l'écran.
-                onSelected(rect)
-            },
-            onCancel: {
-                window.close()
-                onCancel()
-            }
-        )
-        
-        window.contentView = NSHostingView(rootView: contentView)
-        window.makeKeyAndOrderFront(nil)
+
+    /// Liste partagée des fenêtres ouvertes (une par écran). Tenue en vie
+    /// pour qu'aucune ne soit deallocée pendant la sélection ; vidée
+    /// quand l'utilisateur valide ou annule.
+    private static var activeWindows: [RectSelectorWindow] = []
+
+    static func show(onSelected: @escaping (CGRect, CGDirectDisplayID) -> Void,
+                     onCancel: @escaping () -> Void) {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else {
+            onCancel()
+            return
+        }
+
+        let finish: () -> Void = {
+            for w in activeWindows { w.close() }
+            activeWindows.removeAll()
+        }
+
+        for screen in screens {
+            let displayID = (screen.deviceDescription[
+                NSDeviceDescriptionKey("NSScreenNumber")
+            ] as? NSNumber)?.uint32Value ?? 0
+
+            let window = RectSelectorWindow(
+                contentRect: screen.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.hasShadow = false
+            window.level = .statusBar
+            window.ignoresMouseEvents = false
+            window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+
+            let overlay = RectSelectorOverlay(
+                onSelected: { rect in
+                    finish()
+                    onSelected(rect, CGDirectDisplayID(displayID))
+                },
+                onCancel: {
+                    finish()
+                    onCancel()
+                }
+            )
+
+            window.contentView = NSHostingView(rootView: overlay)
+            // setFrame APRÈS la création — sinon l'écran secondaire reçoit
+            // un cadre relatif à l'écran principal (origin bottom-left global).
+            window.setFrame(screen.frame, display: true)
+            window.makeKeyAndOrderFront(nil)
+            activeWindows.append(window)
+        }
     }
 }

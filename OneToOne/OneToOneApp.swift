@@ -77,6 +77,14 @@ struct OneToOneApp: App {
                 .environmentObject(router)
         }
         .modelContainer(container)
+
+        WindowGroup(id: "prep-standalone", for: PrepWindowToken.self) { $token in
+            if let t = token {
+                PrepWindowView(token: t)
+                    .preferredColorScheme(.light)
+            }
+        }
+        .modelContainer(container)
     }
 }
 
@@ -86,7 +94,8 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var router: QuickLaunchRouter
     @State private var didRunDataRepair = false
-    
+    @State private var showMeetingPicker: Bool = false
+
     var body: some View {
         NavigationSplitView {
             MainSidebarView()
@@ -118,6 +127,7 @@ struct ContentView: View {
             }
 
             registerHotkeys()
+            maybeRunAutoCleanup()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -126,16 +136,77 @@ struct ContentView: View {
             ) { _ in
                 registerHotkeys()
             }
+
+            NotificationCenter.default.addObserver(
+                forName: .openPrepWindow,
+                object: nil,
+                queue: .main
+            ) { note in
+                if let token = note.userInfo?["token"] as? PrepWindowToken {
+                    Task { @MainActor in
+                        openWindow(id: "prep-standalone", value: token)
+                    }
+                }
+            }
         }
         .onReceive(router.$pendingToken.compactMap { $0 }) { token in
             openWindow(id: "1to1-meeting", value: token)
             // Drain so the same token doesn't fire twice on view remount.
             _ = router.consumePendingToken()
         }
+        .sheet(isPresented: $showMeetingPicker) {
+            CalendarMeetingPicker { meeting in
+                router.pendingToken = OneToOneLaunchToken(
+                    meetingID: meeting.ensuredStableID,
+                    autoStartRecording: false
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openCalendarMeetingPicker)) { _ in
+            showMeetingPicker = true
+        }
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             QuickLaunchURLHandler.handle(activity: activity,
                                          router: router,
                                          context: context)
+        }
+    }
+
+    @MainActor
+    private func maybeRunAutoCleanup() {
+        let descriptor = FetchDescriptor<AppSettings>()
+        guard let settings = (try? context.fetch(descriptor))?.first,
+              settings.autoCleanupOnLaunch else { return }
+        if let last = settings.lastCleanupAt,
+           Date().timeIntervalSince(last) < 24 * 60 * 60 {
+            return
+        }
+        let plan = WavRetentionService.plan(in: context, settings: settings)
+        guard !plan.toCompress.isEmpty || !plan.toDelete.isEmpty else { return }
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .maintenance,
+            meetingTitle: "Cleanup audio (auto)"
+        ) { _ in
+            for m in plan.toCompress {
+                try Task.checkCancellation()
+                do {
+                    try await WavRetentionService.compress(m, in: context)
+                } catch {
+                    print("[AutoCleanup] compress échec: \(error)")
+                }
+            }
+            for m in plan.toDelete {
+                try Task.checkCancellation()
+                await MainActor.run {
+                    WavRetentionService.delete(m, in: context)
+                }
+            }
+            await MainActor.run {
+                settings.lastCleanupAt = Date()
+                try? context.save()
+                StorageStatsService.shared.invalidate()
+            }
         }
     }
 
@@ -222,6 +293,20 @@ struct ContentView: View {
                 print("Reparation SwiftData: codes projet dupliques corriges.")
             }
 
+            // Backfill Project.stableID — new Optional field, nil on existing rows.
+            let allProjectsForBackfill = try context.fetch(FetchDescriptor<Project>())
+            var seenProjectIDs = Set<UUID>()
+            var projectBackfilled = 0
+            for proj in allProjectsForBackfill {
+                if let id = proj.stableID, seenProjectIDs.insert(id).inserted { continue }
+                proj.stableID = UUID()
+                projectBackfilled += 1
+            }
+            if projectBackfilled > 0 {
+                try context.save()
+                print("Reparation SwiftData: \(projectBackfilled) Project.stableID backfilles.")
+            }
+
             // Backfill Collaborator.stableID — handles both nil rows and
             // duplicates from the legacy non-Optional `UUID()` default that
             // SwiftData applied identically to existing rows.
@@ -272,6 +357,12 @@ struct ContentView: View {
             deduplicate(context: context, label: "SlideCapture",
                         fetch: FetchDescriptor<SlideCapture>(),
                         get: { $0.id }, set: { $0.id = $1 })
+            deduplicate(context: context, label: "TranscriptChunk",
+                        fetch: FetchDescriptor<TranscriptChunk>(),
+                        get: { $0.chunkId }, set: { $0.chunkId = $1 })
+
+            BuiltInTemplates.seedIfNeeded(in: context)
+            try context.save()
         } catch {
             print("Echec reparation SwiftData: \(error)")
         }

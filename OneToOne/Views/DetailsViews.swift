@@ -27,6 +27,7 @@ struct ProjectDetailView: View {
     @Query private var entities: [Entity]
     @Query private var collaborators: [Collaborator]
     @Query private var allMeetings: [Meeting]
+    @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showingProjectAttachmentImporter = false
@@ -68,6 +69,22 @@ struct ProjectDetailView: View {
                         LabeledContent("Sponsor") {
                             EditableTextField(placeholder: "Sponsor", text: $project.sponsor)
                                 .frame(height: 24)
+                        }
+                        LabeledContent("Chef de projet") {
+                            OwnerPickerMenu(
+                                label: "Aucun",
+                                selection: $project.projectManager,
+                                allCollaborators: collaborators,
+                                onSaved: { try? context.save() }
+                            )
+                        }
+                        LabeledContent("Architecte technique") {
+                            OwnerPickerMenu(
+                                label: "Aucun",
+                                selection: $project.technicalArchitect,
+                                allCollaborators: collaborators,
+                                onSaved: { try? context.save() }
+                            )
                         }
 
                         Picker("Type", selection: $project.projectType) {
@@ -594,6 +611,43 @@ struct ProjectDetailView: View {
                     }
                 }
 
+                GroupBox {
+                    DisclosureGroup(isExpanded: .constant(!project.standingPrepNotes.isEmpty)) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MarkdownEditorView(
+                                text: Binding(
+                                    get: { project.standingPrepNotes },
+                                    set: {
+                                        project.standingPrepNotes = $0
+                                        project.standingPrepUpdatedAt = Date()
+                                        try? context.save()
+                                    }
+                                ),
+                                textViewID: "projectPrep.\(project.persistentModelID.hashValue)"
+                            )
+                            .frame(minHeight: 160)
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { await generatePrepForProject() }
+                                } label: {
+                                    Label("Générer brouillon IA", systemImage: "wand.and.stars")
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "checklist")
+                            Text("Préparation prochaine réunion").font(.headline)
+                            Spacer()
+                            if let dt = project.standingPrepUpdatedAt {
+                                Text("maj \(relativeProjPrepDate(dt))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 NotesSection(target: .project(project))
             }
             .padding()
@@ -719,6 +773,28 @@ struct ProjectDetailView: View {
         context.insert(entry)
         saveContext()
     }
+
+    @MainActor
+    private func generatePrepForProject() async {
+        let settings = settingsList.canonicalSettings ?? AppSettings()
+        do {
+            let md = try await AIReportService.generatePrep(
+                collab: nil, project: project, meeting: nil,
+                in: context, settings: settings
+            )
+            project.standingPrepNotes = md
+            project.standingPrepUpdatedAt = Date()
+            try? context.save()
+        } catch {
+            print("[ProjectPrep] generation failed: \(error)")
+        }
+    }
+
+    private func relativeProjPrepDate(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        return f.localizedString(for: d, relativeTo: Date())
+    }
 }
 
 /// Petit composant pour ajouter un point clé
@@ -749,8 +825,65 @@ struct CollaboratorDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingPhotoImporter = false
     @State private var showingPhotoSearch = false
+    @State private var prepExpanded: Bool = false
+    @State private var showingQuickAdd: Bool = false
+    @State private var quickAddTitle: String = ""
+    @State private var quickAddProject: Project? = nil
+    @State private var quickAddDueDate: Date? = nil
     @Query private var allMeetings: [Meeting]
     @Query private var appSettings: [AppSettings]
+    @Query(filter: #Predicate<Project> { !$0.isArchived },
+           sort: \Project.name) private var availableProjects: [Project]
+
+    @ViewBuilder
+    private func ownershipSection(title: String, projects: [Project]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .tracking(1.0)
+                Text("(\(projects.count))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            ForEach(ProjectStatusPalette.sortedByStatus(projects)) { p in
+                NavigationLink {
+                    ProjectDetailView(project: p)
+                } label: {
+                    projectRow(p)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func projectRow(_ p: Project) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(ProjectStatusPalette.color(p.status))
+                .frame(width: 8, height: 8)
+            Text(p.code)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+            Text("·").foregroundStyle(.tertiary)
+            Text(p.name)
+                .font(.callout)
+                .lineLimit(1)
+            Spacer()
+            Text(p.status)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(ProjectStatusPalette.color(p.status).opacity(0.18)))
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
 
     var body: some View {
         ScrollView {
@@ -823,19 +956,123 @@ struct CollaboratorDetailView: View {
                     .padding(.vertical, 5)
                 }
 
+                // Projets dont ce collab est archi technique ou chef de projet.
+                if !collaborator.projectsAsArchitect.isEmpty
+                    || !collaborator.projectsAsManager.isEmpty {
+                    GroupBox("Projets") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            if !collaborator.projectsAsArchitect.isEmpty {
+                                ownershipSection(
+                                    title: "EN TANT QU'ARCHITECTE TECHNIQUE",
+                                    projects: collaborator.projectsAsArchitect
+                                )
+                            }
+                            if !collaborator.projectsAsManager.isEmpty {
+                                ownershipSection(
+                                    title: "EN TANT QUE CHEF DE PROJET",
+                                    projects: collaborator.projectsAsManager
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                GroupBox {
+                    DisclosureGroup(isExpanded: $prepExpanded) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if collaborator.standingPrepNotes.isEmpty {
+                                HStack {
+                                    Spacer()
+                                    Text("Aucune préparation. Saisis directement ci-dessous ou clique sur « Générer brouillon IA ».")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                    Spacer()
+                                }
+                                .padding(.bottom, 4)
+                            }
+                            MarkdownEditorView(
+                                text: Binding(
+                                    get: { collaborator.standingPrepNotes },
+                                    set: {
+                                        collaborator.standingPrepNotes = $0
+                                        collaborator.standingPrepUpdatedAt = Date()
+                                        try? context.save()
+                                    }
+                                ),
+                                textViewID: "collabPrep.\(collaborator.persistentModelID.hashValue)"
+                            )
+                            .frame(minHeight: 160)
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { await generatePrepForCollab() }
+                                } label: {
+                                    Label("Générer brouillon IA", systemImage: "wand.and.stars")
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "checklist")
+                            Text("Préparation prochaine 1:1").font(.headline)
+                            Spacer()
+                            if let dt = collaborator.standingPrepUpdatedAt {
+                                Text("maj \(relativeCollabPrepDate(dt))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .onAppear {
+                        if !prepExpanded {
+                            prepExpanded = !collaborator.standingPrepNotes.isEmpty
+                        }
+                    }
+                    .onChange(of: collaborator.standingPrepNotes) { _, newValue in
+                        if !newValue.isEmpty && !prepExpanded {
+                            prepExpanded = true
+                        }
+                    }
+                    if !prepExpanded && collaborator.standingPrepNotes.isEmpty {
+                        HStack {
+                            Spacer()
+                            Button("Créer une préparation") {
+                                prepExpanded = true
+                            }
+                            .buttonStyle(.bordered)
+                            Spacer()
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+
                 GroupBox {
                     let pendingTasks = collaborator.assignedTasks.filter { !$0.isCompleted }
                     let doneTasks = collaborator.assignedTasks.filter { $0.isCompleted }
 
-                    if pendingTasks.isEmpty && doneTasks.isEmpty {
+                    if pendingTasks.isEmpty && doneTasks.isEmpty && !showingQuickAdd {
                         Text("Aucune action assignée").foregroundColor(.secondary)
                     } else {
                         VStack(alignment: .leading, spacing: 5) {
+                            if showingQuickAdd {
+                                quickAddRow
+                                    .padding(.bottom, 6)
+                            }
                             ForEach(pendingTasks) { task in
                                 HStack {
-                                    Image(systemName: "circle")
-                                        .foregroundColor(.gray)
-                                        .font(.caption)
+                                    Button {
+                                        task.isCompleted = true
+                                        task.completedAt = Date()
+                                        try? context.save()
+                                    } label: {
+                                        Image(systemName: "circle")
+                                            .foregroundColor(.gray)
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Marquer comme fait")
+
                                     Text(task.title)
                                     Spacer()
                                     if let project = task.project {
@@ -855,9 +1092,18 @@ struct CollaboratorDetailView: View {
                                 DisclosureGroup("Terminées (\(doneTasks.count))") {
                                     ForEach(doneTasks) { task in
                                         HStack {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundColor(.green)
-                                                .font(.caption)
+                                            Button {
+                                                task.isCompleted = false
+                                                task.completedAt = nil
+                                                try? context.save()
+                                            } label: {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .foregroundColor(.green)
+                                                    .font(.caption)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Marquer comme à faire")
+
                                             Text(task.title)
                                                 .strikethrough()
                                                 .foregroundColor(.secondary)
@@ -881,6 +1127,20 @@ struct CollaboratorDetailView: View {
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
+                        Spacer()
+                        Button {
+                            showingQuickAdd.toggle()
+                            if showingQuickAdd {
+                                quickAddTitle = ""
+                                quickAddProject = nil
+                                quickAddDueDate = nil
+                            }
+                        } label: {
+                            Image(systemName: showingQuickAdd ? "xmark.circle" : "plus.circle.fill")
+                                .foregroundStyle(showingQuickAdd ? .secondary : Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(showingQuickAdd ? "Annuler" : "Ajouter une action")
                     }
                 }
 
@@ -1023,10 +1283,32 @@ struct CollaboratorDetailView: View {
         }
     }
 
+    @MainActor
+    private func generatePrepForCollab() async {
+        let settings = appSettings.canonicalSettings ?? AppSettings()
+        do {
+            let md = try await AIReportService.generatePrep(
+                collab: collaborator, project: nil, meeting: nil,
+                in: context, settings: settings
+            )
+            collaborator.standingPrepNotes = md
+            collaborator.standingPrepUpdatedAt = Date()
+            try? context.save()
+        } catch {
+            print("[CollabPrep] generation failed: \(error)")
+        }
+    }
+
+    private func relativeCollabPrepDate(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        return f.localizedString(for: d, relativeTo: Date())
+    }
+
     @ViewBuilder
     private var collaboratorPhotoView: some View {
         if let url = collaborator.photoURL(),
-           let image = NSImage(contentsOf: url) {
+           let image = ImageCache.image(for: url) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
@@ -1098,6 +1380,86 @@ struct CollaboratorDetailView: View {
         } catch {
             print("[CollaboratorDetail] savePhotoData failed: \(error)")
         }
+    }
+
+    // MARK: - Quick-add action row
+
+    @ViewBuilder
+    private var quickAddRow: some View {
+        HStack(spacing: 8) {
+            TextField("Titre de l'action…", text: $quickAddTitle)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(submitQuickAdd)
+
+            Menu {
+                Button("Aucun") { quickAddProject = nil }
+                Divider()
+                ForEach(availableProjects) { p in
+                    Button(p.name) { quickAddProject = p }
+                }
+            } label: {
+                Text(quickAddProject?.name ?? "Projet")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .frame(maxWidth: 120)
+            }
+            .menuStyle(.borderlessButton)
+
+            Menu {
+                Button("Aucune") { quickAddDueDate = nil }
+                Button("Aujourd'hui") { quickAddDueDate = Date() }
+                Button("Demain") { quickAddDueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) }
+                Button("Dans une semaine") { quickAddDueDate = Calendar.current.date(byAdding: .day, value: 7, to: Date()) }
+            } label: {
+                Text(quickAddDueDate.map { quickAddDateLabel($0) } ?? "Échéance")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .frame(maxWidth: 110)
+            }
+            .menuStyle(.borderlessButton)
+
+            Button {
+                submitQuickAdd()
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(canSubmitQuickAdd ? .green : .secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmitQuickAdd)
+
+            Button {
+                showingQuickAdd = false
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var canSubmitQuickAdd: Bool {
+        !quickAddTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func submitQuickAdd() {
+        let trimmed = quickAddTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let task = ActionTask(title: trimmed, dueDate: quickAddDueDate)
+        task.collaborator = collaborator
+        task.project = quickAddProject
+        context.insert(task)
+        try? context.save()
+        quickAddTitle = ""
+        quickAddProject = nil
+        quickAddDueDate = nil
+        showingQuickAdd = false
+    }
+
+    private func quickAddDateLabel(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "d MMM"
+        return f.string(from: d)
     }
 }
 

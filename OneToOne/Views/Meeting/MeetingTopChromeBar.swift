@@ -1,7 +1,10 @@
 import SwiftUI
+import SwiftData
 
 struct MeetingTopChromeBar: View {
     @Bindable var meeting: Meeting
+    @Environment(\.modelContext) private var modelContext
+    @Query private var allTemplates: [ReportTemplate]
     @ObservedObject var recorder: AudioRecorderService
     @ObservedObject var stt: TranscriptionService
     @ObservedObject var player: AudioPlayerService
@@ -24,6 +27,9 @@ struct MeetingTopChromeBar: View {
     let onToggleCustomPrompt: () -> Void
     let onImportCalendar: () -> Void
     let onImportExistingWAV: () -> Void
+    let onRevealWAV: () -> Void
+    let onEditAudio: () -> Void
+    let hasWAV: Bool
     let onExportMarkdown: () -> Void
     let onExportPDF: () -> Void
     let onExportMail: (MeetingMailExportOptions) -> Void
@@ -37,6 +43,7 @@ struct MeetingTopChromeBar: View {
             Spacer()
             recorderPill
             captureButton
+            templatePickerButton
             reportButton
             moreMenu
         }
@@ -61,10 +68,33 @@ struct MeetingTopChromeBar: View {
             } else {
                 Text(meeting.kind.label).fontWeight(.semibold).foregroundColor(.primary)
             }
+            audioStatusBadge
         }
         .font(.caption)
         .lineLimit(1)
         .truncationMode(.middle)
+    }
+
+    @ViewBuilder
+    private var audioStatusBadge: some View {
+        switch meeting.audioAvailability {
+        case .original:
+            EmptyView()
+        case .compressed:
+            Label("Audio compressé", systemImage: "archivebox")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .help("Audio compressé (AAC 32 kbps mono) — qualité STT dégradée si re-transcription")
+        case .deleted:
+            Label("Audio archivé", systemImage: "trash")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .help("Audio supprimé après 30 jours (politique de rétention). Rapport et transcription conservés.")
+        }
     }
 
     private var chevron: some View {
@@ -126,6 +156,9 @@ struct MeetingTopChromeBar: View {
                     .foregroundColor(.white).font(.caption2)
             }
             .buttonStyle(.plain)
+            .disabled(!meeting.hasPlayableAudio)
+            .opacity(meeting.hasPlayableAudio ? 1.0 : 0.4)
+            .help(meeting.hasPlayableAudio ? "Lecture" : "Audio supprimé après politique de rétention")
             Text("\(formatDuration(player.currentTime)) / \(formatDuration(max(player.duration, TimeInterval(meeting.durationSeconds))))")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.white)
@@ -152,17 +185,41 @@ struct MeetingTopChromeBar: View {
     @ViewBuilder
     private var captureButton: some View {
         if captureService.isCapturing {
-            Button(action: onShowSlides) {
-                HStack(spacing: 4) {
-                    Circle().fill(Color.blue).frame(width: 6, height: 6)
-                    Text("\(captureService.capturedSlidesCount) slides")
+            HStack(spacing: 4) {
+                Button(action: onShowSlides) {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.blue).frame(width: 6, height: 6)
+                        Text("\(captureService.capturedSlidesCount) slides")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(Color.blue.opacity(0.15)))
+                    .foregroundColor(.blue)
                 }
-                .font(.caption)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Capsule().fill(Color.blue.opacity(0.15)))
-                .foregroundColor(.blue)
+                .buttonStyle(.plain)
+                .help("Voir les slides capturées")
+
+                Menu {
+                    Button {
+                        onShowCaptureSetup()
+                    } label: {
+                        Label("Changer la source…", systemImage: "rectangle.dashed.badge.record")
+                    }
+                    Button(role: .destructive) {
+                        Task { await captureService.stop() }
+                    } label: {
+                        Label("Arrêter la capture", systemImage: "stop.circle")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Options de capture")
             }
-            .buttonStyle(.plain)
         } else if capturedSlidesCount > 0 {
             Button(action: onShowSlides) {
                 Label("Capture", systemImage: "camera.viewfinder")
@@ -230,6 +287,57 @@ struct MeetingTopChromeBar: View {
         return String(format: "%d:%02d", m, s)
     }
 
+    // MARK: - Template picker
+
+    private var templatePickerButton: some View {
+        Menu {
+            Button("Auto (selon type)") {
+                meeting.reportTemplate = nil
+                try? modelContext.save()
+            }
+            Divider()
+            ForEach(compatibleTemplates) { t in
+                Button(t.name) {
+                    meeting.reportTemplate = t
+                    try? modelContext.save()
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "doc.text")
+                Text(meeting.reportTemplate?.name ?? "Auto")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Template de rapport — modifie la structure du compte-rendu généré")
+    }
+
+    private var compatibleTemplates: [ReportTemplate] {
+        let mapping: [MeetingKind: ReportTemplateKind] = [
+            .global: .general,
+            .oneToOne: .oneToOne,
+            .manager: .manager,
+            .project: .copil,
+            .work: .general
+        ]
+        let preferred = mapping[meeting.kind] ?? .general
+        return allTemplates
+            .filter { !$0.isArchived }
+            .sorted { lhs, rhs in
+                let li = lhs.kind == preferred ? 0 : 1
+                let ri = rhs.kind == preferred ? 0 : 1
+                if li != ri { return li < ri }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+    }
+
     // MARK: - More menu
 
     private var moreMenu: some View {
@@ -293,6 +401,10 @@ struct MeetingTopChromeBar: View {
             Button(action: onToggleCustomPrompt) { Label("Prompt spécifique", systemImage: "text.bubble") }
             Button(action: onImportCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
             Button(action: onImportExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
+            Button(action: onEditAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
+                .disabled(!meeting.hasPlayableAudio)
+            Button(action: onRevealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
+                .disabled(!meeting.hasPlayableAudio)
             Divider()
             Button(action: onSaveNow) { Label("Enregistrer maintenant", systemImage: "checkmark.circle") }
         } label: {

@@ -1,6 +1,8 @@
 import Foundation
 import AppKit
 import PDFKit
+import SwiftData
+import WebKit
 
 /// Options pour l'export mail d'une réunion.
 /// `includeTranscript` ajoute la transcription brute en bas du corps.
@@ -17,6 +19,7 @@ enum MeetingMailClient {
     case outlook     // Microsoft Outlook
 }
 
+@MainActor
 class ExportService {
     func exportToMarkdown(interview: Interview) -> String {
         if interview.type == .job {
@@ -193,15 +196,26 @@ class ExportService {
     }
 
     func exportMeetingPDF(meeting: Meeting, fileName: String) {
-        let markdown = exportMeetingMarkdown(meeting: meeting)
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
-        textView.string = markdown
-        textView.font = .systemFont(ofSize: 11)
-        let printInfo = NSPrintInfo.shared
-        let op = NSPrintOperation(view: textView, printInfo: printInfo)
-        op.jobTitle = fileName
-        op.showsPrintPanel = true
-        op.run()
+        let html = buildMeetingHTML(meeting: meeting, includeTranscript: false)
+
+        // NSSavePanel pour cible.
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = fileName.hasSuffix(".pdf") ? fileName : fileName + ".pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        // WKWebView headless : charger HTML, attendre fin nav, createPDF.
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 1000))
+        let delegate = PDFExportDelegate(targetURL: url)
+        webView.navigationDelegate = delegate
+        // Ancre forte sur le delegate via objc_setAssociatedObject pour éviter
+        // qu'il soit dealloc avant didFinish.
+        objc_setAssociatedObject(webView, &PDFExportDelegate.assocKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // Garde aussi une référence forte sur la webView elle-même (sinon
+        // après que cette fonction retourne, ARC libère webView et l'export
+        // n'a jamais lieu).
+        delegate.ownedWebView = webView
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     /// Ouvre une fenêtre de composition dans Apple Mail avec le rapport
@@ -445,107 +459,30 @@ class ExportService {
     /// projet, participants) + résumé + points clés + décisions + questions
     /// ouvertes + actions + notes live + (optionnel) transcript intégral.
     private func buildMeetingHTML(meeting: Meeting, includeTranscript: Bool) -> String {
-        let dateStr = meeting.date.formatted(date: .long, time: .shortened)
-        let title = meeting.title.isEmpty ? "Réunion" : meeting.title
-        let projectLine = meeting.project.map { p in
-            "<div class=\"meta-line\"><strong>Projet</strong> · \(escapeHTML(p.code)) — \(escapeHTML(p.name))</div>"
-        } ?? ""
-        let participants = meeting.participants.map(\.name).sorted().joined(separator: ", ")
-        let participantsLine = participants.isEmpty ? "" :
-            "<div class=\"meta-line\"><strong>Participants</strong> · \(escapeHTML(participants))</div>"
+        // Délégué au builder thémé (rapport styling 2026-05-22).
+        // Le template courant du meeting est utilisé pour eyebrow + subtitle ;
+        // si nil, fallback à template kind par défaut depuis meeting.kind.
+        // Mode .outlook : styles inlinés + numérotation H2 + alternance lignes
+        // pour contourner le renderer Word d'Outlook (Mac) qui ignore les CSS.
+        let (name, role) = fetchOwnerIdentity(for: meeting)
+        return ReportHTMLBuilder.build(
+            meeting: meeting,
+            template: meeting.reportTemplate,
+            includeTranscript: includeTranscript,
+            managerName: name,
+            managerRole: role,
+            mode: .outlook
+        )
+    }
 
-        let summaryHTML = htmlParagraphs(from: meeting.summary)
-        let keyPointsHTML = htmlList(meeting.keyPoints.map { escapeHTML($0) })
-        let decisionsHTML = htmlList(meeting.decisions.map { escapeHTML($0) })
-        let questionsHTML = htmlList(meeting.openQuestions.map { escapeHTML($0) })
-
-        let openTasks = meeting.tasks.filter { !$0.isCompleted }
-        let actionsHTML = htmlList(openTasks.map { task in
-            let who = task.collaborator?.name ?? "Non assigné"
-            let due = task.dueDate.map { " <span class=\"muted\">(échéance \($0.formatted(date: .numeric, time: .omitted)))</span>" } ?? ""
-            return "<strong>\(escapeHTML(who))</strong> — \(escapeHTML(task.title))\(due)"
-        })
-
-        let liveNotesHTML: String
-        if meeting.liveNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            liveNotesHTML = ""
-        } else {
-            liveNotesHTML = """
-            <h2>Notes prises en live</h2>
-            \(htmlParagraphs(from: meeting.liveNotes))
-            """
-        }
-
-        let transcriptSection: String
-        if includeTranscript, !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            transcriptSection = """
-            <h2>Transcription complète</h2>
-            <div class="transcript">\(htmlParagraphs(from: meeting.rawTranscript))</div>
-            """
-        } else {
-            transcriptSection = ""
-        }
-
-        return """
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head>
-        <meta charset="utf-8">
-        <style>
-        body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1f2937; font-size: 13px; line-height: 1.55; margin: 0; }
-        .header { width: 100%; border-bottom: 2px solid #d71920; padding-bottom: 16px; margin-bottom: 18px; }
-        .header td { vertical-align: top; }
-        .logo { font-size: 26px; font-weight: 800; color: #d71920; letter-spacing: 1px; }
-        .meta { text-align: right; }
-        .meta .date { font-size: 14px; font-weight: 700; color: #111827; }
-        .title { font-size: 22px; font-weight: 750; color: #111827; margin: 0 0 4px 0; }
-        .meta-line { color: #374151; margin: 2px 0; font-size: 12px; }
-        h2 { font-size: 14px; color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-top: 22px; margin-bottom: 10px; }
-        p { margin: 0 0 8px 0; }
-        ul { margin: 0; padding-left: 18px; }
-        li { margin-bottom: 6px; }
-        .muted { color: #6b7280; }
-        .empty { color: #9ca3af; font-style: italic; }
-        .transcript { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; font-size: 12px; color: #374151; white-space: normal; }
-        </style>
-        </head>
-        <body>
-            <table class="header" cellspacing="0" cellpadding="0" width="100%">
-                <tr>
-                    <td>\(logoHTML())</td>
-                    <td class="meta">
-                        <div class="date">\(escapeHTML(dateStr))</div>
-                        <div class="muted">Type · \(escapeHTML(meeting.kind.label))</div>
-                        <div class="muted">Laurent DE BERTI</div>
-                    </td>
-                </tr>
-            </table>
-
-            <div class="title">\(escapeHTML(title))</div>
-            \(projectLine)
-            \(participantsLine)
-
-            <h2>Résumé</h2>
-            \(summaryHTML)
-
-            <h2>Points clés</h2>
-            \(keyPointsHTML)
-
-            <h2>Décisions</h2>
-            \(decisionsHTML)
-
-            <h2>Questions ouvertes</h2>
-            \(questionsHTML)
-
-            <h2>Actions</h2>
-            \(actionsHTML)
-
-            \(liveNotesHTML)
-
-            \(transcriptSection)
-        </body>
-        </html>
-        """
+    /// Récupère `AppSettings.ownerName` + `ownerRole` (rédacteur du rapport)
+    /// depuis le ModelContext du meeting, fallback "" si non configuré.
+    private func fetchOwnerIdentity(for meeting: Meeting) -> (name: String, role: String) {
+        guard let context = meeting.modelContext else { return ("", "") }
+        let descriptor = FetchDescriptor<AppSettings>()
+        let all = (try? context.fetch(descriptor)) ?? []
+        let s = all.canonicalSettings
+        return (s?.ownerName ?? "", s?.ownerRole ?? "")
     }
 
     /// Exporte une réunion vers Apple Notes en HTML formaté avec les mêmes
@@ -866,5 +803,43 @@ class ExportService {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+}
+
+/// Délégué qui attend la fin du chargement HTML d'une WKWebView puis
+/// produit un PDF à l'URL cible. Référence forte sur sa propre webView
+/// pour rester en vie jusqu'à la fin de l'export.
+@MainActor
+private final class PDFExportDelegate: NSObject, WKNavigationDelegate {
+    nonisolated(unsafe) static var assocKey: UInt8 = 0
+    let targetURL: URL
+    var ownedWebView: WKWebView?
+
+    init(targetURL: URL) {
+        self.targetURL = targetURL
+        super.init()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Petit délai pour laisser le rendering finir (fonts, layouts).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            let config = WKPDFConfiguration()
+            webView.createPDF(configuration: config) { result in
+                switch result {
+                case .success(let data):
+                    do {
+                        try data.write(to: self.targetURL)
+                        print("[Export] PDF écrit : \(self.targetURL.path) (\(data.count) octets)")
+                    } catch {
+                        print("[Export] échec écriture PDF : \(error)")
+                    }
+                case .failure(let error):
+                    print("[Export] createPDF échec : \(error)")
+                }
+                // Relâcher la webView et donc le delegate.
+                self.ownedWebView = nil
+            }
+        }
     }
 }

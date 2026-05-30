@@ -1,0 +1,149 @@
+import Foundation
+import SwiftData
+
+enum ReportTemplateKind: String, CaseIterable, Identifiable {
+    case general, oneToOne, manager
+    case copil, cosui, codir
+    case preparation, restitution
+    case workshop
+    case metier, initiative, custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .general:    return "Global"
+        case .oneToOne:   return "1:1 Collaborateur"
+        case .manager:    return "1:1 Manager"
+        case .copil:      return "COPIL"
+        case .cosui:      return "COSUI"
+        case .codir:      return "CODIR"
+        case .preparation: return "Préparation"
+        case .restitution: return "Restitution / Démo"
+        case .workshop:   return "Séance de travail / Workshop"
+        case .metier:     return "Métier"
+        case .initiative: return "Initiative"
+        case .custom:     return "Personnalisé"
+        }
+    }
+
+    var sfSymbol: String {
+        switch self {
+        case .general:    return "doc.text"
+        case .oneToOne:   return "person.2.fill"
+        case .manager:    return "person.crop.square.filled.and.at.rectangle"
+        case .copil:      return "rectangle.3.group"
+        case .cosui:      return "list.bullet.rectangle"
+        case .codir:      return "building.columns"
+        case .preparation: return "checklist"
+        case .restitution: return "play.rectangle"
+        case .workshop:   return "person.3.sequence"
+        case .metier:     return "briefcase"
+        case .initiative: return "lightbulb"
+        case .custom:     return "slider.horizontal.3"
+        }
+    }
+}
+
+/// Ordered section a ReportTemplate asks the AI to produce.
+struct TemplateSection: Codable, Hashable, Identifiable {
+    var id: UUID = UUID()
+    var title: String
+    var hint: String
+}
+
+enum HistoryMode: String, CaseIterable, Identifiable {
+    case none, lastN, rag, hybrid
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .none:   return "Aucun"
+        case .lastN:  return "N derniers résumés"
+        case .rag:    return "RAG sémantique"
+        case .hybrid: return "Hybride (résumés + RAG)"
+        }
+    }
+}
+
+@Model
+final class ReportTemplate {
+    /// Optional — SwiftData migration caveat. Use `ensuredStableID`.
+    var stableID: UUID? = nil
+    var name: String
+    var kindRaw: String
+    var promptBody: String
+    /// Préambule système injecté en tête du prompt de génération. Permet de
+    /// personnaliser le ton/rôle de l'assistant par template. Default = ancien
+    /// préambule hardcoded de `AIReportService.generate`.
+    var preamble: String = "Tu es l'assistant de synthèse de OneToOne."
+    var sectionsJSON: String
+    var historyModeRaw: String = HistoryMode.none.rawValue
+    var historyN: Int = 0
+    var historyK: Int = 0
+    var isBuiltIn: Bool = false
+    var isArchived: Bool = false
+    var createdAt: Date? = nil
+    var updatedAt: Date? = nil
+
+    init(name: String,
+         kind: ReportTemplateKind,
+         promptBody: String = "",
+         preamble: String = "Tu es l'assistant de synthèse de OneToOne.",
+         sections: [TemplateSection] = [],
+         historyMode: HistoryMode = .none,
+         historyN: Int = 0,
+         historyK: Int = 0,
+         isBuiltIn: Bool = false) {
+        self.stableID = UUID()
+        self.name = name
+        self.kindRaw = kind.rawValue
+        self.promptBody = promptBody
+        self.preamble = preamble
+        self.sectionsJSON = Self.encodeSections(sections)
+        self.historyModeRaw = historyMode.rawValue
+        self.historyN = historyN
+        self.historyK = historyK
+        self.isBuiltIn = isBuiltIn
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
+    }
+
+    var kind: ReportTemplateKind {
+        get { ReportTemplateKind(rawValue: kindRaw) ?? .custom }
+        set { kindRaw = newValue.rawValue }
+    }
+
+    var historyMode: HistoryMode {
+        get { HistoryMode(rawValue: historyModeRaw) ?? .none }
+        set { historyModeRaw = newValue.rawValue }
+    }
+
+    var sections: [TemplateSection] {
+        get { Self.decodeSections(sectionsJSON) }
+        set { sectionsJSON = Self.encodeSections(newValue); updatedAt = Date() }
+    }
+
+    // MARK: - JSON helpers
+
+    private static func encodeSections(_ items: [TemplateSection]) -> String {
+        guard let data = try? JSONEncoder().encode(items),
+              let s = String(data: data, encoding: .utf8) else { return "[]" }
+        return s
+    }
+
+    private static func decodeSections(_ raw: String) -> [TemplateSection] {
+        guard let data = raw.data(using: .utf8),
+              let items = try? JSONDecoder().decode([TemplateSection].self, from: data) else {
+            return []
+        }
+        return items
+    }
+}

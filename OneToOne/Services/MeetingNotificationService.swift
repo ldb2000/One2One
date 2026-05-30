@@ -11,17 +11,25 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     private let center = UNUserNotificationCenter.current()
 
     private enum Category {
-        static let start = "MEETING_START"
-        static let end   = "MEETING_END"
+        static let preStart = "MEETING_PRE_START"  // Outlook-style "starts in N min"
+        static let start    = "MEETING_START"
+        static let end      = "MEETING_END"
+        static let recording = "RECORDING_STARTED"
     }
 
     private enum Action {
         static let open  = "OPEN_MEETING"
+        static let teams = "JOIN_TEAMS"
+        static let snooze5 = "SNOOZE_5"
     }
 
     /// Posted when the user taps "Open" on a meeting notification. UserInfo
     /// carries `meetingID` (PersistentIdentifier.storeIdentifier as String).
     static let openMeetingNotification = Notification.Name("OneToOne.MeetingNotificationService.openMeeting")
+
+    /// Posted on "Snooze 5" action — caller (AppDelegate) re-schedules a
+    /// prestart 5 min from now. UserInfo carries `meetingID`.
+    static let snoozeMeetingNotification = Notification.Name("OneToOne.MeetingNotificationService.snoozeMeeting")
 
     override init() {
         super.init()
@@ -31,7 +39,9 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
 
     func requestAuthorization() async -> Bool {
         do {
-            return try await center.requestAuthorization(options: [.alert, .sound])
+            return try await center.requestAuthorization(
+                options: [.alert, .sound, .badge]
+            )
         } catch {
             return false
         }
@@ -47,9 +57,27 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         let baseID = idPrefix(for: meeting)
         cancel(for: meeting)  // idempotent — drop any previous pending
 
-        let userInfo: [AnyHashable: Any] = [
+        var userInfo: [AnyHashable: Any] = [
             "meetingID": meeting.ensuredStableID.uuidString
         ]
+        if let teams = meeting.teamsJoinURL, !teams.isEmpty {
+            userInfo["teamsURL"] = teams
+        }
+
+        // ---- Pré-rappel style Outlook (N min avant le start) ----
+        if settings.notifMeetingPreStart {
+            let preMinutes = max(1, settings.notifMeetingPreStartMinutes)
+            let preFire = start.addingTimeInterval(TimeInterval(-preMinutes * 60))
+            if preFire > Date() {
+                schedule(id: baseID + ".preStart",
+                         title: "Réunion dans \(preMinutes) min — \(meeting.title)",
+                         body: prestartBody(for: meeting, start: start),
+                         fireAt: preFire,
+                         category: Category.preStart,
+                         userInfo: userInfo,
+                         interruptionLevel: .timeSensitive)
+            }
+        }
 
         if settings.notifMeetingStart, start > Date() {
             schedule(id: baseID + ".start",
@@ -57,7 +85,8 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                      body: "Démarre maintenant",
                      fireAt: start,
                      category: Category.start,
-                     userInfo: userInfo)
+                     userInfo: userInfo,
+                     interruptionLevel: .timeSensitive)
         }
 
         let warning = end.addingTimeInterval(-5 * 60)
@@ -83,6 +112,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     func cancel(for meeting: Meeting) {
         let base = idPrefix(for: meeting)
         center.removePendingNotificationRequests(withIdentifiers: [
+            base + ".preStart",
             base + ".start",
             base + ".endWarning",
             base + ".end"
@@ -120,13 +150,69 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
             completionHandler()
             return
         }
+        let teamsURL = userInfo["teamsURL"] as? String
+        let actionID = response.actionIdentifier
+
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
-            NotificationCenter.default.post(name: Self.openMeetingNotification,
-                                            object: nil,
-                                            userInfo: ["meetingID": meetingID])
+            switch actionID {
+            case Action.teams:
+                // Lance Teams si URL présente, sinon fallback open meeting.
+                if let s = teamsURL, let url = URL(string: s) {
+                    NSWorkspace.shared.open(url)
+                }
+                NotificationCenter.default.post(name: Self.openMeetingNotification,
+                                                object: nil,
+                                                userInfo: ["meetingID": meetingID])
+            case Action.snooze5:
+                NotificationCenter.default.post(name: Self.snoozeMeetingNotification,
+                                                object: nil,
+                                                userInfo: ["meetingID": meetingID])
+            default:
+                // Default tap or "Ouvrir" action.
+                NotificationCenter.default.post(name: Self.openMeetingNotification,
+                                                object: nil,
+                                                userInfo: ["meetingID": meetingID])
+            }
         }
         completionHandler()
+    }
+
+    /// Reschedule un prestart "5 min" sur la réunion donnée.
+    func snoozePreStart(meeting: Meeting) {
+        let baseID = idPrefix(for: meeting)
+        let id = baseID + ".preStart.snooze"
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        var userInfo: [AnyHashable: Any] = [
+            "meetingID": meeting.ensuredStableID.uuidString
+        ]
+        if let teams = meeting.teamsJoinURL, !teams.isEmpty {
+            userInfo["teamsURL"] = teams
+        }
+        let fireAt = Date().addingTimeInterval(5 * 60)
+        schedule(id: id,
+                 title: "Rappel — \(meeting.title)",
+                 body: meeting.scheduledStart.map { "Début à \(formatTime($0))" } ?? "Réunion à venir",
+                 fireAt: fireAt,
+                 category: Category.preStart,
+                 userInfo: userInfo,
+                 interruptionLevel: .timeSensitive)
+    }
+
+    /// Bannière immédiate "Enregistrement en cours". Auto-dismiss, sans action.
+    func notifyRecordingStarted(meetingTitle: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Enregistrement en cours"
+        content.body = meetingTitle.isEmpty ? "Réunion en capture" : meetingTitle
+        content.sound = .default
+        content.categoryIdentifier = Category.recording
+        content.interruptionLevel = .active
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false)
+        let id = "recording.start.\(UUID().uuidString)"
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        center.add(request) { error in
+            if let error { print("[MeetingNotificationService] recording: \(error)") }
+        }
     }
 
     // MARK: - Internals
@@ -135,22 +221,37 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         let openAction = UNNotificationAction(identifier: Action.open,
                                               title: "Ouvrir",
                                               options: [.foreground])
+        let teamsAction = UNNotificationAction(identifier: Action.teams,
+                                               title: "Rejoindre Teams",
+                                               options: [.foreground])
+        let snoozeAction = UNNotificationAction(identifier: Action.snooze5,
+                                                title: "Rappeler dans 5 min",
+                                                options: [])
+        let preStartCat = UNNotificationCategory(identifier: Category.preStart,
+                                                  actions: [teamsAction, openAction, snoozeAction],
+                                                  intentIdentifiers: [])
         let startCat = UNNotificationCategory(identifier: Category.start,
-                                              actions: [openAction],
+                                              actions: [teamsAction, openAction],
                                               intentIdentifiers: [])
         let endCat = UNNotificationCategory(identifier: Category.end,
                                              actions: [openAction],
                                              intentIdentifiers: [])
-        center.setNotificationCategories([startCat, endCat])
+        let recordingCat = UNNotificationCategory(identifier: Category.recording,
+                                          actions: [],
+                                          intentIdentifiers: [])
+        center.setNotificationCategories([preStartCat, startCat, endCat, recordingCat])
     }
 
     private func schedule(id: String, title: String, body: String,
-                          fireAt: Date, category: String?, userInfo: [AnyHashable: Any]) {
+                          fireAt: Date, category: String?,
+                          userInfo: [AnyHashable: Any],
+                          interruptionLevel: UNNotificationInterruptionLevel = .active) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
         content.userInfo = userInfo
+        content.interruptionLevel = interruptionLevel
         if let category { content.categoryIdentifier = category }
 
         let comps = Calendar.current.dateComponents(
@@ -162,6 +263,22 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         center.add(request) { error in
             if let error { print("[MeetingNotificationService] schedule \(id): \(error)") }
         }
+    }
+
+    /// Construit le corps du pré-rappel : heure début + Teams + participants.
+    private func prestartBody(for meeting: Meeting, start: Date) -> String {
+        var parts: [String] = []
+        parts.append("Début à \(formatTime(start))")
+        if let teams = meeting.teamsJoinURL, !teams.isEmpty {
+            parts.append("Teams disponible")
+        }
+        let participants = meeting.participants.filter { !$0.isArchived }
+        if !participants.isEmpty {
+            let names = participants.prefix(3).map { $0.name }.joined(separator: ", ")
+            let suffix = participants.count > 3 ? " +\(participants.count - 3)" : ""
+            parts.append("Avec \(names)\(suffix)")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func idPrefix(for meeting: Meeting) -> String {

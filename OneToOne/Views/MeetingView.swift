@@ -3,6 +3,56 @@ import SwiftData
 import UniformTypeIdentifiers
 import AVFoundation
 
+fileprivate struct SpeakerMeta {
+    let confidence: Double
+    let auto: Bool
+    let ambiguous: Bool
+    let candidateStableIDs: [String]
+
+    static func parse(json: String, clusterID: Int) -> SpeakerMeta? {
+        guard let data = json.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entry = dict[String(clusterID)] as? [String: Any] else {
+            return nil
+        }
+        return SpeakerMeta(
+            confidence: (entry["confidence"] as? Double) ?? 0,
+            auto: (entry["auto"] as? Bool) ?? false,
+            ambiguous: (entry["ambiguous"] as? Bool) ?? false,
+            candidateStableIDs: (entry["candidates"] as? [String]) ?? []
+        )
+    }
+}
+
+/// Pipeline phases surfaced to the UI during a transcription run.
+enum TranscriptionPhase: Equatable, Sendable {
+    case idle
+    case loadingModel        // first-call HuggingFace download / MLX kernel load
+    case transcribing        // Cohere STT
+    case diarizing           // Pyannote + WeSpeaker embeddings
+    case matching            // SpeakerMatcher cosine + persist
+    case reidentifying       // toolbar "Re-identifier les speakers"
+    case error(String)
+
+    var isActive: Bool {
+        if case .idle = self { return false }
+        if case .error = self { return false }
+        return true
+    }
+
+    var label: String {
+        switch self {
+        case .idle:           return ""
+        case .loadingModel:   return "Chargement du modèle…"
+        case .transcribing:   return "Transcription en cours…"
+        case .diarizing:      return "Diarisation des locuteurs…"
+        case .matching:       return "Identification des speakers…"
+        case .reidentifying:  return "Ré-identification des speakers…"
+        case .error(let msg): return "Erreur: \(msg)"
+        }
+    }
+}
+
 struct MeetingView: View {
     @Bindable var meeting: Meeting
     /// Démarre automatiquement le recorder à `onAppear` (déclenché par
@@ -30,10 +80,15 @@ struct MeetingView: View {
     @State private var newAdhocName = ""
     @State private var showCustomPrompt = false
     @State private var activeSection: MeetingSection = .liveNotes
-    @State private var participantsRefreshID = UUID()
     @State private var isGeneratingReport = false
+    @State private var isGenerating: Bool = false
+    @State private var reportEditMode: Bool = false
     @State private var reportError: String?
     @State private var transcribeError: String?
+    @State private var transcriptionPhase: TranscriptionPhase = .idle
+    @State private var transcriptionProgress: Double? = nil   // 0.0–1.0 when known
+    @State private var transcriptionProgressStatus: String? = nil
+    @State private var speakerPickerSearch: String = ""
     @State private var showDocImporter = false
     @State private var attachmentError: String?
     @State private var isImportingAttachment = false
@@ -46,9 +101,10 @@ struct MeetingView: View {
     @State private var wavImportError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
-    @State private var saveStatusMessage: String?
+    @State private var saveDebounceTask: Task<Void, Never>?
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
+    @State private var audioEditMode: AudioEditMode?
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
     /// instead of `.sheet(isPresented:)` avoids a SwiftUI race where the sheet
@@ -72,12 +128,19 @@ struct MeetingView: View {
     // Speaker view toggle + rename popover state
     @State private var showSpeakersView: Bool = true
     @State private var renamingSpeakerID: Int?
+    @State private var segmentToDelete: TranscriptSegment?
+    @State private var segmentDeleteError: String?
+    /// Cache de l'existence du wav sur disque. Évite un `FileManager.fileExists`
+    /// synchrone dans `body` à chaque render. Rafraîchi via `refreshWavExistence()`.
+    @State private var hasWavFile: Bool = false
+    @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
     @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
     enum MeetingSection: String, CaseIterable, Identifiable {
+        case preparation = "Préparation"
         case liveNotes = "Notes live"
         case transcript = "Transcription"
         case report = "Rapport"
@@ -103,7 +166,7 @@ struct MeetingView: View {
                 reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
                 capturedSlidesCount: currentSlides.count,
-                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+                hasWav: hasWavFile,
                 onStartRecording: { Task { await startRecording() } },
                 onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
                 onAppendRecording: { Task { await startAppendRecording() } },
@@ -116,6 +179,13 @@ struct MeetingView: View {
                 onToggleCustomPrompt: { showCustomPrompt.toggle() },
                 onImportCalendar:     { showCalendarImporter = true },
                 onImportExistingWAV:  { showWavImporter = true },
+                onRevealWAV: {
+                    if let url = meeting.wavFileURL {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                },
+                onEditAudio: { audioEditMode = .trimStart },
+                hasWAV: hasWavFile,
                 onExportMarkdown: {
                     let md = ExportService().exportMeetingMarkdown(meeting: meeting)
                     let pb = NSPasteboard.general
@@ -134,12 +204,19 @@ struct MeetingView: View {
                 onSaveNow: saveMeetingNow
             )
 
+            HStack {
+                prepBadgeView
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+
             MeetingContextualRecorderBar(
                 recorder: recorder,
                 stt: stt,
                 player: player,
                 captureService: captureService,
-                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+                hasWav: hasWavFile,
                 showPlayback: showPlayback,
                 onSnapshot: { captureService.snapshot() },
                 onStopCapture: { Task { await captureService.stop() } },
@@ -168,13 +245,20 @@ struct MeetingView: View {
             .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
-            HSplitView {
-                mainPanel.frame(minWidth: 520)
+            transcriptionPhaseBanner
+
+            // HStack au lieu de HSplitView : NSSplitView ne gère pas bien
+                // les changements drastiques de largeur (36px rail ↔ 360px expand)
+                // — provoque récursion infinie dans
+                // `_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines`
+                // et crash AppKit. HStack avec frame fixe au call-site = stable.
+            HStack(spacing: 0) {
+                mainPanel.frame(minWidth: 520, maxWidth: .infinity)
                 if meeting.kind == .manager {
                     ManagerAgendaSidebar(meeting: meeting, settings: settings)
-                        .frame(minWidth: 320, maxWidth: 460)
+                        .frame(width: 380)
                 } else {
-                    MeetingActionsSidebar(
+                    ConfigurableRightSidebar(
                         meeting: meeting,
                         settings: settings,
                         allCollaborators: allCollaborators,
@@ -197,7 +281,9 @@ struct MeetingView: View {
                         onShowCaptureSetup: { showCaptureSetup = true },
                         saveContext: saveContext
                     )
-                    .frame(minWidth: actionsCollapsed ? 44 : 300, maxWidth: actionsCollapsed ? 44 : 440)
+                    // Largeur déterministe (pas de range) : évite oscillations
+                    // de constraint solver entre min/max.
+                    .frame(width: actionsCollapsed ? 36 : 360)
                 }
             }
         }
@@ -232,6 +318,9 @@ struct MeetingView: View {
                 }
             )
         }
+        .sheet(item: $audioEditMode) { mode in
+            AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
+        }
         .popover(isPresented: $showSlidesList) { slidesPopover }
         .popover(isPresented: $showCaptureSetup) {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
@@ -244,10 +333,14 @@ struct MeetingView: View {
             Task { await importExistingWAV(result: result) }
         }
         .onAppear {
+            refreshWavExistence()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
             didAutoStart = true
             Task { await startRecording() }
         }
+        .onChange(of: meeting.wavFilePath) { refreshWavExistence() }
+        .onChange(of: recorder.isRecording) { refreshWavExistence() }
+        .onChange(of: audioEditMode) { if audioEditMode == nil { refreshWavExistence() } }
     }
 
     // MARK: - Main panel
@@ -305,50 +398,107 @@ struct MeetingView: View {
         FileManager.default.fileExists(atPath: url.path)
     }
 
+    /// Recalcule `hasWavFile` (1 stat disque). À appeler hors `body` : à
+    /// l'apparition, après création/import/édition/suppression du wav.
+    private func refreshWavExistence() {
+        hasWavFile = meeting.wavFileURL.map { fileExists($0) } ?? false
+    }
+
+    private func debouncedSave(delay: TimeInterval = 0.6) {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            try? context.save()
+        }
+    }
+
     @MainActor
     private func retranscribe(wavURL: URL) async {
         transcribeError = nil
         print("[MeetingView] retranscribe: \(wavURL.path)")
-        do {
-            let result = try await stt.transcribe(audioURL: wavURL)
-            meeting.rawTranscript = result.text
-            meeting.mergedTranscript = NoteMergeService.merge(
-                transcript: result.text,
-                liveNotes: meeting.liveNotes
-            )
-            persistTranscriptSegments(result.segments)
-            activeSection = .transcript
-            saveContext()
-            print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
-        } catch {
-            transcribeError = error.localizedDescription
-            print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
-        }
-    }
+        // Segments existants supprimés DANS le job, juste avant insertion des
+        // nouveaux — pas avant le démarrage du job. Annulation pendant le
+        // download des modèles ou le STT préserve donc les anciens segments.
+        transcriptionPhase = .transcribing
+        transcriptionProgress = nil
+        transcriptionProgressStatus = nil
 
-    /// Replaces `meeting.transcriptSegments` with fresh ones (deletes existing
-    /// rows first so a re-transcribe doesn't accumulate stale segments).
-    /// New segments default to `speakerID = 0` (non-assigned) — the diarization
-    /// pass and/or user assignment fills speakers in afterwards.
-    private func persistTranscriptSegments(_ segments: [STTSegment]) {
-        for old in meeting.transcriptSegments {
-            context.delete(old)
-        }
-        for (idx, seg) in segments.enumerated() {
-            let row = TranscriptSegment(
-                orderIndex: idx,
-                startSeconds: seg.startSeconds,
-                endSeconds: seg.endSeconds,
-                text: seg.text
-            )
-            row.meeting = meeting
-            context.insert(row)
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .transcription,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title
+        ) { jobID in
+            do {
+                try Task.checkCancellation()
+                // Purge des anciens segments déléguée à
+                // `TranscriptionService.persistAligned/AnonymousSegments`
+                // qui efface juste avant d'insérer les nouveaux. Préserve
+                // les segments existants en cas d'annulation / d'erreur STT.
+                let result = try await stt.transcribeWithDiarization(
+                    audioURL: wavURL,
+                    meeting: meeting,
+                    settings: settings,
+                    in: context,
+                    onPhase: { phase in
+                        Task { @MainActor in self.transcriptionPhase = phase }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
+                        queue.updateProgress(jobID, fraction: fraction, status: status)
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                    // Cache embeddings pour EMA voiceprint update au 1er labeling.
+                    self.lastDiarizationEmbeddings = result.clusterEmbeddings
+                    self.meeting.rawTranscript = result.text
+                    PrepCarryoverService.carryoverUncheckedFromMeeting(
+                        self.meeting,
+                        settings: self.settings,
+                        in: self.context
+                    )
+                    self.meeting.mergedTranscript = NoteMergeService.merge(
+                        transcript: result.text,
+                        liveNotes: self.meeting.liveNotes
+                    )
+                    self.activeSection = .transcript
+                    self.saveContext()
+                }
+                print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                }
+                throw CancellationError()
+            } catch {
+                await MainActor.run {
+                    self.transcribeError = error.localizedDescription
+                    self.transcriptionPhase = .error(error.localizedDescription)
+                }
+                print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
+                throw error
+            }
         }
     }
 
     @ViewBuilder
     private var sectionContent: some View {
         switch activeSection {
+        case .preparation:
+            MeetingPrepTab(meeting: meeting)
+                .onAppear {
+                    PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
+                }
         case .liveNotes:
             MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
         case .transcript:
@@ -609,6 +759,49 @@ struct MeetingView: View {
         }
     }
 
+    // MARK: - Prep badge
+
+    private enum PrepBadge { case none, toPrepare, prepared }
+
+    private var prepBadgeState: PrepBadge {
+        let standingNonEmpty: Bool = {
+            switch meeting.kind {
+            case .oneToOne, .manager:
+                return !(meeting.participants.first?.standingPrepNotes.isEmpty ?? true)
+            case .project:
+                return !(meeting.project?.standingPrepNotes.isEmpty ?? true)
+            case .global, .work:
+                return false
+            }
+        }()
+        let isFuture = (meeting.scheduledStart ?? meeting.date) > Date()
+        let hasContent = !meeting.prepNotes.isEmpty || standingNonEmpty
+        if isFuture && !hasContent { return .toPrepare }
+        if hasContent { return .prepared }
+        return .none
+    }
+
+    @ViewBuilder
+    private var prepBadgeView: some View {
+        switch prepBadgeState {
+        case .toPrepare:
+            Label("À préparer", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Color.orange))
+        case .prepared:
+            Label("Préparée", systemImage: "checkmark.seal.fill")
+                .font(.caption.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Color.green))
+        case .none:
+            EmptyView()
+        }
+    }
+
+
     private var transcriptView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -651,59 +844,181 @@ struct MeetingView: View {
     }
 
     private var reportView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if meeting.summary.isEmpty {
-                    ContentUnavailableView(
-                        "Aucun rapport",
-                        systemImage: "wand.and.stars",
-                        description: Text("Génère le rapport une fois la transcription prête.")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 240)
+        VStack(spacing: 0) {
+            // Bandeau d'avertissement si transcription supprimée
+            if !meeting.reportRevisions.isEmpty,
+               meeting.rawTranscript.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text("Transcription supprimée après édition audio — re-transcrire pour mettre à jour le rapport.")
+                        .font(.caption)
+                    Spacer()
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.08)))
+                .padding(.horizontal).padding(.top, 8)
+            }
+
+            if meeting.summary.isEmpty {
+                ContentUnavailableView(
+                    "Aucun rapport",
+                    systemImage: "wand.and.stars",
+                    description: Text("Génère le rapport une fois la transcription prête.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                generateToolbar
+                    .padding(.horizontal, 8).padding(.top, 4)
+                Divider()
+                if reportEditMode {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            MarkdownEditorView(
+                                text: Binding(
+                                    get: { meeting.summary },
+                                    set: { meeting.summary = $0; debouncedSave() }
+                                ),
+                                textViewID: "reportEditor.\(meeting.persistentModelID.hashValue)"
+                            )
+                            .frame(minHeight: 280)
+
+                            Divider()
+
+                            decisionsEditor
+
+                            Divider()
+
+                            metaHeaderEditor
+
+                            Divider()
+
+                            actionsNotice
+                        }
+                        .padding(12)
+                    }
                 } else {
-                    if !meeting.highlights.isEmpty {
-                        section("Faits marquants") {
-                            ForEach(meeting.highlights, id: \.self) { item in
-                                bulletRow(text: item, systemImage: "sparkles")
+                    MeetingReportPreview(html: ReportHTMLBuilder.build(
+                        meeting: meeting,
+                        template: meeting.reportTemplate,
+                        includeTranscript: false,
+                        managerName: settings.ownerName,
+                        managerRole: settings.ownerRole
+                    ))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var decisionsEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("DÉCISIONS")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .tracking(1.2)
+                Text("(\(meeting.decisions.count))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button {
+                    meeting.decisions.append("")
+                    try? context.save()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Ajouter une décision")
+            }
+
+            if meeting.decisions.isEmpty {
+                Text("Aucune décision. Ces lignes apparaîtront automatiquement comme tableau « Relevé de décisions » dans le rapport.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(Array(meeting.decisions.enumerated()), id: \.offset) { idx, _ in
+                    HStack(spacing: 6) {
+                        Text("D\(idx + 1)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, alignment: .leading)
+                        TextField("Décision…", text: Binding(
+                            get: { idx < meeting.decisions.count ? meeting.decisions[idx] : "" },
+                            set: { newValue in
+                                guard idx < meeting.decisions.count else { return }
+                                meeting.decisions[idx] = newValue
+                                debouncedSave()
                             }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        Button {
+                            guard idx < meeting.decisions.count else { return }
+                            meeting.decisions.remove(at: idx)
+                            try? context.save()
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.secondary)
                         }
-                    }
-                    section("Résumé") {
-                        MeetingHighlightableTextView(
-                            text: .constant(meeting.summary),
-                            isEditable: false,
-                            highlightedRanges: managerHighlightedRanges(for: "summary"),
-                            onAddToManagerReport: { range, snippet in
-                                startManagerReportFlow(range: range, snippet: snippet, field: "summary")
-                            }
-                        )
-                        .frame(minHeight: 240)
-                    }
-                    if !meeting.keyPoints.isEmpty {
-                        section("Points clés") {
-                            ForEach(meeting.keyPoints, id: \.self) { p in
-                                bulletRow(text: p, systemImage: "circle.fill")
-                            }
-                        }
-                    }
-                    if !meeting.decisions.isEmpty {
-                        section("Décisions") {
-                            ForEach(meeting.decisions, id: \.self) { d in
-                                bulletRow(text: d, systemImage: "checkmark.seal")
-                            }
-                        }
-                    }
-                    if !meeting.openQuestions.isEmpty {
-                        section("Questions ouvertes") {
-                            ForEach(meeting.openQuestions, id: \.self) { q in
-                                bulletRow(text: q, systemImage: "questionmark.circle")
-                            }
-                        }
+                        .buttonStyle(.plain)
+                        .help("Supprimer cette décision")
                     }
                 }
             }
-            .padding()
         }
+    }
+
+    @ViewBuilder
+    private var metaHeaderEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("EN-TÊTE DU RAPPORT")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .tracking(1.2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Référencés (non présents)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                TextField("ex: Zied · Nicolas Hauvinet · Travaux McKinsey",
+                          text: Binding(
+                            get: { meeting.referencedAbsent },
+                            set: { meeting.referencedAbsent = $0; debouncedSave() }
+                          ))
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Prochaine échéance")
+                    .font(.caption2).foregroundStyle(.secondary)
+                TextField("ex: Partage du modèle puis présentation McKinsey",
+                          text: Binding(
+                            get: { meeting.nextDeadline },
+                            set: { meeting.nextDeadline = $0; debouncedSave() }
+                          ))
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionsNotice: some View {
+        HStack(spacing: 6) {
+            Text("PLAN D'ACTIONS")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .tracking(1.2)
+            Text("(\(meeting.tasks.count))")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Text("↗ Éditer via le panneau Actions (droite)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .italic()
+        }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -727,20 +1042,17 @@ struct MeetingView: View {
         meeting.participants.append(c)
         meeting.setParticipantStatus(.participant, for: c)
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func removeParticipant(_ c: Collaborator) {
         meeting.participants.removeAll { $0.persistentModelID == c.persistentModelID }
         meeting.clearParticipantStatus(for: c)
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func setParticipantStatus(_ status: MeetingAttendanceStatus, for collaborator: Collaborator) {
         meeting.setParticipantStatus(status, for: collaborator)
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func participantStatus(for collaborator: Collaborator) -> MeetingAttendanceStatus {
@@ -781,7 +1093,6 @@ struct MeetingView: View {
         }
 
         saveContext()
-        participantsRefreshID = UUID()
     }
 
     private func resolveCollaborator(for attendee: CalendarMeetingAttendee) -> Collaborator {
@@ -946,50 +1257,167 @@ struct MeetingView: View {
 
         transcribeError = nil
         do {
-            print("[MeetingView] → transcribe start…")
-            let result = try await stt.transcribe(audioURL: finalURL)
+            print("[MeetingView] → transcribe start (with diarization + speaker matching)…")
+            // Purge des segments existants déléguée à TranscriptionService
+            // (atomique avec l'insertion des nouveaux — préserve les anciens
+            // si STT échoue ou est annulé).
+            transcriptionPhase = .transcribing
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
+            let result = try await stt.transcribeWithDiarization(
+                audioURL: finalURL,
+                meeting: meeting,
+                settings: settings,
+                in: context,
+                onPhase: { phase in
+                    Task { @MainActor in self.transcriptionPhase = phase }
+                },
+                onProgress: { fraction, status in
+                    Task { @MainActor in
+                        self.transcriptionProgress = fraction
+                        self.transcriptionProgressStatus = status
+                    }
+                }
+            )
+            transcriptionPhase = .idle
+            transcriptionProgress = nil
+            transcriptionProgressStatus = nil
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
+            // Cache les embeddings pour permettre l'EMA voiceprint update au
+            // premier labeling manuel (sinon il faut attendre re-diarisation).
+            lastDiarizationEmbeddings = result.clusterEmbeddings
             meeting.rawTranscript = result.text
+            PrepCarryoverService.carryoverUncheckedFromMeeting(
+                meeting,
+                settings: settings,
+                in: context
+            )
             meeting.mergedTranscript = NoteMergeService.merge(
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
-            persistTranscriptSegments(result.segments)
             activeSection = .transcript
             saveContext()
         } catch {
             transcribeError = error.localizedDescription
+            transcriptionPhase = .error(error.localizedDescription)
             print("[MeetingView] transcribe FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Generate toolbar
+
+    /// Toolbar minimaliste au-dessus du rapport : template affiché + bouton unique Générer.
+    @ViewBuilder
+    private var generateToolbar: some View {
+        HStack {
+            if let template = meeting.reportTemplate {
+                Text("Template :")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(template.name).font(.caption.bold())
+            } else {
+                Text("Template : Auto").font(.caption).foregroundStyle(.secondary)
+            }
+
+            Picker("", selection: $reportEditMode) {
+                Image(systemName: "eye").tag(false)
+                Image(systemName: "pencil").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .help("Aperçu / Éditer markdown")
+            .padding(.leading, 8)
+
+            Spacer()
+            Button {
+                Task { await runGenerate() }
+            } label: {
+                Label(isGenerating ? "Génère…" : "Générer",
+                      systemImage: "wand.and.stars")
+            }
+            .disabled(isGenerating || meeting.rawTranscript.isEmpty)
+            .help("Génère un nouveau rapport (écrase la version actuelle)")
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+
+    @MainActor
+    private func runGenerate() async {
+        guard !isGenerating && !isGeneratingReport else {
+            print("[Rapport] génération déjà en cours, abort")
+            return
+        }
+        isGenerating = true
+        let queue = JobQueue.shared
+        let title = meeting.title
+        let id = meeting.persistentModelID
+        // Throttle des updates UI pendant le streaming LLM. Sans ça, chaque
+        // token (~50-100/sec) déclenche un re-render SwiftUI et bloque le
+        // main thread sur les longs rapports.
+        let throttle = ProgressThrottle(minInterval: 0.25)
+        _ = queue.start(
+            kind: .report,
+            meetingID: id,
+            meetingTitle: title + " · rapport"
+        ) { jobID in
+            defer { Task { @MainActor in self.isGenerating = false } }
+            do {
+                let result = try await AIReportService.generate(
+                    meeting: meeting,
+                    in: context,
+                    settings: settings,
+                    additionalContext: "",
+                    onProgress: { partial in
+                        guard await throttle.shouldEmit() else { return }
+                        let count = partial.count
+                        let tail = partial.suffix(80)
+                            .replacingOccurrences(of: "\n", with: " ")
+                        await MainActor.run {
+                            queue.updateProgress(
+                                jobID,
+                                fraction: nil,
+                                status: "\(count) chars · …\(tail)"
+                            )
+                        }
+                    }
+                )
+                await MainActor.run {
+                    self.apply(report: result)
+                }
+            } catch {
+                print("[Rapport] génération échec: \(error)")
+            }
+        }
+    }
+
+    /// Throttle simple actor-based pour limiter les updates UI streaming.
+    /// `shouldEmit()` retourne `true` au plus 1× par `minInterval` secondes.
+    private actor ProgressThrottle {
+        let minInterval: TimeInterval
+        var lastEmit: Date = .distantPast
+        init(minInterval: TimeInterval) { self.minInterval = minInterval }
+        func shouldEmit() -> Bool {
+            let now = Date()
+            if now.timeIntervalSince(lastEmit) >= minInterval {
+                lastEmit = now
+                return true
+            }
+            return false
         }
     }
 
     // MARK: - Report generation
 
     private func generateReport() async {
+        guard !isGenerating && !isGeneratingReport else {
+            print("[Rapport] génération déjà en cours, abort")
+            return
+        }
         guard !meeting.rawTranscript.isEmpty else { return }
-
-        reportError = nil
-        isGeneratingReport = true
-        reportProgressChars = 0
-        reportElapsedSeconds = 0
-
-        // Tick toutes les secondes pour afficher le temps écoulé pendant la
-        // génération (le LLM ne renvoie rien tant que les poids ne sont pas
-        // chargés — le compteur évite l'impression d'un freeze).
-        let elapsedTimer = Task { @MainActor in
-            let start = Date()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { break }
-                self.reportElapsedSeconds = Int(Date().timeIntervalSince(start))
-            }
-        }
-        defer {
-            elapsedTimer.cancel()
-            isGeneratingReport = false
-            reportProgressChars = 0
-            reportElapsedSeconds = 0
-        }
 
         // Refresh merged transcript au cas où l'utilisateur a édité les notes.
         meeting.mergedTranscript = NoteMergeService.merge(
@@ -997,45 +1425,83 @@ struct MeetingView: View {
             liveNotes: meeting.liveNotes
         )
 
-        // Phase 8 : RAG historique — injection du contexte pré-LLM.
-        let historicalContext = await fetchHistoricalContext()
-        let attachmentsContext = await fetchAttachmentsContext()
+        reportError = nil
+        isGeneratingReport = true
+        reportProgressChars = 0
+        reportElapsedSeconds = 0
 
-        let participantsDesc = meeting.participantsDescription
-        let generationStart = Date()
-        do {
-            let report = try await AIReportService.generate(
-                mergedTranscript: meeting.mergedTranscript,
-                meetingKind: meeting.kind,
-                durationSeconds: meeting.durationSeconds,
-                projectName: meeting.project?.name,
-                participantsDescription: participantsDesc,
-                customPrompt: meeting.customPrompt,
-                historicalContext: historicalContext,
-                attachmentsContext: attachmentsContext,
-                settings: settings,
-                onProgress: { partial in
-                    let count = partial.count
-                    await MainActor.run {
-                        self.reportProgressChars = count
-                    }
-                }
-            )
-            apply(report: report)
-            meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
-            saveContext()
-            activeSection = .report
-
-            // Indexation RAG post-rapport (non bloquant pour l'UI).
-            Task.detached { @MainActor in
-                do {
-                    try await RAGIndexer.reindex(meeting: meeting, context: context)
-                } catch {
-                    print("[MeetingView] RAG reindex échoué: \(error.localizedDescription)")
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .report,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title
+        ) { jobID in
+            // Tick d'avancement (LLM streaming — pas de fraction réelle, on
+            // alimente le statusText avec le nombre de chars reçus).
+            let start = Date()
+            let elapsedTimer = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { break }
+                    self.reportElapsedSeconds = Int(Date().timeIntervalSince(start))
+                    queue.updateProgress(jobID,
+                                          fraction: nil,
+                                          status: "\(self.reportElapsedSeconds)s · \(self.reportProgressChars) chars")
                 }
             }
-        } catch {
-            reportError = error.localizedDescription
+            defer {
+                elapsedTimer.cancel()
+                Task { @MainActor in
+                    self.isGeneratingReport = false
+                    self.reportProgressChars = 0
+                    self.reportElapsedSeconds = 0
+                }
+            }
+
+            try Task.checkCancellation()
+
+            let generationStart = Date()
+            // RAG sémantique : récupère extraits pertinents des réunions
+            // antérieures, ajouté en arrière-plan du prompt.
+            let ragContext = await self.fetchHistoricalContext()
+            do {
+                let report = try await AIReportService.generate(
+                    meeting: meeting,
+                    in: context,
+                    settings: settings,
+                    additionalContext: ragContext,
+                    onProgress: { partial in
+                        // Note : signature non-throwing — la cancellation est
+                        // vérifiée juste après l'appel `generate(...)`. Côté
+                        // streaming on se contente de pousser la progression.
+                        let count = partial.count
+                        await MainActor.run {
+                            self.reportProgressChars = count
+                        }
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.apply(report: report)
+                    self.meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
+                    self.saveContext()
+                    self.activeSection = .report
+                }
+
+                // Indexation RAG post-rapport (non bloquant pour l'UI).
+                Task.detached { @MainActor in
+                    do {
+                        try await RAGIndexer.reindex(meeting: meeting, context: context)
+                    } catch {
+                        print("[MeetingView] RAG reindex échoué: \(error.localizedDescription)")
+                    }
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                await MainActor.run { self.reportError = error.localizedDescription }
+                throw error
+            }
         }
     }
 
@@ -1086,41 +1552,24 @@ struct MeetingView: View {
         }
     }
 
-    private func fetchAttachmentsContext() async -> String {
-        let meetingPID = meeting.persistentModelID
-        let totalChars = meeting.attachments
-            .map { $0.extractedText.count }
-            .reduce(0, +)
-
-        // Seuil : < 20_000 chars total → on injecte le texte brut cap par doc.
-        // Au-delà → on bascule sur top-K chunks via RAGQuery scope attachment + meeting.
-        if totalChars < 20_000 {
-            return meeting.attachments
-                .filter { !$0.extractedText.isEmpty }
-                .map { "### \($0.fileName) (\($0.kind))\n\($0.extractedText.prefix(8000))" }
-                .joined(separator: "\n\n")
-        }
-
-        let query = String(meeting.mergedTranscript.prefix(2000))
-        let scope = RAGQuery.Scope(
-            projectPID: nil,
-            collaboratorPID: nil,
-            meetingKind: nil,
-            excludeMeetingPID: nil,
-            sourceType: "attachment",
-            meetingPID: meetingPID
-        )
-        let results = try? await RAGQuery.search(query: query, topK: 8, scope: scope, context: context)
-        return (results ?? []).map { r in
-            "### \(r.chunk.attachment?.fileName ?? "?") — extrait\n\(r.chunk.text)"
-        }.joined(separator: "\n\n")
-    }
-
     private func apply(report: MeetingReportData) {
         meeting.summary = report.summary
         meeting.keyPoints = report.keyPoints
         meeting.decisions = report.decisions
         meeting.openQuestions = report.openQuestions
+
+        // Snapshot v_n+1 — chaque génération crée une nouvelle révision pour
+        // pouvoir comparer/restaurer un draft antérieur.
+        let nextVersion = (meeting.reportRevisions.map(\.version).max() ?? 0) + 1
+        let rev = ReportRevision(
+            meeting: meeting,
+            version: nextVersion,
+            body: report.summary,
+            critique: "",
+            writerMessage: "",
+            isValidated: false
+        )
+        context.insert(rev)
 
         for a in report.actions {
             let task = ActionTask(title: a.title)
@@ -1130,9 +1579,13 @@ struct MeetingView: View {
                 task.dueDate = ISO8601DateFormatter().date(from: iso)
                     ?? DateFormatter.yyyyMMdd.date(from: iso)
             }
-            if let assignee = a.assignee,
-               let collab = allCollaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(assignee) == .orderedSame }) {
-                task.collaborator = collab
+            if let assignee = a.assignee?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !assignee.isEmpty {
+                if let match = CollaboratorMatcher.match(name: assignee, in: meeting, all: allCollaborators) {
+                    task.collaborator = match
+                } else {
+                    task.unresolvedAssigneeName = assignee
+                }
             }
             context.insert(task)
         }
@@ -1141,6 +1594,7 @@ struct MeetingView: View {
             let alert = ProjectAlert(title: a.title, detail: a.detail, severity: a.severity)
             alert.project = meeting.project
             alert.interview = nil
+            alert.meeting = meeting
             context.insert(alert)
         }
 
@@ -1166,15 +1620,6 @@ struct MeetingView: View {
     }
 
     // MARK: - Utils
-
-    private func formatDuration(_ s: TimeInterval) -> String {
-        let total = Int(s)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let sec = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, sec) }
-        return String(format: "%02d:%02d", m, sec)
-    }
 
     private var currentSlides: [SlideCapture] {
         // Pendant une session : source de vérité = service.
@@ -1293,36 +1738,15 @@ struct MeetingView: View {
 
     /// Bullet row used in the Rapport tab for each entry in
     /// faits marquants / points clés / décisions / questions ouvertes.
-    /// Original Label + trailing "Ajouter au rapport manager" affordance.
     @ViewBuilder
     private func bulletRow(text: String, systemImage: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Label {
-                Text(text).font(.callout)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } icon: {
-                Image(systemName: systemImage)
-            }
-            .labelStyle(.titleAndIcon)
-
-            Button {
-                startManagerReportFlow(range: NSRange(location: 0, length: 0),
-                                       snippet: text,
-                                       field: "summary")
-            } label: {
-                Image(systemName: "plus.bubble")
-                    .foregroundColor(.accentColor.opacity(0.75))
-            }
-            .buttonStyle(.plain)
-            .help("Ajouter au rapport manager")
+        Label {
+            Text(text).font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } icon: {
+            Image(systemName: systemImage)
         }
-        .contextMenu {
-            Button {
-                startManagerReportFlow(range: NSRange(location: 0, length: 0),
-                                       snippet: text,
-                                       field: "summary")
-            } label: { Label("Ajouter au rapport manager", systemImage: "plus.bubble") }
-        }
+        .labelStyle(.titleAndIcon)
     }
 
     private func managerHighlightedRanges(for field: String) -> [NSRange] {
@@ -1359,6 +1783,14 @@ struct MeetingView: View {
             .buttonStyle(.bordered)
             .disabled(meeting.transcriptSegments.isEmpty || (meeting.wavFilePath ?? "").isEmpty)
             .help("Analyse l'audio (VAD) et propose une alternance de tours de parole. Reassign manuel ensuite via clic sur le label.")
+
+            Button {
+                reidentifySpeakers()
+            } label: {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+            }
+            .help("Ré-identifier les speakers")
+            .disabled((meeting.wavFilePath ?? "").isEmpty)
         }
         .padding(.bottom, 4)
     }
@@ -1373,14 +1805,190 @@ struct MeetingView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .alert("Supprimer ce passage ?",
+               isPresented: Binding(get: { segmentToDelete != nil },
+                                     set: { if !$0 { segmentToDelete = nil } }),
+               presenting: segmentToDelete) { seg in
+            Button("Annuler", role: .cancel) { segmentToDelete = nil }
+            Button("Supprimer", role: .destructive) {
+                let target = seg
+                segmentToDelete = nil
+                Task {
+                    do {
+                        try await TranscriptEditService.deleteSegment(
+                            target, in: meeting, context: context
+                        )
+                    } catch {
+                        print("[MeetingView] deleteSegment failed: \(error)")
+                        segmentDeleteError = error.localizedDescription
+                    }
+                }
+            }
+        } message: { _ in
+            Text("Le texte et la portion audio correspondante seront supprimés définitivement.")
+        }
+        .alert("Suppression du passage",
+               isPresented: Binding(get: { segmentDeleteError != nil },
+                                     set: { if !$0 { segmentDeleteError = nil } })) {
+            Button("OK", role: .cancel) { segmentDeleteError = nil }
+        } message: {
+            Text(segmentDeleteError ?? "")
+        }
+    }
+
+    private func segmentRow(_ seg: TranscriptSegment) -> some View {
+        // textSelection(.enabled) capture le clic droit sur macOS → on ne peut
+        // pas y attacher un contextMenu fonctionnel. À la place : bouton play
+        // visible à côté du timestamp (clic gauche = lecture ; option-clic =
+        // seek sans jouer).
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            speakerBadge(for: seg)
+
+            Button {
+                playSegmentAudio(seg)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill").font(.caption2)
+                    Text(seg.formattedTimestamp)
+                        .font(.caption.monospacedDigit().bold())
+                }
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(
+                    Capsule().fill(meeting.wavFileURL == nil
+                                   ? Color.secondary.opacity(0.15)
+                                   : Color.accentColor.opacity(0.18))
+                )
+                .foregroundColor(meeting.wavFileURL == nil ? .secondary : .accentColor)
+                .overlay(
+                    Capsule().stroke(
+                        meeting.wavFileURL == nil ? Color.clear : Color.accentColor.opacity(0.4),
+                        lineWidth: 0.5
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(meeting.wavFileURL == nil)
+            .help(meeting.wavFileURL == nil
+                  ? "Aucun audio attaché à la réunion"
+                  : "Lire l'audio à partir de \(seg.formattedTimestamp)")
+
+            HStack(spacing: 4) {
+                if seg.isHighlighted {
+                    Image(systemName: "star.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                }
+                Text(seg.text)
+                    .font(.body)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 2)
+        .background(seg.isHighlighted ? Color.yellow.opacity(0.08) : Color.clear)
+    }
+
+    /// Charge le wav si besoin et positionne le curseur sans démarrer la lecture.
+    private func seekToSegment(_ seg: TranscriptSegment) {
+        guard let url = meeting.wavFileURL else { return }
+        if player.loadedURL != url { try? player.load(url: url) }
+        player.seek(to: seg.startSeconds)
+    }
+
+    /// Charge le wav si besoin, place le curseur sur seg.startSeconds, joue.
+    /// Si la lecture est déjà en cours, on pause d'abord pour forcer le saut
+    /// (sinon AVAudioPlayer continue parfois depuis l'ancienne position avant
+    /// de prendre en compte le seek).
+    private func playSegmentAudio(_ seg: TranscriptSegment) {
+        guard let url = meeting.wavFileURL else { return }
+        do {
+            if player.loadedURL != url { try player.load(url: url) }
+        } catch {
+            transcribeError = "Lecture impossible: \(error.localizedDescription)"
+            return
+        }
+        let wasPlaying = player.isPlaying
+        if wasPlaying { player.pause() }
+        player.seek(to: seg.startSeconds)
+        player.play()
+        print("[MeetingView] play segment from \(seg.startSeconds)s (was playing: \(wasPlaying))")
     }
 
     @ViewBuilder
-    private func segmentRow(_ seg: TranscriptSegment) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Button {
-                renamingSpeakerID = seg.speakerID
-            } label: {
+    private func segmentActionsMenu(_ seg: TranscriptSegment) -> some View {
+        Button {
+            seg.isHighlighted.toggle()
+            try? context.save()
+        } label: {
+            Label(seg.isHighlighted ? "Retirer l'importance" : "Marquer comme important",
+                  systemImage: seg.isHighlighted ? "star.slash" : "star.fill")
+        }
+        Divider()
+        Button(role: .destructive) {
+            segmentToDelete = seg
+        } label: {
+            Label("Supprimer ce passage", systemImage: "trash")
+        }
+    }
+
+    @ViewBuilder
+    private func speakerBadge(for seg: TranscriptSegment) -> some View {
+        let clusterID = seg.speakerID - 1
+        let meta = SpeakerMeta.parse(json: meeting.speakerMatchMetaJSON, clusterID: clusterID)
+
+        if let speaker = seg.speaker {
+            // Auto-assigned: small green check
+            Button { renamingSpeakerID = seg.speakerID } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: meta?.auto == true ? "checkmark.seal.fill" : "person.fill")
+                        .font(.caption2)
+                        .foregroundStyle(meta?.auto == true ? .green : speakerColor(seg.speakerID))
+                    Text(speaker.name)
+                        .font(.caption.bold())
+                        .foregroundColor(.primary)
+                    if let m = meta, m.auto {
+                        Text("(\(Int(m.confidence * 100))%)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(speakerColor(seg.speakerID).opacity(0.10))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: Binding(
+                get: { renamingSpeakerID == seg.speakerID },
+                set: { if !$0 { renamingSpeakerID = nil } }
+            )) {
+                speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
+            }
+            .contextMenu { segmentActionsMenu(seg) }
+        } else if let m = meta,
+                  m.confidence >= settings.speakerIdSuggestThreshold,
+                  let suggested = firstCandidate(stableIDs: m.candidateStableIDs) {
+            // Suggestion path
+            HStack(spacing: 4) {
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.caption2).foregroundStyle(.orange)
+                Text("\(suggested.name)? (\(Int(m.confidence * 100))%)")
+                    .font(.caption.italic())
+                    .foregroundColor(.primary)
+                Button { acceptSuggestion(suggested, for: seg) } label: {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                }.buttonStyle(.plain)
+                Button { rejectSuggestion(for: seg) } label: {
+                    Image(systemName: "xmark.circle").foregroundStyle(.secondary)
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.orange.opacity(0.10))
+            .clipShape(Capsule())
+            .contextMenu { segmentActionsMenu(seg) }
+        } else {
+            // Anonymous fallback (existing flow).
+            Button { renamingSpeakerID = seg.speakerID } label: {
                 HStack(spacing: 4) {
                     Circle()
                         .fill(speakerColor(seg.speakerID))
@@ -1398,20 +2006,31 @@ struct MeetingView: View {
                 get: { renamingSpeakerID == seg.speakerID },
                 set: { if !$0 { renamingSpeakerID = nil } }
             )) {
-                speakerRenamePopover(speakerID: seg.speakerID)
-                    .padding(12)
-                    .frame(minWidth: 240)
+                speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
             }
+            .contextMenu { segmentActionsMenu(seg) }
+        }
+    }
 
-            Text(seg.formattedTimestamp)
-                .font(.caption2.monospacedDigit())
-                .foregroundColor(.secondary)
+    private func firstCandidate(stableIDs: [String]) -> Collaborator? {
+        guard let first = stableIDs.first, let uuid = UUID(uuidString: first) else { return nil }
+        return allCollaborators.first { $0.stableID == uuid }
+    }
 
-            Text(seg.text)
-                .font(.body)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+    private func acceptSuggestion(_ collab: Collaborator, for seg: TranscriptSegment) {
+        assignSpeaker(speakerID: seg.speakerID, to: collab)
+    }
+
+    private func rejectSuggestion(for seg: TranscriptSegment) {
+        let clusterID = seg.speakerID - 1
+        var meta = (try? JSONSerialization.jsonObject(
+            with: meeting.speakerMatchMetaJSON.data(using: .utf8) ?? Data()
+        ) as? [String: Any]) ?? [:]
+        meta.removeValue(forKey: String(clusterID))
+        if let data = try? JSONSerialization.data(withJSONObject: meta),
+           let s = String(data: data, encoding: .utf8) {
+            meeting.speakerMatchMetaJSON = s
+            try? context.save()
         }
     }
 
@@ -1420,33 +2039,96 @@ struct MeetingView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Speaker \(speakerID) → participant")
                 .font(.caption.bold())
-            if allCollaborators.isEmpty {
-                Text("Aucun collaborateur dans la base.").font(.caption2).foregroundColor(.secondary)
+
+            TextField("Rechercher…", text: $speakerPickerSearch)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+
+            let participantIDs = Set(meeting.participants.map { $0.persistentModelID })
+            let query = speakerPickerSearch.trimmingCharacters(in: .whitespaces)
+            let matches: (Collaborator) -> Bool = { c in
+                query.isEmpty || c.name.localizedCaseInsensitiveContains(query)
+            }
+            let participants = meeting.participants
+                .filter { !$0.isArchived && matches($0) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            let others = allCollaborators
+                .filter { !participantIDs.contains($0.persistentModelID) && matches($0) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            if participants.isEmpty && others.isEmpty {
+                Text(query.isEmpty ? "Aucun collaborateur dans la base." : "Aucun résultat.")
+                    .font(.caption2).foregroundColor(.secondary)
             } else {
-                ForEach(allCollaborators.sorted(by: { $0.name < $1.name })) { c in
-                    Button {
-                        assignSpeaker(speakerID: speakerID, to: c)
-                        renamingSpeakerID = nil
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.fill").foregroundColor(.accentColor)
-                            Text(c.name)
-                            Spacer()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !participants.isEmpty {
+                            Text("Participants de la réunion").font(.caption2.bold()).foregroundStyle(.secondary)
+                            ForEach(participants) { c in
+                                speakerPickerRow(c, speakerID: speakerID, highlighted: true)
+                            }
                         }
-                        .contentShape(Rectangle())
+                        if !others.isEmpty {
+                            if !participants.isEmpty { Divider() }
+                            Text("Autres collaborateurs").font(.caption2.bold()).foregroundStyle(.secondary)
+                            ForEach(others) { c in
+                                speakerPickerRow(c, speakerID: speakerID, highlighted: false)
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
+                .frame(maxHeight: 360)
                 Divider()
             }
-            Button("Annuler") { renamingSpeakerID = nil }
-                .font(.caption)
+            Button("Annuler") {
+                renamingSpeakerID = nil
+                speakerPickerSearch = ""
+            }
+            .font(.caption)
         }
+        .frame(width: 280)
+    }
+
+    @ViewBuilder
+    private func speakerPickerRow(_ c: Collaborator, speakerID: Int, highlighted: Bool) -> some View {
+        Button {
+            assignSpeaker(speakerID: speakerID, to: c)
+            renamingSpeakerID = nil
+            speakerPickerSearch = ""
+        } label: {
+            HStack {
+                Image(systemName: highlighted ? "person.fill.checkmark" : "person.fill")
+                    .foregroundColor(highlighted ? .green : .accentColor)
+                Text(c.name)
+                    .fontWeight(highlighted ? .semibold : .regular)
+                if c.voicePrint != nil {
+                    Image(systemName: "waveform").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func assignSpeaker(speakerID: Int, to collaborator: Collaborator) {
         for seg in meeting.transcriptSegments where seg.speakerID == speakerID {
             seg.speaker = collaborator
+        }
+        // Update assignmentsJSON
+        let clusterID = speakerID - 1
+        var assignments = (try? JSONSerialization.jsonObject(
+            with: meeting.speakerAssignmentsJSON.data(using: .utf8) ?? Data()
+        ) as? [String: Any]) ?? [:]
+        assignments[String(clusterID)] = collaborator.ensuredStableID.uuidString
+        if let data = try? JSONSerialization.data(withJSONObject: assignments),
+           let s = String(data: data, encoding: .utf8) {
+            meeting.speakerAssignmentsJSON = s
+        }
+        // EMA voiceprint update if we have a fresh embedding cached from the last
+        // diarization pass for this cluster.
+        if let embedding = lastDiarizationEmbeddings[clusterID] {
+            SpeakerMatcher.applyEMAUpdate(to: collaborator, newEmbedding: embedding, in: context)
         }
         try? context.save()
     }
@@ -1474,6 +2156,139 @@ struct MeetingView: View {
         }
     }
 
+    /// Re-runs the Pyannote speech-swift diarization on the existing wav to
+    /// rebuild per-cluster embeddings + re-match against current voiceprints.
+    /// Does NOT re-transcribe — only updates speaker badges + assignments.
+    @ViewBuilder
+    private var transcriptionPhaseBanner: some View {
+        if transcriptionPhase.isActive {
+            HStack(spacing: 10) {
+                if let pct = transcriptionProgress {
+                    ProgressView(value: pct).controlSize(.small).frame(width: 90)
+                    Text("\(Int(pct * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(transcriptionPhase.label).font(.caption)
+                if let status = transcriptionProgressStatus, !status.isEmpty {
+                    Text("· \(status)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.12))
+            .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.2)), alignment: .bottom)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        } else if case .error(let msg) = transcriptionPhase {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(msg).font(.caption).lineLimit(2)
+                Spacer()
+                Button {
+                    transcriptionPhase = .idle
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }.buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Color.orange.opacity(0.12))
+            .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.2)), alignment: .bottom)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func reidentifySpeakers() {
+        guard let wavPath = meeting.wavFilePath, !wavPath.isEmpty else { return }
+        let url = URL(fileURLWithPath: wavPath)
+        let queue = JobQueue.shared
+        _ = queue.start(
+            kind: .diarization,
+            meetingID: meeting.persistentModelID,
+            meetingTitle: meeting.title + " · diarisation"
+        ) { jobID in
+            await MainActor.run {
+                self.transcriptionPhase = .reidentifying
+                self.transcriptionProgress = nil
+                self.transcriptionProgressStatus = nil
+            }
+            do {
+                try Task.checkCancellation()
+                let out = try await PyannoteDiarizer.shared.diarize(
+                    audioURL: url,
+                    onPhase: { phase in
+                        Task { @MainActor in
+                            if case .loadingModel = phase {
+                                self.transcriptionPhase = .loadingModel
+                            } else {
+                                self.transcriptionPhase = .reidentifying
+                            }
+                        }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
+                        queue.updateProgress(jobID, fraction: fraction, status: status)
+                    }
+                )
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self.lastDiarizationEmbeddings = out.perClusterEmbedding
+                    let assignments = SpeakerMatcher.match(
+                        clusterEmbeddings: out.perClusterEmbedding,
+                        meeting: self.meeting,
+                        in: self.context,
+                        settings: self.settings
+                    )
+                    var assignmentsDict: [String: Any] = [:]
+                    var metaDict: [String: [String: Any]] = [:]
+                    for (cid, a) in assignments {
+                        assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
+                        metaDict[String(cid)] = [
+                            "confidence": a.confidence,
+                            "auto": a.auto,
+                            "ambiguous": a.ambiguous,
+                            "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
+                        ]
+                        // ⚠ NE PAS remapper `seg.speaker` depuis `cid` ici :
+                        // pyannote ne garantit pas la stabilité des cluster
+                        // IDs entre deux runs.
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: assignmentsDict),
+                       let s = String(data: data, encoding: .utf8) {
+                        self.meeting.speakerAssignmentsJSON = s
+                    }
+                    if let data = try? JSONSerialization.data(withJSONObject: metaDict),
+                       let s = String(data: data, encoding: .utf8) {
+                        self.meeting.speakerMatchMetaJSON = s
+                    }
+                    try? self.context.save()
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.transcriptionPhase = .idle
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                }
+                throw CancellationError()
+            } catch {
+                print("[MeetingView] reidentifySpeakers failed: \(error)")
+                await MainActor.run {
+                    self.transcriptionPhase = .error(error.localizedDescription)
+                    self.transcriptionProgress = nil
+                    self.transcriptionProgressStatus = nil
+                }
+                throw error
+            }
+        }
+    }
+
     /// Maps each `TranscriptSegment` to a detected turn (whichever turn
     /// contains the segment's midpoint) and updates `speakerID`.
     private func applySpeakerTurns(_ turns: [(start: Double, end: Double, speakerID: Int)]) {
@@ -1488,14 +2303,6 @@ struct MeetingView: View {
 
     private func saveMeetingNow() {
         saveContext()
-        saveStatusMessage = "Réunion enregistrée"
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            if saveStatusMessage == "Réunion enregistrée" {
-                saveStatusMessage = nil
-            }
-        }
     }
 }
 

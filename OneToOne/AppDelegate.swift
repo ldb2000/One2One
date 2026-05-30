@@ -54,6 +54,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleOpenMeeting(userInfo: note.userInfo)
             }
         )
+        // "Rappeler dans 5 min" → snooze le pré-rappel.
+        notifObservers.append(
+            nc.addObserver(forName: MeetingNotificationService.snoozeMeetingNotification,
+                           object: nil, queue: .main) { [weak self] note in
+                self?.handleSnoozeMeeting(userInfo: note.userInfo)
+            }
+        )
+    }
+
+    @MainActor
+    private func handleSnoozeMeeting(userInfo: [AnyHashable: Any]?) {
+        guard let idStr = userInfo?["meetingID"] as? String,
+              let uuid = UUID(uuidString: idStr),
+              let container = OneToOneApp.sharedContainer else { return }
+        let context = container.mainContext
+        let descriptor = FetchDescriptor<Meeting>()
+        let all = (try? context.fetch(descriptor)) ?? []
+        guard let meeting = all.first(where: { $0.ensuredStableID == uuid }) else { return }
+        MeetingNotificationService.shared.snoozePreStart(meeting: meeting)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -9,6 +9,11 @@ struct MainSidebarView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var router: QuickLaunchRouter
     @State private var searchText: String = ""
+    /// Version debouncée de `searchText`. Les filtres lourds (scan des corps
+    /// de notes pour chaque projet/collab/entité) lisent ceci au lieu de
+    /// `searchText` → un seul scan après la frappe, pas un par caractère.
+    @State private var debouncedSearch: String = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var expandedEntityNames: Set<String> = []
     @State private var selectedProjectIDs: Set<PersistentIdentifier> = []
     @State private var isMultiSelectMode = false
@@ -19,49 +24,98 @@ struct MainSidebarView: View {
     @AppStorage("sidebar.archivesExpanded") private var archivesExpanded: Bool = false
     @AppStorage("sidebar.archivedProjectsExpanded") private var archivedProjectsExpanded: Bool = false
 
+    /// Mode de filtrage de la section "Collaborateurs" :
+    /// - `pinned`     : pinLevel == 2 uniquement
+    /// - `favourites` : pinLevel == 1 uniquement
+    /// - `both`       : pinLevel >= 1 (favoris + épinglés)
+    @AppStorage("sidebar.collabsFilter") private var collabsFilter: String = "both"
+
     // MARK: - Filtered data
 
     private var filteredEntities: [Entity] {
-        guard !searchText.isEmpty else { return entities }
-        return entities.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        guard !debouncedSearch.isEmpty else { return entities }
+        // Inclure une entité si son nom matche OU si elle contient au moins
+        // un projet qui matche — sinon une recherche sur un nom de projet
+        // cache TOUS les projets de l'entité.
+        return entities.filter { entity in
+            if entity.name.localizedCaseInsensitiveContains(debouncedSearch) { return true }
+            return entity.projects.contains { projectMatches($0, debouncedSearch) }
+        }
     }
 
-    /// Sidebar : seuls les collaborateurs ÉPINGLÉS (pinLevel > 0) apparaissent.
-    /// Les autres restent accessibles via "Tous les Collaborateurs".
+    /// Sidebar : filtre `pinned` / `favourites` / `both` selon `collabsFilter`.
     /// La recherche reste un raccourci global : si l'utilisateur tape un nom,
-    /// on relâche le filtre épinglé pour permettre la découverte.
+    /// on relâche le filtre pour permettre la découverte.
     private var filteredActiveCollaborators: [Collaborator] {
         let active = collaborators
             .filter { !$0.isArchived }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        if searchText.isEmpty {
-            return active.filter { $0.pinLevel > 0 }
+        if !debouncedSearch.isEmpty {
+            return active.filter { collabMatches($0, debouncedSearch) }
         }
-        return active.filter { collabMatches($0, searchText) }
+        switch collabsFilter {
+        case "pinned":     return active.filter { $0.pinLevel == 2 }
+        case "favourites": return active.filter { $0.pinLevel == 1 }
+        default:           return active.filter { $0.pinLevel >= 1 }  // both
+        }
+    }
+
+    /// 3 puces icônes pour basculer le filtre (pinned / favourites / both).
+    /// L'option active a un fond accent ; les autres sont en outline secondary.
+    @ViewBuilder
+    private var collabsFilterPills: some View {
+        HStack(spacing: 2) {
+            filterPill(value: "pinned",     icon: "pin.fill",     help: "Épinglés uniquement")
+            filterPill(value: "favourites", icon: "star.fill",    help: "Favoris uniquement")
+            filterPill(value: "both",       icon: "person.2.fill", help: "Épinglés + favoris")
+        }
+    }
+
+    @ViewBuilder
+    private func filterPill(value: String, icon: String, help: String) -> some View {
+        let isActive = (collabsFilter == value)
+        Button {
+            collabsFilter = value
+        } label: {
+            Image(systemName: icon)
+                .font(.caption2)
+                .frame(width: 20, height: 18)
+                .foregroundColor(isActive ? .white : .secondary)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isActive ? Color.accentColor : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(isActive ? Color.clear : Color.secondary.opacity(0.25), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var filteredArchivedCollaborators: [Collaborator] {
         let archived = collaborators.filter { $0.isArchived }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        guard !searchText.isEmpty else { return archived }
-        return archived.filter { collabMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return archived }
+        return archived.filter { collabMatches($0, debouncedSearch) }
     }
 
     private func filteredProjectsFor(entity: Entity) -> [Project] {
         let entityProjects = entity.projects.filter { !$0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !searchText.isEmpty else { return entityProjects }
-        return entityProjects.filter { projectMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return entityProjects }
+        return entityProjects.filter { projectMatches($0, debouncedSearch) }
     }
 
     private var filteredOrphanProjects: [Project] {
         let orphans = projects.filter { $0.entity == nil && !$0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !searchText.isEmpty else { return orphans }
-        return orphans.filter { projectMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return orphans }
+        return orphans.filter { projectMatches($0, debouncedSearch) }
     }
 
     private var filteredArchivedProjects: [Project] {
         let archived = projects.filter { $0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !searchText.isEmpty else { return archived }
-        return archived.filter { projectMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return archived }
+        return archived.filter { projectMatches($0, debouncedSearch) }
     }
 
     // MARK: - Match helpers (incluent les notes)
@@ -89,6 +143,9 @@ struct MainSidebarView: View {
     private var selectedProjects: [Project] {
         projects.filter { selectedProjectIDs.contains($0.persistentModelID) }
     }
+
+    @ObservedObject private var jobQueue = JobQueue.shared
+    @AppStorage("sidebar.jobsExpanded") private var jobsExpanded: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -134,15 +191,14 @@ struct MainSidebarView: View {
                     Label("Suivi manager", systemImage: "person.crop.square.filled.and.at.rectangle")
                 }
 
+                NavigationLink {
+                    AllCollaboratorsView()
+                } label: {
+                    Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
+                }
+
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
-                    NavigationLink {
-                        AllCollaboratorsView()
-                    } label: {
-                        Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
-                            .foregroundColor(.accentColor)
-                    }
-
                     ForEach(filteredActiveCollaborators) { collaborator in
                         NavigationLink {
                             CollaboratorDetailView(collaborator: collaborator)
@@ -198,8 +254,12 @@ struct MainSidebarView: View {
                     }
                     .buttonStyle(.plain)
                     } label: {
-                        Label("Collaborateurs Épinglés", systemImage: "pin.fill")
-                            .font(.subheadline.weight(.semibold))
+                        HStack(spacing: 6) {
+                            Text("Collaborateurs")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            collabsFilterPills
+                        }
                     }
                 }
 
@@ -332,6 +392,19 @@ struct MainSidebarView: View {
                 }
             }
             .searchable(text: $searchText, placement: .sidebar, prompt: "Rechercher...")
+            .onChange(of: searchText) {
+                searchDebounceTask?.cancel()
+                // Vider la recherche s'applique immédiatement ; sinon debounce.
+                if searchText.isEmpty {
+                    debouncedSearch = ""
+                    return
+                }
+                searchDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    if Task.isCancelled { return }
+                    debouncedSearch = searchText
+                }
+            }
             .listStyle(.sidebar)
             .sheet(item: $renamingCollaborator) { collaborator in
                 VStack(spacing: 16) {
@@ -375,7 +448,48 @@ struct MainSidebarView: View {
                     .help(isMultiSelectMode ? "Quitter la selection multiple" : "Selection multiple de projets")
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                jobsFooter
+            }
         }
+    }
+
+    /// Pied de sidebar : file des jobs (transcription, rapport). Collapsible.
+    @ViewBuilder
+    private var jobsFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.snappy) { jobsExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: jobsExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2)
+                        Image(systemName: "list.bullet.rectangle.portrait")
+                            .font(.caption)
+                        Text("Jobs").font(.caption.bold())
+                        if jobQueue.hasActiveJobs {
+                            Text("\(jobQueue.activeJobs.count)")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.accentColor))
+                                .foregroundColor(.white)
+                        }
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+
+            if jobsExpanded {
+                JobQueueSidebar()
+                    .frame(maxHeight: 220)
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - Project Row (selectable in multi-select mode)
@@ -1116,11 +1230,10 @@ struct DashboardView: View {
                 }
 
                 // Stats
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 20) {
                     StatCard(title: "Total Projets", value: "\(projects.count)", color: .blue)
                     StatCard(title: "En Build", value: "\(projects.filter { $0.phase == "Build" }.count)", color: .orange)
                     StatCard(title: "En Run", value: "\(projects.filter { $0.phase == "Run" }.count)", color: .green)
-
                     StatCard(title: "Risques Critiques", value: "\(projects.filter { $0.riskLevel == "Critique" }.count)", color: .red)
                     StatCard(title: "Risques Élevés", value: "\(projects.filter { $0.riskLevel == "Élevé" }.count)", color: .orange)
                     StatCard(title: "DAT Manquantes", value: "\(projects.filter { !$0.hasDAT }.count)", color: .purple)
@@ -1689,7 +1802,7 @@ struct SidebarCollaboratorAvatar: View {
 
     var body: some View {
         if let url = collaborator.photoURL(),
-           let image = NSImage(contentsOf: url) {
+           let image = ImageCache.image(for: url) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()

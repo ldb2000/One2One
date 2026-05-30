@@ -40,6 +40,20 @@ final class Collaborator {
     /// Marks a collaborator created ad-hoc from a meeting (reusable afterwards).
     var isAdhoc: Bool = false
 
+    /// Notes de préparation persistantes pour la prochaine 1:1 / manager.
+    /// Drainées dans `Meeting.prepNotes` à la création d'une meeting 1:1/manager
+    /// avec ce collab ; repeuplées au carryover des items non cochés post-meeting.
+    var standingPrepNotes: String = ""
+    var standingPrepUpdatedAt: Date?
+
+    // MARK: - Voice identification (speech-swift WeSpeaker ResNet34)
+    /// 256 Float32 mean embedding (1024 bytes). Nil = jamais enrôlé.
+    var voicePrint: Data?
+    /// Nombre d'updates EMA agrégées (pondère les mises à jour).
+    var voicePrintSamples: Int = 0
+    /// Date du dernier update (debug + audit).
+    var voicePrintUpdatedAt: Date?
+
     @Relationship(deleteRule: .nullify, inverse: \Interview.collaborator)
     var interviews: [Interview] = []
 
@@ -51,6 +65,14 @@ final class Collaborator {
 
     @Relationship(deleteRule: .cascade, inverse: \Note.collaborator)
     var notes: [Note] = []
+
+    /// Projets où ce collab est désigné Chef de projet (reverse query).
+    @Relationship(inverse: \Project.projectManager)
+    var projectsAsManager: [Project] = []
+
+    /// Projets où ce collab est désigné Architecte technique (reverse query).
+    @Relationship(inverse: \Project.technicalArchitect)
+    var projectsAsArchitect: [Project] = []
 
     init(name: String, role: String = "Architecte", isArchived: Bool = false) {
         self.stableID = UUID()
@@ -193,6 +215,11 @@ final class ActionTask {
     /// keep nil and we display "Date inconnue" rather than crashing.
     var createdAt: Date? = nil
     var completedAt: Date? = nil
+    /// Quand l'extraction LLM 2e passe renvoie un nom d'assignee qui ne matche
+    /// AUCUN collaborator (même via CollaboratorMatcher fuzzy), on stocke le
+    /// nom brut ici. L'UI affiche un chip orange "💡 Auto : <nom>" cliquable
+    /// qui ouvre la sheet de recherche pré-remplie sur ce nom.
+    var unresolvedAssigneeName: String? = nil
 
     @Relationship(deleteRule: .cascade, inverse: \ActionComment.task)
     var comments: [ActionComment] = []
@@ -225,6 +252,9 @@ final class ProjectAlert {
     var isResolved: Bool = false
     var project: Project?
     var interview: Interview?
+    /// Lien vers la réunion qui a soulevé l'alerte (rendu dans la meta-table
+    /// du rapport sous forme de callout cream).
+    var meeting: Meeting?
 
     var severity: String { severityRaw }
 
@@ -270,7 +300,34 @@ final class Meeting {
     var decisionsJSON: String = "[]"
     var openQuestionsJSON: String = "[]"
 
+    /// Snapshot in-flight de la préparation pour cette meeting précise.
+    /// Pour les kinds .oneToOne/.manager/.project, alimenté par drain depuis
+    /// le pool standing du collab/projet. Pour .global/.work, édité directement.
+    var prepNotes: String = ""
+    var prepGeneratedAt: Date?
+    /// Flag idempotence du drain (pool standing → meeting) à la création/
+    /// première ouverture du tab Préparation.
+    var prepDrainDone: Bool = false
+    /// Flag idempotence du carryover (meeting → pool standing) en fin de
+    /// transcription.
+    var prepCarryoverDone: Bool = false
+
+    // MARK: - Métadonnées d'en-tête rapport
+    /// Personnes/équipes mentionnées dans la séance mais non présentes
+    /// (affiché dans la meta-table d'en-tête du rapport).
+    /// Format libre (ex: "Zied (embarquement) · Nicolas Hauvinet · Travaux McKinsey").
+    var referencedAbsent: String = ""
+    /// Prochaine échéance / jalon à venir (affiché dans la meta-table).
+    /// Format libre (ex: "Partage du modèle avec N. Hauvinet, puis présentation
+    /// à la prochaine réunion McKinsey").
+    var nextDeadline: String = ""
+
     // Audio
+    /// Marqué comme "à conserver" — exclus du cleanup automatique.
+    var keepWavForever: Bool = false
+    /// Indique que `wavFilePath` pointe vers un .m4a compressé (AAC 32 kbps mono)
+    /// au lieu d'un .wav original.
+    var wavIsCompressed: Bool = false
     var wavFilePath: String?
     /// Durée d'enregistrement audio (≠ durée réelle de la réunion).
     var durationSeconds: Int = 0
@@ -297,6 +354,15 @@ final class Meeting {
     var participantStatusesJSON: String = "{}"
     var adhocAttendeesJSON: String = "[]"
 
+    /// JSON: {clusterID(String): "collabStableID|null"}.
+    /// Source de vérité du mapping cluster → Collaborator décidé par
+    /// SpeakerMatcher (auto ou manuel). Bulk-re-assign sur correction user.
+    var speakerAssignmentsJSON: String = "{}"
+
+    /// JSON: {clusterID(String): {"confidence":Double, "auto":Bool, "ambiguous":Bool, "candidates":[stableID]}}.
+    /// Métadonnée UI (badge ✓ auto / ? suggestion).
+    var speakerMatchMetaJSON: String = "{}"
+
     @Relationship(deleteRule: .nullify)
     var participants: [Collaborator] = []
 
@@ -306,6 +372,12 @@ final class Meeting {
     @Relationship(deleteRule: .cascade, inverse: \MeetingAttachment.meeting)
     var attachments: [MeetingAttachment] = []
 
+    /// Alertes soulevées pendant cette réunion (rendues comme callouts cream
+    /// dans le rapport). Extraites par `AIReportService.extractStructured`
+    /// puis reliées via `apply(report:)`.
+    @Relationship(deleteRule: .cascade, inverse: \ProjectAlert.meeting)
+    var meetingAlerts: [ProjectAlert] = []
+
     @Relationship(deleteRule: .cascade, inverse: \TranscriptChunk.meeting)
     var transcriptChunks: [TranscriptChunk] = []
 
@@ -313,6 +385,14 @@ final class Meeting {
     /// pour les meetings transcrits avant l'introduction des segments.
     @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.meeting)
     var transcriptSegments: [TranscriptSegment] = []
+
+    /// Historique des révisions du rapport (Writer/Critique loop). Version
+    /// 1 = draft initial, suivantes = post-critique. Cascade delete.
+    @Relationship(deleteRule: .cascade, inverse: \ReportRevision.meeting)
+    var reportRevisions: [ReportRevision] = []
+
+    // MARK: - Report template (chosen at create, overridable)
+    var reportTemplate: ReportTemplate?
 
     init(title: String = "", date: Date = Date(), notes: String = "") {
         self.stableID = UUID()
@@ -355,4 +435,22 @@ final class Meeting {
         guard let path = wavFilePath, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path)
     }
+}
+
+extension Meeting {
+    enum AudioAvailability {
+        case original     // .wav présent
+        case compressed   // .m4a présent
+        case deleted      // wavFilePath nil ou fichier absent
+    }
+
+    var audioAvailability: AudioAvailability {
+        guard let path = wavFilePath, !path.isEmpty,
+              FileManager.default.fileExists(atPath: path) else {
+            return .deleted
+        }
+        return wavIsCompressed ? .compressed : .original
+    }
+
+    var hasPlayableAudio: Bool { audioAvailability != .deleted }
 }

@@ -13,11 +13,20 @@ struct ActionsListView: View {
     @State private var filterProject: Project?
     @State private var filterEntity: Entity?
     @State private var filterCollaborator: Collaborator?
+    @State private var filterDueDate: DueDateFilter = .any
 
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
         case completed = "Terminées"
         case all = "Toutes"
+    }
+
+    enum DueDateFilter: String, CaseIterable, Identifiable {
+        case any         = "Toutes échéances"
+        case withDate    = "Avec échéance"
+        case withoutDate = "Sans échéance"
+        case overdue     = "En retard"
+        var id: String { rawValue }
     }
 
     private var filteredTasks: [ActionTask] {
@@ -42,6 +51,18 @@ struct ActionsListView: View {
             tasks = tasks.filter { $0.collaborator?.persistentModelID == collaborator.persistentModelID }
         }
 
+        switch filterDueDate {
+        case .any:
+            break
+        case .withDate:
+            tasks = tasks.filter { $0.dueDate != nil }
+        case .withoutDate:
+            tasks = tasks.filter { $0.dueDate == nil }
+        case .overdue:
+            let startOfToday = Calendar.current.startOfDay(for: Date())
+            tasks = tasks.filter { ($0.dueDate ?? .distantFuture) < startOfToday }
+        }
+
         if !searchText.isEmpty {
             tasks = tasks.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
         }
@@ -59,6 +80,7 @@ struct ActionsListView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .frame(maxWidth: 250)
 
                 projectFilterMenu
@@ -69,6 +91,14 @@ struct ActionsListView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: 180)
+
+                Picker("Échéance", selection: $filterDueDate) {
+                    ForEach(DueDateFilter.allCases) { f in
+                        Text(f.rawValue).tag(f)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 170)
 
                 Spacer()
 
@@ -194,40 +224,53 @@ struct ActionsListView: View {
     }
 }
 
-/// Renders Collaborator picker options with pinned (sidebar) at the top,
-/// then favourites (star), a divider, then the rest sorted A–Z.
-/// Includes ad-hoc collaborators so favourited ones aren't silently hidden.
+/// Renders Collaborator picker options groupés selon le filtre de la sidebar
+/// (`sidebar.collabsFilter`) :
+/// - `pinned`     → épinglés au top, divider, le reste A–Z
+/// - `favourites` → favoris au top, divider, le reste A–Z
+/// - `both`       → épinglés ET favoris au top (alpha mixé), divider, le reste A–Z
+/// Inclut tous les collaborateurs non-archivés pour ne pas masquer un favori.
 struct CollaboratorPickerOptions: View {
     let collaborators: [Collaborator]
+    @AppStorage("sidebar.collabsFilter") private var collabsFilter: String = "both"
 
     var body: some View {
-        let active = collaborators.filter { !$0.isArchived }
-        let pinned = active
-            .filter { $0.pinLevel >= 2 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let favourites = active
-            .filter { $0.pinLevel == 1 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let rest = active
-            .filter { $0.pinLevel == 0 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
+        let groups = partitioned()
         Group {
-            ForEach(pinned) { c in
-                Label(c.name, systemImage: "pin.fill").tag(c as Collaborator?)
+            ForEach(groups.top) { c in
+                Label(c.name, systemImage: pillIcon(for: c)).tag(c as Collaborator?)
             }
-            if !pinned.isEmpty && (!favourites.isEmpty || !rest.isEmpty) {
+            if !groups.top.isEmpty && !groups.rest.isEmpty {
                 Divider()
             }
-            ForEach(favourites) { c in
-                Label(c.name, systemImage: "star.fill").tag(c as Collaborator?)
-            }
-            if !favourites.isEmpty && !rest.isEmpty {
-                Divider()
-            }
-            ForEach(rest) { c in
+            ForEach(groups.rest) { c in
                 Text(c.name).tag(c as Collaborator?)
             }
+        }
+    }
+
+    private func partitioned() -> (top: [Collaborator], rest: [Collaborator]) {
+        let active = collaborators
+            .filter { !$0.isArchived }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        switch collabsFilter {
+        case "pinned":
+            return (active.filter { $0.pinLevel == 2 },
+                    active.filter { $0.pinLevel != 2 })
+        case "favourites":
+            return (active.filter { $0.pinLevel == 1 },
+                    active.filter { $0.pinLevel != 1 })
+        default:  // both
+            return (active.filter { $0.pinLevel >= 1 },
+                    active.filter { $0.pinLevel == 0 })
+        }
+    }
+
+    private func pillIcon(for c: Collaborator) -> String {
+        switch c.pinLevel {
+        case 2:  return "pin.fill"
+        case 1:  return "star.fill"
+        default: return "person"
         }
     }
 }
@@ -268,12 +311,12 @@ struct ActionTaskRow: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 Button(action: toggleCompleted) {
-                    Image(systemName: "circle.dashed")
-                        .foregroundColor(Color(red: 0.16, green: 0.65, blue: 0.27))  // GitHub-green
+                    Image(systemName: statusIcon)
+                        .foregroundColor(statusColor)
                         .font(.system(size: 18, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .help("Marquer comme terminée")
+                .help(statusHelp)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -356,30 +399,104 @@ struct ActionTaskRow: View {
 
     private var metaLine: some View {
         HStack(spacing: 4) {
+            // ID technique gardé en très discret (caption2 tertiary) pour
+            // ne pas saturer la ligne.
             Text("#\(task.persistentModelID.hashValue & 0xFFFF, specifier: "%X")")
-                .foregroundColor(.secondary)
-            Text("·").foregroundColor(.secondary)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             if let createdAt = task.createdAt {
+                Text("·").foregroundStyle(.tertiary)
                 Text("ouverte le \(Self.dateFmt.string(from: createdAt))")
-            } else {
-                Text("ouverte (date inconnue)")
             }
+            // "ouverte (date inconnue)" supprimé : pas d'info utile, juste du bruit.
             if let project = task.project {
-                Text("·").foregroundColor(.secondary)
+                Text("·").foregroundStyle(.tertiary)
                 Label(project.name, systemImage: "folder")
             }
             if let collab = task.collaborator {
-                Text("·").foregroundColor(.secondary)
+                Text("·").foregroundStyle(.tertiary)
                 Label(collab.name, systemImage: "person.fill")
             }
             if let due = task.dueDate {
-                Text("·").foregroundColor(.secondary)
-                Label(Self.dateFmt.string(from: due), systemImage: "calendar")
-                    .foregroundStyle(due < Date() ? .red : .secondary)
+                Text("·").foregroundStyle(.tertiary)
+                Label(Self.relativeDueLabel(due), systemImage: "calendar")
+                    .foregroundStyle(Self.dueColor(due))
+                    .help(Self.dateFmt.string(from: due))
             }
         }
         .font(.caption)
         .foregroundColor(.secondary)
+    }
+
+    // MARK: - Status visuals
+
+    private enum TaskStatus {
+        case overdue, dueToday, dueSoon, upcoming, undated
+    }
+
+    private var taskStatus: TaskStatus {
+        guard let due = task.dueDate else { return .undated }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today) ?? today
+        let in48h = cal.date(byAdding: .day, value: 2, to: today) ?? today
+        if due < today { return .overdue }
+        if due < tomorrow { return .dueToday }
+        if due < in48h { return .dueSoon }
+        return .upcoming
+    }
+
+    private var statusIcon: String {
+        switch taskStatus {
+        case .overdue:  return "exclamationmark.circle.fill"
+        case .dueToday: return "circle.fill"
+        case .dueSoon:  return "circle.fill"
+        case .upcoming: return "circle"
+        case .undated:  return "circle.dashed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch taskStatus {
+        case .overdue:  return .red
+        case .dueToday: return .orange
+        case .dueSoon:  return .blue
+        case .upcoming: return .secondary
+        case .undated:  return .secondary.opacity(0.6)
+        }
+    }
+
+    private var statusHelp: String {
+        switch taskStatus {
+        case .overdue:  return "En retard — cliquer pour marquer comme terminée"
+        case .dueToday: return "À échéance aujourd'hui"
+        case .dueSoon:  return "Échéance dans les 48h"
+        case .upcoming: return "À venir"
+        case .undated:  return "Sans date"
+        }
+    }
+
+    static func relativeDueLabel(_ due: Date) -> String {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let dueDay = cal.startOfDay(for: due)
+        let days = cal.dateComponents([.day], from: today, to: dueDay).day ?? 0
+        switch days {
+        case ..<0:  return "En retard de \(-days)j"
+        case 0:     return "Aujourd'hui"
+        case 1:     return "Demain"
+        case 2...7: return "Dans \(days)j"
+        default:    return dateFmt.string(from: due)
+        }
+    }
+
+    static func dueColor(_ due: Date) -> Color {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let in48h = cal.date(byAdding: .day, value: 2, to: today) ?? today
+        if due < today { return .red }
+        if due < in48h { return .orange }
+        return .secondary
     }
 
     private var expandedDetails: some View {

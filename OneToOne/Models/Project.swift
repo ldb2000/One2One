@@ -56,7 +56,29 @@ final class Project {
     var ditLink: URL?
 
     var entity: Entity?
-    
+
+    /// Chef de projet — Optional FK (Collaborator). Affiché dans
+    /// ProjectDetailView § Informations Générales et utilisé pour
+    /// la reverse query depuis la fiche collab.
+    var projectManager: Collaborator?
+
+    /// Architecte technique du projet — Optional FK (Collaborator).
+    /// Cas d'usage : dans un 1:1 avec un collab architecte, on liste
+    /// automatiquement tous les projets où il endosse ce rôle.
+    var technicalArchitect: Collaborator?
+
+    /// Free-text planning notes. Surfaced via {{project.planning}} variable
+    /// in report templates.
+    var planningText: String = ""
+
+    /// Identifiant stable pour les tokens inter-fenêtres (WindowGroup).
+    /// `nil` sur les lignes antérieures — backfillé au lancement de l'app.
+    var stableID: UUID? = nil
+
+    /// Notes de préparation persistantes pour la prochaine réunion projet.
+    var standingPrepNotes: String = ""
+    var standingPrepUpdatedAt: Date?
+
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.project)
     var tasks: [ActionTask] = []
 
@@ -86,6 +108,17 @@ final class Project {
         self.projectType = projectType
         self.phase = phase
         self.status = status
+        self.stableID = UUID()
+    }
+
+    /// Renvoie `stableID` en backfillant un nouvel UUID si la DB contient `nil`
+    /// (cas des projets créés avant l'ajout du champ). Persiste immédiatement.
+    var ensuredStableID: UUID {
+        if let stableID { return stableID }
+        let new = UUID()
+        self.stableID = new
+        try? modelContext?.save()
+        return new
     }
 }
 

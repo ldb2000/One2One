@@ -29,7 +29,21 @@ final class AppSettings {
     var cloudToken: String = ""
     var apiEndpoint: String = "https://api.openai.com/v1"
     var modelName: String = "gpt-4o"
-    var provider: AIProvider = AIProvider.claudeOAuth
+
+    /// Stockage stable du provider en `String` plutôt qu'enum Codable.
+    /// Contournement du bug SwiftData où les enums `Codable` non-Optionnels
+    /// avec valeur par défaut ne sont pas restaurés correctement après
+    /// relaunch (le champ est réinitialisé à la valeur par défaut à chaque
+    /// chargement). En stockant le rawValue en String pur, SwiftData
+    /// persiste de manière fiable.
+    var providerRaw: String = AIProvider.claudeOAuth.rawValue
+
+    /// Provider exposé en enum — lecture/écriture transparente via
+    /// `providerRaw`. Computed donc non-stocké : pas de doublon en DB.
+    var provider: AIProvider {
+        get { AIProvider(rawValue: providerRaw) ?? .claudeOAuth }
+        set { providerRaw = newValue.rawValue }
+    }
 
     // Per-feature AI toggles
     var useAIForImport: Bool = true
@@ -60,6 +74,15 @@ final class AppSettings {
     /// Email du manager (optionnel, pour export futur — non utilisé en V1).
     var managerEmail: String = ""
 
+    /// Nom de l'utilisateur de l'app (rédacteur des comptes-rendus).
+    /// Si non vide ET matche un participant de la réunion → l'utilisateur
+    /// est marqué "(rédacteur)" dans la ligne PARTICIPANTS du rapport.
+    var ownerName: String = ""
+
+    /// Rôle / titre de l'utilisateur (ex: "Responsable de l'architecture technique").
+    /// Affiché à côté du nom owner dans la ligne PARTICIPANTS du rapport.
+    var ownerRole: String = ""
+
     /// Liste des catégories de classification utilisateur (éditable).
     /// Stockée en JSON pour rester migration-friendly.
     var managerCategoriesJSON: String = AppSettings.defaultManagerCategoriesJSON
@@ -88,6 +111,14 @@ final class AppSettings {
     /// Notifier au démarrage de la réunion.
     var notifMeetingStart: Bool = true
 
+    /// Bannière de confirmation au démarrage de l'enregistrement.
+    var notifRecordingStart: Bool = true
+
+    /// Pré-rappel style Outlook (banner + son + bouton Teams).
+    var notifMeetingPreStart: Bool = true
+    /// Minutes avant le début pour le pré-rappel (Outlook default = 15).
+    var notifMeetingPreStartMinutes: Int = 5
+
     /// Notifier 5 min avant la fin de la réunion.
     var notifMeetingEndWarning: Bool = true
 
@@ -96,6 +127,30 @@ final class AppSettings {
 
     /// Seuil de confiance pour l'importation automatique (0.0 à 1.0).
     var autoImportThreshold: Double = 0.9
+
+    /// Active le carryover automatique des items non cochés vers le pool
+    /// standing (collab ou projet) à la fin d'une meeting.
+    var prepAutoCarryover: Bool = true
+
+    /// Liste d'apps (par nom exact) à cacher dans le sélecteur de capture
+    /// d'écran. Stockée en JSON pour migration douce.
+    var captureBlacklistJSON: String = "[]"
+
+    /// Layout configuré de la sidebar droite des réunions.
+    /// JSON : `[{"id":"actions","visible":true}, …]`. Vide → defaultLayout
+    /// est appliqué par le helper computed.
+    var rightSidebarLayoutJSON: String = ""
+
+    var captureBlacklist: [String] {
+        get {
+            (try? JSONDecoder().decode([String].self,
+                from: Data(captureBlacklistJSON.utf8))) ?? []
+        }
+        set {
+            captureBlacklistJSON = (try? String(data: JSONEncoder().encode(newValue),
+                encoding: .utf8)) ?? "[]"
+        }
+    }
 
     // MARK: - Contact photo sync
     var contactPhotoSyncEnabled: Bool = false
@@ -110,6 +165,28 @@ final class AppSettings {
 
     // Deprecated — kept to avoid SwiftData lightweight migration churn.
     var braveSearchKey: String = ""
+
+    // MARK: - Speaker identification (diarization + matching)
+    /// Diarisation = process coûteux (modèles MLX + minutes de calcul) qui
+    /// reste OPT-IN. L'utilisateur l'active explicitement dans Réglages ou
+    /// déclenche manuellement via "Détecter les speakers".
+    var speakerIdEnabled: Bool = false
+    var speakerIdAutoThreshold: Double = 0.75
+    var speakerIdSuggestThreshold: Double = 0.60
+    /// Pyannote cluster merge threshold (0.0-2.0). Higher = less merging =
+    /// more speakers détectés. Default speech-swift 0.715 fusionne agressivement
+    /// (souvent 2 speakers seulement) — on monte à 0.85 pour mieux séparer.
+    var diarizationClusterThreshold: Double = 0.70
+
+    // MARK: - Maintenance / cleanup audio
+    /// Compresse les WAV plus vieux que ce nombre de jours.
+    var wavCompressionDays: Int = 7
+    /// Supprime définitivement les WAV plus vieux que ce nombre de jours
+    /// (à condition qu'un rapport existe).
+    var wavDeletionDays: Int = 30
+    /// Si activé, lance le cleanup au démarrage (max 1×/24h).
+    var autoCleanupOnLaunch: Bool = false
+    var lastCleanupAt: Date?
 
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
