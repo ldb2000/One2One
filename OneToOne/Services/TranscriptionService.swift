@@ -129,7 +129,7 @@ final class TranscriptionService: ObservableObject {
             let engine: STTEngine = VoxtralEngine(variant: settings.voxtralVariant)
             onPhase?(.loadingModel)
             try await engine.load()
-            let diar: (blocks: [TurnMerger.Block], embeddings: [Int: [Float]])
+            let diar: (blocks: [TurnMerger.Block], embeddings: [Int: [Float]], duration: Double)
             do {
                 diar = try await DiarizeFirstTranscriber.run(
                     audioURL: audioURL, engine: engine, language: self.language,
@@ -146,6 +146,15 @@ final class TranscriptionService: ObservableObject {
                 return result
             }
 
+            if diar.blocks.isEmpty {
+                print("[TranscriptionService] diarize-first produced no blocks. Fallback anonymous.")
+                let result = try await transcribeChunks(
+                    audioURL: audioURL, engine: engine, settings: settings,
+                    onPhase: onPhase, onProgress: progress)
+                persistAnonymousSegments(sttResult: result, meeting: meeting, in: context)
+                return result
+            }
+
             onPhase?(.matching)
             let assignments = SpeakerMatcher.match(
                 clusterEmbeddings: diar.embeddings, meeting: meeting,
@@ -155,7 +164,7 @@ final class TranscriptionService: ObservableObject {
 
             let text = canonical.map { $0.text }.joined(separator: "\n")
             var result = STTResult(text: text, language: self.language,
-                                   durationSeconds: 0, segments: [])
+                                   durationSeconds: diar.duration, segments: [])
             result.clusterEmbeddings = diar.embeddings
             return result
         }

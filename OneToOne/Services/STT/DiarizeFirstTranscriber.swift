@@ -22,7 +22,7 @@ enum DiarizeFirstTranscriber {
                     clusterThreshold: Float,
                     onPhase: ((TranscriptionPhase) -> Void)?,
                     onProgress: ((Double, String) -> Void)?) async throws
-        -> (blocks: [TurnMerger.Block], embeddings: [Int: [Float]]) {
+        -> (blocks: [TurnMerger.Block], embeddings: [Int: [Float]], duration: Double) {
         #if canImport(MLXAudioSTT)
         let diar = try await PyannoteDiarizer.shared.diarize(
             audioURL: audioURL, clusterThreshold: clusterThreshold,
@@ -33,6 +33,7 @@ enum DiarizeFirstTranscriber {
         onPhase?(.transcribing)
         let (_, audio) = try loadAudioArray(from: audioURL, sampleRate: sampleRate)
         let total = audio.shape.last ?? 0
+        let duration = Double(total) / Double(sampleRate)
         var blocks: [TurnMerger.Block] = []
         let n = max(1, merged.count)
         for (i, t) in merged.enumerated() {
@@ -48,7 +49,7 @@ enum DiarizeFirstTranscriber {
             blocks.append(TurnMerger.Block(speaker: t.clusterID, start: t.startSec, end: t.endSec, text: text))
         }
         onProgress?(1.0, "Terminé")
-        return (blocks, diar.perClusterEmbedding)
+        return (blocks, diar.perClusterEmbedding, duration)
         #else
         throw STTError.mlxNotLinked
         #endif
