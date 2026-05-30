@@ -12,7 +12,7 @@ protocol STTEngine: AnyObject {
     var isLoaded: Bool { get }
     func load() async throws
     #if canImport(MLX)
-    func transcribe(clip: MLXArray, language: String, maxTokens: Int) -> String
+    func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String
     #endif
 }
 
@@ -59,7 +59,7 @@ enum STTModelResolver {
             .appendingPathComponent("snapshots", isDirectory: true)
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: snapshotsRoot, includingPropertiesForKeys: nil) else { return nil }
-        return entries.first
+        return entries.sorted { $0.lastPathComponent > $1.lastPathComponent }.first
     }
 
     /// Vrai s'il existe config.json + au moins un .safetensors dans le dossier.
