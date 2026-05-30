@@ -1308,7 +1308,7 @@ struct CollaboratorDetailView: View {
     @ViewBuilder
     private var collaboratorPhotoView: some View {
         if let url = collaborator.photoURL(),
-           let image = NSImage(contentsOf: url) {
+           let image = ImageCache.image(for: url) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()

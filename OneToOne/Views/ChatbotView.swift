@@ -553,21 +553,24 @@ struct ChatbotView: View {
             return
         }
 
-        let databaseContext = buildDatabaseContext()
-        let history = serializedConversationHistory(excludingLast: 1)
-        let prompt = """
-        Tu es l'assistant d'analyse de l'application OneToOne.
-        Reponds uniquement a partir des donnees ci-dessous (incluant les rapports de réunion déjà générés). Si l'information manque, dis-le clairement.
-        Sois concret, structure et oriente pilotage. Tiens compte de la conversation antérieure.
-
-        Base de donnees:
-        \(databaseContext)
-        \(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
-        Question actuelle:
-        \(question)
-        """
-
         Task {
+            // Build du contexte (scan complet des projets/collabs/meetings/notes,
+            // objets SwiftData → confinés main-actor) déplacé hors du chemin
+            // synchrone : isLoading/spinner s'affichent avant ce travail lourd.
+            let databaseContext = await MainActor.run { buildDatabaseContext() }
+            let history = await MainActor.run { serializedConversationHistory(excludingLast: 1) }
+            let prompt = """
+            Tu es l'assistant d'analyse de l'application OneToOne.
+            Reponds uniquement a partir des donnees ci-dessous (incluant les rapports de réunion déjà générés). Si l'information manque, dis-le clairement.
+            Sois concret, structure et oriente pilotage. Tiens compte de la conversation antérieure.
+
+            Base de donnees:
+            \(databaseContext)
+            \(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
+            Question actuelle:
+            \(question)
+            """
+
             do {
                 if settings.provider == .ollama {
                     let reachable = await checkOllamaReachability()

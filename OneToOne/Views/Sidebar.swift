@@ -9,6 +9,11 @@ struct MainSidebarView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var router: QuickLaunchRouter
     @State private var searchText: String = ""
+    /// Version debouncée de `searchText`. Les filtres lourds (scan des corps
+    /// de notes pour chaque projet/collab/entité) lisent ceci au lieu de
+    /// `searchText` → un seul scan après la frappe, pas un par caractère.
+    @State private var debouncedSearch: String = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var expandedEntityNames: Set<String> = []
     @State private var selectedProjectIDs: Set<PersistentIdentifier> = []
     @State private var isMultiSelectMode = false
@@ -28,13 +33,13 @@ struct MainSidebarView: View {
     // MARK: - Filtered data
 
     private var filteredEntities: [Entity] {
-        guard !searchText.isEmpty else { return entities }
+        guard !debouncedSearch.isEmpty else { return entities }
         // Inclure une entité si son nom matche OU si elle contient au moins
         // un projet qui matche — sinon une recherche sur un nom de projet
         // cache TOUS les projets de l'entité.
         return entities.filter { entity in
-            if entity.name.localizedCaseInsensitiveContains(searchText) { return true }
-            return entity.projects.contains { projectMatches($0, searchText) }
+            if entity.name.localizedCaseInsensitiveContains(debouncedSearch) { return true }
+            return entity.projects.contains { projectMatches($0, debouncedSearch) }
         }
     }
 
@@ -45,8 +50,8 @@ struct MainSidebarView: View {
         let active = collaborators
             .filter { !$0.isArchived }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        if !searchText.isEmpty {
-            return active.filter { collabMatches($0, searchText) }
+        if !debouncedSearch.isEmpty {
+            return active.filter { collabMatches($0, debouncedSearch) }
         }
         switch collabsFilter {
         case "pinned":     return active.filter { $0.pinLevel == 2 }
@@ -91,26 +96,26 @@ struct MainSidebarView: View {
 
     private var filteredArchivedCollaborators: [Collaborator] {
         let archived = collaborators.filter { $0.isArchived }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        guard !searchText.isEmpty else { return archived }
-        return archived.filter { collabMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return archived }
+        return archived.filter { collabMatches($0, debouncedSearch) }
     }
 
     private func filteredProjectsFor(entity: Entity) -> [Project] {
         let entityProjects = entity.projects.filter { !$0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !searchText.isEmpty else { return entityProjects }
-        return entityProjects.filter { projectMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return entityProjects }
+        return entityProjects.filter { projectMatches($0, debouncedSearch) }
     }
 
     private var filteredOrphanProjects: [Project] {
         let orphans = projects.filter { $0.entity == nil && !$0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !searchText.isEmpty else { return orphans }
-        return orphans.filter { projectMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return orphans }
+        return orphans.filter { projectMatches($0, debouncedSearch) }
     }
 
     private var filteredArchivedProjects: [Project] {
         let archived = projects.filter { $0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !searchText.isEmpty else { return archived }
-        return archived.filter { projectMatches($0, searchText) }
+        guard !debouncedSearch.isEmpty else { return archived }
+        return archived.filter { projectMatches($0, debouncedSearch) }
     }
 
     // MARK: - Match helpers (incluent les notes)
@@ -387,6 +392,19 @@ struct MainSidebarView: View {
                 }
             }
             .searchable(text: $searchText, placement: .sidebar, prompt: "Rechercher...")
+            .onChange(of: searchText) {
+                searchDebounceTask?.cancel()
+                // Vider la recherche s'applique immédiatement ; sinon debounce.
+                if searchText.isEmpty {
+                    debouncedSearch = ""
+                    return
+                }
+                searchDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    if Task.isCancelled { return }
+                    debouncedSearch = searchText
+                }
+            }
             .listStyle(.sidebar)
             .sheet(item: $renamingCollaborator) { collaborator in
                 VStack(spacing: 16) {
@@ -1212,11 +1230,10 @@ struct DashboardView: View {
                 }
 
                 // Stats
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 20) {
                     StatCard(title: "Total Projets", value: "\(projects.count)", color: .blue)
                     StatCard(title: "En Build", value: "\(projects.filter { $0.phase == "Build" }.count)", color: .orange)
                     StatCard(title: "En Run", value: "\(projects.filter { $0.phase == "Run" }.count)", color: .green)
-
                     StatCard(title: "Risques Critiques", value: "\(projects.filter { $0.riskLevel == "Critique" }.count)", color: .red)
                     StatCard(title: "Risques Élevés", value: "\(projects.filter { $0.riskLevel == "Élevé" }.count)", color: .orange)
                     StatCard(title: "DAT Manquantes", value: "\(projects.filter { !$0.hasDAT }.count)", color: .purple)
@@ -1785,7 +1802,7 @@ struct SidebarCollaboratorAvatar: View {
 
     var body: some View {
         if let url = collaborator.photoURL(),
-           let image = NSImage(contentsOf: url) {
+           let image = ImageCache.image(for: url) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()

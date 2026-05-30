@@ -215,7 +215,13 @@ struct AIReportService {
         var block = "\n\n# Documents joints à cette réunion\n"
         for (name, txt) in docs {
             block += "## \(name)\n"
-            block += String(txt.prefix(perDoc)) + "\n\n"
+            if txt.count > perDoc {
+                block += String(txt.prefix(perDoc))
+                    + "\n\n[… document tronqué : \(txt.count - perDoc) caractères omis, voir le RAG …]\n\n"
+                print("[AIReport] Document '\(name)' tronqué : \(txt.count - perDoc)/\(txt.count) caractères omis.")
+            } else {
+                block += txt + "\n\n"
+            }
         }
         return block
     }

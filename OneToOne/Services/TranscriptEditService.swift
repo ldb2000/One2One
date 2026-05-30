@@ -13,7 +13,12 @@ enum TranscriptEditService {
     /// Si `meeting.audioAvailability != .original`, le splice audio est skippé
     /// (texte supprimé seul).
     ///
-    /// Throw si le splice audio échoue (transcript intact dans ce cas).
+    /// Ordre : audio d'abord (échec validation/I-O → transcript intact, cas
+    /// commun), puis texte. Il n'existe pas de commit 2-phase entre le système
+    /// de fichiers et SwiftData : si `context.save()` échoue APRÈS le splice
+    /// audio (cas rare : disque plein…), audio et texte sont désynchronisés et
+    /// non récupérables. Ce cas remonte une `TranscriptEditError.saveFailedAfterAudioCut`
+    /// explicite pour que l'appelant alerte (re-transcription recommandée).
     static func deleteSegment(_ seg: TranscriptSegment,
                                in meeting: Meeting,
                                context: ModelContext) async throws {
@@ -22,7 +27,8 @@ enum TranscriptEditService {
         let cutTo = seg.endSeconds
 
         // 1. Splice audio first (failure-safe : si throw, transcript intact)
-        if meeting.audioAvailability == .original, let wavURL = meeting.wavFileURL {
+        let audioCut = meeting.audioAvailability == .original && meeting.wavFileURL != nil
+        if audioCut, let wavURL = meeting.wavFileURL {
             try await AudioFileEditor.cut(url: wavURL, from: cutFrom, to: cutTo)
         }
 
@@ -37,6 +43,30 @@ enum TranscriptEditService {
 
         // 3. Suppression du segment cible
         context.delete(seg)
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            // Pas de rollback du splice audio possible : signaler la désync.
+            if audioCut {
+                throw TranscriptEditError.saveFailedAfterAudioCut(underlying: error)
+            }
+            throw error
+        }
+    }
+}
+
+enum TranscriptEditError: LocalizedError {
+    /// L'audio a été coupé mais la persistance du transcript a échoué :
+    /// audio et texte sont désynchronisés et non récupérables.
+    case saveFailedAfterAudioCut(underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .saveFailedAfterAudioCut(let underlying):
+            return "L'audio a été modifié mais le transcript n'a pas pu être "
+                + "enregistré (\(underlying.localizedDescription)). "
+                + "Audio et texte sont désormais désynchronisés — "
+                + "une re-transcription est recommandée."
+        }
     }
 }

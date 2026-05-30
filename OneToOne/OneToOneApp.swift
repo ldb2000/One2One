@@ -357,6 +357,9 @@ struct ContentView: View {
             deduplicate(context: context, label: "SlideCapture",
                         fetch: FetchDescriptor<SlideCapture>(),
                         get: { $0.id }, set: { $0.id = $1 })
+            deduplicate(context: context, label: "TranscriptChunk",
+                        fetch: FetchDescriptor<TranscriptChunk>(),
+                        get: { $0.chunkId }, set: { $0.chunkId = $1 })
 
             BuiltInTemplates.seedIfNeeded(in: context)
             try context.save()

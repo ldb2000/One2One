@@ -259,11 +259,21 @@ class AIIngestionService {
             // Legacy .xls: try reading via strings command
             return try extractTextViaStrings(url: url)
         case "txt", "md", "csv", "text":
-            return try String(contentsOf: url, encoding: .utf8)
+            return try readTextWithFallback(url: url)
         default:
             // Try reading as plain text
-            return try String(contentsOf: url, encoding: .utf8)
+            return try readTextWithFallback(url: url)
         }
+    }
+
+    /// Lit un fichier texte en tolérant les encodages legacy : UTF-8 d'abord,
+    /// puis Windows CP1252 / ISO Latin-1 (fichiers Office/Windows non-UTF8).
+    private func readTextWithFallback(url: URL) throws -> String {
+        if let s = try? String(contentsOf: url, encoding: .utf8) { return s }
+        if let s = try? String(contentsOf: url, encoding: .windowsCP1252) { return s }
+        if let s = try? String(contentsOf: url, encoding: .isoLatin1) { return s }
+        // Dernier recours : remonte l'erreur UTF-8 d'origine.
+        return try String(contentsOf: url, encoding: .utf8)
     }
 
     private func extractTextFromPDF(url: URL) throws -> String {

@@ -129,6 +129,10 @@ struct MeetingView: View {
     @State private var showSpeakersView: Bool = true
     @State private var renamingSpeakerID: Int?
     @State private var segmentToDelete: TranscriptSegment?
+    @State private var segmentDeleteError: String?
+    /// Cache de l'existence du wav sur disque. Évite un `FileManager.fileExists`
+    /// synchrone dans `body` à chaque render. Rafraîchi via `refreshWavExistence()`.
+    @State private var hasWavFile: Bool = false
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
@@ -162,7 +166,7 @@ struct MeetingView: View {
                 reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
                 capturedSlidesCount: currentSlides.count,
-                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+                hasWav: hasWavFile,
                 onStartRecording: { Task { await startRecording() } },
                 onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
                 onAppendRecording: { Task { await startAppendRecording() } },
@@ -181,7 +185,7 @@ struct MeetingView: View {
                     }
                 },
                 onEditAudio: { audioEditMode = .trimStart },
-                hasWAV: meeting.wavFileURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
+                hasWAV: hasWavFile,
                 onExportMarkdown: {
                     let md = ExportService().exportMeetingMarkdown(meeting: meeting)
                     let pb = NSPasteboard.general
@@ -212,7 +216,7 @@ struct MeetingView: View {
                 stt: stt,
                 player: player,
                 captureService: captureService,
-                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+                hasWav: hasWavFile,
                 showPlayback: showPlayback,
                 onSnapshot: { captureService.snapshot() },
                 onStopCapture: { Task { await captureService.stop() } },
@@ -329,10 +333,14 @@ struct MeetingView: View {
             Task { await importExistingWAV(result: result) }
         }
         .onAppear {
+            refreshWavExistence()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
             didAutoStart = true
             Task { await startRecording() }
         }
+        .onChange(of: meeting.wavFilePath) { refreshWavExistence() }
+        .onChange(of: recorder.isRecording) { refreshWavExistence() }
+        .onChange(of: audioEditMode) { if audioEditMode == nil { refreshWavExistence() } }
     }
 
     // MARK: - Main panel
@@ -388,6 +396,12 @@ struct MeetingView: View {
 
     private func fileExists(_ url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// Recalcule `hasWavFile` (1 stat disque). À appeler hors `body` : à
+    /// l'apparition, après création/import/édition/suppression du wav.
+    private func refreshWavExistence() {
+        hasWavFile = meeting.wavFileURL.map { fileExists($0) } ?? false
     }
 
     private func debouncedSave(delay: TimeInterval = 0.6) {
@@ -1806,11 +1820,19 @@ struct MeetingView: View {
                         )
                     } catch {
                         print("[MeetingView] deleteSegment failed: \(error)")
+                        segmentDeleteError = error.localizedDescription
                     }
                 }
             }
         } message: { _ in
             Text("Le texte et la portion audio correspondante seront supprimés définitivement.")
+        }
+        .alert("Suppression du passage",
+               isPresented: Binding(get: { segmentDeleteError != nil },
+                                     set: { if !$0 { segmentDeleteError = nil } })) {
+            Button("OK", role: .cancel) { segmentDeleteError = nil }
+        } message: {
+            Text(segmentDeleteError ?? "")
         }
     }
 
