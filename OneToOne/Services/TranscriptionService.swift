@@ -47,11 +47,11 @@ enum STTError: LocalizedError {
         switch self {
         case .modelMissing(let searched):
             let paths = searched.map { $0.path }.joined(separator: "\n• ")
-            return "Modèle Cohere introuvable. Chemins testés :\n• \(paths)"
+            return "Modèle STT introuvable. Chemins testés :\n• \(paths)"
         case .mlxNotLinked:
             return "MLX non linké : la dépendance mlx-audio-swift n'est pas disponible dans ce build."
         case .loadFailed(let detail):
-            return "Échec chargement modèle Cohere : \(detail)"
+            return "Échec chargement modèle STT : \(detail)"
         case .transcribeFailed(let detail):
             return "Échec transcription : \(detail)"
         case .audioReadFailed(let detail):
@@ -103,12 +103,25 @@ final class TranscriptionService: ObservableObject {
                           in context: ModelContext,
                           onPhase: ((TranscriptionPhase) -> Void)? = nil,
                           onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
+        isTranscribing = true
+        progressFraction = 0
+        progressLabel = ""
+        defer {
+            isTranscribing = false
+            progressFraction = 0
+            progressLabel = ""
+        }
+        let progress: (Double, String) -> Void = { [weak self] fraction, status in
+            self?.progressFraction = fraction
+            self?.progressLabel = status
+            onProgress?(fraction, status)
+        }
         switch settings.transcriptionMode {
         case .transcriptionOnly:
             let engine = makeEngine(kind: settings.transcriptionEngine, settings: settings)
             let result = try await transcribeChunks(
                 audioURL: audioURL, engine: engine, settings: settings,
-                onPhase: onPhase, onProgress: onProgress)
+                onPhase: onPhase, onProgress: progress)
             persistAnonymousSegments(sttResult: result, meeting: meeting, in: context)
             return result
 
@@ -121,14 +134,14 @@ final class TranscriptionService: ObservableObject {
                 diar = try await DiarizeFirstTranscriber.run(
                     audioURL: audioURL, engine: engine, language: self.language,
                     clusterThreshold: Float(settings.diarizationClusterThreshold),
-                    onPhase: onPhase, onProgress: onProgress)
+                    onPhase: onPhase, onProgress: progress)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 print("[TranscriptionService] diarize-first failed: \(error). Fallback anonymous.")
                 let result = try await transcribeChunks(
                     audioURL: audioURL, engine: engine, settings: settings,
-                    onPhase: onPhase, onProgress: onProgress)
+                    onPhase: onPhase, onProgress: progress)
                 persistAnonymousSegments(sttResult: result, meeting: meeting, in: context)
                 return result
             }

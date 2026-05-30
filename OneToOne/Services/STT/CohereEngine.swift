@@ -35,7 +35,11 @@ final class CohereEngine: STTEngine {
                 repoId: Self.repoId, manualKey: Self.manualPathKey))
         }
         do {
-            model = try CohereTranscribeModel.fromDirectory(dir)
+            struct Box: @unchecked Sendable { let model: CohereTranscribeModel }
+            let box = try await Task.detached(priority: .userInitiated) {
+                Box(model: try CohereTranscribeModel.fromDirectory(dir))
+            }.value
+            model = box.model
         } catch {
             throw STTError.loadFailed(error.localizedDescription)
         }

@@ -58,7 +58,11 @@ final class VoxtralEngine: STTEngine {
                 repoId: repoId, manualKey: Self.manualPathKey))
         }
         do {
-            model = try VoxtralRealtimeModel.fromDirectory(dir)
+            struct Box: @unchecked Sendable { let model: VoxtralRealtimeModel }
+            let box = try await Task.detached(priority: .userInitiated) {
+                Box(model: try VoxtralRealtimeModel.fromDirectory(dir))
+            }.value
+            model = box.model
         } catch {
             throw STTError.loadFailed(error.localizedDescription)
         }
