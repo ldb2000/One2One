@@ -191,7 +191,7 @@ struct MaintenanceView: View {
                 meetingTitle: title + " · batch"
             ) { _ in
                 let stt = TranscriptionService.shared
-                _ = try await stt.transcribeWithDiarization(
+                _ = try await stt.runTranscription(
                     audioURL: wavURL,
                     meeting: meeting,
                     settings: snap,

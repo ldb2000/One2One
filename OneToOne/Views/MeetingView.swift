@@ -422,7 +422,7 @@ struct MeetingView: View {
                 // `TranscriptionService.persistAligned/AnonymousSegments`
                 // qui efface juste avant d'insérer les nouveaux. Préserve
                 // les segments existants en cas d'annulation / d'erreur STT.
-                let result = try await stt.transcribeWithDiarization(
+                let result = try await stt.runTranscription(
                     audioURL: wavURL,
                     meeting: meeting,
                     settings: settings,
@@ -1250,7 +1250,7 @@ struct MeetingView: View {
             transcriptionPhase = .transcribing
             transcriptionProgress = nil
             transcriptionProgressStatus = nil
-            let result = try await stt.transcribeWithDiarization(
+            let result = try await stt.runTranscription(
                 audioURL: finalURL,
                 meeting: meeting,
                 settings: settings,

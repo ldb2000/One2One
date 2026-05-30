@@ -72,13 +72,8 @@ enum STTError: LocalizedError {
 final class TranscriptionService: ObservableObject {
     static let shared = TranscriptionService()
 
-    static let defaultRepoId = "beshkenadze/cohere-transcribe-03-2026-mlx-8bit"
-
     // MARK: - Published state
 
-    @Published private(set) var isModelLoaded: Bool = false
-    @Published private(set) var isLoading: Bool = false
-    @Published private(set) var loadingProgress: String = ""
     @Published private(set) var isTranscribing: Bool = false
     /// Progression de la transcription (0.0…1.0). Mis à jour en cours
     /// d'exécution segment par segment.
@@ -92,287 +87,120 @@ final class TranscriptionService: ObservableObject {
 
     // MARK: - UserDefaults keys
 
-    private static let manualPathKey = "onetoone_cohere_manual_model_path"
     private static let languageKey = "onetoone_cohere_language"
-
-    #if canImport(MLXAudioSTT)
-    private var asr: CohereTranscribeModel?
-    #endif
 
     private init() {
         self.language = UserDefaults.standard.string(forKey: Self.languageKey) ?? "fr"
     }
 
-    // MARK: - Paths
-
-    static var managedModelDirectory: URL {
-        let fm = FileManager.default
-        let base = URL.applicationSupportDirectory
-            .appendingPathComponent("OneToOne", isDirectory: true)
-            .appendingPathComponent("models", isDirectory: true)
-            .appendingPathComponent(defaultRepoId.replacingOccurrences(of: "/", with: "_"), isDirectory: true)
-        if !fm.fileExists(atPath: base.path) {
-            try? fm.createDirectory(at: base, withIntermediateDirectories: true)
-        }
-        return base
-    }
-
-    /// Cache HuggingFace partagé avec Mickey et la CLI `huggingface-cli`.
-    static var huggingFaceSnapshotsDir: URL {
-        let safeRepo = "models--" + defaultRepoId.replacingOccurrences(of: "/", with: "--")
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub", isDirectory: true)
-            .appendingPathComponent(safeRepo, isDirectory: true)
-            .appendingPathComponent("snapshots", isDirectory: true)
-    }
-
-    func resolveExistingModelDirectory() -> URL? {
-        let candidates: [URL?] = [
-            firstSnapshotInside(Self.huggingFaceSnapshotsDir),
-            Self.managedModelDirectory,
-            UserDefaults.standard.string(forKey: Self.manualPathKey).map { URL(fileURLWithPath: $0) }
-        ]
-        for case let url? in candidates where containsModel(url) {
-            return url
-        }
-        return nil
-    }
-
-    func candidateDirectories() -> [URL] {
-        var out: [URL] = []
-        if let snap = firstSnapshotInside(Self.huggingFaceSnapshotsDir) { out.append(snap) }
-        out.append(Self.managedModelDirectory)
-        if let manual = UserDefaults.standard.string(forKey: Self.manualPathKey) {
-            out.append(URL(fileURLWithPath: manual))
-        }
-        return out
-    }
-
-    func setManualModelDirectory(_ url: URL) {
-        UserDefaults.standard.set(url.path, forKey: Self.manualPathKey)
-    }
-
-    private func firstSnapshotInside(_ snapshotsRoot: URL) -> URL? {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: snapshotsRoot, includingPropertiesForKeys: nil) else {
-            return nil
-        }
-        return entries.first(where: { containsModel($0) })
-    }
-
-    private func containsModel(_ url: URL) -> Bool {
-        let fm = FileManager.default
-        return fm.fileExists(atPath: url.appendingPathComponent("config.json").path)
-            && fm.fileExists(atPath: url.appendingPathComponent("model.safetensors").path)
-    }
-
-    // MARK: - Load model
-
-    func loadModel() async throws {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
-
-        loadingProgress = "Recherche du modèle Cohere…"
-        guard let dir = resolveExistingModelDirectory() else {
-            sttLog.error("loadModel: model not found")
-            throw STTError.modelMissing(searched: candidateDirectories())
-        }
-
-        loadingProgress = "Chargement du modèle (\(dir.lastPathComponent))…"
-        sttLog.info("loadModel: dir=\(dir.path, privacy: .public)")
-
-        #if canImport(MLXAudioSTT)
-        do {
-            let model = try CohereTranscribeModel.fromDirectory(dir)
-            self.asr = model
-            self.isModelLoaded = true
-            self.loadingProgress = "Modèle chargé"
-            self.lastError = nil
-            sttLog.info("loadModel: OK")
-        } catch {
-            sttLog.error("loadModel: failed \(error.localizedDescription, privacy: .public)")
-            self.lastError = error.localizedDescription
-            throw STTError.loadFailed(error.localizedDescription)
-        }
-        #else
-        throw STTError.mlxNotLinked
-        #endif
-    }
-
     // MARK: - Transcribe
 
-    /// Transcrit un WAV 16 kHz mono. Charge le modèle si nécessaire.
-    ///
-    /// Le travail MLX (lourd) est effectué sur un thread d'arrière-plan dédié,
-    /// segment par segment (60 s). Entre chaque segment, `progressFraction`
-    /// et `progressLabel` sont publiés sur le main actor — l'UI reste fluide
-    /// et peut afficher une barre de progression en temps réel.
-    func transcribe(audioURL: URL) async throws -> STTResult {
+    /// Point d'entrée unique. Branche sur `settings.transcriptionMode`. Appelé
+    /// par les call sites DANS un `JobQueue.start(kind: .transcription)`.
+    func runTranscription(audioURL: URL,
+                          meeting: Meeting,
+                          settings: AppSettings,
+                          in context: ModelContext,
+                          onPhase: ((TranscriptionPhase) -> Void)? = nil,
+                          onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
+        switch settings.transcriptionMode {
+        case .transcriptionOnly:
+            let engine = makeEngine(kind: settings.transcriptionEngine, settings: settings)
+            let result = try await transcribeChunks(
+                audioURL: audioURL, engine: engine, settings: settings,
+                onPhase: onPhase, onProgress: onProgress)
+            persistAnonymousSegments(sttResult: result, meeting: meeting, in: context)
+            return result
+
+        case .diarizeFirst:
+            let engine: STTEngine = VoxtralEngine(variant: settings.voxtralVariant)
+            onPhase?(.loadingModel)
+            try await engine.load()
+            let diar: (blocks: [TurnMerger.Block], embeddings: [Int: [Float]])
+            do {
+                diar = try await DiarizeFirstTranscriber.run(
+                    audioURL: audioURL, engine: engine, language: self.language,
+                    clusterThreshold: Float(settings.diarizationClusterThreshold),
+                    onPhase: onPhase, onProgress: onProgress)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                print("[TranscriptionService] diarize-first failed: \(error). Fallback anonymous.")
+                let result = try await transcribeChunks(
+                    audioURL: audioURL, engine: engine, settings: settings,
+                    onPhase: onPhase, onProgress: onProgress)
+                persistAnonymousSegments(sttResult: result, meeting: meeting, in: context)
+                return result
+            }
+
+            onPhase?(.matching)
+            let assignments = SpeakerMatcher.match(
+                clusterEmbeddings: diar.embeddings, meeting: meeting,
+                in: context, settings: settings)
+            let canonical = canonicalizeBlocks(diar.blocks, assignments: assignments)
+            persistBlocks(canonical, assignments: assignments, meeting: meeting, in: context)
+
+            let text = canonical.map { $0.text }.joined(separator: "\n")
+            var result = STTResult(text: text, language: self.language,
+                                   durationSeconds: 0, segments: [])
+            result.clusterEmbeddings = diar.embeddings
+            return result
+        }
+    }
+
+    private func makeEngine(kind: STTEngineKind, settings: AppSettings) -> STTEngine {
+        switch kind {
+        case .cohere:  return CohereEngine()
+        case .voxtral: return VoxtralEngine(variant: settings.voxtralVariant)
+        }
+    }
+
+    /// Transcription seule par chunks 60s, moteur pluggable.
+    private func transcribeChunks(audioURL: URL,
+                                  engine: STTEngine,
+                                  settings: AppSettings,
+                                  onPhase: ((TranscriptionPhase) -> Void)?,
+                                  onProgress: ((Double, String) -> Void)?) async throws -> STTResult {
         #if canImport(MLXAudioSTT)
-        if asr == nil {
-            try await loadModel()
+        if !engine.isLoaded {
+            onPhase?(.loadingModel)
+            try await engine.load()
         }
-        guard let asr else { throw STTError.loadFailed("model non disponible après loadModel()") }
-
-        isTranscribing = true
-        progressFraction = 0
-        progressLabel = "Préparation…"
-        defer {
-            isTranscribing = false
-            progressFraction = 0
-            progressLabel = ""
-        }
-
+        onPhase?(.transcribing)
         let t0 = Date()
         let (_, audio) = try loadAudioArray(from: audioURL, sampleRate: 16_000)
         let sampleCount = audio.shape.last ?? 0
         let durationSec = Double(sampleCount) / 16_000.0
-        sttLog.info("transcribe: samples=\(sampleCount) (=\(durationSec, format: .fixed(precision: 1))s)")
-
-        let segmentDurationSec = 60
-        let segmentSamples = segmentDurationSec * 16_000
+        let segmentSamples = 60 * 16_000
         let segmentCount = max(1, Int(ceil(Double(sampleCount) / Double(segmentSamples))))
-        // Budget tokens par segment : 60s × ~30 tok/s + marge → 2400, plancher 1024.
-        let perSegmentMaxTokens = max(1024, Int(Double(segmentDurationSec) * 30.0 * 1.5))
-        let lang = self.language
-
-        progressLabel = "0 / \(segmentCount) segments"
-
-        let params = STTGenerateParameters(
-            maxTokens: perSegmentMaxTokens,
-            temperature: 0.0,
-            topP: 1.0,
-            topK: 0,
-            verbose: false,
-            language: lang,
-            chunkDuration: Float(segmentDurationSec),
-            minChunkDuration: 1.0
-        )
-
-        // Boucle off-main : chaque segment est traité dans une `Task.detached`,
-        // ce qui libère le main actor et permet au thread UI de re-rendre
-        // entre deux segments. La progression est publiée via `MainActor.run`
-        // après chaque segment.
+        let perSegmentMaxTokens = max(1024, Int(60.0 * 30.0 * 1.5))
         var pieces: [String] = []
         var sttSegments: [STTSegment] = []
-        pieces.reserveCapacity(segmentCount)
-        sttSegments.reserveCapacity(segmentCount)
         for i in 0..<segmentCount {
+            try Task.checkCancellation()
             let start = i * segmentSamples
             let end = min(start + segmentSamples, sampleCount)
-            let segment = audio[start..<end]
-            let progressBefore = Double(i) / Double(segmentCount)
-            self.progressFraction = progressBefore
-            self.progressLabel = "Segment \(i + 1) / \(segmentCount)"
-
-            let segText: String = await Task.detached(priority: .userInitiated) { [params] in
-                let out = asr.generate(audio: segment, generationParameters: params)
-                return String(out.text).trimmingCharacters(in: .whitespacesAndNewlines)
-            }.value
-
-            // Collapse pathological loops ("Je. Je. Je. …") inside each chunk too,
-            // otherwise the segmented view still shows the raw loop while the
-            // global `text` is clean.
+            onProgress?(Double(i) / Double(segmentCount), "Segment \(i + 1) / \(segmentCount)")
+            let clip = audio[start..<end]
+            let segText = await engine.transcribe(clip: clip, language: self.language, maxTokens: perSegmentMaxTokens)
             let segClean = Self.collapseRepetitions(segText)
             pieces.append(segClean)
-            // Capture timestamped segment alongside text (60s chunks for now).
-            // Phase B (VAD) refines speaker turns within these chunks.
             if !segClean.isEmpty {
                 sttSegments.append(STTSegment(
                     startSeconds: Double(start) / 16_000.0,
                     endSeconds: Double(end) / 16_000.0,
-                    text: segClean
-                ))
+                    text: segClean))
             }
-            self.progressFraction = Double(i + 1) / Double(segmentCount)
         }
-
+        onProgress?(1.0, "Terminé")
         let combined = pieces.filter { !$0.isEmpty }.joined(separator: "\n")
-        let deduped = Self.collapseRepetitions(combined)
-        let cleaned = Self.stripWrappingQuotes(deduped)
-        let elapsed = Date().timeIntervalSince(t0)
-        sttLog.info("transcribe: done in \(elapsed, format: .fixed(precision: 1))s, \(cleaned.count) chars over \(segmentCount) segments")
-        return STTResult(
-            text: cleaned,
-            language: lang,
-            durationSeconds: durationSec,
-            segments: sttSegments
-        )
+        let cleaned = Self.stripWrappingQuotes(Self.collapseRepetitions(combined))
+        sttLog.info("transcribeChunks done in \(Date().timeIntervalSince(t0), format: .fixed(precision: 1))s")
+        return STTResult(text: cleaned, language: self.language,
+                         durationSeconds: durationSec, segments: sttSegments)
         #else
         throw STTError.mlxNotLinked
         #endif
-    }
-
-    // MARK: - Diarization pipeline
-
-    /// Full pipeline: Cohere transcribe → Pyannote diarize → align → match speakers.
-    /// Mutates `meeting`: inserts TranscriptSegments, sets `speakerAssignmentsJSON`
-    /// + `speakerMatchMetaJSON`. Does **not** call `context.save()` — the caller
-    /// (`MeetingView.runTranscription`) decides when to persist.
-    func transcribeWithDiarization(audioURL: URL,
-                                    meeting: Meeting,
-                                    settings: AppSettings,
-                                    in context: ModelContext,
-                                    onPhase: ((TranscriptionPhase) -> Void)? = nil,
-                                    onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
-        // 1. Cohere transcribe (existing path).
-        onPhase?(.transcribing)
-        let sttResult = try await transcribe(audioURL: audioURL)
-
-        // If speaker identification disabled in settings, return early with cluster=0.
-        guard settings.speakerIdEnabled else {
-            persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)
-            return sttResult
-        }
-
-        // 2. Diarize. PyannoteDiarizer will itself emit .loadingModel before
-        // first-call `fromPretrained` and .diarizing once compute starts.
-        let diarOutput: PyannoteDiarizer.DiarizeOutput
-        do {
-            diarOutput = try await PyannoteDiarizer.shared.diarize(
-                audioURL: audioURL,
-                clusterThreshold: Float(settings.diarizationClusterThreshold),
-                onPhase: onPhase,
-                onProgress: onProgress
-            )
-        } catch {
-            print("[TranscriptionService] diarization failed: \(error). Falling back to anonymous.")
-            persistAnonymousSegments(sttResult: sttResult, meeting: meeting, in: context)
-            return sttResult
-        }
-
-        // 3. Align chunks ↔ turns.
-        onPhase?(.matching)
-        let chunks = sttResult.segments.map { c in
-            TurnAligner.STTChunkInput(startSec: c.startSeconds, endSec: c.endSeconds, text: c.text)
-        }
-        let aligned = TurnAligner.align(chunks: chunks, turns: diarOutput.turns)
-
-        // 4. Match clusters → Collaborators.
-        let assignments = SpeakerMatcher.match(
-            clusterEmbeddings: diarOutput.perClusterEmbedding,
-            meeting: meeting,
-            in: context,
-            settings: settings
-        )
-
-        // 4b. Canonicalize: unify clusters mapped to same Collaborator, then re-merge.
-        let canonical = canonicalizeClusters(aligned, assignments: assignments)
-
-        // 5. Persist segments + metadata.
-        persistAlignedSegments(
-            aligned: canonical,
-            assignments: assignments,
-            meeting: meeting,
-            in: context
-        )
-
-        // 6. Renvoie les embeddings au caller pour permettre l'EMA voiceprint
-        // update au premier labeling manuel.
-        var resultWithEmbeddings = sttResult
-        resultWithEmbeddings.clusterEmbeddings = diarOutput.perClusterEmbedding
-        return resultWithEmbeddings
     }
 
     private func persistAnonymousSegments(sttResult: STTResult,
@@ -399,68 +227,47 @@ final class TranscriptionService: ObservableObject {
 
     // MARK: - Canonicalisation des clusters
 
-    /// Pour chaque cluster mappé à un Collaborator, réécrit clusterID vers
-    /// un cluster canonique (1er rencontré pour ce collab), puis re-merge
-    /// consécutifs via `TurnAligner.mergeConsecutive`. Réduit la sur-segmentation
-    /// quand Pyannote produit plusieurs clusters pour la même voix réelle.
-    func canonicalizeClusters(_ aligned: [TurnAligner.AlignedSegment],
-                               assignments: [Int: SpeakerMatcher.Assignment])
-        -> [TurnAligner.AlignedSegment]
-    {
+    /// Unifie les clusters mappés au même collaborateur vers un cluster canonique,
+    /// puis re-merge les blocs adjacents. Réduit la sur-segmentation Pyannote.
+    func canonicalizeBlocks(_ blocks: [TurnMerger.Block],
+                            assignments: [Int: SpeakerMatcher.Assignment]) -> [TurnMerger.Block] {
         var canonicalByCollab: [PersistentIdentifier: Int] = [:]
         for cid in assignments.keys.sorted() {
             guard let collab = assignments[cid]?.collaborator else { continue }
             let pid = collab.persistentModelID
-            if canonicalByCollab[pid] == nil {
-                canonicalByCollab[pid] = cid
-            }
+            if canonicalByCollab[pid] == nil { canonicalByCollab[pid] = cid }
         }
-        guard !canonicalByCollab.isEmpty else { return aligned }
-
-        let rewritten: [TurnAligner.AlignedSegment] = aligned.map { seg in
-            guard let collab = assignments[seg.clusterID]?.collaborator,
-                  let canonical = canonicalByCollab[collab.persistentModelID] else {
-                return seg
-            }
-            if canonical == seg.clusterID { return seg }
-            return TurnAligner.AlignedSegment(
-                startSec: seg.startSec,
-                endSec: seg.endSec,
-                text: seg.text,
-                clusterID: canonical
-            )
+        guard !canonicalByCollab.isEmpty else { return blocks }
+        let rewritten: [TurnMerger.Block] = blocks.map { b in
+            guard let collab = assignments[b.speaker]?.collaborator,
+                  let canonical = canonicalByCollab[collab.persistentModelID],
+                  canonical != b.speaker else { return b }
+            var nb = b; nb.speaker = canonical; return nb
         }
-        return TurnAligner.mergeConsecutive(rewritten)
+        return TurnMerger.mergeConsecutiveBlocks(rewritten)
     }
 
     #if DEBUG
-    func canonicalizeClustersForTest(_ aligned: [TurnAligner.AlignedSegment],
-                                      assignments: [Int: SpeakerMatcher.Assignment])
-        -> [TurnAligner.AlignedSegment]
-    {
-        canonicalizeClusters(aligned, assignments: assignments)
+    func canonicalizeBlocksForTest(_ blocks: [TurnMerger.Block],
+                                   assignments: [Int: SpeakerMatcher.Assignment]) -> [TurnMerger.Block] {
+        canonicalizeBlocks(blocks, assignments: assignments)
     }
     #endif
 
-    private func persistAlignedSegments(aligned: [TurnAligner.AlignedSegment],
-                                         assignments: [Int: SpeakerMatcher.Assignment],
-                                         meeting: Meeting,
-                                         in context: ModelContext) {
-        // Purge atomique des segments existants — cf. note dans persistAnonymousSegments.
+    private func persistBlocks(_ blocks: [TurnMerger.Block],
+                               assignments: [Int: SpeakerMatcher.Assignment],
+                               meeting: Meeting,
+                               in context: ModelContext) {
         for old in meeting.transcriptSegments { context.delete(old) }
         var idx = 0
         var assignmentsDict: [String: Any] = [:]
         var metaDict: [String: [String: Any]] = [:]
-        for seg in aligned {
+        for b in blocks {
             let s = TranscriptSegment(
-                orderIndex: idx,
-                startSeconds: seg.startSec,
-                endSeconds: seg.endSec,
-                text: seg.text,
-                speakerID: seg.clusterID + 1
-            )
+                orderIndex: idx, startSeconds: b.start, endSeconds: b.end,
+                text: b.text, speakerID: b.speaker + 1)
             s.meeting = meeting
-            if let a = assignments[seg.clusterID], let collab = a.collaborator, a.auto {
+            if let a = assignments[b.speaker], let collab = a.collaborator, a.auto {
                 s.speaker = collab
             }
             context.insert(s)
@@ -469,86 +276,14 @@ final class TranscriptionService: ObservableObject {
         for (cid, a) in assignments {
             assignmentsDict[String(cid)] = a.collaborator?.ensuredStableID.uuidString ?? NSNull()
             metaDict[String(cid)] = [
-                "confidence": a.confidence,
-                "auto": a.auto,
-                "ambiguous": a.ambiguous,
+                "confidence": a.confidence, "auto": a.auto, "ambiguous": a.ambiguous,
                 "candidates": a.candidates.map { $0.0.ensuredStableID.uuidString }
             ]
         }
-        if let assignmentsJSON = try? JSONSerialization.data(withJSONObject: assignmentsDict),
-           let s = String(data: assignmentsJSON, encoding: .utf8) {
-            meeting.speakerAssignmentsJSON = s
-        }
-        if let metaJSON = try? JSONSerialization.data(withJSONObject: metaDict),
-           let s = String(data: metaJSON, encoding: .utf8) {
-            meeting.speakerMatchMetaJSON = s
-        }
-    }
-
-    // MARK: - Audio loader
-
-    /// Lit un WAV quelconque et produit un `[Float]` mono 16 kHz normalisé -1…1.
-    /// Utilise AVAudioConverter pour resample + downmix si nécessaire.
-    static func loadMonoFloat32(from url: URL, targetSampleRate: Double = 16_000) throws -> [Float] {
-        let file: AVAudioFile
-        do {
-            file = try AVAudioFile(forReading: url)
-        } catch {
-            throw STTError.audioReadFailed(error.localizedDescription)
-        }
-
-        let srcFormat = file.processingFormat
-        guard let dstFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: targetSampleRate,
-            channels: 1,
-            interleaved: false
-        ) else {
-            throw STTError.audioReadFailed("format cible invalide")
-        }
-
-        guard let converter = AVAudioConverter(from: srcFormat, to: dstFormat) else {
-            throw STTError.audioReadFailed("AVAudioConverter indisponible")
-        }
-
-        let frameCapacity = AVAudioFrameCount(file.length)
-        guard let srcBuffer = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: frameCapacity) else {
-            throw STTError.audioReadFailed("buffer source alloc échoué")
-        }
-        do {
-            try file.read(into: srcBuffer)
-        } catch {
-            throw STTError.audioReadFailed(error.localizedDescription)
-        }
-
-        // Ratio sample-rate → taille cible
-        let ratio = targetSampleRate / srcFormat.sampleRate
-        let dstFrameCapacity = AVAudioFrameCount(Double(srcBuffer.frameLength) * ratio + 1024)
-        guard let dstBuffer = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: dstFrameCapacity) else {
-            throw STTError.audioReadFailed("buffer dst alloc échoué")
-        }
-
-        var error: NSError?
-        var pushed = false
-        let status = converter.convert(to: dstBuffer, error: &error) { _, inputStatus in
-            if pushed {
-                inputStatus.pointee = .endOfStream
-                return nil
-            }
-            pushed = true
-            inputStatus.pointee = .haveData
-            return srcBuffer
-        }
-
-        if status == .error {
-            throw STTError.audioReadFailed(error?.localizedDescription ?? "convert error")
-        }
-
-        guard let ptr = dstBuffer.floatChannelData?[0] else {
-            throw STTError.audioReadFailed("floatChannelData nil")
-        }
-        let count = Int(dstBuffer.frameLength)
-        return Array(UnsafeBufferPointer(start: ptr, count: count))
+        if let d = try? JSONSerialization.data(withJSONObject: assignmentsDict),
+           let s = String(data: d, encoding: .utf8) { meeting.speakerAssignmentsJSON = s }
+        if let d = try? JSONSerialization.data(withJSONObject: metaDict),
+           let s = String(data: d, encoding: .utf8) { meeting.speakerMatchMetaJSON = s }
     }
 
     /// Détecte et collapse les répétitions pathologiques (boucle ASR) :

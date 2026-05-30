@@ -39,7 +39,7 @@ final class PyannoteDiarizer {
     #endif
 
     struct DiarizeOutput: Sendable {
-        let turns: [TurnAligner.DiarTurn]
+        let turns: [TurnMerger.DiarTurn]
         let perClusterEmbedding: [Int: [Float]]
     }
 
@@ -112,7 +112,7 @@ final class PyannoteDiarizer {
                 progressForward?(0.96, "Finalisation")
 
                 let turns = result.segments.map { seg in
-                    TurnAligner.DiarTurn(
+                    TurnMerger.DiarTurn(
                         startSec: Double(seg.startTime),
                         endSec: Double(seg.endTime),
                         clusterID: seg.speakerId
