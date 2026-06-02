@@ -11,9 +11,8 @@ enum AIClient {
 
     /// Send a prompt and get a text response, routing based on provider settings.
     /// `onProgress` reçoit le texte au fur et à mesure pour les providers qui
-    /// supportent le streaming (OpenAI-compat, Anthropic). Les autres
-    /// (Claude CLI, Gemini OAuth) appellent `onProgress` une seule fois à la
-    /// fin avec le texte complet.
+    /// supportent le streaming (Directe MLX, OpenAI-compat, Anthropic). Gemini
+    /// OAuth appelle `onProgress` une seule fois à la fin avec le texte complet.
     static func send(
         prompt: String,
         settings: AppSettings,
@@ -21,11 +20,13 @@ enum AIClient {
     ) async throws -> String {
         do {
             switch settings.provider {
-            case .claudeOAuth:
-                let model = settings.modelName.isEmpty ? "claude-sonnet-4-5" : settings.modelName
-                let out = try await callClaudeCLI(prompt: prompt, model: model)
-                if let onProgress { await onProgress(out) }
-                return out
+            case .direct:
+                // LLM MLX in-process (Gemma) — streame via onProgress.
+                return try await DirectLLMClient.send(
+                    prompt: prompt,
+                    modelRepo: settings.directModelRepo,
+                    onProgress: onProgress
+                )
             case .geminiOAuth:
                 let out = try await GeminiOAuthClient.shared.sendMessage(
                     prompt: prompt,
@@ -49,60 +50,6 @@ enum AIClient {
         } catch {
             throw normalizeError(error, settings: settings)
         }
-    }
-
-    // MARK: - Claude CLI (setup-token / OAuth)
-
-    /// Invoque le binaire `claude` du PATH utilisateur via un shell de login
-    /// (récupère HOME/PATH) et renvoie sa sortie texte. Échoue si le CLI est
-    /// absent, renvoie un code non nul, ou une réponse vide.
-    private static func callClaudeCLI(prompt: String, model: String) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let process = Process()
-                    let pipe = Pipe()
-                    let errorPipe = Pipe()
-
-                    // Find claude in PATH
-                    let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-                    process.executableURL = URL(fileURLWithPath: shell)
-                    process.arguments = ["-l", "-c", "claude -p \(quoteShellArg(prompt)) --model \(quoteShellArg(model)) --output-format text 2>&1"]
-                    process.standardOutput = pipe
-                    process.standardError = errorPipe
-
-                    // Inherit user environment for PATH, HOME, etc.
-                    var env = ProcessInfo.processInfo.environment
-                    env["TERM"] = "dumb"
-                    process.environment = env
-
-                    try process.run()
-                    process.waitUntilExit()
-
-                    let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-                    if process.terminationStatus != 0 {
-                        let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                        let errOutput = String(data: errData, encoding: .utf8) ?? ""
-                        let combined = output.isEmpty ? errOutput : output
-                        continuation.resume(throwing: IngestionError.networkError("claude CLI erreur (code \(process.terminationStatus)): \(combined.prefix(300))"))
-                    } else if output.isEmpty {
-                        continuation.resume(throwing: IngestionError.parseError("claude CLI: reponse vide"))
-                    } else {
-                        continuation.resume(returning: output)
-                    }
-                } catch {
-                    continuation.resume(throwing: IngestionError.networkError("Impossible de lancer claude CLI: \(error.localizedDescription). Verifiez que Claude Code est installe (npm i -g @anthropic-ai/claude-code)."))
-                }
-            }
-        }
-    }
-
-    /// Échappe un argument en le mettant entre quotes simples (sûr pour
-    /// l'injection dans la ligne de commande shell du CLI).
-    private static func quoteShellArg(_ arg: String) -> String {
-        "'" + arg.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: - Anthropic (API Key)

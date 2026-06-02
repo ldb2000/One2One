@@ -29,7 +29,8 @@ struct SettingsView: View {
     @State private var cloudToken: String = ""
     @State private var apiEndpoint: String = ""
     @State private var modelName: String = ""
-    @State private var selectedProvider: AIProvider = .claudeOAuth
+    @State private var selectedProvider: AIProvider = .direct
+    @State private var directModelRepo: String = ""
     @State private var importPrompt: String = ""
     @State private var reformulatePrompt: String = ""
     @State private var weeklyExportPrompt: String = ""
@@ -88,49 +89,22 @@ struct SettingsView: View {
                             }
                         }
 
-                        if selectedProvider == .claudeOAuth {
-                            // Claude CLI with setup-token
+                        if selectedProvider == .direct {
+                            // LLM MLX exécuté localement, in-process (≠ Ollama
+                            // qui passe par un serveur HTTP).
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Utilise le CLI `claude` avec votre abonnement Claude Pro/Max (gratuit, pas de cle API).")
+                                Text("Exécute un modèle MLX directement dans l'app, sur l'appareil — sans serveur ni clé API. Le modèle est téléchargé au premier usage puis mis en cache.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
 
-                                HStack {
-                                    Text("1.")
-                                    Text("Installez Claude Code :")
-                                        .foregroundColor(.secondary)
-                                    Text("npm i -g @anthropic-ai/claude-code")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.white.opacity(0.7))
-                                        .cornerRadius(4)
-                                }
-                                .font(.caption)
-
-                                HStack {
-                                    Text("2.")
-                                    Text("Authentifiez-vous :")
-                                        .foregroundColor(.secondary)
-                                    Text("claude setup-token")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.white.opacity(0.7))
-                                        .cornerRadius(4)
-                                }
-                                .font(.caption)
-
-                                if !oauthStatus.isEmpty {
-                                    Text(oauthStatus)
-                                        .font(.caption)
-                                        .foregroundColor(oauthStatus.contains("OK") ? .green : .orange)
-                                }
-
-                                LabeledContent("Modele") {
-                                    EditableTextField(placeholder: "claude-sonnet-4-5", text: $modelName)
+                                LabeledContent("Modèle (repo HF MLX)") {
+                                    EditableTextField(placeholder: "mlx-community/gemma-4-31b-8bit", text: $directModelRepo)
                                         .frame(height: 24)
                                 }
+
+                                Text("Ex. mlx-community/gemma-4-31b-8bit · gemma-4-26b-a4b-it-8bit · gemma-4-e4b-it-8bit")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
                             }
                         } else if selectedProvider == .geminiOAuth {
                             // Gemini OAuth flow
@@ -266,6 +240,10 @@ struct SettingsView: View {
                         saveSettings()
                     }
                     .onChange(of: modelName) { _, _ in
+                        guard didInitialLoad else { return }
+                        saveSettings()
+                    }
+                    .onChange(of: directModelRepo) { _, _ in
                         guard didInitialLoad else { return }
                         saveSettings()
                     }
@@ -862,6 +840,7 @@ struct SettingsView: View {
             cloudToken = settings.cloudToken
             apiEndpoint = settings.apiEndpoint
             modelName = settings.modelName
+            directModelRepo = settings.directModelRepo
             selectedProvider = settings.provider
             importPrompt = settings.importPrompt
             reformulatePrompt = settings.reformulatePrompt
@@ -875,11 +854,6 @@ struct SettingsView: View {
 
             // Initial state hydration done — allow .onChange handlers to fire saves now.
             didInitialLoad = true
-
-            // Check if claude CLI is available for the setup-token provider
-            if selectedProvider == .claudeOAuth {
-                checkClaudeCLI()
-            }
         }
         .warmBackground()
         .navigationTitle("Paramètres")
@@ -953,32 +927,6 @@ struct SettingsView: View {
         }
     }
 
-    /// Vérifie en arrière-plan la présence du CLI `claude` (via `which` dans un shell
-    /// de login) et renseigne `oauthStatus` selon le résultat.
-    private func checkClaudeCLI() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let process = Process()
-            let pipe = Pipe()
-            let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-            process.executableURL = URL(fileURLWithPath: shell)
-            process.arguments = ["-l", "-c", "which claude"]
-            process.standardOutput = pipe
-            process.standardError = pipe
-            try? process.run()
-            process.waitUntilExit()
-
-            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-            DispatchQueue.main.async {
-                if process.terminationStatus == 0 && !output.isEmpty {
-                    oauthStatus = "CLI claude trouve: \(output) — OK"
-                } else {
-                    oauthStatus = "CLI claude non trouve. Installez: npm i -g @anthropic-ai/claude-code"
-                }
-            }
-        }
-    }
-
     /// Sauvegarde la config courante puis envoie un prompt de test (« Reponds
     /// uniquement par: OK ») au fournisseur sélectionné et reflète le résultat dans `testStatus`.
     private func testAIConnection() {
@@ -1018,9 +966,8 @@ struct SettingsView: View {
     /// fournisseur donné (appelé lors d'un changement de fournisseur par l'utilisateur).
     private func updateDefaults(for provider: AIProvider) {
         switch provider {
-        case .claudeOAuth:
-            apiEndpoint = "https://api.anthropic.com/v1"
-            modelName = "claude-sonnet-4-5"
+        case .direct:
+            if directModelRepo.isEmpty { directModelRepo = "mlx-community/gemma-4-31b-8bit" }
         case .geminiOAuth:
             apiEndpoint = "https://generativelanguage.googleapis.com/v1beta"
             modelName = "gemini-2.5-pro"
@@ -1053,6 +1000,7 @@ struct SettingsView: View {
         settings.cloudToken = cloudToken
         settings.apiEndpoint = apiEndpoint
         settings.modelName = modelName
+        settings.directModelRepo = directModelRepo
         settings.provider = selectedProvider
         settings.importPrompt = importPrompt
         settings.reformulatePrompt = reformulatePrompt

@@ -582,7 +582,7 @@ final class BackupService {
         restoredSettings.cloudToken = payload.settings.cloudToken
         restoredSettings.apiEndpoint = payload.settings.apiEndpoint
         restoredSettings.modelName = payload.settings.modelName
-        restoredSettings.provider = AIProvider(rawValue: payload.settings.provider) ?? .claudeOAuth
+        restoredSettings.provider = AIProvider(rawValue: payload.settings.provider) ?? .direct
         restoredSettings.importPrompt = payload.settings.importPrompt
         restoredSettings.reformulatePrompt = payload.settings.reformulatePrompt
         restoredSettings.weeklyExportPrompt = payload.settings.weeklyExportPrompt

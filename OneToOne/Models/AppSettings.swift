@@ -15,7 +15,9 @@ enum STTEngineKind: String, Codable, CaseIterable, Sendable {
 }
 
 enum AIProvider: String, Codable, CaseIterable {
-    case claudeOAuth = "Claude OAuth (setup-token)"
+    /// LLM exécuté localement en MLX, directement dans le process (≠ Ollama
+    /// qui passe par un serveur HTTP). Cf. `DirectLLMClient`.
+    case direct = "Directe (MLX local)"
     case anthropic = "Claude (API Key)"
     case geminiOAuth = "Gemini OAuth (CLI)"
     case openai = "OpenAI"
@@ -25,7 +27,7 @@ enum AIProvider: String, Codable, CaseIterable {
     /// Display name shown in the UI (can differ from rawValue which is stored in DB)
     var displayName: String {
         switch self {
-        case .claudeOAuth: return "Claude (setup-token / CLI)"
+        case .direct: return "Directe (Gemma MLX local)"
         case .anthropic: return "Claude (API Key)"
         case .geminiOAuth: return "Gemini OAuth (CLI)"
         case .openai: return "OpenAI"
@@ -51,14 +53,21 @@ final class AppSettings {
     /// relaunch (le champ est réinitialisé à la valeur par défaut à chaque
     /// chargement). En stockant le rawValue en String pur, SwiftData
     /// persiste de manière fiable.
-    var providerRaw: String = AIProvider.claudeOAuth.rawValue
+    var providerRaw: String = AIProvider.direct.rawValue
 
     /// Provider exposé en enum — lecture/écriture transparente via
     /// `providerRaw`. Computed donc non-stocké : pas de doublon en DB.
+    /// Fallback `.direct` : les anciennes valeurs (ex. "Claude OAuth
+    /// (setup-token)", retiré) retombent proprement sur le mode direct.
     var provider: AIProvider {
-        get { AIProvider(rawValue: providerRaw) ?? .claudeOAuth }
+        get { AIProvider(rawValue: providerRaw) ?? .direct }
         set { providerRaw = newValue.rawValue }
     }
+
+    /// Repo HuggingFace MLX chargé par le provider `.direct` (LLM in-process).
+    /// Téléchargé au premier usage s'il est absent du cache. Vide → défaut
+    /// défini par `DirectLLMClient`.
+    var directModelRepo: String = "mlx-community/gemma-4-31b-8bit"
 
     // Per-feature AI toggles
     var useAIForImport: Bool = true
@@ -280,7 +289,7 @@ final class AppSettings {
         Color(hex: meetingCollaboratorColorHex) ?? Color(hex: Self.defaultMeetingCollaboratorColorHex) ?? .blue
     }
 
-    init(cloudToken: String = "", apiEndpoint: String = "https://api.anthropic.com/v1", modelName: String = "claude-sonnet-4-5", provider: AIProvider = .claudeOAuth) {
+    init(cloudToken: String = "", apiEndpoint: String = "https://api.anthropic.com/v1", modelName: String = "claude-sonnet-4-5", provider: AIProvider = .direct) {
         self.cloudToken = cloudToken
         self.apiEndpoint = apiEndpoint
         self.modelName = modelName
