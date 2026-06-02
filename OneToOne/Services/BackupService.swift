@@ -3,6 +3,10 @@ import SwiftData
 import UniformTypeIdentifiers
 import AppKit
 
+/// Service d'export/import de l'intégralité des données de l'app sous forme
+/// d'un unique fichier JSON. Sérialise SwiftData vers des DTO `Codable`
+/// auto-contenus (données binaires des pièces jointes/WAV/slides incluses) puis
+/// reconstruit le graphe d'objets lors de la restauration.
 final class BackupService {
     struct BackupPayload: Codable {
         var exportedAt: Date
@@ -15,7 +19,9 @@ final class BackupService {
         /// (sans réunions). Ajouté en avril 2026 — le backup inclut désormais
         /// transcript, rapport, notes live, WAV, documents joints et slides.
         var meetings: [MeetingDTO]?
-        var managerReportItems: [ManagerReportItemDTO]?    // V3 — sub-projet C
+        /// Items du rapport manager (V3 — sous-projet C). Optionnel pour rester
+        /// rétro-compatible avec les backups antérieurs à cette fonctionnalité.
+        var managerReportItems: [ManagerReportItemDTO]?
         var managerMeetingReports: [ManagerMeetingReportDTO]?
         var managerActions: [ManagerActionTaskDTO]?     // V3 — sub-projet C
     }
@@ -267,6 +273,9 @@ final class BackupService {
         var managerMeetingStableID: UUID?
     }
 
+    /// Sérialise l'ensemble des données fournies en un payload JSON auto-contenu
+    /// (ISO-8601, clés triées). Les fichiers référencés (pièces jointes, WAV,
+    /// images de slides) sont embarqués sous forme de `Data` lorsqu'ils existent.
     func backup(
         settings: AppSettings,
         entities: [Entity],
@@ -421,8 +430,7 @@ final class BackupService {
                 )
             },
             meetings: meetings.map { meeting in
-                let wavURL = meeting.wavFilePath.map { URL(fileURLWithPath: $0) }
-                return MeetingDTO(
+                MeetingDTO(
                     stableID: meeting.ensuredStableID,
                     title: meeting.title,
                     date: meeting.date,
@@ -436,7 +444,7 @@ final class BackupService {
                     keyPointsJSON: meeting.keyPointsJSON,
                     decisionsJSON: meeting.decisionsJSON,
                     openQuestionsJSON: meeting.openQuestionsJSON,
-                    wavFileName: wavURL?.lastPathComponent,
+                    wavFileName: meeting.wavFilePath.map { URL(fileURLWithPath: $0).lastPathComponent },
                     wavFilePath: meeting.wavFilePath,
                     wavData: meeting.wavFilePath.flatMap { fileData(fromPath: $0) },
                     durationSeconds: meeting.durationSeconds,
@@ -537,6 +545,9 @@ final class BackupService {
         return try encoder.encode(payload)
     }
 
+    /// Restaure un backup JSON dans le `ModelContext` : supprime d'abord toutes
+    /// les données existantes, puis reconstruit le graphe d'objets et réécrit les
+    /// fichiers embarqués sur disque. Opération destructive (remplace tout).
     func restore(from data: Data, into context: ModelContext) throws {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

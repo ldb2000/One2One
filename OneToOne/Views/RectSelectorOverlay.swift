@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 
+/// Overlay plein écran permettant de dessiner une zone de capture à la souris
+/// (glisser pour tracer le rectangle). Raccourcis clavier : ESC annule,
+/// Entrée valide la sélection (ignorée si le rectangle fait moins de 10×10).
 struct RectSelectorOverlay: View {
     @State private var startPoint: CGPoint?
     @State private var currentPoint: CGPoint?
@@ -59,12 +62,16 @@ struct RectSelectorOverlay: View {
                 .onEnded { _ in }
         )
         .onAppear {
+            // Codes de touches macOS (Carbon virtual key codes).
+            let keyCodeEscape: UInt16 = 53
+            let keyCodeReturn: UInt16 = 36
+            let keyCodeEnter: UInt16 = 76  // pavé numérique
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.keyCode == 53 { // ESC
+                if event.keyCode == keyCodeEscape {
                     onCancel()
                     return nil
                 }
-                if event.keyCode == 36 || event.keyCode == 76 { // Enter
+                if event.keyCode == keyCodeReturn || event.keyCode == keyCodeEnter {
                     if let start = startPoint, let current = currentPoint {
                         let rect = CGRect(
                             x: min(start.x, current.x),
@@ -95,6 +102,10 @@ class RectSelectorWindow: NSWindow {
     /// quand l'utilisateur valide ou annule.
     private static var activeWindows: [RectSelectorWindow] = []
 
+    /// Ouvre un overlay de sélection sur chaque écran. À la validation, appelle
+    /// `onSelected` avec le rectangle en coordonnées locales de l'écran concerné
+    /// et son `CGDirectDisplayID` (pour cibler la bonne `SCDisplay`).
+    /// `onCancel` est appelé si l'utilisateur annule ou s'il n'y a aucun écran.
     static func show(onSelected: @escaping (CGRect, CGDirectDisplayID) -> Void,
                      onCancel: @escaping () -> Void) {
         let screens = NSScreen.screens

@@ -1,6 +1,11 @@
 import Foundation
 import SwiftData
 
+/// Un projet du portfolio. La plupart des métadonnées (domaine, sponsor, phase,
+/// budgets, dates, risques…) sont sourcées d'un portfolio externe importé depuis
+/// un fichier xlsx et rafraîchies à chaque réimport ; les champs de pilotage
+/// interne (notes, préparation, pièces jointes, FK collaborateurs) sont saisis
+/// dans l'app et préservés entre les imports.
 @Model
 final class Project {
     var code: String
@@ -12,9 +17,11 @@ final class Project {
     var phase: String // Cadrage, Design, Build, Run, etc.
     var status: String // Green, Yellow, Red
     /// Chef de projet (responsable fonctionnel) — nom libre, sourcé du
-    /// portfolio externe lors de l'import xlsx.
+    /// portfolio externe lors de l'import xlsx. Champ d'affichage indépendant
+    /// de la FK `projectManager` (qui, elle, relie un `Collaborator` connu).
     var chefDeProjet: String = ""
-    /// Architecte technique — nom libre, sourcé du portfolio externe.
+    /// Architecte technique — nom libre, sourcé du portfolio externe. Champ
+    /// d'affichage indépendant de la FK `technicalArchitect`.
     var architecte: String = ""
     var projectDeliveryDate: Date?
     var designEndDeadline: Date?
@@ -57,25 +64,32 @@ final class Project {
 
     var entity: Entity?
 
-    /// Chef de projet — Optional FK (Collaborator). Affiché dans
+    /// Chef de projet — Optional FK vers un `Collaborator` connu de l'app
+    /// (pendant relationnel du champ libre `chefDeProjet`). Affiché dans
     /// ProjectDetailView § Informations Générales et utilisé pour
     /// la reverse query depuis la fiche collab.
     var projectManager: Collaborator?
 
-    /// Architecte technique du projet — Optional FK (Collaborator).
+    /// Architecte technique du projet — Optional FK vers un `Collaborator`
+    /// (pendant relationnel du champ libre `architecte`).
     /// Cas d'usage : dans un 1:1 avec un collab architecte, on liste
     /// automatiquement tous les projets où il endosse ce rôle.
     var technicalArchitect: Collaborator?
 
-    /// Free-text planning notes. Surfaced via {{project.planning}} variable
-    /// in report templates.
+    /// Notes de planning en texte libre. Substituées au token `{{project.planning}}`
+    /// dans les templates de rapport (résolu via `meeting.project` par
+    /// `ReportTemplating`, cf. templates COPIL/COSUI). Vide → token remplacé
+    /// par une chaîne vide.
     var planningText: String = ""
 
     /// Identifiant stable pour les tokens inter-fenêtres (WindowGroup).
     /// `nil` sur les lignes antérieures — backfillé au lancement de l'app.
     var stableID: UUID? = nil
 
-    /// Notes de préparation persistantes pour la prochaine réunion projet.
+    /// Pool de notes de préparation persistantes pour la prochaine réunion
+    /// projet (kind `.project`). Drainé dans `Meeting.prepNotes` à la création
+    /// d'une réunion liée à ce projet, puis repeuplé au carryover des items non
+    /// cochés en fin de transcription (cf. `Meeting.prepNotes`).
     var standingPrepNotes: String = ""
     var standingPrepUpdatedAt: Date?
 
@@ -122,6 +136,10 @@ final class Project {
     }
 }
 
+/// Entrée du journal d'informations d'un projet (note datée).
+/// `category` est une chaîne libre servant au filtrage/affichage : valeurs
+/// usuelles "Information" (défaut) et "REX" (retour d'expérience, surligné en
+/// orange et exploité par le chatbot).
 @Model
 final class ProjectInfoEntry {
     var date: Date
@@ -136,6 +154,10 @@ final class ProjectInfoEntry {
     }
 }
 
+/// Note ou action liée à un collaborateur dans le contexte d'un projet.
+/// `kind` est une chaîne libre distinguant les deux types saisis dans l'UI :
+/// "Information collaborateur" (note) et "Action collaborateur" (tâche, suivie
+/// via `isCompleted`).
 @Model
 final class ProjectCollaboratorEntry {
     var date: Date

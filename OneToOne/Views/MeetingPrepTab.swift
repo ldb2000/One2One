@@ -31,6 +31,9 @@ struct MeetingPrepTab: View {
         }
     }
 
+    /// Volet gauche : éditeur markdown des notes de préparation (sauvegarde à
+    /// chaque frappe), message d'erreur éventuel et bouton de génération IA
+    /// (demande confirmation si des notes existent déjà).
     @ViewBuilder
     private var editorPane: some View {
         VStack(spacing: 0) {
@@ -62,6 +65,9 @@ struct MeetingPrepTab: View {
         }
     }
 
+    /// Génère le brouillon de préparation via l'IA et l'écrit dans
+    /// `meeting.prepNotes` (+ `prepGeneratedAt`). Gère l'indicateur de
+    /// progression et expose toute erreur via `generationError`.
     @MainActor
     private func runGenerate(force: Bool) async {
         isGenerating = true

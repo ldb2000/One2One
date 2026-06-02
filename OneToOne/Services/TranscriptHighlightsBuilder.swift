@@ -5,6 +5,9 @@ import Foundation
 /// Format : `[mm:ss · Nom du Speaker] Texte du segment` une ligne par highlight.
 enum TranscriptHighlightsBuilder {
 
+    /// Retourne les segments surlignés (`isHighlighted`) triés chronologiquement,
+    /// une ligne par highlight au format `[mm:ss · Speaker] texte`.
+    /// Retourne une chaîne vide si aucun segment n'est surligné.
     static func build(meeting: Meeting) -> String {
         let highlighted = meeting.transcriptSegments
             .filter { $0.isHighlighted }

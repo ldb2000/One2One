@@ -23,7 +23,9 @@ final class GlobalHotkeyService {
     private init() {}
 
     /// Enregistre un raccourci. Si un binding existait déjà pour ce `spec`,
-    /// remplace son handler. Retourne `true` si l'enregistrement a réussi.
+    /// remplace son handler. Retourne `true` si l'enregistrement a réussi,
+    /// `false` si le `keyChar` est inconnu (voir `keyCode`) ou si
+    /// `RegisterEventHotKey` échoue (ex. raccourci déjà pris par le système).
     @discardableResult
     func register(spec: HotkeySpec, handler: @escaping () -> Void) -> Bool {
         installHandlerIfNeeded()
@@ -93,7 +95,9 @@ final class GlobalHotkeyService {
         binding.handler()
     }
 
-    /// Mapping des chars vers virtual key codes (Carbon).
+    /// Convertit un caractère en virtual key code Carbon (`kVK_*`) attendu par
+    /// `RegisterEventHotKey`. Seuls A-Z, 0-9 et F1-F12 sont gérés (les seules
+    /// touches proposées comme raccourcis) ; tout autre char renvoie `nil`.
     private static func keyCode(forKeyChar char: String) -> UInt32? {
         switch char.uppercased() {
         case "A": return UInt32(kVK_ANSI_A)

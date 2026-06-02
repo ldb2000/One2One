@@ -125,6 +125,7 @@ enum ManagerReportService {
 
     // MARK: - Queries
 
+    /// Non-archived items, ordered by `manualOrder` then most-recently created.
     static func currentItems(in context: ModelContext) throws -> [ManagerReportItem] {
         let descriptor = FetchDescriptor<ManagerReportItem>(
             predicate: #Predicate { $0.archivedAt == nil },

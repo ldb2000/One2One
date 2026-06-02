@@ -1,7 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// CRUD list of ReportTemplates with built-in vs custom separation.
+/// CRUD list of ReportTemplates, split into two sections: built-in templates
+/// (italic, can be reset to their seed defaults but not deleted) and custom
+/// templates (editable and deletable). Both can be duplicated into a new custom.
 struct ReportTemplateListView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \ReportTemplate.name) private var templates: [ReportTemplate]
@@ -53,6 +55,9 @@ struct ReportTemplateListView: View {
         }
     }
 
+    /// Row for one template: edit and duplicate are always available; built-in
+    /// templates additionally offer "Restaurer défaut" (reset to seed), while
+    /// custom templates offer destructive deletion instead.
     @ViewBuilder
     private func row(_ t: ReportTemplate) -> some View {
         HStack {

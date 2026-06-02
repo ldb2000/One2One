@@ -9,6 +9,8 @@ struct QuickNotePopover: View {
     @Query private var projects: [Project]
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var collaborators: [Collaborator]
 
+    /// Cible de rattachement optionnelle de la note : aucune, un projet ou
+    /// un collaborateur, identifié par son `PersistentIdentifier`.
     enum LinkTarget: Hashable {
         case none
         case project(PersistentIdentifier)
@@ -57,6 +59,9 @@ struct QuickNotePopover: View {
         .frame(width: 400)
     }
 
+    /// Crée une `Note` à partir du texte saisi (ignorée si vide après trim),
+    /// la rattache au projet ou collaborateur sélectionné le cas échéant,
+    /// persiste, puis ferme le popover.
     private func save() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

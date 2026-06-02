@@ -39,6 +39,9 @@ struct ManagerCategoriesEditor: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    // Réordonnancement par glisser-déposer : applique le
+                    // déplacement directement au binding `categories`, ce qui
+                    // persiste l'ordre choisi par l'utilisateur.
                     .onMove { from, to in
                         categories.move(fromOffsets: from, toOffset: to)
                     }

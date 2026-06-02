@@ -9,6 +9,10 @@ import Foundation
 /// manuellement), retourne `meeting.mergedTranscript` tel quel.
 enum TranscriptTextBuilder {
 
+    /// Construit le texte du transcript : une ligne par segment, préfixée de
+    /// `[timestamp · label]`, les segments `isHighlighted` étant entourés des
+    /// marqueurs `**[IMPORTANT]**`. Fallback : `meeting.mergedTranscript` si la
+    /// réunion n'a aucun segment (transcript pasté manuellement).
     static func build(meeting: Meeting) -> String {
         let segments = meeting.transcriptSegments.sorted { $0.orderIndex < $1.orderIndex }
         guard !segments.isEmpty else { return meeting.mergedTranscript }

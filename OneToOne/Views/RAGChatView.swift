@@ -22,10 +22,15 @@ struct RAGChatView: View {
     @State private var sources: [RAGQuery.Result] = []
     @State private var errorMessage: String?
 
+    /// Périmètre de la recherche RAG.
     enum ScopeKind: String, CaseIterable, Identifiable {
+        /// Toutes les transcriptions indexées, sans filtre.
         case global       = "Global"
+        /// Restreint aux réunions du projet sélectionné.
         case project      = "Projet"
+        /// Restreint aux réunions du collaborateur sélectionné.
         case collaborator = "Collaborateur"
+        /// Restreint aux réunions d'un type donné (`MeetingKind`).
         case kind         = "Type de réunion"
         var id: String { rawValue }
     }
@@ -181,6 +186,9 @@ struct RAGChatView: View {
 
     // MARK: - Search
 
+    /// Récupère les 6 (topK) extraits les plus pertinents pour le scope courant,
+    /// construit un prompt en français à citations et interroge le LLM.
+    /// Les erreurs et l'absence de résultat sont exposées via l'UI.
     @MainActor
     private func search() async {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)

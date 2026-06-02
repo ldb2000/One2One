@@ -3,6 +3,9 @@ import EventKit
 import Combine
 import SwiftUI
 
+/// Service partagé exposant l'agenda du calendrier système à l'UI : événements
+/// du jour et prochaine réunion à venir, rafraîchis sur changement EventKit et
+/// toutes les 30 s. `@Published` pour pilotage SwiftUI.
 @MainActor
 final class CalendarAgendaService: ObservableObject {
 
@@ -30,6 +33,8 @@ final class CalendarAgendaService: ObservableObject {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver) }
     }
 
+    /// Demande l'accès au calendrier, effectue un premier rafraîchissement puis
+    /// arme le rafraîchissement périodique. À appeler une fois au démarrage.
     func bootstrap() async {
         hasCalendarAccess = await importer.requestAccess()
         refresh()
@@ -54,6 +59,8 @@ final class CalendarAgendaService: ObservableObject {
         nextUpcoming = computeNextUpcoming()
     }
 
+    /// Cherche la prochaine réunion non annulée encore en cours ou à venir,
+    /// en balayant aujourd'hui et demain (couvre les fenêtres à cheval sur minuit).
     private func computeNextUpcoming() -> CalendarMeetingEvent? {
         let now = Date()
         let candidates = events(for: now) + events(for: now.addingTimeInterval(86_400))

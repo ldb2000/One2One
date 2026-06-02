@@ -53,7 +53,12 @@ final class ContactPhotoService {
         return applied
     }
 
-    /// Restarts the periodic timer based on current settings.
+    /// Relance le timer de synchronisation périodique selon les réglages courants.
+    /// Annule la tâche précédente puis, si `contactPhotoSyncEnabled`, planifie une
+    /// boucle qui appelle `syncMissingPhotos` toutes les N minutes (min. 5).
+    /// La boucle s'exécute sur le `MainActor` (service `@MainActor`) ; chaque
+    /// itération est repassée explicitement sur le `MainActor` pour l'accès au
+    /// `ModelContext`.
     func reschedulePeriodicSync(context: ModelContext, settings: AppSettings) {
         refreshTask?.cancel()
         guard settings.contactPhotoSyncEnabled else { return }

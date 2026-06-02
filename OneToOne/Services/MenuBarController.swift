@@ -23,7 +23,6 @@ final class MenuBarController: NSObject {
     private lazy var quickNotePopover = makePopover()
     private lazy var urgentActionPopover = makePopover()
     private lazy var searchPopover = makePopover()
-    private var urgentTaskForPopover: ActionTask?
     private var dbChangeObserver: NSObjectProtocol?
     /// Ephemeral map rebuilt on every `buildMenu` call; keys are per-session UUIDs.
     private var urgentTaskByKey: [String: ActionTask] = [:]
@@ -57,6 +56,8 @@ final class MenuBarController: NSObject {
 
     // MARK: - Lifecycle
 
+    /// Installe l'item de barre de menus et branche les sources de
+    /// rafraîchissement : agenda calendrier, sauvegardes SwiftData et timer 30 s.
     func install(container: ModelContainer) {
         self.container = container
 
@@ -85,6 +86,8 @@ final class MenuBarController: NSObject {
         refresh()
     }
 
+    /// Retire l'item de la barre de menus et libère timer, observateurs et
+    /// abonnements Combine installés par `install`.
     func uninstall() {
         if let obs = dbChangeObserver { NotificationCenter.default.removeObserver(obs) }
         dbChangeObserver = nil
@@ -97,6 +100,9 @@ final class MenuBarController: NSObject {
 
     // MARK: - Refresh
 
+    /// Reconstruit le titre et le menu de la barre. Appelé en réaction aux
+    /// changements d'agenda et de base (NSManagedObjectContextDidSave), et
+    /// périodiquement par le timer.
     private func refresh() {
         guard let item = statusItem else { return }
         let settings = currentSettings()
@@ -505,7 +511,6 @@ final class MenuBarController: NSObject {
     @objc private func showUrgent(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String,
               let task = urgentTaskByKey[key] else { return }
-        urgentTaskForPopover = task
 
         NSApp.activate(ignoringOtherApps: true)
         let host = hostingController(UrgentActionPopover(

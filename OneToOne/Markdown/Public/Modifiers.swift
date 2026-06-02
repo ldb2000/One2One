@@ -1,7 +1,9 @@
 import SwiftUI
 
 public extension MarkdownTextEditor {
-    /// Restrict the set of markdown features the editor permits.
+    /// Restrict the set of markdown features the editor permits. Passing an
+    /// empty set disables every formatting affordance, leaving a plain
+    /// multi-line text editor (typed markdown syntax is no longer auto-formatted).
     func markdownFeatures(_ features: Set<MarkdownFeature>) -> Self {
         var copy = self
         copy.features = features
@@ -15,7 +17,9 @@ public extension MarkdownTextEditor {
         return copy
     }
 
-    /// Debounce delay before pushing edits to the `@Binding`. Default 300 ms.
+    /// Debounce delay (in seconds) before pushing edits to the `@Binding`.
+    /// Default 0.3 s. A positive value is expected; 0 effectively pushes on
+    /// every keystroke, and there is no enforced upper bound.
     func markdownDebounce(_ seconds: TimeInterval) -> Self {
         var copy = self
         copy.debounce = seconds

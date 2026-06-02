@@ -93,13 +93,19 @@ struct SearchPopover: View {
         .buttonStyle(.plain)
     }
 
+    private static let meetingDateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "d MMM"
+        return f
+    }()
+
     private func rowLabelMeeting(_ m: Meeting) -> String {
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "fr_FR")
-        fmt.dateFormat = "d MMM"
-        return "\(fmt.string(from: m.date)) — \(m.title)"
+        return "\(Self.meetingDateFmt.string(from: m.date)) — \(m.title)"
     }
 
+    /// Programme une recherche débouncée : annule la tâche en cours et en
+    /// relance une après 200 ms d'inactivité (sauf si annulée entretemps).
     private func scheduleSearch(_ raw: String) {
         debounceTask?.cancel()
         debounceTask = Task {
@@ -108,6 +114,10 @@ struct SearchPopover: View {
         }
     }
 
+    /// Exécute les trois fetches (réunions, collaborateurs, projets) sur la
+    /// requête trimée. Réunions et projets sont limités à 5 résultats ;
+    /// les collaborateurs (non archivés) sont récupérés jusqu'à 20 puis triés
+    /// par `pinLevel` décroissant puis nom, et tronqués aux 5 premiers.
     @MainActor
     private func runSearch(_ raw: String) async {
         let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)

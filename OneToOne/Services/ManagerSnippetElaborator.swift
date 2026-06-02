@@ -13,13 +13,16 @@ enum ManagerSnippetElaborator {
     /// Plus généreux que le classifier (texte rédigé > nom de catégorie).
     static let timeout: TimeInterval = 8
 
-    /// Result of an elaboration attempt — distinguishes AI success from fallback
-    /// so callers can surface this distinction in the UI.
+    /// Résultat d'une tentative d'élaboration — distingue le succès IA du repli
+    /// (fallback) afin que l'appelant puisse refléter cette distinction dans l'UI.
     enum Outcome {
         case ai(text: String)
         case fallback(text: String, reason: String)
     }
 
+    /// Rédige le texte autonome à partir du snippet et de son contexte.
+    /// Ne lance jamais d'erreur : un timeout, une erreur IA ou une réponse vide
+    /// renvoie un `Outcome.fallback` déterministe au lieu de propager l'échec.
     static func elaborate(
         snippet: String,
         contextBefore: String,
@@ -59,6 +62,8 @@ enum ManagerSnippetElaborator {
         }
     }
 
+    /// Texte de repli déterministe : concatène contexte avant + snippet +
+    /// contexte après (parties vides ignorées), séparés par une espace.
     static func fallback(contextBefore: String, snippet: String, contextAfter: String) -> String {
         let before = contextBefore.trimmingCharacters(in: .whitespacesAndNewlines)
         let after = contextAfter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,6 +74,8 @@ enum ManagerSnippetElaborator {
         return parts.joined(separator: " ")
     }
 
+    /// Construit le prompt IA : consignes de rédaction + lignes projet/source +
+    /// les trois blocs de contexte (avant, extrait, après).
     static func buildPrompt(
         snippet: String,
         contextBefore: String,

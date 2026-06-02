@@ -38,6 +38,9 @@ final class PyannoteDiarizer {
     private var pipeline: PyannoteDiarizationPipeline?
     #endif
 
+    /// Résultat de diarisation. `perClusterEmbedding` mappe l'identifiant de
+    /// cluster (clusterID, = index du locuteur dans `speakerEmbeddings`) vers
+    /// son embedding 256-dim ; les mêmes clusterID indexent les `turns`.
     struct DiarizeOutput: Sendable {
         let turns: [TurnMerger.DiarTurn]
         let perClusterEmbedding: [Int: [Float]]
@@ -50,6 +53,12 @@ final class PyannoteDiarizer {
     /// before the (potentially slow) `fromPretrained` step, then `.diarizing`
     /// once compute starts. `onProgress` reports (fraction 0..1, status string)
     /// during both download (first call) and diarization stages.
+    ///
+    /// L'audio-load + le calcul MLX tournent dans une `Task.detached` (hors
+    /// main actor) pour ne pas geler l'UI. Comme `detached` casse la structured
+    /// concurrency, l'annulation de la Task parente est relayée au worker via un
+    /// `CancellationFlag` atomique consulté dans le `progressHandler` (retourner
+    /// `false` y interrompt la diarisation).
     func diarize(audioURL: URL,
                  clusterThreshold: Float? = nil,
                  onPhase: ((TranscriptionPhase) -> Void)? = nil,
@@ -136,9 +145,14 @@ final class PyannoteDiarizer {
         #endif
     }
 
-    /// Loads WAV/M4A and returns 16 kHz mono Float32 samples via AVAudioEngine
+    /// Loads WAV/M4A and returns 16 kHz mono Float32 samples via `AVAudioConverter`
     /// (resamples + downmixes if needed). Non-isolated so it can run from a
     /// `Task.detached` block off the main actor.
+    ///
+    /// La capacité du buffer de sortie est dimensionnée d'après le ratio
+    /// 16000 / sampleRate d'entrée, plus une marge de 1024 frames pour absorber
+    /// l'arrondi du rééchantillonnage. La conversion fournit tout l'audio en un
+    /// seul bloc (`haveData` puis `endOfStream`).
     nonisolated private static func loadMono16k(url: URL) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
         let inFormat = file.processingFormat

@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 
+/// Sheet d'import d'un événement Calendrier (EventKit) proche de `anchorDate`.
+/// Liste les événements de J-1 à J+30, propose une suggestion de catégorisation
+/// et appelle `onImport` avec l'événement choisi.
 struct CalendarEventImportSheet: View {
     let anchorDate: Date
     let onImport: (CalendarMeetingEvent) -> Void
@@ -14,6 +17,8 @@ struct CalendarEventImportSheet: View {
     @State private var isLoading = false
     @State private var accessDenied = false
 
+    /// Événements filtrés par `searchText` (titre, calendrier ou nom d'un participant).
+    /// Renvoie tous les événements si la recherche est vide.
     private var filteredEvents: [CalendarMeetingEvent] {
         guard !searchText.isEmpty else { return events }
         return events.filter {
@@ -111,6 +116,8 @@ struct CalendarEventImportSheet: View {
         .task { loadEvents() }
     }
 
+    /// Demande l'accès au Calendrier puis charge les événements de J-1 à J+30.
+    /// Met à jour `accessDenied` si l'autorisation est refusée.
     private func loadEvents() {
         Task {
             isLoading = true
@@ -129,6 +136,9 @@ struct CalendarEventImportSheet: View {
         }
     }
 
+    /// Badge affichant la catégorisation suggérée pour l'événement (kind, projet
+    /// ou collaborateur associé) et le score de confiance, coloré selon le seuil
+    /// d'import automatique.
     @ViewBuilder
     private func suggestionBadge(for event: CalendarMeetingEvent) -> some View {
         let settings = allSettings.first ?? AppSettings()

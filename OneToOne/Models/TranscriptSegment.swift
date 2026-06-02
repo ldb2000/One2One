@@ -43,6 +43,8 @@ final class TranscriptSegment {
         self.speakerID = speakerID
     }
 
+    /// Retourne le `stableID` non-nil, en en générant et persistant un
+    /// à la volée si la ligne est issue d'un store pré-Optional (nil).
     var ensuredStableID: UUID {
         if let stableID { return stableID }
         let new = UUID()
@@ -58,6 +60,7 @@ final class TranscriptSegment {
         return "Speaker \(speakerID)"
     }
 
+    /// `startSeconds` formaté en `h:mm:ss` (ou `mm:ss` si moins d'une heure).
     var formattedTimestamp: String {
         let total = Int(startSeconds.rounded())
         let h = total / 3600

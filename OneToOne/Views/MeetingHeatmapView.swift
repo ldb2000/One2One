@@ -164,6 +164,9 @@ struct MeetingHeatmapView: View {
         return days
     }
 
+    /// Agrège les réunions par jour (`startOfDay`) sur la fenêtre `days`,
+    /// hors plage exclue. La valeur dépend de `metric` : 1 par réunion (`.count`)
+    /// ou la durée effective en minutes (`.minutes`).
     private func buildBuckets(days: [Date]) -> [Date: Double] {
         guard let first = days.first, let last = days.last else { return [:] }
         let cutoffStart = first

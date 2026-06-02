@@ -11,6 +11,8 @@ import Markdown
 /// Autres directives → ignorées (children rendus comme markdown standard).
 enum MarkdownToHTMLRenderer {
 
+    /// Point d'entrée : convertit le markdown `source` en fragment HTML
+    /// (sans wrapper `<html>`/`<body>`). Retourne `""` si `source` est vide.
     static func render(_ source: String) -> String {
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
@@ -20,8 +22,10 @@ enum MarkdownToHTMLRenderer {
         return visitor.renderChildren(doc.children)
     }
 
-    /// Convertit la syntaxe `:::name\n...\n:::` en `@name {\n...\n}`
-    /// que swift-markdown reconnaît comme `BlockDirective`.
+    /// Convertit la syntaxe d'auteur `:::name\n...\n:::` (style MyST/Pandoc,
+    /// produite par le LLM) en `@name {\n...\n}` que swift-markdown reconnaît
+    /// nativement comme `BlockDirective`. Parcours ligne-par-ligne (plutôt
+    /// que regex) pour rester robuste aux directives mal fermées.
     private static func preprocessDirectives(_ source: String) -> String {
         // Regex : :::name (sur sa propre ligne) … ::: (sur sa propre ligne)
         // On utilise une approche ligne-par-ligne pour robustesse.
@@ -59,6 +63,9 @@ enum MarkdownToHTMLRenderer {
 
     // MARK: - Visitor
 
+    /// Parcourt récursivement l'arbre swift-markdown et émet le HTML
+    /// correspondant. `mutating` car l'émission inline/bloc s'appelle
+    /// mutuellement ; aucun état persistant n'est conservé entre deux `render`.
     private struct HTMLVisitor {
 
         mutating func renderChildren(_ children: some Sequence<Markup>) -> String {
@@ -129,6 +136,9 @@ enum MarkdownToHTMLRenderer {
             return out
         }
 
+        /// Rend une directive bloc. `vigilance` et `reserve` produisent un
+        /// `<div class="callout …">` ; toute autre directive est ignorée et
+        /// seuls ses enfants sont rendus (fallback markdown standard).
         mutating func renderDirective(_ directive: BlockDirective) -> String {
             let name = directive.name.lowercased()
             let inner = renderChildren(directive.children)
@@ -183,6 +193,8 @@ enum MarkdownToHTMLRenderer {
             return middle
         }
 
+        /// Échappe les 5 caractères dangereux en HTML (`& < > " '`) pour
+        /// éviter toute injection depuis le texte source dans le rapport.
         private func escape(_ s: String) -> String {
             var out = ""
             out.reserveCapacity(s.count)

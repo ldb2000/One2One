@@ -6,6 +6,8 @@ private let mailLog = Logger(subsystem: "com.onetoone.app", category: "mail")
 
 // MARK: - MailSnippet
 
+/// Aperçu léger d'un message Mail (liste). Le `body` complet n'est pas chargé
+/// par `listRecent` : il reste `nil` jusqu'à un appel explicite à `fetchBody`.
 struct MailSnippet: Identifiable, Hashable {
     var id: String { "\(accountName)|\(mailbox)|\(messageId)" }
     let messageId: String
@@ -15,10 +17,11 @@ struct MailSnippet: Identifiable, Hashable {
     let sender: String
     let dateReceived: Date
     let preview: String
-    /// Corps chargé à la demande (fetchBody).
+    /// Corps chargé à la demande (fetchBody) ; `nil` tant qu'il n'a pas été récupéré.
     var body: String?
 }
 
+/// Référence vers une boîte aux lettres (couple compte + nom de boîte).
 struct MailboxRef: Identifiable, Hashable {
     var id: String { "\(accountName)|\(mailboxName)" }
     let accountName: String
@@ -29,6 +32,7 @@ struct MailboxRef: Identifiable, Hashable {
     }
 }
 
+/// Pièce jointe d'un message sauvegardée sur disque (nom + chemin local).
 struct MailAttachmentFile: Identifiable, Hashable {
     var id: String { path }
     let fileName: String
@@ -64,8 +68,11 @@ enum MailService {
 
     /// Liste les N messages les plus récents de la boîte de réception, tous comptes.
     /// - Parameters:
-    ///   - limit: nombre max de messages (défaut 50)
-    ///   - search: filtre optionnel (match sur subject OU sender OU contenu)
+    ///   - limit: nombre max de messages (défaut 500)
+    ///   - search: filtre optionnel. Quand non vide, un message est retenu si le terme
+    ///     (sensible à la casse, sous-chaîne brute) apparaît dans le sujet OU l'expéditeur
+    ///     OU les 400 premiers caractères du corps. Vide → aucun filtrage.
+    ///   - mailbox: restreint la recherche à cette boîte ; `nil` → boîtes de réception de tous les comptes.
     static func listRecent(limit: Int = 500, search: String = "", mailbox: MailboxRef? = nil) async throws -> [MailSnippet] {
         let trimmed = search.trimmingCharacters(in: .whitespaces)
         let scriptSrc = buildListScript(limit: limit, search: trimmed, mailbox: mailbox)
@@ -73,6 +80,7 @@ enum MailService {
         return parseList(raw)
     }
 
+    /// Énumère les boîtes de réception (inbox) de tous les comptes Mail configurés.
     static func listMailboxes() async throws -> [MailboxRef] {
         let sep = "|⎯|"
         let rowEnd = "‡"
@@ -104,7 +112,9 @@ enum MailService {
             }
     }
 
-    /// Charge le corps complet d'un message.
+    /// Charge le corps complet d'un message en ciblant précisément son compte et sa boîte.
+    /// À privilégier dès qu'un `MailSnippet` est disponible (compte/boîte connus) : plus rapide
+    /// et sans ambiguïté que la surcharge ne prenant que `messageId`.
     static func fetchBody(messageId: String, accountName: String, mailbox: String) async throws -> String {
         let script = """
         tell application "Mail"
@@ -131,6 +141,9 @@ enum MailService {
         return try await runAppleScript(script)
     }
 
+    /// Charge le corps complet d'un message en le cherchant dans la boîte de réception
+    /// de chaque compte (le paramètre `mailbox` est conservé pour compatibilité d'appel
+    /// mais la recherche porte sur l'`inbox`). À utiliser quand le compte n'est pas connu.
     static func fetchBody(messageId: String, mailbox: String) async throws -> String {
         let script = """
         tell application "Mail"
@@ -152,6 +165,8 @@ enum MailService {
         return try await runAppleScript(script)
     }
 
+    /// Sauvegarde toutes les pièces jointes d'un message dans un dossier dédié
+    /// (sous Application Support, recréé à neuf à chaque appel) et renvoie les fichiers écrits.
     static func saveAttachments(messageId: String, accountName: String, mailbox: String) async throws -> [MailAttachmentFile] {
         let directory = mailAttachmentsDirectory(messageId: messageId)
         let fileManager = FileManager.default
@@ -322,24 +337,31 @@ enum MailService {
         }
     }
 
-    private static func parseAppleDate(_ s: String) -> Date? {
-        // Format renvoyé par AppleScript (dépend de la locale système).
-        // On essaie plusieurs formats courants.
+    /// Formatters pré-calculés essayés dans l'ordre format-puis-locale par `parseAppleDate`.
+    private static let appleDateFormatters: [DateFormatter] = {
         let formats = [
             "EEEE d MMMM yyyy 'à' HH:mm:ss",  // fr
             "EEEE, MMMM d, yyyy 'at' h:mm:ss a",
             "d MMMM yyyy 'à' HH:mm:ss",
             "yyyy-MM-dd HH:mm:ss Z"
         ]
-        let fr = Locale(identifier: "fr_FR")
-        let en = Locale(identifier: "en_US")
-        for f in formats {
-            for loc in [fr, en] {
+        let locales = [Locale(identifier: "fr_FR"), Locale(identifier: "en_US")]
+        return formats.flatMap { f in
+            locales.map { loc -> DateFormatter in
                 let df = DateFormatter()
                 df.locale = loc
                 df.dateFormat = f
-                if let d = df.date(from: s) { return d }
+                return df
             }
+        }
+    }()
+
+    /// Parse la date renvoyée par AppleScript (chaîne dépendant de la locale système).
+    /// Essaie successivement plusieurs formats fr/en courants ; renvoie `nil` si aucun
+    /// ne correspond (l'appelant retombe alors sur `Date()`).
+    private static func parseAppleDate(_ s: String) -> Date? {
+        for df in appleDateFormatters {
+            if let d = df.date(from: s) { return d }
         }
         return nil
     }

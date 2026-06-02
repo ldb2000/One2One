@@ -7,9 +7,14 @@ import AppKit
 /// via `onPick`.
 struct PhotoSearchSheet: View {
 
+    /// Requête initiale pré-remplie ; déclenche une recherche automatique si non vide.
     let initialQuery: String
+    /// Clé API Google ; si vide (ou CX absent) la recherche bascule sur DuckDuckGo.
     let googleAPIKey: String
+    /// Identifiant du Custom Search Engine Google associé à `googleAPIKey`.
     let googleCSEID: String
+    /// Appelé avec les données binaires brutes de l'image choisie (sans nom de
+    /// fichier ni URL d'origine) ; le sheet se ferme juste après l'appel.
     let onPick: (Data) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -124,8 +129,11 @@ struct PhotoSearchSheet: View {
     }
 }
 
+/// Vignette d'un résultat : charge la miniature en tâche de fond et déclenche
+/// `onTap` au clic (le parent télécharge alors l'image pleine résolution).
 private struct PhotoSearchThumbnail: View {
     let result: LinkedInPhotoSearch.ImageResult
+    /// Action déclenchée au clic sur la vignette.
     let onTap: () -> Void
 
     @State private var image: NSImage?

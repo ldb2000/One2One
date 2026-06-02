@@ -19,6 +19,10 @@ enum ProjectMatchService {
 
     // MARK: - Public API
 
+    /// Devine le type de réunion pour un événement calendrier en appliquant
+    /// quatre règles ordonnées par priorité décroissante : manager (email
+    /// exact), one-to-one (2 participants), projet (fuzzy match du titre,
+    /// seuil 0.7), puis fallback `.global`. La première règle satisfaite gagne.
     @MainActor
     static func suggestKind(for event: CalendarMeetingEvent,
                             context: ModelContext,
@@ -96,6 +100,10 @@ enum ProjectMatchService {
         return all.first { $0.email.lowercased() == needle }
     }
 
+    /// Retourne le projet dont le nom ressemble le plus au `title`, avec son
+    /// score (0..1), ou `nil` si aucun projet n'a de tokens exploitables. Le
+    /// score combine le recouvrement de tokens et la similarité Jaro-Winkler
+    /// (on garde le max des deux).
     @MainActor
     private static func bestProjectMatch(title: String, in context: ModelContext) -> (Project, Double)? {
         let descriptor = FetchDescriptor<Project>()
@@ -126,7 +134,10 @@ enum ProjectMatchService {
         return best
     }
 
-    /// Jaro-Winkler similarity (0..1).
+    /// Similarité Jaro-Winkler entre deux chaînes, dans `0..1` (1 = identiques,
+    /// 0 = aucune correspondance). Étend le score de Jaro en bonifiant les
+    /// préfixes communs (jusqu'à 4 caractères), ce qui favorise les chaînes
+    /// partageant un début identique.
     static func jaroWinkler(_ a: String, _ b: String) -> Double {
         if a == b { return 1.0 }
         if a.isEmpty || b.isEmpty { return 0.0 }

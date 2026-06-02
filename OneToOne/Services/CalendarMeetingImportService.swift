@@ -2,6 +2,8 @@ import Foundation
 import EventKit
 import SwiftData
 
+/// Participant normalisé d'un événement calendrier (nom et email nettoyés,
+/// statut de présence dérivé du `participantStatus` EventKit).
 struct CalendarMeetingAttendee: Identifiable, Hashable {
     let id: String
     let name: String
@@ -9,6 +11,7 @@ struct CalendarMeetingAttendee: Identifiable, Hashable {
     let status: MeetingAttendanceStatus
 }
 
+/// Vue immuable d'un événement EventKit, découplée du framework pour l'UI et l'import.
 struct CalendarMeetingEvent: Identifiable, Hashable {
     let id: String
     let title: String
@@ -21,10 +24,13 @@ struct CalendarMeetingEvent: Identifiable, Hashable {
     let isAllDay: Bool
 }
 
+/// Passerelle EventKit : lecture des événements du calendrier et import d'un
+/// événement en `Meeting` SwiftData (avec rapprochement projet/collaborateurs).
 @MainActor
 final class CalendarMeetingImportService: ObservableObject {
     private let eventStore = EKEventStore()
 
+    /// Demande l'accès complet aux événements ; renvoie `false` sur refus ou erreur.
     func requestAccess() async -> Bool {
         do {
             if #available(macOS 14.0, *) {
@@ -37,6 +43,8 @@ final class CalendarMeetingImportService: ObservableObject {
         }
     }
 
+    /// Récupère les événements dans une fenêtre `[anchor - daysBefore, anchor + daysAfter]`,
+    /// triés par date de début croissante.
     func fetchEvents(around anchorDate: Date, daysBefore: Int = 7, daysAfter: Int = 14) -> [CalendarMeetingEvent] {
         let calendar = Calendar.current
         let start = calendar.date(byAdding: .day, value: -daysBefore, to: anchorDate) ?? anchorDate
@@ -44,7 +52,9 @@ final class CalendarMeetingImportService: ObservableObject {
         return fetchEvents(start: start, end: end)
     }
 
-    /// Fetch events between explicit bounds, sorted chronologically (ascending).
+    /// Fetch events between explicit bounds. The returned array is always sorted
+    /// by `startDate` ascending; all-day and cancelled events are included
+    /// (filtering is the caller's responsibility).
     func fetchEvents(start: Date, end: Date) -> [CalendarMeetingEvent] {
         let predicate = eventStore.predicateForEvents(withStart: start, end: end, calendars: eventStore.calendars(for: .event))
 

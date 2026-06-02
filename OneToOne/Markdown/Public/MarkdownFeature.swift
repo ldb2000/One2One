@@ -20,6 +20,8 @@ public enum MarkdownFeature: Hashable {
     case thematicBreak
 }
 
+/// Heading depth from `h1` (largest, raw value 1) down to `h6` (smallest),
+/// mapping to one through six `#` characters in the serialized markdown.
 public enum HeadingLevel: Int, Hashable { case h1 = 1, h2, h3, h4, h5, h6 }
 
 public extension Set where Element == MarkdownFeature {

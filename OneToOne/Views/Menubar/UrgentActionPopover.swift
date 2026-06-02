@@ -9,6 +9,9 @@ struct UrgentActionPopover: View {
     let onOpenMeeting: (Meeting) -> Void
     let onDismiss: () -> Void
 
+    /// Formateur partagé pour les dates (échéance, commentaires), en français
+    /// au format « 3 janv. 2026 ». Mis en cache pour éviter de recréer un
+    /// `DateFormatter` à chaque rendu.
     private static let dateFmt: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "fr_FR")
@@ -34,6 +37,7 @@ struct UrgentActionPopover: View {
             if !task.comments.isEmpty {
                 Divider()
                 Text("Commentaires").font(.caption.bold()).foregroundColor(.secondary)
+                // N'affiche que les 3 commentaires les plus récents (popover compact).
                 let recent = task.comments.sorted { $0.date > $1.date }.prefix(3)
                 ForEach(Array(recent), id: \.persistentModelID) { c in
                     HStack(alignment: .top, spacing: 6) {

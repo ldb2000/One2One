@@ -6,6 +6,8 @@ import SwiftData
 /// a stable target.
 enum BuiltInTemplates {
 
+    /// Données immuables d'un modèle livré, copiées telles quelles dans une
+    /// ligne `ReportTemplate` lors du seeding.
     struct Seed {
         let name: String
         let kind: ReportTemplateKind
@@ -20,6 +22,8 @@ enum BuiltInTemplates {
     /// Keyed by `name` (also the SwiftData lookup key for `seedIfNeeded`).
     static let dict: [String: Seed] = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 
+    /// Tous les seeds livrés, dans l'ordre d'affichage. Source unique alimentant
+    /// `dict` et le seeding.
     static let all: [Seed] = [
         d1_global,
         d2_oneToOne,

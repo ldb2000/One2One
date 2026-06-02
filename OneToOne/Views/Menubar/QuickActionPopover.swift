@@ -61,6 +61,9 @@ struct QuickActionPopover: View {
         .frame(width: 360)
     }
 
+    /// Crée l'`ActionTask` à partir du formulaire (titre nettoyé, projet,
+    /// collaborateur, échéance optionnelle), sauvegarde puis ferme le popover.
+    /// Ne fait rien si le titre est vide après nettoyage.
     private func create() {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

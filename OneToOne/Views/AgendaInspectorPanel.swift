@@ -1,6 +1,10 @@
 import SwiftUI
 import SwiftData
 
+/// Panneau latéral d'agenda : bandeau de semaine pour choisir un jour, puis liste
+/// des réunions du calendrier pour cette date. Permet de rejoindre une réunion Teams,
+/// d'importer un événement en `Meeting`, ou d'ouvrir une réunion déjà importée.
+/// Recharge la liste quand la date sélectionnée ou les événements du jour changent.
 struct AgendaInspectorPanel: View {
 
     @Environment(\.modelContext) private var context
@@ -53,6 +57,10 @@ struct AgendaInspectorPanel: View {
 
     // MARK: - Rows
 
+    /// Carte d'un événement : plage horaire, titre (barré si annulé), badges
+    /// (nb participants, lien Teams, état "Importé"), et boutons d'action —
+    /// "Rejoindre Teams", puis "Ouvrir" si la réunion existe déjà ou "Importer"
+    /// sinon. Le fond reflète l'état temporel (passé / en cours / à venir).
     @ViewBuilder
     private func eventRow(_ event: CalendarMeetingEvent) -> some View {
         let existing = existingMeeting(for: event.id)
@@ -185,6 +193,9 @@ struct AgendaInspectorPanel: View {
         openMeeting(meeting)
     }
 
+    /// Demande l'ouverture d'une réunion sans couplage direct à la navigation :
+    /// poste une notification `.openMeetingFromAgenda` portant l'`UUID` stable de
+    /// la réunion. La vue qui pilote la sélection l'observe et navigue.
     private func openMeeting(_ meeting: Meeting) {
         NotificationCenter.default.post(name: .openMeetingFromAgenda,
                                         object: nil,

@@ -12,8 +12,14 @@ struct AddCollaboratorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query: String = ""
 
+    /// Requête saisie débarrassée des espaces de tête/queue, réutilisée par
+    /// `filtered`, `canCreate` et le bouton de création.
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var filtered: [Collaborator] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = trimmedQuery
         let base = allCollaborators.filter { !$0.isArchived }
         guard !trimmed.isEmpty else {
             return base.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -24,13 +30,12 @@ struct AddCollaboratorSheet: View {
     }
 
     private var exactMatchExists: Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmed = trimmedQuery.lowercased()
         return allCollaborators.contains { $0.name.lowercased() == trimmed }
     }
 
     private var canCreate: Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && !exactMatchExists
+        !trimmedQuery.isEmpty && !exactMatchExists
     }
 
     var body: some View {
@@ -60,7 +65,7 @@ struct AddCollaboratorSheet: View {
                     Button {
                         onCreate(query)
                     } label: {
-                        Label("Créer « \(query.trimmingCharacters(in: .whitespacesAndNewlines)) »",
+                        Label("Créer « \(trimmedQuery) »",
                               systemImage: "plus.circle.fill")
                             .foregroundStyle(Color.accentColor)
                     }

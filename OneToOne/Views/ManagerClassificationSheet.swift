@@ -9,14 +9,20 @@ import SwiftUI
 /// - an async-updated category picker (suggestion from `ManagerCategoryClassifier`)
 /// - a free-form tag field
 struct ManagerClassificationSheet: View {
+    /// Extrait original sélectionné (affiché en aperçu lecture seule).
     let snippet: String
+    /// Nom du projet associé (affiché en sous-titre s'il est non vide).
     let projectName: String?
     let categories: [String]
+    /// Catégorie suggérée par l'IA — mise à jour de l'extérieur par le parent ; adoptée tant que l'utilisateur n'a pas choisi.
     let suggestedCategory: String?      // updated externally by parent
+    /// Texte d'élaboration IA — mis à jour de l'extérieur par le parent ; adopté tant que l'utilisateur n'a pas tapé.
     let suggestedElaboration: String?   // updated externally by parent (AI text)
     let isLoadingSuggestion: Bool
     let isLoadingElaboration: Bool
+    /// `true` quand l'élaboration provient de l'IA ; `false` = fallback déterministe (contexte+extrait brut).
     let elaborationFromAI: Bool         // true when elaboration came from AI; false = fallback
+    /// Raison du fallback (non vide quand l'IA n'a pas répondu) ; affichée dans le badge d'avertissement.
     let elaborationFallbackReason: String  // non-empty when fallback used
     let onCancel: () -> Void
     let onConfirm: (_ category: String, _ tag: String, _ elaboratedText: String, _ aiSuggested: String?) -> Void

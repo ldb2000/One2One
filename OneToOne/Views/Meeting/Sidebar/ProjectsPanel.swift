@@ -12,10 +12,15 @@ struct ProjectsPanel: View {
 
     let meeting: Meeting
 
+    /// Partenaire d'un 1:1 (premier participant). `nil` hors `.oneToOne`,
+    /// ce qui aiguille `body` vers la branche équipe ou l'état vide.
     private var partner: Collaborator? {
         meeting.kind == .oneToOne ? meeting.participants.first : nil
     }
 
+    /// Union dédupliquée des projets (architecte + chef de projet) de tous les
+    /// participants présents, archivés exclus, triée par statut. `nil` hors
+    /// `.work` ou si aucun projet — la dédup se fait sur `persistentModelID`.
     private var teamProjects: [Project]? {
         guard meeting.kind == .work else { return nil }
         var seen: Set<PersistentIdentifier> = []

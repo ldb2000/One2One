@@ -186,6 +186,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
         }
     }
 
+    /// Suspend l'enregistrement en cours et fige le compteur de durée.
+    /// No-op si rien n'est en cours ou si déjà en pause.
     func pause() {
         guard isRecording, !isPaused, let rec = recorder else { return }
         rec.pause()
@@ -196,6 +198,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
         print("[Audio] pause")
     }
 
+    /// Reprend après une pause. Le temps écoulé en pause est exclu de la durée.
+    /// No-op si rien n'est en cours ou si pas en pause.
     func resume() {
         guard isRecording, isPaused, let rec = recorder else { return }
         if let paused = pauseStartDate {
@@ -256,7 +260,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     private func stopTimers() {
-        elapsedTimer?.invalidate(); elapsedTimer = nil
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
         stopLevelTimer()
     }
 
@@ -275,7 +280,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     private func stopLevelTimer() {
-        levelTimer?.invalidate(); levelTimer = nil
+        levelTimer?.invalidate()
+        levelTimer = nil
     }
 
     private func tickElapsed() {

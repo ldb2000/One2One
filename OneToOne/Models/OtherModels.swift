@@ -1,10 +1,16 @@
 import Foundation
 import SwiftData
 
+/// Nature d'un `Interview`. Distingue les 1:1 récurrents des entretiens de
+/// recrutement et des fiches créées par import de document.
 enum InterviewType: String, CaseIterable {
+    /// 1:1 récurrent avec un collaborateur de l'équipe.
     case regular = "Entretien"
+    /// Entretien d'embauche / recrutement (active les champs CV, candidat…).
     case job = "Entretien Job"
+    /// Fiche créée à partir d'un import de présentation PowerPoint.
     case importPPTX = "Import PPTX"
+    /// Fiche créée à partir d'un import de document PDF.
     case importPDF = "Import PDF"
 
     var label: String {
@@ -47,7 +53,10 @@ final class Collaborator {
     var standingPrepUpdatedAt: Date?
 
     // MARK: - Voice identification (speech-swift WeSpeaker ResNet34)
-    /// 256 Float32 mean embedding (1024 bytes). Nil = jamais enrôlé.
+    /// Empreinte vocale : embedding moyen de 256 Float32 (1024 octets) produit
+    /// par le modèle WeSpeaker ResNet34. Comparée par cosinus aux embeddings de
+    /// clusters par `SpeakerMatcher` pour rattacher un locuteur à ce collab.
+    /// Nil = jamais enrôlé. Mis à jour en EMA (cf. `voicePrintSamples`).
     var voicePrint: Data?
     /// Nombre d'updates EMA agrégées (pondère les mises à jour).
     var voicePrintSamples: Int = 0
@@ -110,6 +119,9 @@ final class Collaborator {
     }
 }
 
+/// Une fiche d'entretien : soit un 1:1 récurrent avec un collaborateur, soit
+/// un entretien de recrutement (selon `type`). Les champs candidat/CV ci-dessous
+/// ne sont renseignés que pour les entretiens de type `.job`.
 @Model
 final class Interview {
     var date: Date
@@ -118,19 +130,31 @@ final class Interview {
     var recordingLink: URL?
     var hasAlert: Bool = false
     var alertDescription: String = ""
+    /// Raw value de `InterviewType` (accès typé via `type`).
     var typeRaw: String?
+    /// Nom du fichier source pour les fiches issues d'un import (PPTX/PDF).
     var sourceFileName: String?
     var shareWithEveryone: Bool = false
     var contextComment: String = ""
+    /// Recrutement : URL du profil LinkedIn du candidat.
     var candidateLinkedInURL: String = ""
+    /// Recrutement : notes prises depuis le profil LinkedIn du candidat.
     var candidateLinkedInNotes: String = ""
+    /// Recrutement : appréciation de l'expérience du candidat (relecture CV).
     var cvExperienceNotes: String = ""
+    /// Recrutement : appréciation des compétences du candidat (relecture CV).
     var cvSkillsNotes: String = ""
+    /// Recrutement : appréciation de la motivation du candidat (relecture CV).
     var cvMotivationNotes: String = ""
+    /// Recrutement : points positifs relevés pendant l'entretien.
     var positivePoints: String = ""
+    /// Recrutement : points négatifs / réserves relevés pendant l'entretien.
     var negativePoints: String = ""
+    /// Bilan de formation / besoins en montée en compétences du collaborateur.
     var trainingAssessment: String = ""
+    /// Appréciation générale de synthèse (recrutement : décision finale).
     var generalAssessment: String = ""
+    /// Projet associé à l'entretien (ex: projet pressenti pour un candidat).
     var selectedProject: Project?
 
     /// Computed property for type-safe access
@@ -266,6 +290,11 @@ final class ProjectAlert {
     }
 }
 
+/// Une réunion enregistrée : audio, transcription, diarization, rapport généré
+/// et préparation. Agrège participants, tâches, alertes et révisions de rapport.
+/// Plusieurs `kind` (1:1, manager, projet, global, séance de travail) partagent
+/// ce modèle ; certains champs (préparation, locuteurs) ne valent que pour
+/// certains kinds.
 @Model
 final class Meeting {
     /// Stable UUID safe to expose in filenames / external IDs.
@@ -301,8 +330,13 @@ final class Meeting {
     var openQuestionsJSON: String = "[]"
 
     /// Snapshot in-flight de la préparation pour cette meeting précise.
-    /// Pour les kinds .oneToOne/.manager/.project, alimenté par drain depuis
-    /// le pool standing du collab/projet. Pour .global/.work, édité directement.
+    /// Flux complet : (1) DRAIN — à la création / 1re ouverture du tab
+    /// Préparation, le pool `standingPrepNotes` du collab (kinds .oneToOne/
+    /// .manager) ou du projet (.project) est copié ici une seule fois
+    /// (idempotent via `prepDrainDone`). Pour .global/.work, édité directement,
+    /// sans pool. (2) PREP — l'utilisateur édite ces notes avant la réunion.
+    /// (3) CARRYOVER — en fin de transcription, les items non cochés sont
+    /// reversés dans le pool standing (idempotent via `prepCarryoverDone`).
     var prepNotes: String = ""
     var prepGeneratedAt: Date?
     /// Flag idempotence du drain (pool standing → meeting) à la création/
@@ -412,17 +446,22 @@ final class Meeting {
     }
 
     // MARK: - JSON-backed arrays
+    // Façades typées au-dessus des colonnes `*JSON` (array de String encodé).
+    // Le stockage reste JSON pour rester migration-safe côté SwiftData.
 
+    /// Points clés du rapport, vue tableau au-dessus de `keyPointsJSON`.
     var keyPoints: [String] {
         get { (try? JSONDecoder().decode([String].self, from: Data(keyPointsJSON.utf8))) ?? [] }
         set { keyPointsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
     }
 
+    /// Décisions prises, vue tableau au-dessus de `decisionsJSON`.
     var decisions: [String] {
         get { (try? JSONDecoder().decode([String].self, from: Data(decisionsJSON.utf8))) ?? [] }
         set { decisionsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
     }
 
+    /// Questions ouvertes, vue tableau au-dessus de `openQuestionsJSON`.
     var openQuestions: [String] {
         get { (try? JSONDecoder().decode([String].self, from: Data(openQuestionsJSON.utf8))) ?? [] }
         set { openQuestionsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }

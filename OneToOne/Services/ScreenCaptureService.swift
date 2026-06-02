@@ -16,7 +16,10 @@ final class ScreenCaptureService: NSObject, ObservableObject, SCStreamOutput {
     
     enum CaptureSource {
         case window(SCWindow)
-        case display(SCDisplay, CGRect) // Area on a display
+        /// Capture d'une zone d'un écran. Le `CGRect` est exprimé en coordonnées
+        /// relatives à l'écran (origine = coin de `display`), en points, et est
+        /// affecté tel quel à `SCStreamConfiguration.sourceRect`.
+        case display(SCDisplay, CGRect)
     }
     
     @Published var isCapturing = false
@@ -35,6 +38,9 @@ final class ScreenCaptureService: NSObject, ObservableObject, SCStreamOutput {
     private var stream: SCStream?
     private var mode: CaptureMode = .manual
     private var autoInterval: TimeInterval = 2.0
+    /// Seuil de distance de Hamming entre pHash (64 bits) consécutifs au-delà
+    /// duquel une nouvelle slide est enregistrée en mode auto. Unité : nombre de
+    /// bits différents (0 = images identiques, 64 = totalement différentes).
     private var autoThreshold: Int = 12
     
     private var lastCapturedHash: UInt64?
@@ -48,6 +54,10 @@ final class ScreenCaptureService: NSObject, ObservableObject, SCStreamOutput {
     // Config
     var selectedSource: CaptureSource?
     
+    /// Démarre une capture (mode manuel ou auto) pour `meeting`.
+    /// Si une capture est déjà en cours, elle est d'abord arrêtée proprement
+    /// (`stop()`) afin d'éviter un SCStream orphelin lors d'un changement de
+    /// source live. Crée un nouvel attachment "slides" et réinitialise l'état.
     func start(mode: CaptureMode,
                interval: TimeInterval = 2.0,
                threshold: Int = 12,

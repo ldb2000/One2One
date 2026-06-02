@@ -19,6 +19,11 @@ enum MeetingMailClient {
     case outlook     // Microsoft Outlook
 }
 
+/// Service d'export des entretiens (`Interview`) et réunions (`Meeting`) vers
+/// Markdown, PDF, mail (Apple Mail / Outlook) et Apple Notes.
+/// `@MainActor` : manipule AppKit (NSPrintOperation, NSSavePanel, WKWebView,
+/// NSWorkspace) et accède au `ModelContext` des modèles, donc tous les appels
+/// doivent se faire depuis le thread principal.
 @MainActor
 class ExportService {
     func exportToMarkdown(interview: Interview) -> String {
@@ -231,14 +236,14 @@ class ExportService {
         composeMeetingMail(meeting: meeting, client: .outlook, options: options)
     }
 
-    /// Conservé pour rétro-compat avec d'anciens callers : redirige vers
-    /// Outlook (compose direct, pas .eml fichier).
-    func exportMeetingOutlookEML(meeting: Meeting) {
-        composeMeetingMail(meeting: meeting, client: .outlook, options: [])
-    }
-
     // MARK: - Mail compose (Apple Mail / Outlook)
 
+    /// Construit le rapport HTML + pièces jointes éventuelles, calcule la liste
+    /// des destinataires et ouvre une fenêtre de composition dans le client choisi.
+    /// Destinataires = tous les participants (présents et absents) ayant une
+    /// adresse valide (`isLikelyEmail`), dédupliqués sans tenir compte de la
+    /// casse. En mode `.outlook`, retombe sur Apple Mail si la composition
+    /// Outlook échoue (app absente).
     private func composeMeetingMail(
         meeting: Meeting,
         client: MeetingMailClient,
@@ -348,6 +353,12 @@ class ExportService {
         return true
     }
 
+    /// Sérialise un brouillon `.eml` MIME `multipart/mixed` qu'Apple Mail ouvre
+    /// comme message éditable (en-tête `X-Unsent: 1`). Une frontière unique est
+    /// générée par UUID. Le sujet est encodé en `=?UTF-8?B?…?=` ; le corps est
+    /// une partie `text/html; charset=UTF-8` en `8bit` ; chaque pièce jointe est
+    /// encodée en base64 (lignes wrappées à 76 caractères) avec son type MIME
+    /// déduit de l'extension. Les fichiers illisibles sont ignorés.
     private func buildMultipartEML(subject: String, html: String, attachmentPaths: [String], recipients: [String]) -> Data {
         let boundary = "----=_OneToOne_\(UUID().uuidString)"
         var raw = ""
@@ -808,7 +819,12 @@ class ExportService {
 
 /// Délégué qui attend la fin du chargement HTML d'une WKWebView puis
 /// produit un PDF à l'URL cible. Référence forte sur sa propre webView
-/// pour rester en vie jusqu'à la fin de l'export.
+/// (`ownedWebView`) pour rester en vie jusqu'à la fin de l'export.
+/// Cycle de vie : créé par `exportMeetingPDF`, rattaché à la webView via
+/// `objc_setAssociatedObject` (ancre forte côté webView) ; sans cette ancre,
+/// ARC libérerait le délégué avant `didFinish` et l'export n'aurait jamais
+/// lieu. Une fois le PDF écrit, `ownedWebView = nil` rompt les deux références
+/// et laisse le tout se désallouer.
 @MainActor
 private final class PDFExportDelegate: NSObject, WKNavigationDelegate {
     nonisolated(unsafe) static var assocKey: UInt8 = 0

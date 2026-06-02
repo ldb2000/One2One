@@ -7,6 +7,8 @@ struct MeetingHeaderEditorial: View {
 
     @State private var showDatePopover = false
 
+    /// Libellé du bandeau supérieur dérivé de `meeting.kind`. Pour les 1:1 (et manager),
+    /// suffixe le nom du premier participant en majuscules s'il existe.
     private var kindLabel: String {
         switch meeting.kind {
         case .project:   return "COPIL · PROJET"
@@ -86,11 +88,17 @@ struct MeetingHeaderEditorial: View {
         .background(MeetingTheme.canvasCream)
     }
 
+    /// Date de la réunion formatée en locale fr_FR au format « dd/MM/yyyy · HH:mm ».
     private var dateLabel: String {
+        Self.dateFormatter.string(from: meeting.date)
+    }
+
+    /// Formateur de date mis en cache (évite une réallocation à chaque accès).
+    private static let dateFormatter: DateFormatter = {
         let df = DateFormatter()
         df.locale = Locale(identifier: "fr_FR")
         df.timeZone = .current
         df.dateFormat = "dd/MM/yyyy · HH:mm"
-        return df.string(from: meeting.date)
-    }
+        return df
+    }()
 }

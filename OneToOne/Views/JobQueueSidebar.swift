@@ -23,11 +23,7 @@ struct JobQueueSidebar: View {
             } else if !queue.terminalJobs.isEmpty {
                 HStack {
                     Spacer()
-                    Button { queue.clearTerminal() } label: {
-                        Image(systemName: "trash").font(.caption2)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Effacer les terminés")
+                    clearButton
                 }
                 .padding(.horizontal, 8).padding(.top, 4)
             }
@@ -61,18 +57,21 @@ struct JobQueueSidebar: View {
                 .font(.caption.bold())
             Spacer()
             if !queue.terminalJobs.isEmpty {
-                Button {
-                    queue.clearTerminal()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.caption2)
-                }
-                .buttonStyle(.borderless)
-                .help("Effacer les terminés")
+                clearButton
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+    }
+
+    /// Bouton « corbeille » effaçant les jobs terminés, partagé entre l'en-tête
+    /// et la barre compacte sans en-tête.
+    private var clearButton: some View {
+        Button { queue.clearTerminal() } label: {
+            Image(systemName: "trash").font(.caption2)
+        }
+        .buttonStyle(.borderless)
+        .help("Effacer les terminés")
     }
 
     private var emptyState: some View {
@@ -94,6 +93,10 @@ struct JobQueueSidebar: View {
             .padding(.horizontal, 4)
     }
 
+    /// Ligne représentant un job. Le tap ne pousse pas un lien direct mais
+    /// passe par `router.pendingToken` (même mécanique que les notifications et
+    /// la menubar), ce qui centralise la navigation et survit au cycle de vie
+    /// de la fenêtre.
     @ViewBuilder
     private func jobRow(_ job: JobQueue.Job) -> some View {
         HStack(alignment: .top, spacing: 8) {
@@ -228,13 +231,18 @@ struct JobQueueSidebar: View {
     private func terminalLabel(_ job: JobQueue.Job) -> String {
         let start = job.startedAt ?? job.queuedAt
         let dur = (job.finishedAt ?? Date()).timeIntervalSince(start)
-        let secs = Int(dur)
-        let suffix = secs >= 60 ? "\(secs / 60)m \(secs % 60)s" : "\(secs)s"
+        let suffix = formatDuration(Int(dur))
         switch job.status {
         case .succeeded: return "Terminé · \(suffix)"
         case .cancelled: return "Annulé · \(suffix)"
         default: return suffix
         }
+    }
+
+    /// Met en forme une durée en secondes : « 2m 5s » au-delà d'une minute,
+    /// sinon « 42s ».
+    private func formatDuration(_ secs: Int) -> String {
+        secs >= 60 ? "\(secs / 60)m \(secs % 60)s" : "\(secs)s"
     }
 
     private func rowBackground(for job: JobQueue.Job) -> Color {
@@ -246,12 +254,16 @@ struct JobQueueSidebar: View {
         }
     }
 
+    /// Retrouve la réunion d'un job via son `PersistentIdentifier`. Faute de
+    /// prédicat SwiftData sur l'ID persistant, on récupère toutes les réunions
+    /// puis on filtre en mémoire.
     private func lookupMeeting(persistentID: PersistentIdentifier) -> Meeting? {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []
         return all.first { $0.persistentModelID == persistentID }
     }
 
+    /// Libellé lisible (en français, codé en dur) du type de job affiché.
     private func jobKindLabel(_ k: JobQueue.JobKind) -> String {
         switch k {
         case .transcription: return "Transcription"

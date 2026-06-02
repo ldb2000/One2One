@@ -24,6 +24,10 @@ final class EditorTextView: NSTextView {
         commonInit()
     }
 
+    /// Configure les options d'édition de texte. Les corrections/complétions/
+    /// remplacements automatiques sont désactivés car ils interféreraient avec
+    /// la syntaxe markdown (ex. transformation des `--` en tiret long), et
+    /// `importsGraphics` est coupé car l'éditeur ne gère que du texte balisé.
     private func commonInit() {
         isRichText = true
         allowsUndo = true
@@ -38,6 +42,11 @@ final class EditorTextView: NSTextView {
 
     // MARK: - Click handling for task checkboxes
 
+    /// Intercepte le clic pour détecter s'il vise la checkbox d'une tâche.
+    /// Heuristique : on remonte au début de la ligne, on calcule le rect du
+    /// premier glyphe, et si l'abscisse du clic tombe dans les ~14pt de marge
+    /// gauche on bascule l'état coché et on prévient le coordinator via
+    /// `onTaskToggle`. Sinon on délègue au comportement standard de `NSTextView`.
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: point)

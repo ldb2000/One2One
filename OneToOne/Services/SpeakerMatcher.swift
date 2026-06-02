@@ -21,6 +21,9 @@ enum SpeakerMatcher {
         let confidence: Double
         let auto: Bool
         let candidates: [(Collaborator, Double)]
+        /// `true` quand deux candidats dépassent le seuil auto avec un écart de
+        /// score < `ambiguousDelta`. L'UI doit alors demander une confirmation
+        /// manuelle plutôt que d'affecter automatiquement (`auto` est forcé à false).
         let ambiguous: Bool
     }
 
@@ -56,6 +59,9 @@ enum SpeakerMatcher {
         return out
     }
 
+    /// Stratégie en deux passes : d'abord les participants de la réunion (seuil
+    /// `suggest`, plus permissif), et seulement s'ils ne donnent rien, les
+    /// non-participants (seuil `auto`, strict). La première passe non vide gagne.
     private static func matchOne(embedding: [Float],
                                   enrolled: [Collaborator],
                                   participants: Set<PersistentIdentifier>,
@@ -121,6 +127,11 @@ enum SpeakerMatcher {
     /// Apply running-mean EMA update to a Collaborator's voiceprint with a
     /// newly-observed cluster embedding. Only called from manual labelling
     /// (never on auto-match). See spec §5.5.
+    ///
+    /// Formula: it is a true running (cumulative) mean rather than a fixed-alpha
+    /// EMA — `new = (old * n + observed) / (n + 1)`, where `n =
+    /// voicePrintSamples`. This weights every sample equally, so the voiceprint
+    /// keeps converging and never over-reacts to a single noisy embedding.
     @MainActor
     static func applyEMAUpdate(to collaborator: Collaborator,
                                 newEmbedding: [Float],
@@ -145,6 +156,9 @@ enum SpeakerMatcher {
 
     // MARK: - Cosine + codec
 
+    /// Similarité cosinus entre deux vecteurs. Si les longueurs diffèrent, seul
+    /// le préfixe commun (`min(a.count, b.count)`) est comparé, sans erreur.
+    /// Renvoie 0 si l'une des normes est ~nulle (vecteur vide ou tout-zéro).
     static func cosine(_ a: [Float], _ b: [Float]) -> Double {
         let n = min(a.count, b.count)
         var dot: Float = 0

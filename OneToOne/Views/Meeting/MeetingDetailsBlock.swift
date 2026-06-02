@@ -1,23 +1,35 @@
 import SwiftUI
 import SwiftData
 
+/// Section repliable « Détails de la réunion » : type, projet, participants,
+/// collaborateurs suggérés et prompt personnalisé. Les mutations du modèle sont
+/// déléguées aux closures fournies par la vue parente.
 struct MeetingDetailsBlock: View {
     @Bindable var meeting: Meeting
     let settings: AppSettings
     let allCollaborators: [Collaborator]
+    /// Collaborateurs non encore participants, proposés à l'ajout.
     let availableCollaborators: [Collaborator]
     let projects: [Project]
 
+    /// Contrôle l'ouverture/fermeture de la section détaillée.
     @Binding var expanded: Bool
     @Binding var showCustomPrompt: Bool
     @Binding var newAdhocName: String
+    /// Message d'erreur d'import calendrier, affiché en rouge sous le formulaire.
     @Binding var calendarImportError: String?
 
+    /// Ajoute un collaborateur aux participants de la réunion.
     let addParticipant: (Collaborator) -> Void
+    /// Retire un collaborateur des participants.
     let removeParticipant: (Collaborator) -> Void
+    /// Définit le statut de présence (présent/absent) d'un participant.
     let setParticipantStatus: (MeetingAttendanceStatus, Collaborator) -> Void
+    /// Renvoie le statut de présence courant d'un collaborateur.
     let participantStatus: (Collaborator) -> MeetingAttendanceStatus
+    /// Crée et ajoute un participant ad-hoc à partir du nom saisi.
     let addAdhoc: () -> Void
+    /// Persiste le `modelContext` après mutation du modèle.
     let saveContext: () -> Void
 
     @Environment(\.modelContext) private var context
@@ -324,6 +336,10 @@ struct MeetingDetailsBlock: View {
         }
     }
 
+    /// Recharge titre, dates, lien Teams et participants depuis l'événement calendrier
+    /// correspondant à `meeting.calendarEventID`, puis modifie le modèle, sauvegarde le
+    /// contexte et reprogramme la notification. Sans correspondance, ne fait rien.
+    /// Les participants sont dédupliqués par email puis par nom (insensible à la casse).
     @MainActor
     private func resyncFromCalendar() {
         let eventID = meeting.calendarEventID
@@ -377,7 +393,8 @@ struct MeetingDetailsBlock: View {
 // MARK: - Recherche projet
 
 /// Popover de sélection de projet avec champ de recherche en haut.
-/// Filtre par code, nom, domaine, CP, AT (case-insensitive).
+/// Exclut les projets archivés, trie par code, et filtre de façon insensible à la
+/// casse sur code, nom, domaine, CP, AT et nom d'entité.
 private struct ProjectSearchPicker: View {
     let projects: [Project]
     let selected: Project?

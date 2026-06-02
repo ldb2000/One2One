@@ -11,6 +11,9 @@ enum VoxtralVariant: String, Codable, CaseIterable, Sendable {
     case realtime4bit
     case realtimeFP16
 
+    /// Identifiant du dépôt Hugging Face correspondant à la variante.
+    /// Résolu localement par `STTModelResolver` (cache HF / chemin manuel),
+    /// jamais téléchargé à la volée par ce moteur.
     var repoId: String {
         switch self {
         case .realtime4bit: return "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"
@@ -47,6 +50,10 @@ final class VoxtralEngine: STTEngine {
         #endif
     }
 
+    /// Charge le modèle depuis le répertoire local résolu. Idempotent (no-op si
+    /// déjà chargé). Pas de réessai ni de timeout : un échec de résolution lève
+    /// `STTError.modelMissing`, un échec de chargement `STTError.loadFailed`.
+    /// Le chargement effectif est exécuté hors du main thread (Task.detached).
     func load() async throws {
         #if canImport(MLXAudioSTT)
         guard model == nil else { return }
@@ -72,6 +79,9 @@ final class VoxtralEngine: STTEngine {
     }
 
     #if canImport(MLX)
+    /// Transcrit un clip audio. `maxTokens` plafonne le nombre de tokens générés
+    /// (borne anti-emballement, typiquement quelques centaines selon la durée du
+    /// clip). Génération déterministe (temperature 0). Retourne "" si non chargé.
     func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String {
         #if canImport(MLXAudioSTT)
         guard let model else { return "" }

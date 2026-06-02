@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import Combine
 
 /// SwiftUI bridge that owns the `EditorTextView`. Translates the markdown
 /// `@Binding String` ↔ internal `NSAttributedString` using `MarkdownParser` /
@@ -115,6 +114,10 @@ struct EditorRepresentable: NSViewRepresentable {
             true
         }
 
+        /// Réagit à chaque frappe : applique les raccourcis markdown puis
+        /// ré-applique le style visuel, le tout sous `isApplyingShortcut` pour
+        /// ignorer les `textDidChange` ré-émis par ces mutations (anti-boucle),
+        /// avant de pousser le markdown vers le binding (débouncé).
         func textDidChange(_ notification: Notification) {
             guard let tv = textView, let storage = tv.textStorage else { return }
             if isApplyingShortcut { return }
@@ -136,6 +139,10 @@ struct EditorRepresentable: NSViewRepresentable {
             pushMarkdownToBinding(force: false)
         }
 
+        /// Sérialise le storage en markdown et le propage au binding parent.
+        /// Sans changement vs. `lastKnownMarkdown`, ne fait rien. Avec
+        /// `force = true`, écrit immédiatement (ex. toggle de tâche) ;
+        /// sinon l'écriture est débouncée et toute écriture en attente annulée.
         func pushMarkdownToBinding(force: Bool) {
             guard let tv = textView, let storage = tv.textStorage else { return }
             let md = MarkdownSerializer.serialize(storage)

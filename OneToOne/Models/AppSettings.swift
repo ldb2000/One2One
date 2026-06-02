@@ -35,6 +35,9 @@ enum AIProvider: String, Codable, CaseIterable {
     }
 }
 
+/// Réglages globaux de l'application, persistés via SwiftData.
+/// Utilisé comme singleton : l'unique instance est repérée par
+/// `singletonKey == "default"` (cf. `canonicalSettings`).
 @Model
 final class AppSettings {
     var singletonKey: String = "default"
@@ -191,14 +194,18 @@ final class AppSettings {
     /// Variante de poids Voxtral (utilisée dès que Voxtral est actif).
     var voxtralVariantRaw: String = VoxtralVariant.realtime4bit.rawValue
 
+    /// Mode de transcription exposé en enum — lecture/écriture via
+    /// `transcriptionModeRaw` (computed, non stocké).
     var transcriptionMode: TranscriptionMode {
         get { TranscriptionMode(rawValue: transcriptionModeRaw) ?? .transcriptionOnly }
         set { transcriptionModeRaw = newValue.rawValue }
     }
+    /// Moteur STT exposé en enum — lecture/écriture via `transcriptionEngineRaw`.
     var transcriptionEngine: STTEngineKind {
         get { STTEngineKind(rawValue: transcriptionEngineRaw) ?? .cohere }
         set { transcriptionEngineRaw = newValue.rawValue }
     }
+    /// Variante Voxtral exposée en enum — lecture/écriture via `voxtralVariantRaw`.
     var voxtralVariant: VoxtralVariant {
         get { VoxtralVariant(rawValue: voxtralVariantRaw) ?? .realtime4bit }
         set { voxtralVariantRaw = newValue.rawValue }
@@ -206,7 +213,11 @@ final class AppSettings {
     /// Diarisation active ssi mode diarize-first (remplace `speakerIdEnabled`).
     var speakerIdEnabled: Bool { transcriptionMode == .diarizeFirst }
 
+    /// Seuil de similarité (0.0-1.0) au-delà duquel un speaker est associé
+    /// automatiquement à un collaborateur connu.
     var speakerIdAutoThreshold: Double = 0.75
+    /// Seuil de similarité (0.0-1.0) au-delà duquel une association est
+    /// seulement suggérée à l'utilisateur (sans application automatique).
     var speakerIdSuggestThreshold: Double = 0.60
     /// Pyannote cluster merge threshold (0.0-2.0). Higher = less merging =
     /// more speakers détectés. Default speech-swift 0.715 fusionne agressivement
@@ -227,6 +238,9 @@ final class AppSettings {
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"
 
+    /// Les 8 catégories de management par défaut servant à classer les sujets
+    /// d'un point manager. Utilisées comme valeur de réinitialisation et comme
+    /// base d'encodage de `managerCategoriesJSON`.
     static let defaultManagerCategories: [String] = [
         "Risque", "Décision", "RH", "Projet",
         "Reconnaissance", "Blocage", "Information", "Demande"

@@ -10,20 +10,25 @@ import SwiftData
 /// au binding via le closure `onCreate` interne.
 struct OwnerPickerMenu: View {
 
+    /// Libellé affiché quand aucune sélection n'est faite (ex: "Aucun").
     let label: String                    // ex: "Aucun"
     @Binding var selection: Collaborator?
     let allCollaborators: [Collaborator]
+    /// Appelé après chaque changement de sélection (sélection, création ou
+    /// remise à zéro), pour permettre à l'appelant de persister la valeur.
     var onSaved: () -> Void = {}
 
     @Environment(\.modelContext) private var context
     @State private var showingAddSheet: Bool = false
 
+    /// Collaborateurs épinglés (pinLevel ≥ 1) non archivés, triés par nom.
     private var favorites: [Collaborator] {
         allCollaborators
             .filter { $0.pinLevel >= 1 && !$0.isArchived }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Collaborateurs non épinglés (pinLevel == 0) non archivés, triés par nom.
     private var others: [Collaborator] {
         allCollaborators
             .filter { $0.pinLevel == 0 && !$0.isArchived }

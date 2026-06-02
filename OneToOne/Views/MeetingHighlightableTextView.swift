@@ -70,6 +70,9 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
         }
     }
 
+    /// Réapplique les surlignages jaunes sur `tv` : réinitialise d'abord tout
+    /// fond puis ajoute la couleur sur chaque range valide. Les ranges hors
+    /// bornes (texte modifié depuis le stockage des offsets) sont ignorées.
     private func applyHighlights(to tv: NSTextView) {
         guard let storage = tv.textStorage else { return }
         let total = (tv.string as NSString).length
@@ -104,6 +107,9 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
     // markdown qui disparaît du rendu décale la longueur — on accepte ce
     // compromis : highlights stockés AVANT cette release vont être appliqués
     // sur le rendu stylé, c'est cosmétique).
+    /// Convertit le markdown `source` en `NSAttributedString` stylé (titres,
+    /// listes, citations, code, emphase, liens) pour l'affichage en lecture
+    /// seule. Parseur ligne à ligne minimal — voir le commentaire ci-dessus.
     static func renderMarkdown(_ source: String) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let bodyFont = NSFont.systemFont(ofSize: 13)
@@ -111,8 +117,7 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
         var inCodeBlock = false
         let lines = source.components(separatedBy: "\n")
 
-        for (idx, rawLine) in lines.enumerated() {
-            let line = rawLine
+        for (idx, line) in lines.enumerated() {
             // Fenced code block toggle.
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
                 inCodeBlock.toggle()
@@ -221,6 +226,8 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
         return out
     }
 
+    /// Détecte un titre markdown (`#`…`######`) et retourne son niveau (1-6)
+    /// avec le texte après le marqueur, ou `nil` si la ligne n'est pas un titre.
     private static func headingLevel(_ line: String) -> (Int, String)? {
         for level in (1...6).reversed() {
             let marker = String(repeating: "#", count: level) + " "
@@ -231,6 +238,8 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
         return nil
     }
 
+    /// Retourne le corps d'une puce markdown (`- ` ou `* `, indentation
+    /// tolérée) ou `nil` si la ligne n'est pas une puce.
     private static func bulletPrefix(_ line: String) -> String? {
         let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
         if trimmed.hasPrefix("- ") { return String(trimmed.dropFirst(2)) }
@@ -238,6 +247,8 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
         return nil
     }
 
+    /// Détecte une entrée de liste numérotée (`123. texte`) et retourne le
+    /// numéro avec le corps, ou `nil` si la ligne ne correspond pas.
     private static func numberedPrefix(_ line: String) -> (Int, String)? {
         var i = line.startIndex
         var digits = ""
@@ -344,6 +355,8 @@ struct MeetingHighlightableTextView: NSViewRepresentable {
             return menu
         }
 
+        /// Action du menu contextuel : récupère la sélection courante et
+        /// remonte (range + texte) au parent via `onAddToManagerReport`.
         @objc func addToManagerReportAction(_ sender: NSMenuItem) {
             guard let tv = sender.representedObject as? NSTextView else { return }
             let range = tv.selectedRange()

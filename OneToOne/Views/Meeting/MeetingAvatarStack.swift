@@ -1,8 +1,11 @@
 import SwiftUI
 
+/// Pastille ronde teintée affichant les initiales d'un collaborateur.
 struct AvatarCircle: View {
     let collaborator: Collaborator
+    /// Diamètre de la pastille en points.
     let size: CGFloat
+    /// Couleur de fond de la pastille.
     let tint: Color
 
     var body: some View {
@@ -15,6 +18,7 @@ struct AvatarCircle: View {
         .frame(width: size, height: size)
     }
 
+    /// Calcule jusqu'à deux initiales en majuscules à partir des deux premiers mots du nom.
     private func initials(for name: String) -> String {
         let parts = name
             .split(whereSeparator: { !$0.isLetter })
@@ -24,6 +28,7 @@ struct AvatarCircle: View {
     }
 }
 
+/// Variante compacte d'`AvatarCircle` (18 pt) pour les listes denses.
 struct AvatarMini: View {
     let collaborator: Collaborator
     let tint: Color
@@ -32,10 +37,14 @@ struct AvatarMini: View {
     }
 }
 
+/// Pile d'avatars superposés des participants ; au-delà de `max`, affiche une pastille « +N ».
 struct MeetingAvatarStack: View {
     let participants: [Collaborator]
+    /// Nombre maximal d'avatars affichés avant le badge de débordement « +N ».
     let max: Int
+    /// Fournit la couleur de teinte de chaque collaborateur.
     let tint: (Collaborator) -> Color
+    /// Couleur du liseré entourant chaque avatar.
     let borderColor: Color
 
     init(

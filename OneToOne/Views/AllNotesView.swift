@@ -3,7 +3,9 @@ import SwiftData
 
 /// Vue plein écran listant toutes les notes (projet + collaborateur),
 /// triées par date de mise à jour décroissante. Recherche full-text sur
-/// titre + corps + nom de la cible.
+/// titre + corps + nom de la cible. Le menu contextuel d'une note permet de
+/// l'ajouter au rapport manager via un sheet de classification (cf.
+/// `startAddToManagerReport` / `confirmAddNote`).
 struct AllNotesView: View {
     @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
     @Query private var settingsList: [AppSettings]
@@ -30,6 +32,9 @@ struct AllNotesView: View {
         settingsList.canonicalSettings ?? AppSettings()
     }
 
+    /// Portée de filtrage des notes. `.all` (défaut) n'écarte rien ; `.project`
+    /// ne garde que les notes rattachées à un projet, `.collaborator` à un
+    /// collaborateur.
     enum ScopeFilter: String, CaseIterable, Identifiable {
         case all = "Toutes"
         case project = "Projet"
@@ -37,6 +42,9 @@ struct AllNotesView: View {
         var id: String { rawValue }
     }
 
+    /// Notes affichées : d'abord restreintes par `scopeFilter`, puis (si la
+    /// recherche n'est pas vide) filtrées en insensible à la casse sur le
+    /// titre, le corps et le nom de la cible (projet/collaborateur).
     private var filtered: [Note] {
         let scoped = notes.filter { n in
             switch scopeFilter {
@@ -149,6 +157,10 @@ struct AllNotesView: View {
         return "\(title)\n\n\(body)"
     }
 
+    /// Démarre le flux « ajouter au rapport manager » pour une note : réinitialise
+    /// l'état de classification/élaboration, présente le sheet, puis lance en
+    /// parallèle deux tâches (classification de catégorie et élaboration de texte)
+    /// qui peupleront cet état de façon asynchrone.
     private func startAddToManagerReport(note: Note) {
         let snippet = noteSnippetFor(note)
         noteSuggestedCategory = nil
@@ -205,6 +217,9 @@ struct AllNotesView: View {
         }
     }
 
+    /// Confirme l'ajout d'une note au rapport manager via `ManagerReportService`
+    /// (sans réunion source, `sourceField` = "note"), sauvegarde le contexte puis
+    /// ferme le sheet. Les erreurs sont journalisées sans interrompre la fermeture.
     private func confirmAddNote(note: Note,
                                 category: String,
                                 tag: String,
@@ -235,6 +250,9 @@ struct AllNotesView: View {
     }
 }
 
+/// Ligne d'une note : symbole et badge selon la cible (projet, collaborateur
+/// ou orpheline), titre (titre de la note ou première ligne du corps en repli),
+/// aperçu du corps et date de mise à jour.
 private struct AllNotesRow: View {
     let note: Note
 

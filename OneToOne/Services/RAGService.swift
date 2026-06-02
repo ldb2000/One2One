@@ -10,6 +10,11 @@ private let ragLog = Logger(subsystem: "com.onetoone.app", category: "rag")
 /// Privilégie les frontières de paragraphe puis de phrase.
 enum TextChunker {
 
+    /// Découpe `text` en blocs d'environ `targetChars` caractères. Privilégie
+    /// les frontières de paragraphe ; un paragraphe trop long est resegmenté
+    /// par phrases. Chaque bloc reprend les `overlapChars` derniers caractères
+    /// du précédent (continuité de contexte pour l'embedding). Retourne `[]`
+    /// si vide, ou `[texte]` si le texte tient sous `targetChars`.
     static func chunk(_ text: String, targetChars: Int = 2000, overlapChars: Int = 200) -> [String] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
@@ -86,7 +91,10 @@ enum TextChunker {
 @MainActor
 struct RAGIndexer {
 
-    /// Supprime les chunks existants puis ré-indexe.
+    /// Ré-indexe intégralement une réunion : supprime d'abord tous les
+    /// `TranscriptChunk` existants, puis re-chunke / re-embedde la
+    /// transcription (préfère `mergedTranscript`, sinon `rawTranscript`) et
+    /// persiste. No-op si la transcription est vide. Opération idempotente.
     static func reindex(meeting: Meeting, context: ModelContext) async throws {
         let transcript = meeting.mergedTranscript.isEmpty
             ? meeting.rawTranscript
@@ -122,8 +130,9 @@ struct RAGIndexer {
 
 // MARK: - RAGQuery
 
-/// Recherche sémantique sur les chunks indexés.
-/// Scope optionnel : projet OU collaborateur OU type de réunion.
+/// Recherche sémantique (cosine) sur les chunks indexés.
+/// `search(query:)` embedde la requête texte puis classe ; `searchByVector(_:)`
+/// part d'un vecteur déjà calculé. Les deux partagent le filtrage par `Scope`.
 struct RAGQuery {
 
     struct Result {
@@ -131,17 +140,23 @@ struct RAGQuery {
         let similarity: Float
     }
 
+    /// Restreint la recherche. Les critères non-nil sont combinés en ET
+    /// logique ; tous nil (défaut) = aucune restriction.
     struct Scope {
+        /// Ne garder que les chunks du projet donné.
         var projectPID: PersistentIdentifier? = nil
+        /// Ne garder que les chunks dont la réunion compte ce collaborateur.
         var collaboratorPID: PersistentIdentifier? = nil
+        /// Ne garder que les chunks d'un certain type de réunion.
         var meetingKind: MeetingKind? = nil
         /// Exclure cette réunion des résultats (utile pour la génération du rapport
         /// : on ne veut pas que la réunion en cours se nourrisse d'elle-même).
         var excludeMeetingPID: PersistentIdentifier? = nil
 
-        // Nouveaux :
-        var sourceType: String? = nil      // "meeting" | "attachment" | "mail" | nil (tous)
-        var meetingPID: PersistentIdentifier? = nil  // restreint à une réunion précise
+        /// Filtre par origine du chunk : "meeting" | "attachment" | "mail" | nil (tous).
+        var sourceType: String? = nil
+        /// Restreint à une réunion précise (chunk lié directement ou via attachment).
+        var meetingPID: PersistentIdentifier? = nil
     }
 
     /// Retourne les `topK` chunks les plus similaires à la requête.
@@ -184,6 +199,9 @@ struct RAGQuery {
         return Array(scored.sorted { $0.similarity > $1.similarity }.prefix(topK))
     }
 
+    /// Charge tous les `TranscriptChunk` puis applique le `scope` en mémoire.
+    /// Choix volontaire (les prédicats SwiftData ne franchissent pas bien les
+    /// relations) acceptable tant que le volume reste modéré — voir note coût.
     @MainActor
     private static func filtered(context: ModelContext, scope: Scope) -> [TranscriptChunk] {
         // On lit tout puis on filtre en Swift — OK tant que < ~50k chunks.

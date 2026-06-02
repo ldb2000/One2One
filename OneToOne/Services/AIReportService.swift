@@ -289,11 +289,17 @@ struct AIReportService {
     // writer (justifie ce qui n'a pas pu être corrigé lors d'une révision
     // antérieure — évite que le critique redemande la même chose).
 
+    /// Sortie d'une passe de révision : le markdown révisé et le message du
+    /// rédacteur au critique (justifie les corrections ou leur absence).
     struct RevisionOutput {
         let body: String          // markdown révisé
         let writerMessage: String // explications du writer au critique
     }
 
+    /// Passe de révision : prend un draft + les critiques et produit une v2.
+    /// `previousWriterMessage` reporte les justifications de la révision
+    /// précédente. Parse une réponse JSON `{body, writer_message}` ; en cas
+    /// d'échec de parsing, renvoie le brut comme `body`.
     static func revise(
         draft: String,
         critique: String,
@@ -550,6 +556,9 @@ struct AIReportService {
 
     // MARK: - Parsing
 
+    /// Parse la réponse JSON stricte du LLM en `MeetingReportData`. Tolérant :
+    /// retire un éventuel bloc ```` ``` ````, et en cas de JSON invalide place
+    /// tout le texte dans `summary` (listes vides) plutôt que d'échouer.
     static func parse(_ raw: String) -> MeetingReportData {
         let cleaned = stripCodeFence(raw).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = cleaned.data(using: .utf8) else {

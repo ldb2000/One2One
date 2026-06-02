@@ -29,8 +29,9 @@ struct STTResult {
     /// les chemins legacy qui n'auraient pas conservé les segments.
     let segments: [STTSegment]
     /// Embeddings 256-dim par cluster issus de la diarisation (vide si pas
-    /// de diarisation ou si SpeechVAD indisponible). Utilisé par MeetingView
-    /// pour déclencher l'EMA voiceprint update lors d'un labeling manuel.
+    /// de diarisation ou si SpeechVAD indisponible). Indexé par identifiant de
+    /// cluster. Utilisé par MeetingView pour déclencher l'EMA voiceprint update
+    /// lors d'un labeling manuel.
     var clusterEmbeddings: [Int: [Float]] = [:]
 }
 
@@ -80,6 +81,8 @@ final class TranscriptionService: ObservableObject {
     @Published private(set) var progressFraction: Double = 0
     /// Libellé court à afficher à côté de la barre (ex. "3 / 45 chunks").
     @Published private(set) var progressLabel: String = ""
+    /// Langue cible de la transcription (code ISO, ex. "fr"). Persistée dans
+    /// UserDefaults à chaque modification.
     @Published var language: String {
         didSet { UserDefaults.standard.set(language, forKey: Self.languageKey) }
     }
@@ -97,6 +100,8 @@ final class TranscriptionService: ObservableObject {
 
     /// Point d'entrée unique. Branche sur `settings.transcriptionMode`. Appelé
     /// par les call sites DANS un `JobQueue.start(kind: .transcription)`.
+    /// `@MainActor` (classe entière) : mute l'état publié et le `ModelContext`
+    /// sur le main thread ; le travail lourd est délégué aux moteurs/transcribers.
     func runTranscription(audioURL: URL,
                           meeting: Meeting,
                           settings: AppSettings,
@@ -225,13 +230,17 @@ final class TranscriptionService: ObservableObject {
         #endif
     }
 
+    /// Purge atomique des segments existants juste avant insertion des
+    /// nouveaux. Si on arrive ici, c'est que STT + diarisation ont réussi
+    /// — sûr d'écraser. Annulation antérieure préserve les anciens.
+    private func deleteExistingSegments(from meeting: Meeting, in context: ModelContext) {
+        for old in meeting.transcriptSegments { context.delete(old) }
+    }
+
     private func persistAnonymousSegments(sttResult: STTResult,
                                            meeting: Meeting,
                                            in context: ModelContext) {
-        // Purge atomique des segments existants juste avant insertion des
-        // nouveaux. Si on arrive ici, c'est que STT + diarisation ont réussi
-        // — sûr d'écraser. Annulation antérieure préserve les anciens.
-        for old in meeting.transcriptSegments { context.delete(old) }
+        deleteExistingSegments(from: meeting, in: context)
         var idx = 0
         for chunk in sttResult.segments {
             let s = TranscriptSegment(
@@ -280,7 +289,7 @@ final class TranscriptionService: ObservableObject {
                                assignments: [Int: SpeakerMatcher.Assignment],
                                meeting: Meeting,
                                in context: ModelContext) {
-        for old in meeting.transcriptSegments { context.delete(old) }
+        deleteExistingSegments(from: meeting, in: context)
         var idx = 0
         var assignmentsDict: [String: Any] = [:]
         var metaDict: [String: [String: Any]] = [:]

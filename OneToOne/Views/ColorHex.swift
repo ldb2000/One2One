@@ -1,6 +1,9 @@
 import SwiftUI
 
 extension Color {
+    /// Initialise une couleur sRGB opaque depuis une chaîne hexadécimale `RRGGBB`
+    /// (préfixe `#` et espaces optionnels). Renvoie `nil` si la chaîne ne contient
+    /// pas exactement 6 chiffres hexadécimaux valides.
     init?(hex: String) {
         var clean = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.hasPrefix("#") { clean.removeFirst() }
@@ -11,6 +14,9 @@ extension Color {
         self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
     }
 
+    /// Renvoie la couleur au format `#RRGGBB` (majuscules) dans l'espace sRGB.
+    /// Renvoie `nil` si la couleur ne peut pas être convertie en sRGB
+    /// (composantes RGB indisponibles).
     func toHex() -> String? {
         guard let components = NSColor(self).usingColorSpace(.sRGB)?.cgColor.components,
               components.count >= 3 else { return nil }

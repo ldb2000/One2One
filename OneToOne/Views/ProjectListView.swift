@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
 
+/// Liste des projets triés par nom, séparant les projets actifs des archivés.
+/// La barre de recherche filtre sur le nom OU le code (insensible à la casse).
 struct ProjectListView: View {
     @Query(sort: \Project.name) private var projects: [Project]
     @State private var searchText = ""
@@ -67,6 +69,8 @@ struct ProjectListView: View {
     }
 }
 
+/// Pastille colorée reflétant le statut d'un projet :
+/// "green" → vert, "yellow" → jaune, "red" → rouge, sinon gris (casse ignorée).
 struct StatusIcon: View {
     let status: String
     

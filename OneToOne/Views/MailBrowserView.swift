@@ -1,7 +1,12 @@
 import SwiftUI
 import SwiftData
 
-/// Ingestion de mails Apple Mail comme sources RAG rattachees a un projet.
+/// Ingestion de mails Apple Mail comme sources RAG rattachées à un projet.
+///
+/// Flux : choix d'une boîte → liste des mails récents (recherche locale
+/// par-dessus), sélection d'un message → chargement paresseux du corps et des
+/// pièces jointes → « Ajouter au projet » enregistre le mail (corps + pièces
+/// jointes cochées) comme source RAG via `ProjectMailStore`.
 struct MailBrowserView: View {
     @Query private var projects: [Project]
     @Environment(\.modelContext) private var context
@@ -21,6 +26,9 @@ struct MailBrowserView: View {
     @State private var selectedAttachmentIDs: Set<String> = []
     @State private var isLoadingAttachments = false
 
+    /// Pièces jointes effectivement cochées : on conserve `availableAttachments`
+    /// (la liste complète, pour l'affichage et « Tout sélectionner ») et on
+    /// dérive ici le sous-ensemble retenu à partir des seuls `selectedAttachmentIDs`.
     private var selectedAttachments: [MailAttachmentFile] {
         availableAttachments.filter { selectedAttachmentIDs.contains($0.id) }
     }
@@ -434,6 +442,10 @@ struct MailBrowserView: View {
         }
     }
 
+    /// Filtre local (sans nouvel appel à Mail) sur les mails déjà chargés. Une
+    /// requête vide affiche tout ; sinon on garde tout message dont au moins un
+    /// champ (sujet, expéditeur, aperçu, boîte, compte) contient la requête,
+    /// insensible à la casse.
     private func applyLocalSearch() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
@@ -481,6 +493,10 @@ struct MailBrowserView: View {
         }
     }
 
+    /// Initialisation à l'ouverture : charge d'abord la liste des boîtes (en
+    /// sélectionnant la première si aucune ne l'est encore), puis recharge les
+    /// mails. Une erreur de listing est affichée mais n'empêche pas le `reload`
+    /// final.
     private func loadMailboxesAndReload() async {
         do {
             mailboxes = try await MailService.listMailboxes()
@@ -493,19 +509,29 @@ struct MailBrowserView: View {
         await reload()
     }
 
+    /// Récupère le corps complet d'un mail via Mail (le snippet ne porte qu'un
+    /// aperçu). Encapsule l'appel partagé avec `saveSelectedMail`.
+    private func fetchMailBody(_ snip: MailSnippet) async throws -> String {
+        try await MailService.fetchBody(
+            messageId: snip.messageId,
+            accountName: snip.accountName,
+            mailbox: snip.mailbox
+        )
+    }
+
     private func loadBody(for snip: MailSnippet) async {
         do {
-            let text = try await MailService.fetchBody(
-                messageId: snip.messageId,
-                accountName: snip.accountName,
-                mailbox: snip.mailbox
-            )
-            bodyText = text
+            bodyText = try await fetchMailBody(snip)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Enregistre le mail sélectionné comme source RAG du projet courant.
+    /// Garantit que le corps est chargé (le récupère si besoin), s'assure de
+    /// disposer des pièces jointes, puis délègue la persistance à
+    /// `ProjectMailStore.save`. Met à jour `saveStatus` selon insertion ou
+    /// mise à jour. Sans réunion ou projet sélectionné, l'appel est ignoré.
     private func saveSelectedMail() async {
         guard let snip = selected, let project = selectedProject else { return }
         isSaving = true
@@ -513,7 +539,7 @@ struct MailBrowserView: View {
 
         do {
             let body = bodyText.isEmpty
-                ? try await MailService.fetchBody(messageId: snip.messageId, accountName: snip.accountName, mailbox: snip.mailbox)
+                ? try await fetchMailBody(snip)
                 : bodyText
             if availableAttachments.isEmpty {
                 availableAttachments = try await MailService.saveAttachments(messageId: snip.messageId, accountName: snip.accountName, mailbox: snip.mailbox)

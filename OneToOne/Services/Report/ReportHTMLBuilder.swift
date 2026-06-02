@@ -9,8 +9,14 @@ import SwiftData
 @MainActor
 enum ReportHTMLBuilder {
 
+    /// `.preview` : HTML complet avec `<style>` (WKWebView / PDF).
+    /// `.outlook` : styles inlinés et bloc `<style>` retiré (mail).
     enum RenderMode { case preview, outlook }
 
+    /// Construit le document HTML complet du rapport : eyebrow, titre,
+    /// sous-titre, table méta, corps markdown rendu, puis blocs Décisions /
+    /// Actions / Alertes dédupliqués-injectés, et la transcription brute si
+    /// `includeTranscript`. En mode `.outlook`, repasse par `inlineForOutlook`.
     static func build(meeting: Meeting,
                       template: ReportTemplate?,
                       includeTranscript: Bool,
@@ -72,6 +78,11 @@ enum ReportHTMLBuilder {
 
     // MARK: - Outlook inlining
 
+    /// Transforme le HTML `.preview` en HTML compatible clients mail
+    /// (notamment Outlook / moteur Word) : remplace les `<h2>` par des tables
+    /// badge, supprime le `<style>` et inline tous les styles sur chaque
+    /// balise. Nécessaire car ces clients ignorent CSS externe, `inline-block`
+    /// et les pseudo-éléments `::before`.
     private static func inlineForOutlook(_ html: String) -> String {
         var out = html
 
@@ -397,6 +408,8 @@ enum ReportHTMLBuilder {
         return html
     }
 
+    /// Rend le bloc "Relevé de décisions" : un `<h2>` suivi d'une table
+    /// numérotée (D1, D2, …) une ligne par décision.
     private static func renderDecisionsBlock(_ decisions: [String]) -> String {
         var rows = ""
         for (idx, d) in decisions.enumerated() {
@@ -412,6 +425,9 @@ enum ReportHTMLBuilder {
         """
     }
 
+    /// Rend le bloc "Plan d'actions" : `<h2>` + table des tâches triées par
+    /// échéance (A1, A2, …). Ajoute une colonne Projet uniquement pour les
+    /// réunions 1:1 / `.work` couvrant au moins deux projets distincts.
     private static func renderActionsBlock(_ tasks: [ActionTask], meeting: Meeting) -> String {
         let sorted = tasks.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
         let fmt = DateFormatter()

@@ -5,6 +5,9 @@ import Accelerate
 enum PerceptualHasher {
     
     /// Calcule un hash perceptuel 64 bits (pHash) pour une image.
+    /// Pipeline : downscale 32x32 niveaux de gris → DCT 2D → bloc 8x8 haut-gauche →
+    /// chaque bit vaut 1 si le coefficient DCT correspondant dépasse la médiane.
+    /// Renvoie `0` si le downscale échoue.
     static func hash(cgImage: CGImage) -> UInt64 {
         // 1. Downscale à 32x32 gris
         guard let grayPixels = downscaleToGray(cgImage, width: 32, height: 32) else {
@@ -41,10 +44,14 @@ enum PerceptualHasher {
         return hash
     }
     
+    /// Distance de Hamming entre deux pHash : nombre de bits différents (0 = identiques).
     static func hammingDistance(_ a: UInt64, _ b: UInt64) -> Int {
         return (a ^ b).nonzeroBitCount
     }
-    
+
+    /// Redimensionne l'image en niveaux de gris `width`x`height` et renvoie les
+    /// pixels en `[Double]` (ligne par ligne), ou `nil` si le contexte CoreGraphics
+    /// ne peut être créé.
     private static func downscaleToGray(_ image: CGImage, width: Int, height: Int) -> [Double]? {
         let colorSpace = CGColorSpaceCreateDeviceGray()
         guard let context = CGContext(
@@ -69,6 +76,9 @@ enum PerceptualHasher {
         return pixels
     }
     
+    /// Transformée en cosinus discrète 2D (DCT-II) d'une matrice `size`x`size`
+    /// stockée en ligne. Renvoie les coefficients dans le même ordre. Implémentation
+    /// directe en O(size^4) — acceptable car `size` est petit (32).
     private static func computeDCT(pixels: [Double], size: Int) -> [Double] {
         var dct = [Double](repeating: 0, count: size * size)
         let c = Double(size)

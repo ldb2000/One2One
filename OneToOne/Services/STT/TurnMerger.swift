@@ -2,7 +2,9 @@ import Foundation
 
 /// Helpers purs du pipeline diarize-first. Aucune dépendance audio/modèle.
 enum TurnMerger {
-    /// Tour de parole issu de la diarisation. `clusterID` 0-indexé.
+    /// Tour de parole issu de la diarisation.
+    /// `clusterID` est 0-indexé et stable entre les appels (un même identifiant
+    /// désigne toujours le même locuteur au sein d'une session de diarisation).
     struct DiarTurn: Sendable, Equatable {
         var startSec: Double
         var endSec: Double
@@ -10,6 +12,8 @@ enum TurnMerger {
     }
 
     /// Un tour transcrit (sortie finale d'un appel STT).
+    /// `speaker` reprend directement la valeur de `DiarTurn.clusterID`
+    /// (0-indexé) : c'est le même espace d'identifiants de locuteur.
     struct Block: Sendable, Equatable {
         var speaker: Int      // clusterID 0-indexé
         var start: Double
@@ -18,8 +22,8 @@ enum TurnMerger {
     }
 
     /// Fusionne les tours consécutifs du même locuteur séparés de ≤ maxGap.
-    /// Trie défensivement par start. `maxGap` inclusif. Gère les tours
-    /// contenus/chevauchants via `max(end)`.
+    /// `maxGap` est exprimé en secondes (inclusif), cohérent avec `startSec`/`endSec`.
+    /// Trie défensivement par start. Gère les tours contenus/chevauchants via `max(end)`.
     static func mergeAdjacent(_ turns: [DiarTurn], maxGap: Double) -> [DiarTurn] {
         guard !turns.isEmpty else { return [] }
         let sorted = turns.sorted { $0.startSec < $1.startSec }

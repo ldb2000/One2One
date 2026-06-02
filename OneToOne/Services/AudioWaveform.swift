@@ -5,6 +5,9 @@ import AVFoundation
 /// Each bucket = max absolute sample over its frame range.
 struct AudioWaveform {
 
+    /// Décode le fichier audio et renvoie exactement `count` pics décimés dans
+    /// `[0.0, 1.0]` (borné à 2 000). Travail effectué off-main sur une tâche détachée ;
+    /// la liste est complétée par des zéros si le fichier est plus court que prévu.
     static func peaks(url: URL, count: Int) async throws -> [Float] {
         let safeCount = max(1, min(count, 2_000))
         return try await Task.detached(priority: .userInitiated) {

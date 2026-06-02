@@ -5,6 +5,10 @@ import AppKit
 /// Section de la fenêtre Settings pour configurer:
 /// 1. Le raccourci d'ouverture du picker overlay (`⌃⌥⌘1` par défaut).
 /// 2. Un raccourci individuel par collaborateur épinglé (pinLevel ≥ 1).
+///
+/// Tous les raccourcis sont stockés dans le dictionnaire
+/// `settings.collaboratorHotkeys` : la clé sentinelle `"__overlay__"` désigne
+/// l'overlay global, les autres clés sont l'UUID stable du collaborateur.
 struct SettingsHotkeysSection: View {
     @Query(filter: #Predicate<Collaborator> { $0.pinLevel >= 1 && !$0.isArchived },
            sort: \Collaborator.name) private var pinnedCollabs: [Collaborator]
@@ -67,6 +71,8 @@ extension Notification.Name {
 
 /// Champ qui capture la prochaine combinaison de touches et la sérialise via
 /// `HotkeySpec`. Clic = mode capture; Échap pendant capture = clear.
+/// La capture installe un moniteur d'événements local (`NSEvent`) qui est
+/// retiré dès qu'une combinaison valide est saisie ou que la capture s'arrête.
 struct HotkeyCaptureField: View {
     @Binding var keyspec: String
     @State private var capturing = false
@@ -88,6 +94,10 @@ struct HotkeyCaptureField: View {
         .help("Clic pour modifier; Échap pour effacer")
     }
 
+    /// Installe un moniteur local `.keyDown`. Échap efface le raccourci ;
+    /// une combinaison avec au moins un modificateur est sérialisée puis stockée.
+    /// Le moniteur s'auto-retire (via `defer`) une fois la capture terminée ;
+    /// les frappes sans modificateur sont laissées passer au système.
     private func startMonitoring() {
         var monitor: Any?
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in

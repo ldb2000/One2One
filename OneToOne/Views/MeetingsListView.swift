@@ -2,6 +2,9 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
+/// Liste principale des réunions : filtres (type, projet, collaborateur via
+/// le routeur), recherche plein texte, création, agenda du jour et import
+/// groupé de WAVs orphelins.
 struct MeetingsListView: View {
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query private var projects: [Project]
@@ -260,6 +263,8 @@ struct MeetingsListView: View {
         .navigationTitle("Réunions")
     }
 
+    /// Crée une réunion vide (titre vide, date du jour, sans notes), l'insère
+    /// dans le contexte et sauvegarde.
     private func addMeeting() {
         let meeting = Meeting(title: "", date: Date(), notes: "")
         context.insert(meeting)
@@ -468,6 +473,8 @@ private struct MeetingsProjectFilterPicker: View {
     }
 }
 
+/// Ligne d'une réunion dans la liste : titre, badges rapport/transcription,
+/// date, projet, participants et compteur d'actions en attente.
 struct MeetingRowView: View {
     let meeting: Meeting
 

@@ -15,6 +15,9 @@ import SwiftData
 @MainActor
 enum CollaboratorMatcher {
 
+    /// Résout `name` (issu du LLM) en `Collaborator` par priorité décroissante :
+    /// participants de la réunion, puis favoris (`pinLevel >= 1`), puis tous les
+    /// collabs non-archivés. Match exact normalisé uniquement ; `nil` si aucun.
     static func match(name: String,
                       in meeting: Meeting,
                       all: [Collaborator]) -> Collaborator? {

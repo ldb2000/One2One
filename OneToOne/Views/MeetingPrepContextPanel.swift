@@ -71,6 +71,8 @@ struct MeetingPrepContextPanel: View {
         .task { await loadContext() }
     }
 
+    /// Conteneur visuel d'une section du panneau : titre + icône SF Symbol en
+    /// en-tête, suivi du contenu fourni.
     @ViewBuilder
     private func section<Content: View>(_ title: String, icon: String,
                                         @ViewBuilder _ content: () -> Content) -> some View {
@@ -83,6 +85,9 @@ struct MeetingPrepContextPanel: View {
         }
     }
 
+    /// Charge le contexte du panneau scoped à la meeting : actions ouvertes,
+    /// 3 derniers points et alertes élevées/critiques. La portée dépend du
+    /// `kind` (collaborateur pour 1:1/manager, projet pour project).
     @MainActor
     private func loadContext() async {
         // --- Actions ouvertes ---
@@ -132,13 +137,14 @@ struct MeetingPrepContextPanel: View {
             let d = FetchDescriptor<ProjectAlert>(
                 predicate: #Predicate { $0.project?.persistentModelID == pid }
             )
-            alerts = ((try? context.fetch(d)) ?? [])
+            alerts = Array(((try? context.fetch(d)) ?? [])
                 .filter { $0.severity == "Élevé" || $0.severity == "Critique" }
-                .prefix(5)
-                .map { $0 }
+                .prefix(5))
         }
     }
 
+    /// Formate une date en français court (ex. "5 juin") pour l'affichage des
+    /// derniers points.
     private func formatDate(_ d: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "fr_FR")

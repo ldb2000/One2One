@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 
+/// Liste des actions à traiter, triées par échéance. Offre un filtrage combiné
+/// par statut (en cours / terminées / toutes), projet ou entité, collaborateur
+/// assigné, échéance, plus une recherche plein-texte sur le titre.
 struct ActionsListView: View {
     @Query(sort: \ActionTask.dueDate) private var allTasks: [ActionTask]
     @Query private var projects: [Project]
@@ -29,6 +32,9 @@ struct ActionsListView: View {
         var id: String { rawValue }
     }
 
+    /// Applique successivement les filtres actifs à `allTasks` (statut, puis
+    /// projet/entité, collaborateur, échéance, recherche). L'ordre de tri par
+    /// échéance vient de la `@Query` ; le filtrage ne le modifie pas.
     private var filteredTasks: [ActionTask] {
         var tasks = allTasks
 
@@ -225,7 +231,8 @@ struct ActionsListView: View {
 }
 
 /// Renders Collaborator picker options groupés selon le filtre de la sidebar
-/// (`sidebar.collabsFilter`) :
+/// (clé `@AppStorage("sidebar.collabsFilter")`, valeurs `"pinned"` / `"favourites"`
+/// / `"both"`, défaut `"both"`) :
 /// - `pinned`     → épinglés au top, divider, le reste A–Z
 /// - `favourites` → favoris au top, divider, le reste A–Z
 /// - `both`       → épinglés ET favoris au top (alpha mixé), divider, le reste A–Z
@@ -275,10 +282,12 @@ struct CollaboratorPickerOptions: View {
     }
 }
 
-// GitHub-style action row.
-// - Open: checkbox + title (bold) + meta line (created date, project, assignee, comments).
-// - Completed: rendered as a note-style block (owner, dates, comments, project).
-// - Expand to show comments thread + add comment input + editable pickers/due date.
+/// GitHub-style action row.
+/// - Open: checkbox + title (bold) + meta line (created date, project, assignee, comments).
+/// - Completed: rendered as a note-style block (owner, dates, comments, project).
+/// - Expand (chevron / tap) to show comments thread + add-comment input + editable
+///   project / assignee pickers and due date. The status checkbox toggles completion;
+///   its icon and colour encode due-date urgency (overdue, today, soon, upcoming, undated).
 struct ActionTaskRow: View {
     @Bindable var task: ActionTask
     let projects: [Project]

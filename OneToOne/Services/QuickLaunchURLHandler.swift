@@ -6,6 +6,11 @@ import SwiftData
 /// vers un appel `QuickLaunchRouter.startOneToOne`.
 enum QuickLaunchURLHandler {
 
+    /// Décode l'`NSUserActivity` issu d'un clic sur un résultat Spotlight.
+    /// N'agit que sur les activités `CSSearchableItemActionType` dont
+    /// l'identifiant a le format `"collaborator-<UUID>"` ; tout autre type,
+    /// préfixe invalide ou collaborateur introuvable provoque un retour
+    /// silencieux (loggé). En cas de succès, lance un 1:1 avec enregistrement.
     @MainActor
     static func handle(activity: NSUserActivity,
                        router: QuickLaunchRouter,

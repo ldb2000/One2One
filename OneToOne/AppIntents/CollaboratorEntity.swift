@@ -25,6 +25,10 @@ struct CollaboratorEntity: AppEntity, Identifiable {
 
 struct CollaboratorEntityQuery: EntityQuery, EntityStringQuery {
 
+    /// Résout des entités à partir d'identifiants persistés par App Intents :
+    /// fetch global puis filtre sur le `stableID` (les collaborateurs sans
+    /// `stableID` sont ignorés). Inclut les archivés pour garder valides les
+    /// références déjà stockées par le système.
     @MainActor
     func entities(for ids: [CollaboratorEntity.ID]) async throws -> [CollaboratorEntity] {
         let context = OneToOneApp.sharedContainer.mainContext
@@ -49,6 +53,9 @@ struct CollaboratorEntityQuery: EntityQuery, EntityStringQuery {
             .map(Self.toEntity)
     }
 
+    /// Suggestions proposées par Shortcuts/Spotlight : collaborateurs actifs
+    /// triés par `pinLevel` décroissant (épinglés en tête) puis par nom,
+    /// limités à 20 pour rester lisible dans l'UI système.
     @MainActor
     func suggestedEntities() async throws -> [CollaboratorEntity] {
         let context = OneToOneApp.sharedContainer.mainContext

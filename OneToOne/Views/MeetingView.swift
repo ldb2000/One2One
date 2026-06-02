@@ -3,6 +3,9 @@ import SwiftData
 import UniformTypeIdentifiers
 import AVFoundation
 
+/// Métadonnées de matching speaker pour un cluster donné, décodées depuis
+/// `meeting.speakerMatchMetaJSON` (confiance, assignation auto, ambiguïté,
+/// candidats par stableID).
 fileprivate struct SpeakerMeta {
     let confidence: Double
     let auto: Bool
@@ -53,6 +56,10 @@ enum TranscriptionPhase: Equatable, Sendable {
     }
 }
 
+/// Écran de détail d'une réunion : en-tête, onglets (préparation, notes live,
+/// transcription, rapport, documents), barre d'enregistrement et sidebar
+/// contextuelle. Orchestre enregistrement audio, transcription STT/diarisation,
+/// génération de rapport IA et gestion des speakers.
 struct MeetingView: View {
     @Bindable var meeting: Meeting
     /// Démarre automatiquement le recorder à `onAppear` (déclenché par
@@ -135,6 +142,7 @@ struct MeetingView: View {
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
     @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
+    /// Onglet actif du panneau principal de la réunion.
     enum MeetingSection: String, CaseIterable, Identifiable {
         case preparation = "Préparation"
         case liveNotes = "Notes live"
@@ -181,7 +189,6 @@ struct MeetingView: View {
                     }
                 },
                 onEditAudio: { audioEditMode = .trimStart },
-                hasWAV: meeting.wavFileURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
                 onExportMarkdown: {
                     let md = ExportService().exportMeetingMarkdown(meeting: meeting)
                     let pb = NSPasteboard.general
@@ -747,8 +754,12 @@ struct MeetingView: View {
 
     // MARK: - Prep badge
 
+    /// État du badge de préparation affiché sous la barre d'outils.
     private enum PrepBadge { case none, toPrepare, prepared }
 
+    /// Calcule l'état du badge : « à préparer » pour une réunion future sans
+    /// contenu, « préparée » dès qu'il existe des notes (ponctuelles ou
+    /// permanentes), sinon aucun badge.
     private var prepBadgeState: PrepBadge {
         let standingNonEmpty: Bool = {
             switch meeting.kind {
@@ -1005,14 +1016,6 @@ struct MeetingView: View {
                 .italic()
         }
         .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
-            content()
-        }
     }
 
     // MARK: - Participants
@@ -1624,6 +1627,23 @@ struct MeetingView: View {
         do { try context.save() } catch { print("[MeetingView] save FAILED: \(error)") }
     }
 
+    /// Résout le texte source complet correspondant à un champ de rapport
+    /// manager (`mergedTranscript`, `transcript`, `summary`, `notes`,
+    /// `liveNotes`) ; chaîne vide pour un champ inconnu.
+    private func fieldText(_ field: String) -> String {
+        switch field {
+        case "mergedTranscript": return meeting.mergedTranscript
+        case "transcript":       return meeting.rawTranscript
+        case "summary":          return meeting.summary
+        case "notes":            return meeting.notes
+        case "liveNotes":        return meeting.liveNotes
+        default:                 return ""
+        }
+    }
+
+    /// Démarre le flux d'ajout d'un extrait au rapport manager : pré-remplit une
+    /// élaboration de repli immédiate, ouvre la feuille de classification puis
+    /// lance en parallèle la catégorisation et l'élaboration IA.
     private func startManagerReportFlow(range: NSRange, snippet: String, field: String) {
         mgrSuggestedCategory = nil
         mgrSuggestedElaboration = nil
@@ -1632,15 +1652,7 @@ struct MeetingView: View {
 
         // Compute deterministic context for both initial elaboration fallback
         // (shown immediately) and the AI prompt context.
-        let fullText: String
-        switch field {
-        case "mergedTranscript": fullText = meeting.mergedTranscript
-        case "transcript":       fullText = meeting.rawTranscript
-        case "summary":          fullText = meeting.summary
-        case "notes":            fullText = meeting.notes
-        case "liveNotes":        fullText = meeting.liveNotes
-        default:                 fullText = ""
-        }
+        let fullText = fieldText(field)
         let ctx = SentenceContextExtractor.extractContext(text: fullText, range: range)
         // Pre-fill the elaboration field with raw context+snippet so user has
         // something usable instantly, even before AI returns or if AI fails.
@@ -1686,20 +1698,14 @@ struct MeetingView: View {
         }
     }
 
+    /// Persiste l'extrait sélectionné comme item de rapport manager (catégorie,
+    /// tag, texte élaboré, contexte de phrase) puis ferme la feuille.
     private func confirmManagerItem(pending: PendingMgrSelection,
                                     category: String,
                                     tag: String,
                                     elaboratedText: String,
                                     aiSuggested: String?) {
-        let fullText: String
-        switch pending.field {
-        case "mergedTranscript": fullText = meeting.mergedTranscript
-        case "transcript":       fullText = meeting.rawTranscript
-        case "summary":          fullText = meeting.summary
-        case "notes":            fullText = meeting.notes
-        case "liveNotes":        fullText = meeting.liveNotes
-        default:                 fullText = ""
-        }
+        let fullText = fieldText(pending.field)
         let ctx = SentenceContextExtractor.extractContext(text: fullText, range: pending.range)
         do {
             _ = try ManagerReportService.add(
@@ -1720,19 +1726,6 @@ struct MeetingView: View {
             print("[Manager] add failed: \(error)")
         }
         pendingMgrSelection = nil
-    }
-
-    /// Bullet row used in the Rapport tab for each entry in
-    /// faits marquants / points clés / décisions / questions ouvertes.
-    @ViewBuilder
-    private func bulletRow(text: String, systemImage: String) -> some View {
-        Label {
-            Text(text).font(.callout)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } icon: {
-            Image(systemName: systemImage)
-        }
-        .labelStyle(.titleAndIcon)
     }
 
     private func managerHighlightedRanges(for field: String) -> [NSRange] {
@@ -1865,13 +1858,6 @@ struct MeetingView: View {
         }
         .padding(.vertical, 2)
         .background(seg.isHighlighted ? Color.yellow.opacity(0.08) : Color.clear)
-    }
-
-    /// Charge le wav si besoin et positionne le curseur sans démarrer la lecture.
-    private func seekToSegment(_ seg: TranscriptSegment) {
-        guard let url = meeting.wavFileURL else { return }
-        if player.loadedURL != url { try? player.load(url: url) }
-        player.seek(to: seg.startSeconds)
     }
 
     /// Charge le wav si besoin, place le curseur sur seg.startSeconds, joue.
@@ -2089,6 +2075,9 @@ struct MeetingView: View {
         .buttonStyle(.plain)
     }
 
+    /// Assigne tous les segments d'un `speakerID` à un collaborateur, persiste
+    /// le mapping dans `speakerAssignmentsJSON` et applique une mise à jour EMA
+    /// du voiceprint si un embedding frais est en cache pour ce cluster.
     private func assignSpeaker(speakerID: Int, to collaborator: Collaborator) {
         for seg in meeting.transcriptSegments where seg.speakerID == speakerID {
             seg.speaker = collaborator
@@ -2177,6 +2166,11 @@ struct MeetingView: View {
         }
     }
 
+    /// Relance la diarisation Pyannote sur le WAV existant pour reconstruire les
+    /// embeddings par cluster et re-matcher contre les voiceprints courants.
+    /// Ne re-transcrit pas : ne met à jour que les assignations et métadonnées
+    /// de speakers (les `cid` n'étant pas stables entre runs, `seg.speaker`
+    /// n'est volontairement pas remappé ici).
     private func reidentifySpeakers() {
         guard let wavPath = meeting.wavFilePath, !wavPath.isEmpty else { return }
         let url = URL(fileURLWithPath: wavPath)

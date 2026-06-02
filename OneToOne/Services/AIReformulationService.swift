@@ -1,8 +1,12 @@
 import Foundation
 import SwiftData
 
+/// Service de reformulation IA des notes d'entretien et de génération
+/// d'exports hebdomadaires, basé sur les prompts configurables d'`AppSettings`.
 class AIReformulationService {
 
+    /// Reformule des notes brutes via l'IA et en extrait les actions taguées
+    /// `[ACTION]` dans la réponse.
     func reformulate(notes: String, settings: AppSettings) async throws -> ReformulationResult {
         let prompt = settings.reformulatePrompt
             .replacingOccurrences(of: "{{notes}}", with: notes)
@@ -11,6 +15,8 @@ class AIReformulationService {
         return parseReformulation(response)
     }
 
+    /// Construit un export hebdomadaire markdown à partir des interviews
+    /// (triées par date, actions incluses) puis le fait synthétiser par l'IA.
     func generateWeeklyExport(interviews: [Interview], settings: AppSettings) async throws -> String {
         var interviewsText = ""
         for interview in interviews.sorted(by: { $0.date < $1.date }) {
@@ -53,6 +59,8 @@ class AIReformulationService {
     }
 }
 
+/// Résultat d'une reformulation : notes reformulées + actions extraites des
+/// lignes taguées `[ACTION]`.
 struct ReformulationResult {
     let reformulatedNotes: String
     let extractedActions: [String]

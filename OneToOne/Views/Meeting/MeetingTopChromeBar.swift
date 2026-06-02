@@ -1,6 +1,10 @@
 import SwiftUI
 import SwiftData
 
+/// Barre supérieure (« chrome ») de l'écran réunion : fil d'Ariane, pill
+/// d'enregistrement/lecture, capture, sélecteur de template, génération de
+/// rapport et menu « … ». Vue purement présentationnelle : toute la logique
+/// métier est déléguée au parent via les callbacks `on…`.
 struct MeetingTopChromeBar: View {
     @Bindable var meeting: Meeting
     @Environment(\.modelContext) private var modelContext
@@ -15,26 +19,45 @@ struct MeetingTopChromeBar: View {
     let capturedSlidesCount: Int
     let hasWav: Bool
 
+    /// Démarre un nouvel enregistrement audio.
     let onStartRecording: () -> Void
+    /// Arrête l'enregistrement en cours.
     let onStopRecording: () -> Void
+    /// Reprend l'enregistrement en concaténant à l'audio existant.
     let onAppendRecording: () -> Void
+    /// Bascule pause/reprise de l'enregistrement.
     let onTogglePause: () -> Void
+    /// Bascule lecture/pause de l'audio enregistré.
     let onTogglePlay: () -> Void
+    /// Relance la transcription (STT) sur l'audio existant.
     let onRetranscribe: () -> Void
+    /// Lance la génération du compte-rendu à partir du transcript.
     let onGenerateReport: () -> Void
+    /// Ouvre la configuration de la source de capture d'écran.
     let onShowCaptureSetup: () -> Void
+    /// Ouvre la galerie des slides capturées.
     let onShowSlides: () -> Void
+    /// Affiche/masque le champ de prompt spécifique à la réunion.
     let onToggleCustomPrompt: () -> Void
+    /// Importe un événement depuis le calendrier.
     let onImportCalendar: () -> Void
+    /// Importe un fichier WAV existant comme audio de la réunion.
     let onImportExistingWAV: () -> Void
+    /// Révèle le fichier WAV dans le Finder.
     let onRevealWAV: () -> Void
+    /// Ouvre l'éditeur audio (découpe).
     let onEditAudio: () -> Void
-    let hasWAV: Bool
+    /// Copie le rapport au format Markdown dans le presse-papiers.
     let onExportMarkdown: () -> Void
+    /// Exporte le rapport en PDF.
     let onExportPDF: () -> Void
+    /// Crée un e-mail Apple Mail avec le rapport (selon les options choisies).
     let onExportMail: (MeetingMailExportOptions) -> Void
+    /// Crée un e-mail Microsoft Outlook avec le rapport (selon les options).
     let onExportOutlook: (MeetingMailExportOptions) -> Void
+    /// Crée une note Apple Notes avec le rapport (selon les options).
     let onExportAppleNotes: (MeetingMailExportOptions) -> Void
+    /// Force la sauvegarde immédiate du contexte SwiftData.
     let onSaveNow: () -> Void
 
     var body: some View {
@@ -75,6 +98,10 @@ struct MeetingTopChromeBar: View {
         .truncationMode(.middle)
     }
 
+    /// Badge d'état de disponibilité de l'audio dans le fil d'Ariane.
+    /// - `.original` : audio intact → aucun badge affiché.
+    /// - `.compressed` : audio recompressé (AAC) → badge informatif (qualité STT dégradée).
+    /// - `.deleted` : audio purgé par la politique de rétention → badge « archivé ».
     @ViewBuilder
     private var audioStatusBadge: some View {
         switch meeting.audioAvailability {
@@ -319,6 +346,9 @@ struct MeetingTopChromeBar: View {
         .help("Template de rapport — modifie la structure du compte-rendu généré")
     }
 
+    /// Templates non archivés proposés dans le sélecteur, triés par priorité :
+    /// d'abord le `ReportTemplateKind` correspondant au type de la réunion,
+    /// puis par ordre alphabétique (insensible à la casse).
     private var compatibleTemplates: [ReportTemplate] {
         let mapping: [MeetingKind: ReportTemplateKind] = [
             .global: .general,

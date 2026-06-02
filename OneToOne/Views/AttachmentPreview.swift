@@ -1,6 +1,10 @@
 import SwiftUI
 import QuickLookUI
 
+/// Sheet d'aperçu d'une pièce jointe d'entretien (`InterviewAttachment`) :
+/// en-tête + QuickLook + éditeur de commentaire. `onOpenExternally` ouvre le
+/// fichier dans une app externe, `onClose` ferme la sheet et `onSave` est
+/// appelé à chaque modification du commentaire.
 struct AttachmentPreviewSheet: View {
     @Bindable var attachment: InterviewAttachment
     let onOpenExternally: () -> Void
@@ -53,6 +57,10 @@ struct AttachmentPreviewSheet: View {
     }
 }
 
+/// Aperçu QuickLook d'un fichier. Gère le cycle de vie des security-scoped
+/// resources (nécessaires pour accéder aux fichiers hors sandbox via un
+/// bookmark) : démarre l'accès à l'ouverture/changement d'URL et le libère
+/// quand l'URL change ou que la vue est démontée.
 struct QuickLookPreview: NSViewRepresentable {
     let url: URL
 
@@ -83,6 +91,10 @@ struct QuickLookPreview: NSViewRepresentable {
     }
 }
 
+/// Variante de `AttachmentPreviewSheet` pour une pièce jointe de projet
+/// (`ProjectAttachment`) : même structure (en-tête + QuickLook + commentaire)
+/// mais affiche la catégorie au lieu du chemin et n'expose pas d'action
+/// « ouvrir en externe ».
 struct ProjectAttachmentPreviewSheet: View {
     @Bindable var attachment: ProjectAttachment
     let onClose: () -> Void

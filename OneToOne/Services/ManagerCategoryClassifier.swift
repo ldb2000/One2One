@@ -13,6 +13,9 @@ enum ManagerCategoryClassifier {
     /// non-blocking (sheet opens immediately with placeholder).
     static let timeout: TimeInterval = 3
 
+    /// Asks the AI to pick a category for `snippet` from
+    /// `settings.managerCategories`. Returns the matched canonical category, or
+    /// `nil` on empty list, timeout, error, or an out-of-list response.
     static func classify(
         snippet: String,
         projectName: String?,
@@ -38,6 +41,8 @@ enum ManagerCategoryClassifier {
         }
     }
 
+    /// Builds the classification prompt instructing the AI to reply with the
+    /// exact name of a single category from the supplied list.
     static func buildPrompt(snippet: String, projectName: String?, categories: [String]) -> String {
         let projectLine = projectName.map { "Contexte projet : \($0)" } ?? "Contexte projet : n/a"
         return """

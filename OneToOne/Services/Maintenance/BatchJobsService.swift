@@ -1,10 +1,12 @@
 import Foundation
 import SwiftData
 
-/// Énumère les meetings éligibles aux batch jobs.
+/// Énumère les meetings éligibles aux traitements par lots (génération de compte rendu,
+/// transcription, diarisation). Chaque méthode récupère tous les meetings puis filtre en mémoire.
 @MainActor
 enum BatchJobsService {
 
+    /// Meetings transcrits mais sans compte rendu : `rawTranscript` non vide et `summary` vide.
     static func meetingsWithoutReport(in context: ModelContext) -> [Meeting] {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []
@@ -13,6 +15,7 @@ enum BatchJobsService {
         }
     }
 
+    /// Meetings non transcrits mais transcriptibles : `rawTranscript` vide et audio jouable disponible.
     static func meetingsWithoutTranscript(in context: ModelContext) -> [Meeting] {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []
@@ -21,6 +24,8 @@ enum BatchJobsService {
         }
     }
 
+    /// Meetings ayant des segments de transcription et un audio jouable mais aucune diarisation :
+    /// `speakerAssignmentsJSON` vide ou égal à `"{}"`.
     static func meetingsWithoutDiarisation(in context: ModelContext) -> [Meeting] {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []

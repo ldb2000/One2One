@@ -7,6 +7,9 @@ import SwiftData
 /// `ProjectCollaboratorEntry` (action/info collab dans contexte projet).
 @Model
 final class Note {
+    /// Identifiant stable optionnel (nil pour les notes antérieures à la
+    /// migration). Backfillé à la création ; pour un UUID garanti, générer
+    /// au besoin côté appelant.
     var stableID: UUID? = nil
     var title: String
     var body: String
@@ -54,6 +57,8 @@ final class NoteAttachment {
         self.filePath = filePath
     }
 
+    /// Renvoie le `stableID`, en le générant et le persistant (`save()`) au
+    /// premier accès s'il était nil (backfill migration). Effet de bord : sauvegarde.
     var ensuredStableID: UUID {
         if let stableID { return stableID }
         let new = UUID()

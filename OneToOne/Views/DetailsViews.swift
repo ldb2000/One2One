@@ -3,6 +3,7 @@ import SwiftData
 import UniformTypeIdentifiers
 import AppKit
 
+/// Icône SF Symbol associée à un type d'entretien (1:1, recrutement, import).
 private func interviewTypeIcon(_ type: InterviewType) -> String {
     switch type {
     case .regular:
@@ -15,6 +16,8 @@ private func interviewTypeIcon(_ type: InterviewType) -> String {
 }
 
 private extension String {
+    /// Préfixe la chaîne d'une puce « • » (après trim) ; renvoie "" si vide.
+    /// Utilisé pour reconstituer une liste à puces à partir d'un `joined`.
     var prependingBulletList: String {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
@@ -22,6 +25,8 @@ private extension String {
     }
 }
 
+/// Fiche détaillée d'un projet : informations générales, risques, points clés,
+/// entrées datées (REX/infos), pièces jointes, alertes, actions et préparation IA.
 struct ProjectDetailView: View {
     @Bindable var project: Project
     @Query private var entities: [Entity]
@@ -32,7 +37,6 @@ struct ProjectDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingProjectAttachmentImporter = false
     @State private var newProjectAttachmentCategory = "Document"
-    @State private var previewedProjectAttachment: ProjectAttachment?
     @State private var selectedCollaboratorForProjectEntry: Collaborator?
 
     private let riskLevels = ["", "Faible", "Modéré", "Élevé", "Critique"]
@@ -661,13 +665,6 @@ struct ProjectDetailView: View {
         ) { result in
             handleProjectAttachmentImport(result: result)
         }
-        .sheet(item: $previewedProjectAttachment) { attachment in
-            ProjectAttachmentPreviewSheet(
-                attachment: attachment,
-                onClose: { previewedProjectAttachment = nil },
-                onSave: saveContext
-            )
-        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button("Enregistrer") {
@@ -752,6 +749,7 @@ struct ProjectDetailView: View {
         }
     }
 
+    /// Ajoute une entrée datée vide ; catégorisée « REX » en phase Build, sinon « Information ».
     private func addProjectInfoEntry() {
         let category = project.phase == "Build" ? "REX" : "Information"
         let entry = ProjectInfoEntry(date: Date(), content: "", category: category)
@@ -765,6 +763,7 @@ struct ProjectDetailView: View {
         saveContext()
     }
 
+    /// Crée une entrée (information ou action) liée au collaborateur sélectionné ; no-op si aucun.
     private func addCollaboratorEntry(kind: String) {
         guard let collaborator = selectedCollaboratorForProjectEntry else { return }
         let entry = ProjectCollaboratorEntry(date: Date(), content: "", kind: kind, isCompleted: false)
@@ -774,6 +773,8 @@ struct ProjectDetailView: View {
         saveContext()
     }
 
+    /// Génère via l'IA un brouillon de préparation pour le projet et l'enregistre
+    /// dans `standingPrepNotes` (horodaté). Les erreurs sont seulement loguées.
     @MainActor
     private func generatePrepForProject() async {
         let settings = settingsList.canonicalSettings ?? AppSettings()
@@ -790,10 +791,16 @@ struct ProjectDetailView: View {
         }
     }
 
-    private func relativeProjPrepDate(_ d: Date) -> String {
+    /// Formatteur de date relative (fr_FR) mis en cache pour éviter une
+    /// réallocation à chaque rafraîchissement de la vue.
+    private static let relativePrepFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.locale = Locale(identifier: "fr_FR")
-        return f.localizedString(for: d, relativeTo: Date())
+        return f
+    }()
+
+    private func relativeProjPrepDate(_ d: Date) -> String {
+        Self.relativePrepFormatter.localizedString(for: d, relativeTo: Date())
     }
 }
 
@@ -819,6 +826,8 @@ struct KeyPointAdder: View {
     }
 }
 
+/// Fiche détaillée d'un collaborateur : identité/photo, projets pilotés,
+/// préparation du prochain 1:1, actions assignées, réunions et historique d'entretiens.
 struct CollaboratorDetailView: View {
     @Bindable var collaborator: Collaborator
     @Environment(\.modelContext) private var context
@@ -1283,6 +1292,8 @@ struct CollaboratorDetailView: View {
         }
     }
 
+    /// Génère via l'IA un brouillon de préparation du prochain 1:1 et l'enregistre
+    /// dans `standingPrepNotes` (horodaté). Les erreurs sont seulement loguées.
     @MainActor
     private func generatePrepForCollab() async {
         let settings = appSettings.canonicalSettings ?? AppSettings()
@@ -1299,10 +1310,15 @@ struct CollaboratorDetailView: View {
         }
     }
 
-    private func relativeCollabPrepDate(_ d: Date) -> String {
+    /// Formatteur de date relative (fr_FR) mis en cache (évite une réallocation par rendu).
+    private static let relativePrepFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.locale = Locale(identifier: "fr_FR")
-        return f.localizedString(for: d, relativeTo: Date())
+        return f
+    }()
+
+    private func relativeCollabPrepDate(_ d: Date) -> String {
+        Self.relativePrepFormatter.localizedString(for: d, relativeTo: Date())
     }
 
     @ViewBuilder
@@ -1455,14 +1471,22 @@ struct CollaboratorDetailView: View {
         showingQuickAdd = false
     }
 
-    private func quickAddDateLabel(_ d: Date) -> String {
+    /// Formatteur « jour mois » (fr_FR) mis en cache pour l'étiquette d'échéance.
+    private static let quickAddDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "fr_FR")
         f.dateFormat = "d MMM"
-        return f.string(from: d)
+        return f
+    }()
+
+    private func quickAddDateLabel(_ d: Date) -> String {
+        Self.quickAddDateFormatter.string(from: d)
     }
 }
 
+/// Écran d'un entretien. Présente deux mises en page selon `interview.type` :
+/// 1:1 collaborateur (notes + actions + alertes) ou recrutement (analyse CV + évaluation).
+/// Intègre enregistrement Mickey, import/reformulation IA et export (Markdown/PDF/Notes/mail).
 struct InterviewView: View {
     @Bindable var interview: Interview
     @Query private var projects: [Project]
@@ -2441,6 +2465,9 @@ struct InterviewView: View {
 
     // MARK: - Reformulation IA
 
+    /// Reformule les notes via l'IA et crée des actions à partir des éléments extraits.
+    /// Pour un entretien de recrutement, délègue plutôt au pré-remplissage depuis le CV.
+    /// No-op (avec message) si la reformulation IA est désactivée dans les réglages.
     private func reformulateNotes() {
         guard settings.useAIForReformulation else {
             reformulationError = "La reformulation IA est desactivee dans les parametres."
@@ -2481,6 +2508,8 @@ struct InterviewView: View {
         }
     }
 
+    /// Analyse le CV joint via l'IA et pré-remplit les champs d'évaluation candidat
+    /// (synthèse, points +/-, formation, notes CV…). No-op si aucun CV n'est joint.
     private func prefillJobInterview() {
         guard let attachment = selectedCVAttachment else { return }
 

@@ -8,27 +8,28 @@ private let retLog = Logger(subsystem: "com.onetoone.app", category: "wav-retent
 @MainActor
 enum WavRetentionService {
 
+    /// Répartition des meetings éligibles au cleanup audio :
+    /// `toCompress` pour la compression, `toDelete` pour la suppression du WAV.
     struct CleanupPlan {
         var toCompress: [Meeting]
         var toDelete: [Meeting]
     }
 
+    /// Classe les meetings selon leur ancienneté et les seuils de rétention :
+    /// suppression au-delà de `wavDeletionDays`, sinon compression au-delà de
+    /// `wavCompressionDays`. Ignore les meetings sans résumé, marqués
+    /// « conserver toujours », sans audio jouable, ou déjà compressés.
     static func plan(in context: ModelContext,
                      settings: AppSettings,
                      now: Date = Date()) -> CleanupPlan {
         let descriptor = FetchDescriptor<Meeting>()
         let all = (try? context.fetch(descriptor)) ?? []
         let cal = Calendar.current
-        let compressCutoff = cal.date(
-            byAdding: .day,
-            value: -settings.wavCompressionDays,
-            to: now
-        ) ?? now
-        let deleteCutoff = cal.date(
-            byAdding: .day,
-            value: -settings.wavDeletionDays,
-            to: now
-        ) ?? now
+        func cutoff(daysAgo days: Int) -> Date {
+            cal.date(byAdding: .day, value: -days, to: now) ?? now
+        }
+        let compressCutoff = cutoff(daysAgo: settings.wavCompressionDays)
+        let deleteCutoff = cutoff(daysAgo: settings.wavDeletionDays)
 
         var toCompress: [Meeting] = []
         var toDelete: [Meeting] = []

@@ -1,14 +1,25 @@
 import SwiftUI
 
+/// Barre contextuelle affichée en haut de la réunion : VU-mètre d'enregistrement,
+/// lecteur audio, capture d'écran et progression STT/OCR. N'apparaît que lorsqu'au
+/// moins une activité est en cours (enregistrement, lecture, capture, transcription, erreurs).
 struct MeetingContextualRecorderBar: View {
+    /// Service d'enregistrement audio (état `isRecording`, niveau `averagePower`).
     @ObservedObject var recorder: AudioRecorderService
+    /// Service de transcription (progression et libellé affichés dans le segment de progression).
     @ObservedObject var stt: TranscriptionService
+    /// Lecteur audio piloté par le segment de lecture (slider, skip).
     @ObservedObject var player: AudioPlayerService
+    /// Service de capture d'écran (slides capturées, progression OCR).
     @ObservedObject var captureService: ScreenCaptureService
 
+    /// Vrai si un fichier WAV existe ; conditionne l'affichage du segment de lecture.
     let hasWav: Bool
+    /// Autorise l'affichage du segment de lecture (sinon masqué même si `hasWav`).
     let showPlayback: Bool
+    /// Déclenche un snapshot manuel de la capture d'écran.
     let onSnapshot: () -> Void
+    /// Arrête la capture d'écran en cours.
     let onStopCapture: () -> Void
     let onSeek: (TimeInterval) -> Void
     let onSkip: (TimeInterval) -> Void
@@ -56,6 +67,7 @@ struct MeetingContextualRecorderBar: View {
         }
     }
 
+    /// Segment d'enregistrement : VU-mètre + niveau d'entrée en dB.
     private var recordingSegment: some View {
         HStack(spacing: 10) {
             vuMeter
@@ -78,6 +90,7 @@ struct MeetingContextualRecorderBar: View {
         .frame(width: 140, height: 8)
     }
 
+    /// Segment de lecture : boutons skip ±15 s et slider de position (masqué si durée nulle).
     private var playbackSegment: some View {
         HStack(spacing: 8) {
             Button { onSkip(-15) } label: { Image(systemName: "gobackward.15") }.buttonStyle(.borderless)
@@ -98,6 +111,7 @@ struct MeetingContextualRecorderBar: View {
         }
     }
 
+    /// Segment de capture d'écran : compteur de slides + boutons snapshot/arrêt.
     private var captureSegment: some View {
         HStack(spacing: 8) {
             Image(systemName: "camera.viewfinder").foregroundColor(.blue)
@@ -112,6 +126,7 @@ struct MeetingContextualRecorderBar: View {
         }
     }
 
+    /// Segment de progression : barre/spinner STT (avec pourcentage) et progression OCR.
     @ViewBuilder
     private var progressSegment: some View {
         HStack(spacing: 10) {

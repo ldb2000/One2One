@@ -16,6 +16,12 @@ enum DiarizeFirstTranscriber {
     static let maxTokensPerTurn: Int = 1024
     static let sampleRate: Int = 16_000
 
+    /// Pipeline complet : diarise l'audio, fusionne les tours adjacents
+    /// (`maxGap`), transcrit chaque tour ≥ `minTurnDuration` puis renvoie les
+    /// blocs attribués, les embeddings par cluster et la durée audio réelle.
+    /// Les tours trop courts ou au texte vide sont ignorés. Coopère à
+    /// l'annulation (`Task.checkCancellation`) ; `onPhase`/`onProgress`
+    /// notifient l'avancement.
     static func run(audioURL: URL,
                     engine: STTEngine,
                     language: String,

@@ -4,7 +4,9 @@ import AppKit
 
 class RemindersService: ObservableObject {
     private let eventStore = EKEventStore()
-    
+
+    /// Demande l'autorisation d'accès complet aux Rappels (requise par EventKit
+    /// avant toute lecture/écriture). Retourne `false` si refusée ou en erreur.
     func requestAccess() async -> Bool {
         do {
             let granted = try await eventStore.requestFullAccessToReminders()
@@ -15,6 +17,8 @@ class RemindersService: ObservableObject {
         }
     }
     
+    /// Crée un rappel dans le calendrier par défaut des Rappels.
+    /// Retourne l'identifiant de l'item créé, ou `nil` si la sauvegarde échoue.
     func createReminder(title: String, dueDate: Date?) async -> String? {
         let reminder = EKReminder(eventStore: eventStore)
         reminder.title = title
@@ -32,18 +36,14 @@ class RemindersService: ObservableObject {
 }
 
 class MickeyService: ObservableObject {
+    /// Démarre l'enregistrement Mickey via son URL Scheme (`mickey://start`).
+    /// Aucune alternative de repli : si l'app Mickey n'est pas installée ou
+    /// n'enregistre pas ce scheme, l'ouverture est silencieusement ignorée.
     func startRecording() {
         // Hypothèse: Mickey répond à un URL Scheme pour démarrer l'enregistrement
         if let url = URL(string: "mickey://start") {
             NSWorkspace.shared.open(url)
         }
-        // Alternative: AppleScript
-        /*
-        let scriptSource = "tell application \"Mickey\" to start recording"
-        if let script = NSAppleScript(source: scriptSource) {
-            script.executeAndReturnError(nil)
-        }
-        */
     }
     
     func stopRecording() {

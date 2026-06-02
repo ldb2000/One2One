@@ -109,6 +109,8 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         }
     }
 
+    /// Annule toutes les notifications en attente d'une réunion (preStart,
+    /// start, endWarning, end). Idempotent — sûr à appeler à tout moment.
     func cancel(for meeting: Meeting) {
         let base = idPrefix(for: meeting)
         center.removePendingNotificationRequests(withIdentifiers: [
@@ -285,9 +287,13 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         "meeting.\(meeting.ensuredStableID.uuidString)"
     }
 
-    private func formatTime(_ date: Date) -> String {
+    private static let timeFormatter: DateFormatter = {
         let fmt = DateFormatter()
         fmt.dateFormat = "HH:mm"
-        return fmt.string(from: date)
+        return fmt
+    }()
+
+    private func formatTime(_ date: Date) -> String {
+        Self.timeFormatter.string(from: date)
     }
 }

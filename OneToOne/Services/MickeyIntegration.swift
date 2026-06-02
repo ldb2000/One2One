@@ -216,12 +216,17 @@ final class MickeyIntegration: ObservableObject {
 
     // MARK: - Chemin filesystem du container partagé
 
+    /// URL du fichier JSON de résultat écrit par Mickey pour cette session :
+    /// `<container>/results/<sessionId>.json`.
     static func resultFileURL(sessionId: String) -> URL {
         containerURL()
             .appendingPathComponent("results", isDirectory: true)
             .appendingPathComponent("\(sessionId).json")
     }
 
+    /// Racine du container App Group partagé avec Mickey. Utilise l'API officielle
+    /// si l'entitlement est présent, sinon retombe sur le chemin filesystem direct
+    /// (OneToOne, exécutable SwiftPM, n'est pas sandboxée).
     static func containerURL() -> URL {
         // API officielle (nécessite entitlement App Group) :
         if let url = FileManager.default.containerURL(

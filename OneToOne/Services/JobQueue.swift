@@ -45,6 +45,9 @@ final class JobQueue: ObservableObject {
         var statusText: String?
         var finishedAt: Date?
         var task: Task<Void, Never>?
+        /// Travail à exécuter, capturé à l'`enqueue` et conservé tant que le job
+        /// est `.queued`. Mis à `nil` dès qu'il est consommé (passage en
+        /// `.running`) ou lors d'une annulation, libérant ainsi ses captures.
         var work: ((UUID) async throws -> Void)?
     }
 
@@ -64,6 +67,10 @@ final class JobQueue: ObservableObject {
         .maintenance:   1
     ]
 
+    /// Enfile un nouveau job en tête de liste avec le statut `.queued`, puis
+    /// tente immédiatement de le démarrer via `dispatchNextIfPossible` : il ne
+    /// passera en `.running` que si la concurrence du `kind` le permet, sinon il
+    /// reste en attente. Retourne l'identifiant du job créé.
     @discardableResult
     func start(kind: JobKind,
                meetingID: PersistentIdentifier? = nil,

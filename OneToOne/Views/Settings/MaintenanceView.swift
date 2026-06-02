@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 
+/// Tableau de bord de maintenance : visualisation du stockage, lancement de
+/// traitements en lot (rapports/transcriptions/diarisations manquants),
+/// rétention/compression audio, nettoyage des fichiers orphelins et VACUUM SQLite.
 struct MaintenanceView: View {
     @Environment(\.modelContext) private var context
     @Query private var settingsList: [AppSettings]
@@ -106,6 +109,9 @@ struct MaintenanceView: View {
 
     // MARK: - Batch Jobs Section
 
+    /// Affiche, pour chaque type de traitement (rapport, transcription,
+    /// diarisation), le nombre de réunions à traiter et un bouton qui en
+    /// enfile un job par réunion candidate dans la `JobQueue` partagée.
     @ViewBuilder
     private var batchJobsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -149,6 +155,8 @@ struct MaintenanceView: View {
         }
     }
 
+    /// Enfile un job de génération de rapport par réunion sans rapport. Chaque
+    /// job appelle `AIReportService` puis écrit le résultat sur la réunion.
     private func enqueueMissingReports() {
         let queue = JobQueue.shared
         let candidates = BatchJobsService.meetingsWithoutReport(in: context)
@@ -177,6 +185,8 @@ struct MaintenanceView: View {
         }
     }
 
+    /// Enfile un job de transcription par réunion disposant d'un WAV mais sans
+    /// transcript. Les réunions sans fichier audio sont ignorées.
     private func enqueueMissingTranscripts() {
         let queue = JobQueue.shared
         let candidates = BatchJobsService.meetingsWithoutTranscript(in: context)
@@ -201,6 +211,9 @@ struct MaintenanceView: View {
         }
     }
 
+    /// Enfile un job de diarisation par réunion disposant d'un WAV mais sans
+    /// diarisation. Chaque job appelle `PyannoteDiarizer`, associe les clusters
+    /// aux collaborateurs via `SpeakerMatcher` et persiste le mapping en JSON.
     private func enqueueMissingDiarisations() {
         let queue = JobQueue.shared
         let candidates = BatchJobsService.meetingsWithoutDiarisation(in: context)
@@ -385,6 +398,9 @@ struct MaintenanceView: View {
         return base.appendingPathComponent("OneToOne")
     }
 
+    /// Exécute le plan de rétention dans un unique job `.maintenance` : compresse
+    /// puis supprime les WAV concernés, en publiant la progression (fraction +
+    /// statut) à chaque étape, puis met à jour `lastCleanupAt`. Annulable.
     private func runCleanup(plan: WavRetentionService.CleanupPlan) {
         let queue = JobQueue.shared
         let snapshotPlan = plan

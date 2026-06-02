@@ -8,6 +8,8 @@ import SwiftData
 @MainActor
 final class OneToOneQuickPickerWindow: NSPanel {
 
+    /// Instance unique partagée (singleton) : la fenêtre est réutilisée à
+    /// chaque déclenchement du raccourci d'overlay.
     static let shared = OneToOneQuickPickerWindow()
 
     private convenience init() {
@@ -39,6 +41,10 @@ final class OneToOneQuickPickerWindow: NSPanel {
     }
 }
 
+/// Contenu de la fenêtre de sélection rapide : champ de recherche + liste
+/// filtrable des collaborateurs non archivés, navigable au clavier
+/// (flèches, Entrée pour valider, Échap pour fermer). Valider lance un 1:1
+/// avec enregistrement automatique via le `QuickLaunchRouter`.
 struct OneToOneQuickPickerView: View {
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived },
            sort: [SortDescriptor(\.pinLevel, order: .reverse), SortDescriptor(\.name)])

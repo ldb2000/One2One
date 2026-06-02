@@ -5,6 +5,8 @@ import Foundation
 /// et Outlook (rendent correctement les `<style>` block via AppleScript).
 enum ReportThemeCSS {
 
+    /// Feuille de style complète (variables `:root` + règles) inlinée telle
+    /// quelle dans le `<style>` du HTML généré.
     static let css: String = """
     :root {
       --navy: #1a2a44;

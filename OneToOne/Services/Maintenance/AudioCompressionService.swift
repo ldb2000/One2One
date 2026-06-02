@@ -8,6 +8,12 @@ private let compLog = Logger(subsystem: "com.onetoone.app", category: "audio-com
 /// temp file + duration check. The original `.wav` is removed on success.
 enum AudioCompressionService {
 
+    /// Compresses the `.wav` at `url` into a sibling `.m4a` (AVAssetExportPresetAppleM4A).
+    /// Writes to a `.compressing.m4a` temp file first, then validates the result: both
+    /// durations must exceed 0.1s and differ by no more than 0.5s. On success the temp
+    /// file is moved to `<base>.m4a`, the source `.wav` is deleted, and the final URL is
+    /// returned. On any failure the temp file is cleaned up and an error is thrown, leaving
+    /// the original `.wav` intact.
     static func compress(url: URL) async throws -> URL {
         guard FileManager.default.fileExists(atPath: url.path) else {
             compLog.error("compress failed url=\(url.lastPathComponent, privacy: .public) reason=source-missing")
@@ -32,7 +38,6 @@ enum AudioCompressionService {
         }
         export.outputURL = tmp
         export.outputFileType = .m4a
-        export.audioMix = nil
 
         await export.export()
         guard export.status == .completed else {

@@ -68,4 +68,6 @@ enum OneToOneMigrationPlan: SchemaMigrationPlan {
 
 // MARK: - Schema courant
 
+/// Version de schéma active utilisée par le `ModelContainer` de l'app.
+/// Pointer cet alias vers la dernière `SchemaVN` lors d'une migration.
 typealias CurrentSchema = SchemaV1

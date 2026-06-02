@@ -9,6 +9,8 @@ struct PrepWindowToken: Codable, Hashable {
 }
 
 /// Fenêtre standalone d'édition d'une prep "standing" lancée depuis le menubar.
+/// Résout le `token` en collaborateur OU projet via les `@Query` ; affiche une
+/// erreur si la cible est introuvable.
 struct PrepWindowView: View {
     let token: PrepWindowToken
     @Environment(\.modelContext) private var context
@@ -103,6 +105,8 @@ struct PrepWindowView: View {
         }
     }
 
+    /// Génère un brouillon de prep via l'IA et l'écrit dans la cible résolue.
+    /// En cas d'échec, le message est exposé via `error` (la prep existante reste intacte).
     @MainActor
     private func runGenerate() async {
         isGenerating = true

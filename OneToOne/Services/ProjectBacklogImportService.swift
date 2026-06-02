@@ -72,6 +72,9 @@ struct ProjectBacklogImportService {
 
     // MARK: - Python runner
 
+    /// Lance le script Python sur `xlsxURL` (off main thread) et décode son
+    /// stdout JSON en `[Row]`. Lève `ImportError` si le script est introuvable,
+    /// échoue (code != 0) ou émet un JSON invalide.
     private static func runParser(xlsxURL: URL, scriptURL: URL) async throws -> [Row] {
         guard FileManager.default.fileExists(atPath: scriptURL.path) else {
             throw ImportError.scriptNotFound(scriptURL)
@@ -160,6 +163,9 @@ struct ProjectBacklogImportService {
 
     // MARK: - Upsert
 
+    /// Insère ou met à jour projets et entités à partir des lignes parsées.
+    /// Les entités sont indexées par nom, les projets par code ; un projet
+    /// existant n'est compté `updated` que si au moins un champ change.
     private static func upsert(rows: [Row], context: ModelContext) throws -> Summary {
         var summary = Summary()
         summary.rowsParsed = rows.count

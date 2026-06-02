@@ -16,6 +16,12 @@ enum SentenceContextExtractor {
     static let maxContextChars = 400
     static let targetSentences = 2
 
+    /// Renvoie le contexte (`before`, `after`) autour de `range` dans `text`.
+    /// - Une `range.length` de 0 (sélection vide / curseur) est valide : `before`
+    ///   et `after` sont alors calculés autour du même point d'insertion.
+    /// - « Phrase » = segment délimité par un terminateur `.`, `!`, `?` ou `…`
+    ///   (les abréviations comme « M. » ne sont PAS reconnues : tout point compte).
+    /// - Renvoie ("", "") si `text` est vide ou `range.location` est hors bornes.
     static func extractContext(text: String, range: NSRange) -> (before: String, after: String) {
         let nsText = text as NSString
         let total = nsText.length

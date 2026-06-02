@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 
+/// Écran de configuration global de l'app : fournisseur IA, prompts, identité du
+/// rédacteur, calendrier/menubar, reconnaissance vocale, entités, backup et Spotlight.
+/// Persiste sur l'unique enregistrement `AppSettings` (cf. `ensureSingleSettingsRecord`).
 struct SettingsView: View {
     @Query private var settingsList: [AppSettings]
     @Query private var entities: [Entity]
@@ -10,6 +13,8 @@ struct SettingsView: View {
     @Query private var meetings: [Meeting]
     @Environment(\.modelContext) private var context
 
+    /// Renvoie l'enregistrement `AppSettings` canonique. En crée et insère un nouveau
+    /// (sauvegardé immédiatement) si aucun n'existe encore.
     private var settings: AppSettings {
         if let current = settingsList.canonicalSettings {
             return current
@@ -22,7 +27,6 @@ struct SettingsView: View {
     }
 
     @State private var cloudToken: String = ""
-    @State private var oauthToken: String = ""
     @State private var apiEndpoint: String = ""
     @State private var modelName: String = ""
     @State private var selectedProvider: AIProvider = .claudeOAuth
@@ -881,6 +885,8 @@ struct SettingsView: View {
         .navigationTitle("Paramètres")
     }
 
+    /// Interroge `/api/tags` du serveur Ollama (dérivé de l'endpoint en retirant le
+    /// suffixe `/v1`) pour lister les modèles installés et met à jour `ollamaModels`.
     private func fetchOllamaModels() {
         isLoadingOllamaModels = true
         ollamaStatus = ""
@@ -947,6 +953,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Vérifie en arrière-plan la présence du CLI `claude` (via `which` dans un shell
+    /// de login) et renseigne `oauthStatus` selon le résultat.
     private func checkClaudeCLI() {
         DispatchQueue.global(qos: .userInitiated).async {
             let process = Process()
@@ -971,6 +979,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Sauvegarde la config courante puis envoie un prompt de test (« Reponds
+    /// uniquement par: OK ») au fournisseur sélectionné et reflète le résultat dans `testStatus`.
     private func testAIConnection() {
         isTesting = true
         testStatus = ""
@@ -1004,6 +1014,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Renseigne `apiEndpoint` et `modelName` avec les valeurs par défaut associées au
+    /// fournisseur donné (appelé lors d'un changement de fournisseur par l'utilisateur).
     private func updateDefaults(for provider: AIProvider) {
         switch provider {
         case .claudeOAuth:
@@ -1034,6 +1046,8 @@ struct SettingsView: View {
         MeetingNotificationService.shared.syncPending(context: context, settings: settings)
     }
 
+    /// Recopie l'état du formulaire (token, endpoint, modèle, prompts, identité,
+    /// catégories manager) vers `settings`, sauvegarde le contexte et met à jour `oauthStatus`.
     private func saveSettings() {
 
         settings.cloudToken = cloudToken
@@ -1058,17 +1072,21 @@ struct SettingsView: View {
         }
     }
 
+    /// Crée et persiste une nouvelle `Entity` avec un nom par défaut.
     private func addEntity() {
         let entity = Entity(name: "Nouvelle Entité")
         context.insert(entity)
         try? context.save()
     }
 
+    /// Supprime l'entité du contexte et sauvegarde.
     private func deleteEntity(_ entity: Entity) {
         context.delete(entity)
         try? context.save()
     }
 
+    /// Crée un projet rattaché à l'entité en générant un code unique `PXX_NNN`
+    /// (premier index libre parmi les codes projets existants).
     private func addProject(to entity: Entity) {
         let existingCodes = Set(projects.map(\.code))
         var index = 1
@@ -1091,6 +1109,8 @@ struct SettingsView: View {
         try? context.save()
     }
 
+    /// Réindexe projets et collaborateurs dans Spotlight, puis affiche le nombre
+    /// d'éléments indexés dans `spotlightStatus`.
     private func reindexSpotlight() {
         isReindexing = true
         spotlightStatus = ""
@@ -1101,6 +1121,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Exporte toutes les données de l'app (réglages, entités, projets, collaborateurs,
+    /// entretiens, réunions et données manager) en JSON via un panneau d'enregistrement.
     private func createBackup() {
         let service = BackupService()
         do {
@@ -1128,6 +1150,7 @@ struct SettingsView: View {
         }
     }
 
+    /// Restaure les données depuis un fichier JSON de backup choisi par l'utilisateur.
     private func restoreBackup() {
         let service = BackupService()
         do {
@@ -1140,6 +1163,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Garantit l'unicité de l'enregistrement `AppSettings` : conserve le canonique
+    /// et supprime tous les doublons éventuels.
     private func ensureSingleSettingsRecord() {
         guard !settingsList.isEmpty else { return }
         let canonical = settingsList.canonicalSettings ?? settingsList[0]
@@ -1149,6 +1174,8 @@ struct SettingsView: View {
         try? context.save()
     }
 
+    /// Éditeur de la liste noire de capture : une app par ligne, stockée comme
+    /// `[String]` (`settings.captureBlacklist`). Les lignes vides sont ignorées à la saisie.
     @ViewBuilder
     private var captureBlacklistSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1174,6 +1201,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Liste les collaborateurs disposant d'une empreinte vocale enrôlée, avec un
+    /// bouton pour réinitialiser le voiceprint de chacun.
     @ViewBuilder
     private var enrolledCollabsList: some View {
         let enrolled = collaborators.filter { $0.voicePrint != nil && $0.voicePrintSamples > 0 }

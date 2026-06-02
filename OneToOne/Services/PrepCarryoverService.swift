@@ -68,6 +68,9 @@ extension PrepCarryoverService {
         prepLog.info("drain done kind=\(meeting.kind.rawValue, privacy: .public) bytes=\(meeting.prepNotes.count)")
     }
 
+    /// Concatène le contenu du pool permanent en tête des notes existantes
+    /// (séparés par une ligne vide). Retourne `standing` tel quel si la
+    /// réunion n'a pas encore de notes.
     private static func mergePrep(standing: String, existing: String) -> String {
         if existing.isEmpty { return standing }
         return standing + "\n\n" + existing

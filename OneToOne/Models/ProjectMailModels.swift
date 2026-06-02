@@ -2,8 +2,12 @@ import Foundation
 import SwiftData
 
 /// A mail ingested for a project (RAG source).
+/// Dédupliqué sur `messageId` (identifiant Mail.app, supposé unique) : un
+/// réimport du même message fait un upsert plutôt qu'un doublon (cf.
+/// `ProjectMailStore.save`). Le corps est indexé en chunks pour le RAG.
 @Model
 final class ProjectMail {
+    /// Identifiant du message tel que fourni par Mail.app. Clé de déduplication.
     var messageId: String
     var accountName: String
     var mailbox: String
@@ -11,6 +15,8 @@ final class ProjectMail {
     var sender: String
     var dateReceived: Date
     var body: String = ""
+    /// Sujet normalisé (préfixes Re:/Fwd: retirés) servant à regrouper les
+    /// messages d'une même conversation.
     var threadTopic: String = ""
 
     var project: Project?
@@ -42,6 +48,10 @@ final class ProjectMail {
     }
 }
 
+/// Pièce jointe d'un `ProjectMail`. Le fichier est extrait de Mail.app et copié
+/// sur disque par `MailService.saveAttachments` ; `filePath` pointe vers cette
+/// copie locale (et sert aussi de clé d'unicité lors de la synchro). Aucun
+/// security-scoped bookmark : le fichier appartient au container de l'app.
 @Model
 final class ProjectMailAttachment {
     var fileName: String

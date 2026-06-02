@@ -4,6 +4,9 @@ import AppKit
 import Combine
 import CoreSpotlight
 
+/// Point d'entrée de l'app. Construit le `ModelContainer` SwiftData (avec
+/// récupération destructive si la migration échoue) et déclare les scènes :
+/// fenêtre principale, fenêtre 1to1-meeting et fenêtre de préparation.
 @main
 struct OneToOneApp: App {
     /// Container partagé pour les déclencheurs hors hiérarchie SwiftUI
@@ -88,6 +91,9 @@ struct OneToOneApp: App {
     }
 }
 
+/// Vue racine : `NavigationSplitView` (sidebar + dashboard) qui orchestre
+/// au lancement la réparation du store, l'indexation Spotlight, les hotkeys
+/// globaux et le nettoyage audio automatique.
 struct ContentView: View {
     @State private var selectedTab: String? = "Dashboard"
     @Environment(\.modelContext) private var context
@@ -172,6 +178,9 @@ struct ContentView: View {
         }
     }
 
+    /// Lance, si activé dans les réglages et au plus une fois par 24 h, un job
+    /// en arrière-plan qui compresse/supprime les WAV selon la politique de
+    /// rétention.
     @MainActor
     private func maybeRunAutoCleanup() {
         let descriptor = FetchDescriptor<AppSettings>()
@@ -210,6 +219,9 @@ struct ContentView: View {
         }
     }
 
+    /// (Ré)enregistre les raccourcis globaux : l'overlay quick-picker et un
+    /// raccourci par collaborateur (démarrage direct d'un 1:1). Désenregistre
+    /// tout au préalable pour rester idempotent.
     private func registerHotkeys() {
         GlobalHotkeyService.shared.unregisterAll()
 
@@ -243,6 +255,7 @@ struct ContentView: View {
         }
     }
 
+    /// Réindexe tous les projets et collaborateurs dans Spotlight.
     private func reindexSpotlight() {
         do {
             let allProjects = try context.fetch(FetchDescriptor<Project>())
@@ -253,6 +266,9 @@ struct ContentView: View {
         }
     }
 
+    /// Réparation one-shot du store au lancement : déduplique les codes
+    /// projet et backfill les `stableID` nil/dupliqués (Project, Collaborator,
+    /// Meeting, et 4 autres types via les helpers), puis seed les templates.
     private func repairStoreIfNeeded() {
         guard !didRunDataRepair else { return }
         didRunDataRepair = true
@@ -434,6 +450,8 @@ struct OneToOneMeetingWindowContent: View {
         .onChange(of: token) { _, _ in resolveIfNeeded() }
     }
 
+    /// Résout le token courant vers un `Meeting` via `stableID` (no-op si déjà
+    /// résolu vers le même meeting).
     private func resolveIfNeeded() {
         guard let token else { return }
         if let resolved, resolved.stableID == token.meetingID { return }

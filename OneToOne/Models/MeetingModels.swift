@@ -3,11 +3,18 @@ import SwiftData
 
 // MARK: - Meeting kinds
 
+/// Type de réunion. Détermine le contexte (projet, collaborateur, manager) et
+/// l'UI associée. Valeur brute persistée en string sur `Meeting`.
 enum MeetingKind: String, CaseIterable, Identifiable {
+    /// Réunion ad-hoc, participants libres.
     case global   = "global"     // réunion ad-hoc, participants libres
+    /// Réunion liée à un projet.
     case project  = "project"    // liée à un projet
+    /// Entretien 1:1 avec un collaborateur.
     case oneToOne = "oneToOne"   // 1:1 avec un collaborateur
+    /// Réunion de travail (équipe).
     case work     = "work"       // réunion de travail (équipe)
+    /// Entretien 1:1 avec le manager direct.
     case manager  = "manager"    // 1:1 avec le manager direct
 
     var id: String { rawValue }
@@ -33,6 +40,8 @@ enum MeetingKind: String, CaseIterable, Identifiable {
     }
 }
 
+/// Statut de présence d'un collaborateur à une réunion.
+/// Persisté par collaborateur dans `Meeting.participantStatusesJSON`.
 enum MeetingAttendanceStatus: String, Codable, CaseIterable, Identifiable {
     case participant
     case absent
@@ -94,7 +103,8 @@ final class TranscriptChunk {
         self.createdAt = Date()
     }
 
-    /// Décodage des embeddings vers [Float].
+    /// Décode `embeddingData` (Float32 contigu) vers `[Float]` de longueur
+    /// `embeddingDim` (~384 pour nomic-embed). Renvoie `[]` si non indexé.
     var embeddingVector: [Float] {
         guard let data = embeddingData, embeddingDim > 0 else { return [] }
         return data.withUnsafeBytes { buffer -> [Float] in
@@ -103,6 +113,8 @@ final class TranscriptChunk {
         }
     }
 
+    /// Encode `vector` (Float32 contigu) dans `embeddingData` et mémorise le
+    /// modèle et la dimension. `vector` doit être l'embedding produit par `model`.
     func setEmbedding(_ vector: [Float], model: String) {
         self.embeddingModel = model
         self.embeddingDim = vector.count

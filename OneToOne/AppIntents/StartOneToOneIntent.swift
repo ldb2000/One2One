@@ -35,6 +35,9 @@ struct StartOneToOneIntent: AppIntent {
     }
 }
 
+/// Enregistre les phrases Siri/Spotlight pour `StartOneToOneIntent`.
+/// `\(.applicationName)` est substitué par le nom localisé de l'app ; les
+/// phrases en doublon élargissent la reconnaissance vocale.
 struct OneToOneShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(

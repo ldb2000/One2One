@@ -24,6 +24,26 @@ final class QuickLaunchRouter: ObservableObject {
     /// les tests qui ne doivent pas piétiner l'état partagé.
     private init() {}
 
+    /// Sauvegarde le contexte en loggant (sans propager) toute erreur :
+    /// un échec de save ne doit pas bloquer l'ouverture de la fenêtre.
+    private func saveContext(_ context: ModelContext) {
+        do {
+            try context.save()
+        } catch {
+            print("[QuickLaunchRouter] save failed: \(error)")
+        }
+    }
+
+    /// Active l'app au premier plan et publie le token de lancement
+    /// (mutualise le pattern commun aux trois `start*()`).
+    private func launchWith(meetingID: UUID, autoStartRecording: Bool) {
+        NSApp?.activate(ignoringOtherApps: true)
+        pendingToken = OneToOneLaunchToken(
+            meetingID: meetingID,
+            autoStartRecording: autoStartRecording
+        )
+    }
+
     /// Crée un `Meeting` `kind=.oneToOne`, l'insère dans le contexte,
     /// active l'app, publie le token. Retourne le meeting créé.
     @discardableResult
@@ -39,23 +59,15 @@ final class QuickLaunchRouter: ObservableObject {
         context.insert(meeting)
         meeting.participants = [collaborator]
 
-        do {
-            try context.save()
-        } catch {
-            print("[QuickLaunchRouter] save failed: \(error)")
-        }
-
-        NSApp?.activate(ignoringOtherApps: true)
-
-        pendingToken = OneToOneLaunchToken(
-            meetingID: meeting.ensuredStableID,
-            autoStartRecording: autoStartRecording
-        )
+        saveContext(context)
+        launchWith(meetingID: meeting.ensuredStableID,
+                   autoStartRecording: autoStartRecording)
         return meeting
     }
 
-    /// Creates a `kind=.global` meeting with no participants and publishes
-    /// a launch token that opens the 1to1-meeting window with recording on.
+    /// Crée un `Meeting` `kind=.global` (réunion ad-hoc sans participant) et
+    /// publie un token qui ouvre la fenêtre avec enregistrement auto activé.
+    /// Diffère de `startOneToOne` par le `kind` et l'absence de collaborateur.
     @discardableResult
     func startAdHocMeeting(in context: ModelContext) -> Meeting {
         let formatter = DateFormatter()
@@ -66,20 +78,13 @@ final class QuickLaunchRouter: ObservableObject {
         )
         meeting.kind = .global
         context.insert(meeting)
-        do { try context.save() } catch {
-            print("[QuickLaunchRouter] save failed: \(error)")
-        }
-
-        NSApp?.activate(ignoringOtherApps: true)
-        pendingToken = OneToOneLaunchToken(
-            meetingID: meeting.ensuredStableID,
-            autoStartRecording: true
-        )
+        saveContext(context)
+        launchWith(meetingID: meeting.ensuredStableID, autoStartRecording: true)
         return meeting
     }
 
-    /// Same as `startOneToOne` but stamps `kind=.manager`. Caller provides
-    /// the manager collaborator (resolved from `AppSettings.managerEmail`).
+    /// Comme `startOneToOne` mais marque `kind=.manager`. Au caller de fournir
+    /// le collaborateur manager (résolu depuis `AppSettings.managerEmail`).
     @discardableResult
     func startManagerMeeting(collaborator: Collaborator,
                               in context: ModelContext) -> Meeting {
@@ -90,15 +95,8 @@ final class QuickLaunchRouter: ObservableObject {
         meeting.kind = .manager
         context.insert(meeting)
         meeting.participants = [collaborator]
-        do { try context.save() } catch {
-            print("[QuickLaunchRouter] save failed: \(error)")
-        }
-
-        NSApp?.activate(ignoringOtherApps: true)
-        pendingToken = OneToOneLaunchToken(
-            meetingID: meeting.ensuredStableID,
-            autoStartRecording: true
-        )
+        saveContext(context)
+        launchWith(meetingID: meeting.ensuredStableID, autoStartRecording: true)
         return meeting
     }
 

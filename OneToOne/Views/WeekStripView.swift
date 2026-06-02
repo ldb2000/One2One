@@ -10,11 +10,31 @@ struct WeekStripView: View {
 
     @State private var weekAnchor: Date = Date()
 
-    private let calendar: Calendar = {
+    /// Shared ISO-8601 calendar (week starts Monday). Hoisted to a static so it
+    /// is built once regardless of how many views are instantiated.
+    private static let calendar: Calendar = {
         var c = Calendar(identifier: .iso8601)
         c.firstWeekday = 2  // Monday
         return c
     }()
+
+    /// Header formatter, e.g. "Lundi · 3 juin '24". Cached to avoid per-access allocation.
+    private static let headerFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "fr_FR")
+        fmt.dateFormat = "EEEE · d MMM ''yy"
+        return fmt
+    }()
+
+    /// Single-letter weekday formatter (e.g. "L"). Cached to avoid per-call allocation.
+    private static let dayLetterFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "fr_FR")
+        fmt.dateFormat = "EEEEE"  // single letter
+        return fmt
+    }()
+
+    private var calendar: Calendar { Self.calendar }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -64,10 +84,7 @@ struct WeekStripView: View {
     }
 
     private var selectedDateHeader: String {
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "fr_FR")
-        fmt.dateFormat = "EEEE · d MMM ''yy"
-        return fmt.string(from: selectedDate).capitalized
+        Self.headerFormatter.string(from: selectedDate).capitalized
     }
 
     @ViewBuilder
@@ -96,10 +113,7 @@ struct WeekStripView: View {
     }
 
     private func dayLetter(_ day: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "fr_FR")
-        fmt.dateFormat = "EEEEE"  // single letter
-        return fmt.string(from: day).uppercased()
+        Self.dayLetterFormatter.string(from: day).uppercased()
     }
 
     private func shiftWeek(by days: Int) {

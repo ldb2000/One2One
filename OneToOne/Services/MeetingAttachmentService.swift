@@ -17,6 +17,7 @@ private let attachLog = Logger(subsystem: "com.onetoone.app", category: "attach"
 @MainActor
 struct MeetingAttachmentService {
 
+    /// Erreurs d'ingestion : actuellement l'échec d'extraction de texte.
     enum AttachError: LocalizedError {
         case extractFailed(String)
 
@@ -108,6 +109,9 @@ struct MeetingAttachmentService {
 
     // MARK: - Helpers
 
+    /// Mappe une extension de fichier vers la catégorie `kind` stockée sur
+    /// `MeetingAttachment`. Le cas `"image"` est purement informatif (icône /
+    /// affichage) : aucun texte n'en est extrait, donc rien n'est indexé pour RAG.
     private static func kindForExtension(_ ext: String) -> String {
         switch ext {
         case "pdf":               return "pdf"

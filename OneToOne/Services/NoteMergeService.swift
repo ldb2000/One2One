@@ -8,9 +8,15 @@ import Foundation
 /// transcription en cas de divergence.
 enum NoteMergeService {
 
+    /// En-tête Markdown introduisant la section transcription dans la sortie fusionnée.
     static let transcriptHeader = "## Transcription audio (Cohere MLX)"
+    /// En-tête Markdown introduisant la section notes live dans la sortie fusionnée.
     static let notesHeader = "## Notes prises en live"
 
+    /// Fusionne transcription et notes live en un seul Markdown.
+    /// Les deux entrées sont d'abord trimmées ; selon lesquelles sont vides on
+    /// renvoie "" (les deux vides), une seule section, ou les deux sections
+    /// séparées par `---` (transcription puis notes, dans cet ordre).
     static func merge(transcript: String, liveNotes: String) -> String {
         let t = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let n = liveNotes.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1,6 +1,11 @@
 import SwiftUI
 
+/// Layout en « flot » (type tags / chips) : place les sous-vues de gauche à
+/// droite et passe à la ligne suivante dès que la largeur disponible est
+/// dépassée. Utile pour des collections d'éléments de taille variable.
 struct FlowLayout: Layout {
+    /// Écart appliqué à la fois entre deux éléments d'une même ligne
+    /// (horizontal) et entre deux lignes (vertical).
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -14,6 +19,11 @@ struct FlowLayout: Layout {
         }
     }
 
+    /// Cœur de l'algorithme : parcourt les sous-vues une fois, accumule la
+    /// position de chacune et passe à la ligne quand l'élément déborderait de
+    /// `width` (sauf en début de ligne). Renvoie la taille totale occupée et la
+    /// position de chaque sous-vue, réutilisé tel quel par `sizeThatFits` et
+    /// `placeSubviews`.
     private func layout(in width: CGFloat, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
         var positions: [CGPoint] = []
         var x: CGFloat = 0, y: CGFloat = 0, maxH: CGFloat = 0, maxW: CGFloat = 0

@@ -10,6 +10,10 @@ enum StyleRenderer {
 
     static let baseFontSize: CGFloat = 13
 
+    /// Recalcule entièrement le rendu visuel du `storage`. On retire d'abord les
+    /// attributs d'affichage (`.font`, `.foregroundColor`, …) sur toute la plage
+    /// avant de les réappliquer, sinon un style obsolète persisterait sur une
+    /// zone qui ne porte plus l'attribut `md*` correspondant après édition.
     static func applyVisualStyle(to storage: NSTextStorage) {
         guard storage.length > 0 else { return }
         let fullRange = NSRange(location: 0, length: storage.length)
@@ -102,6 +106,9 @@ enum StyleRenderer {
         storage.endEditing()
     }
 
+    /// Police de base d'un bloc avant application gras/italique/code. Les titres
+    /// décroissent en taille et graisse (22pt bold pour h1 jusqu'à 13.5pt
+    /// semibold pour h4-h6) ; code en monospace ; le reste à `baseFontSize`.
     private static func baseFont(for block: BlockType, list: ListInfo?) -> NSFont {
         switch block {
         case .h1: return NSFont.systemFont(ofSize: 22, weight: .bold)

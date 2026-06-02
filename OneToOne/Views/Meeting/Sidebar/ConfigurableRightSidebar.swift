@@ -40,6 +40,8 @@ struct ConfigurableRightSidebar: View {
 
     // MARK: - Collapsed rail
 
+    /// Rail étroit affiché lorsque la sidebar est repliée (`collapsed == true`) :
+    /// un simple bouton chevron permettant de la déplier.
     private var collapsedRail: some View {
         VStack(spacing: 12) {
             Button {
@@ -61,6 +63,9 @@ struct ConfigurableRightSidebar: View {
 
     // MARK: - Expanded
 
+    /// Vue dépliée : en-tête + liste des panels visibles, ordonnés selon
+    /// `entries`. Volontairement SANS ScrollView englobant (cf. note interne)
+    /// pour éviter une récursion de layout AppKit.
     private var expandedPanel: some View {
         // PAS de ScrollView ici : `ActionsPanel.tasksList` a déjà son propre
         // ScrollView interne. Imbriquer 2 ScrollView macOS déclenche
@@ -144,6 +149,9 @@ struct ConfigurableRightSidebar: View {
         .help("Configurer les panneaux")
     }
 
+    /// Rend une section de panel : son en-tête (cible de drag-and-drop pour le
+    /// réordonnancement) et, si déplié, son contenu. Le `entry` fournit l'ID du
+    /// panel et son état de visibilité/position dans le layout persisté.
     @ViewBuilder
     private func panelSection(_ entry: PanelLayoutEntry) -> some View {
         let isExpanded = Binding<Bool>(
@@ -195,6 +203,9 @@ struct ConfigurableRightSidebar: View {
 
     // MARK: - Layout persistence
 
+    /// Initialise `entries` depuis le layout persisté (`AppSettings`) et marque
+    /// chaque panel comme déplié par défaut. Idempotent : ne fait rien si
+    /// `entries` est déjà hydraté (appelé à chaque `onAppear`).
     private func hydrateLayoutAndExpansion() {
         if entries.isEmpty {
             entries = PanelLayoutEntry.decode(settings.rightSidebarLayoutJSON)
@@ -204,6 +215,8 @@ struct ConfigurableRightSidebar: View {
         }
     }
 
+    /// Sérialise le layout courant dans `AppSettings.rightSidebarLayoutJSON` et
+    /// déclenche la sauvegarde du contexte.
     private func persist() {
         settings.rightSidebarLayoutJSON = PanelLayoutEntry.encode(entries)
         saveContext()

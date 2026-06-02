@@ -5,6 +5,9 @@ import SwiftData
 /// `CollaboratorDetailView`. Liste chronologique (récent → ancien) +
 /// bouton "+" qui ouvre `NoteEditorSheet`.
 struct NotesSection: View {
+    /// Entité propriétaire des notes affichées : soit un projet, soit un
+    /// collaborateur. Détermine la source de la liste et le rattachement des
+    /// nouvelles notes.
     enum Target {
         case project(Project)
         case collaborator(Collaborator)
@@ -136,6 +139,10 @@ private struct NoteRow: View {
 
 // MARK: - Editor sheet
 
+/// Feuille d'édition d'une `Note` : titre, corps Markdown (avec bascule
+/// Édition/Preview) et pièces jointes. En mode `isNew`, « Annuler » supprime
+/// la note pré-insérée ; sinon les modifications sont persistées à
+/// l'enregistrement.
 struct NoteEditorSheet: View {
     @Bindable var note: Note
     var isNew: Bool = false

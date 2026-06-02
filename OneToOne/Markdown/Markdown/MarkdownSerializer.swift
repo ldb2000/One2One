@@ -6,6 +6,10 @@ import AppKit
 /// produced by this serializer parses back to the same model state.
 enum MarkdownSerializer {
 
+    /// Splits the attributed string on newlines and emits one markdown line per
+    /// paragraph. A single trailing empty line is dropped so the output has no
+    /// spurious blank line at the end (it would otherwise round-trip to an extra
+    /// empty paragraph).
     static func serialize(_ source: NSAttributedString) -> String {
         guard source.length > 0 else { return "" }
         var lines: [String] = []
@@ -32,6 +36,11 @@ enum MarkdownSerializer {
 
     // MARK: - Paragraph
 
+    /// Emits one paragraph's markdown. A `ListInfo` attribute wins over the
+    /// block type and produces a list-item prefix; otherwise the `BlockType`
+    /// selects the syntax: `h1`-`h6` → `#`…`######`, `blockquote` → `>`,
+    /// `codeBlock` → fenced ``` block, `thematicBreak` → `---`, `paragraph` →
+    /// inline text as-is.
     private static func emitParagraph(source: NSAttributedString, range: NSRange) -> String {
         let blockType = source.attribute(.mdBlockType, at: range.location, effectiveRange: nil)
             as? BlockType ?? .paragraph
@@ -62,6 +71,10 @@ enum MarkdownSerializer {
         }
     }
 
+    /// Builds the list-item prefix. Indentation is two spaces per nesting
+    /// `level` (clamped to >= 0); the marker depends on the kind: `-` for
+    /// bullets, `N. ` for ordered items (defaulting the ordinal to 1), and
+    /// `- [x]`/`- [ ]` for task items.
     private static func prefix(for info: ListInfo) -> String {
         let indent = String(repeating: "  ", count: max(0, info.level))
         switch info.kind {
@@ -76,6 +89,12 @@ enum MarkdownSerializer {
 
     // MARK: - Inline
 
+    /// Emits the inline markup for a range. Inline code wins exclusively (its
+    /// content is emitted verbatim between backticks). Otherwise emphasis
+    /// markers are layered from the outside in — bold, then italic, then
+    /// strikethrough — so `pre` accumulates left-to-right and `post` is built
+    /// in mirror order; a link, if present, wraps the escaped text inside that
+    /// emphasis. Non-code text is run through `MarkdownEscaping.escapeInline`.
     private static func emitInline(source: NSAttributedString, range: NSRange) -> String {
         var out = ""
         source.enumerateAttributes(in: range, options: []) { attrs, run, _ in

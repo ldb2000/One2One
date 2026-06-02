@@ -64,6 +64,8 @@ enum ImagePasteService {
 
 /// NSTextView subclass that intercepts Cmd+V to handle image paste from clipboard.
 class PastableMarkdownTextView: NSTextView {
+    /// Si le presse-papiers contient une image, l'enregistre sur disque et
+    /// insère sa référence Markdown ; sinon délègue au collage standard.
     override func paste(_ sender: Any?) {
         if ImagePasteService.clipboardHasImage {
             if let imageURL = ImagePasteService.saveClipboardImage() {
@@ -237,6 +239,10 @@ struct MarkdownTextView: NSViewRepresentable {
         return imageAttr
     }
 
+    /// Applique le formatage inline en trois passes successives sur `text` :
+    /// gras (`**`/`__`), italique (`_`) puis code (`` ` ``). Chaque passe parcourt
+    /// les correspondances en ordre inverse pour préserver les indices lors des
+    /// remplacements.
     private func parseInlineMarkdown(_ text: String, font: NSFont, color: NSColor) -> NSMutableAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: font,
@@ -295,6 +301,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
 /// Global registry so the toolbar can find the active NSTextView by ID.
 final class MarkdownEditorRegistry {
+    /// Instance partagée du registre, utilisée par la toolbar pour retrouver
+    /// l'éditeur actif via son identifiant.
     static let shared = MarkdownEditorRegistry()
     private var editors: [String: NSTextView] = [:]
 
@@ -421,9 +429,9 @@ struct MarkdownToolbar: View {
 
 // MARK: - Editable Text Fields
 
-/// NSTextField wrapper that reliably accepts keyboard input in NavigationSplitView detail panes.
-/// Works around the macOS SwiftUI bug where SwiftUI TextField never receives key events
-/// when placed inside the detail column of a NavigationSplitView.
+/// Wrapper NSTextField qui reçoit fiablement les saisies clavier dans le volet
+/// détail d'un NavigationSplitView. Contourne le bug SwiftUI macOS où un TextField
+/// natif ne reçoit jamais les événements clavier dans la colonne détail.
 struct EditableTextField: NSViewRepresentable {
     var placeholder: String
     @Binding var text: String

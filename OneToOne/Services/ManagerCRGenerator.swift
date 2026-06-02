@@ -25,6 +25,8 @@ enum ManagerCRGenerator {
         }
     }
 
+    /// An action requested by the manager, parsed from the AI JSON block.
+    /// `deadlineISO` is an optional `YYYY-MM-DD` date string.
     struct ExtractedAction: Codable {
         let title: String
         let deadlineISO: String?
@@ -42,6 +44,10 @@ enum ManagerCRGenerator {
 
     // MARK: - Generate
 
+    /// Builds the prompt, calls the AI, parses the response, archives the
+    /// supplied items and persists a `ManagerMeetingReport`. Throws a
+    /// `GenerationError` if the meeting is not a manager 1:1, no items are
+    /// supplied, or the manager name is unset.
     @discardableResult
     static func generate(
         meeting: Meeting,
@@ -111,6 +117,9 @@ enum ManagerCRGenerator {
 
     // MARK: - Prompt build
 
+    /// Assembles the AI prompt from the checked items (preferring elaborated
+    /// text, else raw snippet + context), the meeting transcript (merged when
+    /// available, else raw) and the user-editable report prompt.
     static func buildPrompt(
         meeting: Meeting,
         items: [ManagerReportItem],
@@ -199,6 +208,9 @@ enum ManagerCRGenerator {
 
     // MARK: - Parse response
 
+    /// Splits the AI output into the markdown body and the actions encoded in a
+    /// ```json fenced block. Missing or malformed JSON yields an empty actions
+    /// list, never an error.
     static func parseResponse(_ raw: String) -> Parsed {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let fenceRange = trimmed.range(of: "```json", options: .caseInsensitive) else {

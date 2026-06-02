@@ -2,12 +2,20 @@ import AppKit
 import SwiftUI
 import SwiftData
 
+/// Délégué applicatif AppKit. Orchestre le cycle de vie au lancement
+/// (`applicationDidFinishLaunching`) : icône du Dock, permission notifs,
+/// installation de la barre de menu, ré-armement des rappels, services
+/// agenda/photos, et routage des taps de notifs/agenda vers l'ouverture du
+/// meeting cible. Nettoie ses observers à la terminaison.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let menuBar = MenuBarController()
     private var notifObservers: [NSObjectProtocol] = []
 
+    /// Point d'entrée appelé une fois au lancement : initialise icône,
+    /// services et observers de notifications. Retourne tôt si le conteneur
+    /// SwiftData partagé n'est pas disponible.
     func applicationDidFinishLaunching(_ notification: Notification) {
         installAppIcon()
 
@@ -28,11 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await CalendarAgendaService.shared.bootstrap() }
 
         // Contact photo sync — request access + initial scan + schedule
-        let containerForPhoto = container
         Task {
             let granted = await ContactPhotoService.shared.requestAccess()
             await MainActor.run {
-                let ctx = containerForPhoto.mainContext
+                let ctx = container.mainContext
                 guard let settings = (try? ctx.fetch(FetchDescriptor<AppSettings>()))?.first,
                       settings.contactPhotoSyncEnabled, granted else { return }
                 _ = ContactPhotoService.shared.syncMissingPhotos(context: ctx)
@@ -63,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Action « Rappeler dans 5 min » d'une notification : résout le meeting
+    /// par son `stableID` (clé `meetingID` du `userInfo`) et reprogramme son
+    /// pré-rappel. Ne fait rien si l'identifiant ou le meeting est introuvable.
     @MainActor
     private func handleSnoozeMeeting(userInfo: [AnyHashable: Any]?) {
         guard let idStr = userInfo?["meetingID"] as? String,
@@ -129,6 +139,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.applicationIconImage = image
     }
 
+    /// Routage d'un tap de notification ou d'agenda : extrait le `stableID`
+    /// (clé `meetingID` du `userInfo`), active l'app et dépose un
+    /// `OneToOneLaunchToken` dans `QuickLaunchRouter` pour ouvrir le meeting
+    /// cible (sans démarrer l'enregistrement).
     private func handleOpenMeeting(userInfo: [AnyHashable: Any]?) {
         guard let raw = userInfo?["meetingID"] as? String, !raw.isEmpty,
               let stableID = UUID(uuidString: raw) else { return }

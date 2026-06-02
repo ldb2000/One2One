@@ -8,6 +8,9 @@ import Markdown
 /// markdown markup characters survive.
 enum MarkdownParser {
 
+    /// Parse `source` et renvoie le texte attribué affichable. Le `\n` final
+    /// ajouté après le dernier bloc est retiré ; une source vide donne une
+    /// chaîne vide marquée `.paragraph`.
     static func parse(_ source: String) -> NSAttributedString {
         let document = Document(parsing: source, options: [.parseBlockDirectives])
         let out = NSMutableAttributedString()
@@ -30,6 +33,9 @@ enum MarkdownParser {
         var listNesting: Int = 0
         var orderedCounters: [Int] = []
 
+        /// Émet récursivement chaque nœud dans `out`. Méthode `mutating` car le
+        /// visiteur porte un état partagé (`listNesting`, `orderedCounters`) mis
+        /// à jour au fil du parcours pour suivre l'imbrication et la numérotation.
         mutating func walk(_ children: some Sequence<Markup>, into out: NSMutableAttributedString) {
             for child in children { emit(child, into: out) }
         }
@@ -57,6 +63,9 @@ enum MarkdownParser {
 
         // MARK: - Block emitters
 
+        /// Émet le contenu inline d'un bloc puis le marque avec un `BlockType`.
+        /// `level` mappe directement les titres (1→h1 … 6→h6) ; toute autre
+        /// valeur (notamment 0 pour un paragraphe) donne `.paragraph`.
         mutating func emitBlock(_ block: Markup, level: Int, into out: NSMutableAttributedString) {
             let start = out.length
             emitInline(block.children, into: out)
@@ -88,6 +97,10 @@ enum MarkdownParser {
             }
         }
 
+        /// Émet une liste (puces, ordonnée ou tâches). Pour les listes ordonnées,
+        /// un compteur est empilé dans `orderedCounters` à l'entrée, lu comme
+        /// `index` de chaque item, incrémenté après chaque item, puis dépilé en
+        /// sortie — ce qui préserve la numérotation indépendante par niveau.
         mutating func emitList(_ items: some Sequence<Markup>, ordered: Bool,
                                into out: NSMutableAttributedString) {
             listNesting += 1

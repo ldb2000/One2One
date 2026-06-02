@@ -132,7 +132,6 @@ enum LinkedInPhotoSearch {
                 let image: String?
                 let thumbnail: String?
                 let url: String?
-                let title: String?
             }
             let results: [Item]?
         }
@@ -152,6 +151,9 @@ enum LinkedInPhotoSearch {
         }
     }
 
+    /// Extracts DuckDuckGo's `vqd` token from the HTML SERP. This per-search
+    /// nonce is required as a query param by the `i.js` JSON endpoint; without
+    /// it the request is rejected. Tries several quoting forms; `nil` if absent.
     private static func extractVQD(from html: String) -> String? {
         // Forms seen in DDG HTML: vqd="3-...." or vqd='3-....' or vqd=3-....&
         let patterns = [
@@ -233,5 +235,8 @@ enum LinkedInPhotoSearch {
         return data
     }
 
+    /// User-Agent Safari usurpé : DuckDuckGo sert une page/JSON différente (ou
+    /// bloque) selon le client. Se faire passer pour un navigateur de bureau
+    /// garantit la présence du token `vqd` et de l'endpoint images attendus.
     private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 }

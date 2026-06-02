@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+/// Un message affiché dans le fil de conversation de l'assistant IA (envoyé par l'utilisateur ou l'assistant).
 struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: Role
@@ -12,6 +13,7 @@ struct ChatMessage: Identifiable, Equatable {
     }
 }
 
+/// Définition d'une commande slash (`/cherche`, `/ajout-projet`, …) : nom, arguments attendus et aide.
 struct SlashCommandDef: Identifiable {
     let id = UUID()
     let name: String
@@ -25,6 +27,9 @@ struct SlashCommandDef: Identifiable {
     }
 }
 
+/// Vue de l'assistant IA : interroge la base (projets, collaborateurs, entretiens, réunions, notes)
+/// en langage naturel, gère les commandes slash locales et délègue au fournisseur IA configuré
+/// (avec repli local hors-ligne).
 struct ChatbotView: View {
     @Environment(\.modelContext) private var context
     @Query private var projects: [Project]
@@ -78,6 +83,8 @@ struct ChatbotView: View {
         messages.count <= 1 && messages.first?.role == .assistant
     }
 
+    /// Commandes slash proposées dans le menu selon la saisie courante : tout afficher sur `/`,
+    /// filtrer par préfixe sinon, et masquer dès qu'une commande complète suivie d'un espace est tapée.
     private var filteredSlashCommands: [SlashCommandDef] {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("/") else { return [] }
@@ -525,6 +532,8 @@ struct ChatbotView: View {
 
     // MARK: - Send Message
 
+    /// Traite la saisie courante : commandes locales et recherche locale d'abord, puis repli hors-ligne
+    /// ou appel au fournisseur IA (avec contexte base + historique) selon la disponibilité.
     private func sendMessage() {
         let question = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
@@ -601,6 +610,8 @@ struct ChatbotView: View {
 
     // MARK: - Database Context
 
+    /// Construit le contexte textuel injecté dans le prompt IA : projets, collaborateurs,
+    /// entretiens récents, rapports de réunion et notes (tronqués/limités pour borner la taille).
     private func buildDatabaseContext() -> String {
         let projectLines = projects.sorted(by: { $0.name < $1.name }).map { project in
             let pendingTasks = project.tasks.filter { !$0.isCompleted }.count
@@ -684,6 +695,8 @@ struct ChatbotView: View {
 
     // MARK: - Offline Fallback
 
+    /// Réponse de repli quand le fournisseur IA est injoignable : tente la recherche locale,
+    /// sinon rappelle les commandes traitables hors-ligne.
     private func offlineFallbackResponse(for question: String) -> String {
         if let localResponse = localSearchResponse(for: question) {
             return localResponse
@@ -701,6 +714,8 @@ struct ChatbotView: View {
 
     // MARK: - Ollama Check
 
+    /// Teste la joignabilité d'Ollama via `GET /api/tags` (timeout court de 2 s),
+    /// en normalisant un endpoint suffixé `/v1`. Renvoie `false` en cas d'erreur.
     private func checkOllamaReachability() async -> Bool {
         var baseURL = settings.apiEndpoint
         if baseURL.hasSuffix("/v1") || baseURL.hasSuffix("/v1/") {
@@ -724,6 +739,8 @@ struct ChatbotView: View {
 
     // MARK: - Local Command Handling
 
+    /// Dispatche une saisie commençant par `/` vers le bon gestionnaire de commande slash ;
+    /// renvoie un message d'aide pour une commande inconnue, ou `nil` si ce n'est pas une commande.
     private func handleLocalCommand(_ question: String) -> String? {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("/") else { return nil }
@@ -863,6 +880,14 @@ struct ChatbotView: View {
         return String(raw.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
     }
 
+    /// Message « projet introuvable » suffixé d'au plus 3 suggestions de projets dont le nom contient
+    /// la chaîne recherchée (insensible à la casse).
+    private func projectNotFoundMessage(for projectName: String) -> String {
+        let suggestions = projects.filter { $0.name.lowercased().contains(projectName.lowercased()) }.prefix(3)
+        let hint = suggestions.isEmpty ? "" : "\nProjets similaires: " + suggestions.map(\.name).joined(separator: ", ")
+        return "Projet introuvable: \(projectName)\(hint)"
+    }
+
     /// Renvoie un extrait ~140 chars centré sur la première occurrence (case-insensitive)
     /// du needle, ou nil si le needle n'apparaît pas. Préserve la casse d'origine.
     private func snippet(_ text: String, around needle: String, window: Int = 70) -> String? {
@@ -895,9 +920,7 @@ struct ChatbotView: View {
         let projectName = parts[0]
         let content = parts[1]
         guard let project = projects.first(where: { $0.name.localizedCaseInsensitiveCompare(projectName) == .orderedSame }) else {
-            let suggestions = projects.filter { $0.name.lowercased().contains(projectName.lowercased()) }.prefix(3)
-            let hint = suggestions.isEmpty ? "" : "\nProjets similaires: " + suggestions.map(\.name).joined(separator: ", ")
-            return "Projet introuvable: \(projectName)\(hint)"
+            return projectNotFoundMessage(for: projectName)
         }
 
         let category = project.phase == "Build" ? "REX" : "Information"
@@ -933,9 +956,7 @@ struct ChatbotView: View {
         let content = parts[2]
 
         guard let project = projects.first(where: { $0.name.localizedCaseInsensitiveCompare(projectName) == .orderedSame }) else {
-            let suggestions = projects.filter { $0.name.lowercased().contains(projectName.lowercased()) }.prefix(3)
-            let hint = suggestions.isEmpty ? "" : "\nProjets similaires: " + suggestions.map(\.name).joined(separator: ", ")
-            return "Projet introuvable: \(projectName)\(hint)"
+            return projectNotFoundMessage(for: projectName)
         }
         guard let collaborator = collaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(collaboratorName) == .orderedSame }) else {
             let suggestions = collaborators.filter { $0.name.lowercased().contains(collaboratorName.lowercased()) }.prefix(3)
@@ -959,6 +980,8 @@ struct ChatbotView: View {
 
     // MARK: - Local Search
 
+    /// Tente de répondre sans IA à des questions courantes (actions, alertes, listes,
+    /// entité/phase/sponsor/REX, entrées collaborateur-projet, infos projet) ; `nil` si rien ne matche.
     private func localSearchResponse(for question: String) -> String? {
         let normalizedQuestion = question.lowercased()
 

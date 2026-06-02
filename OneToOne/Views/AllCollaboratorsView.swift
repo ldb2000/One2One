@@ -24,6 +24,9 @@ struct AllCollaboratorsView: View {
         var id: String { rawValue }
     }
 
+    /// Collaborateurs affichés, triés par nom. Le filtre (enum `Filter`) est
+    /// appliqué en premier puis, si `searchText` n'est pas vide, une recherche
+    /// insensible à la casse sur le nom et le rôle restreint le résultat.
     private var filtered: [Collaborator] {
         let base: [Collaborator] = {
             switch filter {
@@ -98,6 +101,9 @@ struct AllCollaboratorsView: View {
         }
     }
 
+    /// Ligne d'un collaborateur : avatar, nom (avec badges ad-hoc/archivé), rôle,
+    /// contrôles d'épinglage et lien vers le détail. Le menu contextuel permet
+    /// d'archiver, de basculer ad-hoc et de supprimer.
     private func row(_ c: Collaborator) -> some View {
         HStack(spacing: 10) {
             SidebarCollaboratorAvatar(collaborator: c)
@@ -148,6 +154,9 @@ struct AllCollaboratorsView: View {
         }
     }
 
+    /// Boutons étoile (favori, pinLevel 1) et épingle (sidebar, pinLevel 2).
+    /// Chaque bouton bascule entre son niveau et 0 ; pinLevel 2 implique
+    /// l'affichage dans le sidebar, pinLevel 1 marque seulement comme favori.
     private func pinControls(_ c: Collaborator) -> some View {
         HStack(spacing: 4) {
             Button(action: { setPin(c, level: c.pinLevel == 1 ? 0 : 1) }) {

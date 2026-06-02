@@ -7,6 +7,10 @@ import SwiftData
 // transcription / rapport / notes) soit manuellement. Coché pendant le 1:1 manager,
 // archivé à la génération du CR.
 
+/// Point à aborder avec le manager. Créé par sélection (issu d'une
+/// transcription/rapport/notes) ou manuellement, coché pendant le 1:1 manager,
+/// puis archivé (`archivedAt`) à la génération du CR. Les doublons potentiels
+/// sont marqués via `duplicateOfStableID`. Persisté via SwiftData.
 @Model
 final class ManagerReportItem {
     /// Optional — see SwiftData migration caveat. Use `ensuredStableID`
@@ -15,8 +19,11 @@ final class ManagerReportItem {
     var createdAt: Date = Date()
 
     // Contenu source brut
+    /// Phrase exacte sélectionnée dans la source.
     var rawSnippet: String = ""           // phrase exacte sélectionnée
+    /// Contexte (~2 phrases) précédant le snippet, pour préserver le sens.
     var contextBefore: String = ""        // ~2 phrases avant
+    /// Contexte (~2 phrases) suivant le snippet, pour préserver le sens.
     var contextAfter: String = ""         // ~2 phrases après
 
     /// Texte rédigé (par IA puis éventuellement édité par l'utilisateur) au
@@ -27,15 +34,21 @@ final class ManagerReportItem {
     var elaboratedText: String = ""
 
     // Localisation source pour le highlight jaune
-    // sourceField ∈ {"transcript", "mergedTranscript", "summary", "notes", "liveNotes"}
-    // (transcript = rawTranscript). Pour ajout manuel : sourceField = "manual".
+    /// Champ source du snippet, parmi `"transcript"` (= rawTranscript),
+    /// `"mergedTranscript"`, `"summary"`, `"notes"`, `"liveNotes"`, ou
+    /// `"manual"` pour un ajout manuel.
     var sourceField: String = "manual"
+    /// Offset de départ UTF-16 (compatible NSRange) du snippet dans la source.
     var sourceRangeStart: Int = 0          // offset UTF-16 (NSRange-compatible)
+    /// Longueur UTF-16 (compatible NSRange) du snippet dans la source.
     var sourceRangeLength: Int = 0
 
     // Classification
+    /// Catégorie de classement : une valeur de `AppSettings.managerCategories`
+    /// ou un libellé libre.
     var category: String = "Information"   // valeur dans AppSettings.managerCategories ou libre
     var tag: String = ""
+    /// Catégorie proposée par l'IA, conservée pour audit (peut différer de `category`).
     var aiSuggestedCategory: String?       // ce que l'IA a proposé (audit)
 
     // Saisie utilisateur pendant le 1:1 manager
@@ -81,6 +94,8 @@ final class ManagerReportItem {
         self.category = category
     }
 
+    /// Renvoie le `stableID`, en le générant et le persistant (`save()`) au
+    /// premier accès s'il était nil (migration). Effet de bord : sauvegarde.
     var ensuredStableID: UUID {
         if let stableID { return stableID }
         let new = UUID()
@@ -95,6 +110,9 @@ final class ManagerReportItem {
 // Compte-rendu spécifique généré pour une réunion `kind == .manager`.
 // Distinct du `summary` standard du Meeting — permet regen sans écrasement.
 
+/// Compte-rendu généré pour une réunion `kind == .manager`. Distinct du
+/// `summary` standard du Meeting afin de permettre la régénération sans
+/// écraser ce dernier. Persisté via SwiftData.
 @Model
 final class ManagerMeetingReport {
     /// Optional — see SwiftData migration caveat. Use `ensuredStableID`
@@ -121,6 +139,8 @@ final class ManagerMeetingReport {
         self.meeting = meeting
     }
 
+    /// Renvoie le `stableID`, en le générant et le persistant (`save()`) au
+    /// premier accès s'il était nil (migration). Effet de bord : sauvegarde.
     var ensuredStableID: UUID {
         if let stableID { return stableID }
         let new = UUID()

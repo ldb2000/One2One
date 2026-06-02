@@ -13,6 +13,7 @@ private let attachmentLog = Logger(subsystem: "com.onetoone.app", category: "att
 ///   ~/Library/Application Support/OneToOne/notes/<noteStableID>/<timestamp>_<filename>
 enum AttachmentImporter {
 
+    /// Destination namespace under Application Support: per-project or per-note.
     enum Bucket {
         case project(code: String)
         case note(stableID: UUID)
@@ -27,6 +28,7 @@ enum AttachmentImporter {
         }
     }
 
+    /// Failures surfaced by `copyIntoAppSupport` (carry a human-readable reason).
     enum ImporterError: Error, CustomStringConvertible {
         case sourceUnreadable(String)
         case createDirFailed(String)
@@ -108,12 +110,16 @@ enum AttachmentImporter {
         URL.applicationSupportDirectory.appending(path: "OneToOne", directoryHint: .isDirectory)
     }
 
-    private static func timestamp() -> String {
+    private static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = .current
         f.dateFormat = "yyyyMMdd-HHmmss"
-        return f.string(from: Date())
+        return f
+    }()
+
+    private static func timestamp() -> String {
+        timestampFormatter.string(from: Date())
     }
 
     private static func sanitize(_ s: String) -> String {

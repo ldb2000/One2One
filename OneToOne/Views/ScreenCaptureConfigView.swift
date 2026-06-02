@@ -22,6 +22,8 @@ struct ScreenCaptureConfigView: View {
         settingsList.canonicalSettings ?? AppSettings()
     }
     
+    /// Type de source de capture : une fenêtre applicative entière (`.window`)
+    /// ou une zone rectangulaire précise sur un écran (`.rect`).
     enum CaptureType {
         case window
         case rect
@@ -178,6 +180,9 @@ struct ScreenCaptureConfigView: View {
         }
     }
     
+    /// Configure la source du service puis démarre la capture. En mode `.rect`,
+    /// résout le `SCDisplay` correspondant au `selectedDisplayID` ; si cet ID
+    /// n'est plus disponible (écran déconnecté), retombe sur le premier écran.
     private func startCapture() {
         guard let sources = sources else { return }
         

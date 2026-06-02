@@ -3,6 +3,10 @@ import SwiftData
 
 @MainActor
 enum ProjectMailStore {
+    /// Upsert d'un mail rattaché à `project` : met à jour le `ProjectMail`
+    /// existant (matché par `messageId`) ou en insère un nouveau, synchronise
+    /// ses pièces jointes puis ré-indexe ses chunks. `wasInserted` indique si
+    /// c'était une création.
     static func save(
         snippet: MailSnippet,
         body: String,
@@ -47,6 +51,8 @@ enum ProjectMailStore {
         return (mail, true)
     }
 
+    /// Ajoute au mail les pièces jointes absentes (dédupliquées par chemin
+    /// fichier). Les pièces déjà présentes ne sont pas recréées.
     private static func syncAttachments(_ attachments: [MailAttachmentFile], into mail: ProjectMail, context: ModelContext) {
         guard !attachments.isEmpty else { return }
         let existingPaths = Set(mail.attachments.map(\.filePath))
@@ -57,6 +63,9 @@ enum ProjectMailStore {
         }
     }
 
+    /// Reconstruit les chunks vectoriels du mail : supprime les anciens, puis
+    /// découpe (en-tête + corps) et ré-embeddinge le texte pour la recherche
+    /// sémantique. No-op (hors sauvegarde) si le texte est vide.
     static func reindex(mail: ProjectMail, context: ModelContext) async throws {
         for chunk in mail.chunks {
             context.delete(chunk)
@@ -90,6 +99,8 @@ enum ProjectMailStore {
         try context.save()
     }
 
+    /// Normalise un sujet en thème de fil : retire les préfixes de réponse /
+    /// transfert (`Re:`, `Tr:`, `Fwd:`, `Fw:`, insensible à la casse) et trim.
     static func normalizedThreadTopic(for subject: String) -> String {
         subject
             .replacingOccurrences(of: #"^(?i)\s*(re|tr|fwd|fw)\s*:\s*"#, with: "", options: .regularExpression)

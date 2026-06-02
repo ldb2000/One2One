@@ -31,7 +31,7 @@ enum ShortcutDetector {
         // Block-level prefixes (only at the very start of the paragraph).
         if let block = blockPrefix(prefix, features: features) {
             storage.replaceCharacters(in: NSRange(location: lineStart, length: prefix.count), with: "")
-            storage.addAttribute(.mdBlockType, value: block.type,
+            storage.addAttribute(.mdBlockType, value: block,
                                  range: NSRange(location: lineStart, length: 0))
             return
         }
@@ -66,17 +66,21 @@ enum ShortcutDetector {
 
     // MARK: - Helpers
 
-    private struct BlockMatch { let type: BlockType }
-
+    /// Reconnaît un préfixe de bloc en début de paragraphe et renvoie le
+    /// `BlockType` correspondant, ou `nil`. La comparaison est exacte (préfixe
+    /// littéral espace compris) et conditionnée à l'activation de la feature.
     private static func blockPrefix(_ prefix: String,
-                                    features: Set<MarkdownFeature>) -> BlockMatch? {
-        if prefix == "# ", features.contains(.heading(.h1))  { return BlockMatch(type: .h1) }
-        if prefix == "## ", features.contains(.heading(.h2)) { return BlockMatch(type: .h2) }
-        if prefix == "### ", features.contains(.heading(.h3)) { return BlockMatch(type: .h3) }
-        if prefix == "> ", features.contains(.blockquote)    { return BlockMatch(type: .blockquote) }
+                                    features: Set<MarkdownFeature>) -> BlockType? {
+        if prefix == "# ", features.contains(.heading(.h1))  { return .h1 }
+        if prefix == "## ", features.contains(.heading(.h2)) { return .h2 }
+        if prefix == "### ", features.contains(.heading(.h3)) { return .h3 }
+        if prefix == "> ", features.contains(.blockquote)    { return .blockquote }
         return nil
     }
 
+    /// Reconnaît un préfixe de liste et renvoie le `ListInfo` initial, ou `nil`.
+    /// Gère les checkboxes de task-list (`- [ ] ` / `- [x] `), les puces
+    /// (`- ` / `* `) et l'amorce ordonnée (`1. `), chacune gardée par sa feature.
     private static func listPrefix(_ prefix: String,
                                    features: Set<MarkdownFeature>) -> ListInfo? {
         if features.contains(.taskList) {
@@ -92,6 +96,10 @@ enum ShortcutDetector {
         return nil
     }
 
+    /// Cherche, juste avant le curseur, un span `opener…inner…closer`. `cursor`
+    /// pointe APRÈS l'espace déclencheur : le closer est donc attendu juste
+    /// avant cet espace. Renvoie la plage complète (opener inclus) ou `nil` si
+    /// le closer manque, l'opener est introuvable, ou l'intérieur est vide.
     private static func matchInline(closer: String, opener: String,
                                     before cursor: Int,
                                     in ns: NSString) -> NSRange? {
@@ -118,7 +126,10 @@ enum ShortcutDetector {
     }
 
     /// Wraps a range `[opener…inner…closer]` by deleting opener and closer
-    /// and tagging the remaining inner range with `attr`.
+    /// and tagging the remaining inner range with `attr`. `openerCount` /
+    /// `closerCount` are the delimiter lengths (e.g. 2 for `**`, 1 for `*`).
+    /// Deletion happens first — replacing the whole span by its inner text —
+    /// then the attribute is added on the now-shifted, delimiter-free range.
     private static func applyAttributeAround(_ attr: NSAttributedString.Key,
                                              in storage: NSTextStorage,
                                              openerCount: Int,

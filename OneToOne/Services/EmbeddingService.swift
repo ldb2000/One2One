@@ -17,10 +17,15 @@ struct EmbeddingService {
     static let baseURLKey = "onetoone_ollama_url"
     static let modelKey = "onetoone_embedding_model"
 
+    /// Erreurs remontées par les appels d'embedding Ollama.
     enum EmbeddingError: LocalizedError {
+        /// URL de base Ollama invalide / inconstruisible.
         case invalidURL
+        /// Réponse HTTP hors 2xx : code de statut + corps brut (tronqué à l'affichage).
         case httpStatus(Int, String)
+        /// Échec de décodage JSON de la réponse : message d'erreur sous-jacent.
         case decodeFailed(String)
+        /// Ollama a renvoyé un vecteur d'embedding vide.
         case emptyVector
 
         var errorDescription: String? {
@@ -83,6 +88,11 @@ struct EmbeddingService {
     }
 
     /// Batch embed avec concurrence limitée pour ne pas saturer Ollama.
+    /// Au plus `concurrency` requêtes simultanées (via `AsyncSemaphore`, min. 1).
+    /// L'ordre du tableau renvoyé suit celui de `texts` (réindexation par
+    /// position), indépendamment de l'ordre d'achèvement des tâches.
+    /// Aucune logique de retry : la première erreur d'`embed` propage et annule
+    /// le groupe. Un texte vide ou en échec se traduit par un vecteur vide.
     static func embedBatch(_ texts: [String], concurrency: Int = 4) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
         var results: [Int: [Float]] = [:]

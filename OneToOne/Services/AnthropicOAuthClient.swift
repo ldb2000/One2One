@@ -4,6 +4,9 @@ import LocalAuthentication
 
 // MARK: - Token Storage (Data Protection Keychain + Touch ID)
 
+/// Persists the Anthropic OAuth setup token in the Keychain (data protection
+/// keychain with biometry when available, legacy keychain as fallback) and
+/// caches it in memory after the first successful load.
 final class AnthropicTokenStorage {
     private let service = "com.onetoone.anthropic-oauth"
     private let account = "setup-token"
@@ -12,6 +15,8 @@ final class AnthropicTokenStorage {
     private var cachedToken: String?
     private var didLoadFromKeychain = false
 
+    /// Stores `token`, preferring the data protection keychain with biometry;
+    /// falls back to a non-biometry / legacy entry if that add fails.
     func save(_ token: String) {
         // Delete existing item first
         deleteFromKeychain()
@@ -68,7 +73,7 @@ final class AnthropicTokenStorage {
         }
     }
 
-    /// Load token. Uses in-memory cache after first successful load.
+    /// Returns the stored token. Uses the in-memory cache after the first load.
     func load() -> String? {
         if didLoadFromKeychain {
             return cachedToken
@@ -154,6 +159,8 @@ final class AnthropicTokenStorage {
 
 // MARK: - Anthropic OAuth Client
 
+/// Minimal client that calls the Anthropic Messages API using an OAuth setup
+/// token (`sk-ant-oat01`), injecting the required beta headers.
 final class AnthropicOAuthClient {
     static let shared = AnthropicOAuthClient()
 

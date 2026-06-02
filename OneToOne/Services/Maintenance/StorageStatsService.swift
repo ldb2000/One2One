@@ -1,9 +1,13 @@
 import Foundation
 import SwiftData
 
+/// Calcule la répartition du stockage de l'app (WAV, pièces jointes, slides,
+/// base SwiftData). Confiné au `@MainActor` ; le résultat est mémorisé avec un
+/// TTL afin d'éviter de re-scanner le disque à chaque accès.
 @MainActor
 final class StorageStatsService {
 
+    /// Tailles et compteurs par catégorie de fichiers ; `totalBytes` est dérivé.
     struct Stats: Equatable {
         var wavBytes: Int64 = 0
         var wavCount: Int = 0
@@ -23,6 +27,8 @@ final class StorageStatsService {
     private var cachedAt: Date?
     private let ttl: TimeInterval = 60
 
+    /// Retourne les stats, depuis le cache si celui-ci a moins de `ttl` secondes.
+    /// `force == true` ignore le cache et force un recalcul immédiat.
     func snapshot(in context: ModelContext, force: Bool = false) -> Stats {
         if !force, let s = cached, let at = cachedAt,
            Date().timeIntervalSince(at) < ttl {
@@ -34,11 +40,19 @@ final class StorageStatsService {
         return s
     }
 
+    /// Vide le cache ; le prochain `snapshot` recalculera. À appeler après une
+    /// suppression/compression de fichiers pour refléter le nouvel état.
     func invalidate() {
         cached = nil
         cachedAt = nil
     }
 
+    /// Scanne le disque et la base pour produire un `Stats`.
+    /// - WAV : découverts via `Meeting.wavFilePath`.
+    /// - Pièces jointes : `MeetingAttachment`, en excluant le kind "slides"
+    ///   (chemin virtuel, comptabilisé via le scan du dossier recordings).
+    /// - Slides : fichiers sous `recordings/<meetingUUID>/slides/`.
+    /// - Base : `OneToOne.store` + ses fichiers `-wal` / `-shm`.
     private func compute(in context: ModelContext) -> Stats {
         var stats = Stats()
 
@@ -123,6 +137,8 @@ final class StorageStatsService {
         return (total, count)
     }
 
+    /// Dossier `Application Support/OneToOne`. Retombe sur
+    /// `~/Library/Application Support` si l'URL système est indisponible.
     private func applicationSupportDir() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory,
                                             in: .userDomainMask).first

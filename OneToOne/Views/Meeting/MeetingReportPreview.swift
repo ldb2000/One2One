@@ -5,8 +5,11 @@ import WebKit
 /// stylé. Recharge le HTML quand la prop change.
 struct MeetingReportPreview: NSViewRepresentable {
 
+    /// Document HTML complet (avec ses propres styles CSS inline) à afficher.
     let html: String
 
+    /// Crée la WKWebView et désactive `drawsBackground` pour rendre le fond de la vue
+    /// transparent : le HTML s'intègre au fond crème de l'app au lieu d'imposer un blanc opaque.
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         let webView = WKWebView(frame: .zero, configuration: config)

@@ -44,6 +44,9 @@ enum TemplateVariableResolver {
 
     // MARK: - Per-variable resolution
 
+    /// Résout une variable nommée en sa valeur. Renvoie `nil` si le nom est
+    /// inconnu (le placeholder reste alors littéral). Chaque cas applique son
+    /// propre plafond de troncature.
     @MainActor
     private static func resolveOne(name: String,
                                    meeting: Meeting,
@@ -105,6 +108,8 @@ enum TemplateVariableResolver {
 
     // MARK: - Sub-resolvers
 
+    /// Collaborateur « partenaire » d'une réunion 1:1 ou manager (premier
+    /// participant), `nil` pour les autres types de réunion.
     @MainActor
     private static func partnerCollaborator(of meeting: Meeting) -> Collaborator? {
         guard meeting.kind == .oneToOne || meeting.kind == .manager else { return nil }
@@ -329,6 +334,9 @@ enum TemplateVariableResolver {
 /// template's history mode (none/lastN/rag/hybrid).
 enum HistoryContextBuilder {
 
+    /// Construit le bloc historique selon le `historyMode` du template. Les
+    /// modes `.rag` et `.hybrid` retombent sur `lastN` (≥ 1) tant que
+    /// l'infra d'embeddings n'est pas généralisée.
     @MainActor
     static func build(for meeting: Meeting,
                       template: ReportTemplate,
@@ -439,6 +447,9 @@ enum ProjectsContextBuilder {
     private static let actionsPerProject: Int = 10
     private static let totalBudgetChars: Int = 15_000
 
+    /// Bloc de contexte projets pour une réunion 1:1 : projets non archivés où
+    /// le partenaire est architecte technique ou chef de projet, triés par
+    /// statut et plafonnés (`maxProjects`, `totalBudgetChars`). "" hors 1:1.
     static func build(for meeting: Meeting, in context: ModelContext) -> String {
         guard meeting.kind == .oneToOne,
               let partner = meeting.participants.first else {
@@ -519,6 +530,8 @@ enum ProjectsContextBuilder {
         return out
     }
 
+    /// Rendu d'un projet pour le contexte 1:1 : header + rôle du partenaire
+    /// (archi/PM) + bloc summaries+actions partagé.
     private static func renderProject(_ p: Project,
                                        partner: Collaborator,
                                        in context: ModelContext) -> String {
@@ -535,6 +548,9 @@ enum ProjectsContextBuilder {
     private static func renderProjectSummariesAndActions(_ p: Project,
                                                           in context: ModelContext) -> String {
         var out = ""
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "fr_FR")
+        fmt.dateFormat = "d MMM yyyy"
 
         // Top 3 résumés de meetings sur ce projet.
         let descriptor = FetchDescriptor<Meeting>(
@@ -550,9 +566,6 @@ enum ProjectsContextBuilder {
         if topSummaries.isEmpty {
             out += "(aucun historique disponible)\n"
         } else {
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "fr_FR")
-            fmt.dateFormat = "d MMM yyyy"
             for m in topSummaries {
                 out += "--- \(fmt.string(from: m.date)) · \(m.title) ---\n"
                 let truncated = truncateAtBoundary(m.summary, max: summaryMaxChars)
@@ -569,9 +582,6 @@ enum ProjectsContextBuilder {
         if openActions.isEmpty {
             out += "(aucune action ouverte)\n"
         } else {
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "fr_FR")
-            fmt.dateFormat = "d MMM yyyy"
             for t in openActions {
                 let who = t.collaborator?.name ?? t.unresolvedAssigneeName ?? "—"
                 let when = t.dueDate.map { fmt.string(from: $0) } ?? "—"

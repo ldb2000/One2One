@@ -5,6 +5,10 @@ import SwiftUI
 /// skip. On confirm, the kept actions are materialized into ActionTask via
 /// `ManagerCRGenerator.materializeActions`.
 struct ManagerActionReviewSheet: View {
+    /// Brouillon éditable d'une action proposée par l'IA. `Identifiable` (via un
+    /// `UUID` local) pour que `ForEach($drafts)` puisse fournir des bindings
+    /// stables ligne par ligne, même si l'action n'a pas encore d'identité
+    /// persistante.
     struct DraftAction: Identifiable {
         let id = UUID()
         var title: String
@@ -14,19 +18,32 @@ struct ManagerActionReviewSheet: View {
 
     @State var drafts: [DraftAction]
     let onCancel: () -> Void
+    /// Appelée à la validation avec les seules actions conservées (cochées,
+    /// titre non vide). Les actions décochées ou vides sont écartées et ne sont
+    /// jamais transmises. La matérialisation effective en `ActionTask` est faite
+    /// par l'appelant.
     let onConfirm: ([ManagerCRGenerator.ExtractedAction]) -> Void
 
+    /// Formateur de dates ISO (date seule, sans heure) partagé pour parser les
+    /// échéances reçues et les ré-encoder à la validation.
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate]
+        return f
+    }()
+
+    /// Convertit les actions extraites par l'IA en brouillons éditables ;
+    /// `deadlineISO` est parsé en `Date` (nil si absent ou invalide) et chaque
+    /// action est cochée par défaut.
     init(
         actions: [ManagerCRGenerator.ExtractedAction],
         onCancel: @escaping () -> Void,
         onConfirm: @escaping ([ManagerCRGenerator.ExtractedAction]) -> Void
     ) {
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withFullDate]
         let initial = actions.map {
             DraftAction(
                 title: $0.title,
-                dueDate: $0.deadlineISO.flatMap(isoFormatter.date(from:)),
+                dueDate: $0.deadlineISO.flatMap(Self.isoFormatter.date(from:)),
                 keep: true
             )
         }
@@ -82,14 +99,12 @@ struct ManagerActionReviewSheet: View {
                 Spacer()
                 Button("Ignorer toutes", action: onCancel)
                 Button("Créer les actions") {
-                    let isoFormatter = ISO8601DateFormatter()
-                    isoFormatter.formatOptions = [.withFullDate]
                     let kept: [ManagerCRGenerator.ExtractedAction] = drafts
                         .filter { $0.keep && !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
                         .map { d in
                             ManagerCRGenerator.ExtractedAction(
                                 title: d.title,
-                                deadlineISO: d.dueDate.map { isoFormatter.string(from: $0) }
+                                deadlineISO: d.dueDate.map { Self.isoFormatter.string(from: $0) }
                             )
                         }
                     onConfirm(kept)

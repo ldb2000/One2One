@@ -5,6 +5,8 @@ import Foundation
 /// `teams.microsoft.com` / `teams.live.com` hosts (Google Meet, Zoom, etc. ignored).
 enum TeamsURLExtractor {
 
+    /// Hôtes considérés comme appartenant à Microsoft Teams (réunions pro et
+    /// grand public). Sert à valider les URL fournies directement par l'EKEvent.
     private static let teamsHosts: Set<String> = ["teams.microsoft.com", "teams.live.com"]
 
     private static let teamsURLPattern: NSRegularExpression = {
@@ -12,6 +14,9 @@ enum TeamsURLExtractor {
         return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
     }()
 
+    /// Extrait la première URL de jonction Teams trouvée, par ordre de priorité :
+    /// `url` (si déjà une URL Teams) → `notes` → `location` (via regex).
+    /// Retourne `nil` si aucune source ne contient d'URL Teams reconnue.
     static func extract(url: URL?, notes: String?, location: String?) -> String? {
         if let url, isTeams(url) { return url.absoluteString }
         if let notes, let m = firstMatch(in: notes) { return m }

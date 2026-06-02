@@ -29,9 +29,12 @@ enum DiarizationService {
     static let silenceFallback: Float = 0.005
 
     /// Run a basic energy-based VAD on the WAV at `audioURL` and return an
-    /// alternating speaker turn assignment. Each Output segment carries:
-    /// `(startSeconds, endSeconds, speakerID)`. Always non-throwing — empty
-    /// array on error.
+    /// alternating speaker turn assignment. Each output segment carries:
+    /// `(startSeconds, endSeconds, speakerID)`. Always non-throwing.
+    /// En cas d'échec (lecture fichier, allocation buffer) ou si aucun tour
+    /// n'est détecté, renvoie le fallback `fallbackSingleTurn` : un unique tour
+    /// `(0, totalDurationSec, speakerID: 1)` couvrant tout l'audio — jamais un
+    /// tableau vide sur erreur.
     static func detectTurns(audioURL: URL, totalDurationSec: Double) -> [(start: Double, end: Double, speakerID: Int)] {
         do {
             let file = try AVAudioFile(forReading: audioURL)
@@ -49,6 +52,15 @@ enum DiarizationService {
         }
     }
 
+    /// Détecte les tours de parole dans un buffer PCM mono déjà chargé.
+    /// Découpe l'audio en fenêtres de 30 ms, estime un seuil de silence à
+    /// partir du plancher de bruit (10ᵉ percentile des RMS × 1.5), puis isole
+    /// les segments de voix séparés par au moins `minTurnSilence` de silence.
+    /// Chaque tuple renvoyé est `(start, end, speakerID)` ; les `speakerID`
+    /// alternent 1/2 par ordre des tours — heuristique V1 volontairement
+    /// simpliste (pas de vraie identification du locuteur), l'utilisateur
+    /// réassigne via la UI. Fallback à `fallbackSingleTurn` si pas de canal
+    /// audio ou aucun tour détecté.
     private static func detectTurnsFromBuffer(
         _ buf: AVAudioPCMBuffer,
         totalDurationSec: Double

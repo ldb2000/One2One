@@ -17,17 +17,25 @@ struct MarkdownText: View {
 
     // MARK: - Block model
 
+    /// Bloc markdown reconnu par le parseur ligne à ligne.
     private enum Block {
+        /// Titre `#`…`######` (niveau 1 à 6).
         case heading(level: Int, text: String)
         case paragraph(String)
+        /// Élément de liste à puces (`-`, `*`, `+`).
         case bullet(String)
+        /// Élément de liste ordonnée ; `index` est le compteur recalculé en interne, pas le numéro source.
         case ordered(index: Int, text: String)
+        /// Bloc de code délimité par ``` ``` `` ; `language` issu de la ligne d'ouverture si présent.
         case code(language: String?, body: String)
         case quote(String)
+        /// Règle horizontale (`---`, `***`, `___`).
         case rule
+        /// Ligne vide → espacement vertical.
         case spacer
     }
 
+    /// Découpe le markdown en blocs en parcourant les lignes (normalise les fins de ligne CRLF).
     private func blocks() -> [Block] {
         var out: [Block] = []
         let lines = markdown.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -123,6 +131,7 @@ struct MarkdownText: View {
 
     // MARK: - Block rendering
 
+    /// Rend un bloc en vue SwiftUI ; l'inline (`**`, `*`, `` ` ``, liens) est délégué à `inlineText(_:)`.
     @ViewBuilder
     private func renderBlock(_ block: Block) -> some View {
         switch block {
@@ -163,6 +172,7 @@ struct MarkdownText: View {
         }
     }
 
+    /// Police associée à un niveau de titre (1 = title2 gras … défaut = subheadline semibold).
     private func headingFont(for level: Int) -> Font {
         switch level {
         case 1: return .title2.weight(.bold)

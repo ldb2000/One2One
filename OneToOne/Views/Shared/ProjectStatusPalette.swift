@@ -5,7 +5,8 @@ import SwiftUI
 /// (sidebar configurable des réunions).
 enum ProjectStatusPalette {
 
-    /// Couleur SwiftUI pour un statut projet.
+    /// Couleur SwiftUI pour un statut projet. Tout statut inconnu (y compris
+    /// "Unknown") retombe sur `.gray`.
     static func color(_ status: String) -> Color {
         switch status {
         case "Red":     return .red
@@ -15,7 +16,8 @@ enum ProjectStatusPalette {
         }
     }
 
-    /// Tri : Red → Yellow → Green → Unknown, puis alpha case-insensible.
+    /// Tri par statut (Red=0, Yellow=1, Green=2, tout autre/Unknown=3) puis,
+    /// à statut égal, par nom en ordre alphabétique insensible à la casse.
     static func sortedByStatus(_ projects: [Project]) -> [Project] {
         let rank: [String: Int] = ["Red": 0, "Yellow": 1, "Green": 2, "Unknown": 3]
         return projects.sorted { a, b in

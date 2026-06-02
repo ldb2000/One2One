@@ -3,6 +3,9 @@ import SwiftData
 
 /// Sheet to edit a ReportTemplate's name, kind, sections, history mode,
 /// and prompt body. A clickable variables palette inserts {{var}} at cursor.
+/// Changes are persisted via `save()` on close and on disappear; `name`/`kind`
+/// bind directly to the model, while `sections`/`promptBody` are edited in
+/// `@State` and flushed back to the template only on save.
 struct ReportTemplateEditorView: View {
     @Bindable var template: ReportTemplate
     let onClose: () -> Void
@@ -17,10 +20,7 @@ struct ReportTemplateEditorView: View {
                 TextField("Nom du template", text: $template.name)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 280)
-                Picker("Catégorie", selection: Binding(
-                    get: { template.kind },
-                    set: { template.kind = $0 }
-                )) {
+                Picker("Catégorie", selection: $template.kind) {
                     ForEach(ReportTemplateKind.allCases) { k in
                         Label(k.label, systemImage: k.sfSymbol).tag(k)
                     }
@@ -78,6 +78,9 @@ struct ReportTemplateEditorView: View {
         .onDisappear { save() }
     }
 
+    /// Ligne de configuration de l'historique injecté dans le prompt :
+    /// `historyMode` choisit la stratégie, `historyN` le nombre de comptes-rendus
+    /// précédents à inclure et `historyK` le nombre d'items (actions, points) repris.
     private var historyConfigRow: some View {
         HStack(spacing: 16) {
             Picker("Historique", selection: Binding(
@@ -122,6 +125,10 @@ struct ReportTemplateEditorView: View {
         }
     }
 
+    /// Palette de variables cliquables, regroupées par contexte (réunion, projet,
+    /// collaborateur, manager, global). Un clic insère le placeholder `{{var}}`
+    /// correspondant à la fin du corps du prompt ; ces variables sont substituées
+    /// au moment de la génération du rapport.
     private var variablesPalette: some View {
         let groups: [(String, [String])] = [
             ("Réunion", ["title","date","duration","kind","participants","transcript","notes","custom_prompt"]),

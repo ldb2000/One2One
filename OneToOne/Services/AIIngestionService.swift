@@ -4,6 +4,9 @@ import PDFKit
 
 // MARK: - Extracted data structures
 
+/// Données structurées extraites d'un fichier importé (projets, collaborateurs,
+/// résumé). Le décodage est tolérant : tout champ absent retombe sur une valeur
+/// par défaut pour ne jamais faire échouer un import partiel de Claude.
 struct ExtractedData: Decodable {
     let projects: [ExtractedProject]
     let collaborators: [ExtractedCollaborator]
@@ -28,6 +31,9 @@ struct ExtractedData: Decodable {
     }
 }
 
+/// Un projet extrait par l'IA. L'init custom accepte indifféremment les noms de
+/// champs anglais et français renvoyés par Claude (ex. `name`/`nom`,
+/// `status`/`statut`) et fournit des valeurs par défaut sûres.
 struct ExtractedProject: Decodable {
     let code: String
     let name: String
@@ -120,6 +126,8 @@ struct FlexKey: CodingKey {
     init?(intValue: Int) { return nil }
 }
 
+/// Brouillon d'entretien de recrutement généré par l'IA à partir d'un CV /
+/// dossier candidat (synthèse, points forts/vigilance, notes par thème).
 struct CandidateInterviewDraft: Codable {
     let summary: String
     let positivePoints: [String]
@@ -133,10 +141,15 @@ struct CandidateInterviewDraft: Codable {
 
 // MARK: - AI Ingestion Service
 
+/// Service d'import de fichiers (PDF, PPTX, XLSX, JSON…) : extrait le texte,
+/// délègue à l'IA pour structurer les données, puis applique le résultat dans
+/// SwiftData (projets, collaborateurs, entités, interviews).
 class AIIngestionService {
 
     // MARK: - File processing
 
+    /// Traite un fichier : import JSON direct si possible, sinon extraction de
+    /// texte puis appel IA. Renvoie les données structurées extraites.
     func processFile(at url: URL, settings: AppSettings) async throws -> ExtractedData {
         // Try direct JSON import first (no AI needed)
         if url.pathExtension.lowercased() == "json" {
@@ -675,15 +688,17 @@ class AIIngestionService {
         return project
     }
 
+    /// Formatters réutilisés par `parseDate` (création coûteuse, évitée à chaque appel).
+    private static let dateParsers: [DateFormatter] = {
+        let f1 = DateFormatter(); f1.dateFormat = "dd/MM/yyyy"
+        let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
+        let f3 = DateFormatter(); f3.dateFormat = "dd-MM-yyyy"
+        return [f1, f2, f3]
+    }()
+
     /// Parses date strings in common formats (dd/MM/yyyy, yyyy-MM-dd, etc.)
     private func parseDate(_ string: String) -> Date? {
-        let formatters: [DateFormatter] = {
-            let f1 = DateFormatter(); f1.dateFormat = "dd/MM/yyyy"
-            let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
-            let f3 = DateFormatter(); f3.dateFormat = "dd-MM-yyyy"
-            return [f1, f2, f3]
-        }()
-        for fmt in formatters {
+        for fmt in Self.dateParsers {
             if let date = fmt.date(from: string) { return date }
         }
         return nil

@@ -3,6 +3,9 @@ import SwiftData
 
 /// Mode initial à l'ouverture du sheet. L'utilisateur peut basculer entre
 /// les trois modes via les onglets en tête sans fermer la sheet.
+/// - `trimStart` : couper avant le marqueur (rogner le début).
+/// - `trimEnd` : couper après le marqueur (rogner la fin).
+/// - `split` : diviser l'audio en deux au marqueur.
 enum AudioEditMode: String, Identifiable {
     case trimStart
     case trimEnd
@@ -34,6 +37,11 @@ func formatAudioTime(_ s: Double) -> String {
         : String(format: "%d:%02d", m, sec)
 }
 
+/// Sheet d'édition audio d'une réunion : rogner le début, rogner la fin ou
+/// diviser en deux (cf. `AudioEditMode`), via une waveform interactive.
+/// S'appuie sur `meeting.wavFileURL` et `meeting.durationSeconds`. Toute
+/// opération invalide les artefacts de transcription puis appelle `onFinish`
+/// avec `true` si l'audio a été modifié.
 struct AudioEditorSheet: View {
     let meeting: Meeting
     let mode: AudioEditMode
@@ -54,7 +62,11 @@ struct AudioEditorSheet: View {
     @State private var showOverwriteTargetConfirm: Bool = false
     @Query(sort: \Meeting.date, order: .reverse) private var allMeetings: [Meeting]
 
+    /// Étapes du flux de division : choix du point de coupe puis choix de la
+    /// réunion qui recevra le second morceau.
     enum SplitStage { case pickPosition, pickTarget }
+    /// Destination du second morceau après division : une nouvelle réunion ou
+    /// une réunion existante (dont l'audio éventuel sera remplacé).
     enum SplitTarget: String, Identifiable, CaseIterable {
         case newMeeting, existing
         var id: String { rawValue }
@@ -254,6 +266,9 @@ struct AudioEditorSheet: View {
 
     // MARK: - Trim action (unifié pour début/fin)
 
+    /// Lance le rognage (début si `from`, fin si `to`) via la `JobQueue` partagée.
+    /// En succès, met à jour la durée, invalide les artefacts de transcription et
+    /// ferme la sheet (`finishTrim`) ; en échec, publie l'erreur et la propage.
     private func runTrim(from: Double?, to: Double?, jobSuffix: String) async {
         guard let url = meeting.wavFileURL else { return }
         isWorking = true
@@ -363,6 +378,10 @@ struct AudioEditorSheet: View {
         }
     }
 
+    /// Lance la division au marqueur via la `JobQueue` partagée. Le premier
+    /// morceau reste sur la réunion courante, le second est affecté à la réunion
+    /// cible (`resolveTargetMeeting`) dont l'ancien audio est supprimé du disque.
+    /// Les deux réunions voient leurs artefacts de transcription invalidés.
     private func runSplit() async {
         guard let url = meeting.wavFileURL else { return }
         isWorking = true
@@ -448,9 +467,11 @@ struct AudioEditorSheet: View {
 
 }
 
-/// Vide les artefacts de transcription après une édition audio. Les
-/// `ReportRevision` sont conservées mais devront être régénérées par
-/// l'utilisateur.
+/// Vide les artefacts de transcription après une édition audio (transcripts,
+/// résumé, segments). Les `ReportRevision` sont délibérément conservées — elles
+/// ne sont pas dérivées mécaniquement de l'audio et représentent un travail
+/// éditorial à ne pas perdre ; elles devront néanmoins être régénérées par
+/// l'utilisateur si nécessaire.
 func invalidateTranscriptArtifacts(of meeting: Meeting, in context: ModelContext) {
     meeting.rawTranscript = ""
     meeting.mergedTranscript = ""

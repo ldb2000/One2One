@@ -55,6 +55,11 @@ struct TodayStats: Equatable {
 
 enum TodayStatsCalculator {
 
+    /// Agrège les stats du jour pour la barre de menus.
+    /// "Aujourd'hui" = intervalle [début de `now`, début du lendemain) ; un meeting
+    /// y est rattaché via `scheduledStart` (à défaut `date`). `tempsPasseSeconds`
+    /// ne cumule que les meetings déjà terminés (`scheduledEnd`/`date` < `now`),
+    /// `sansProjet` compte ceux du jour sans projet associé.
     @MainActor
     static func compute(in context: ModelContext, now: Date = Date()) -> TodayStats {
         let descriptor = FetchDescriptor<Meeting>()

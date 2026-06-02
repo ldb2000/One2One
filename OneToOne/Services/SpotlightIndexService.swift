@@ -5,7 +5,10 @@ import UniformTypeIdentifiers
 final class SpotlightIndexService {
     static let shared = SpotlightIndexService()
 
-    /// Re-index all projects + collaborators at once (call on app startup).
+    /// Ré-indexe tous les projets + collaborateurs en un seul lot.
+    /// À appeler au démarrage de l'app (pas pendant la synchro courante) :
+    /// les écritures incrémentales passent par `index(project:)` / `index(collaborator:)`.
+    /// Les collaborateurs archivés sont ignorés. No-op si rien à indexer.
     func indexAll(projects: [Project], collaborators: [Collaborator]) {
         var items: [CSSearchableItem] = []
         for project in projects {
@@ -27,7 +30,10 @@ final class SpotlightIndexService {
         }
     }
 
-    /// Check how many items are currently indexed (for diagnostics).
+    /// Compte les items actuellement indexés (diagnostic uniquement).
+    /// Asynchrone : lance une `CSSearchQuery` en arrière-plan et appelle
+    /// `completion` sur la main queue. Potentiellement coûteux (parcourt tout
+    /// l'index Spotlight de l'app) — à réserver au debug, pas au chemin chaud.
     func fetchIndexedItemCount(completion: @escaping (Int) -> Void) {
         let queryContext = CSSearchQueryContext()
         queryContext.fetchAttributes = ["displayName"]
@@ -45,6 +51,7 @@ final class SpotlightIndexService {
         query.start()
     }
 
+    /// Indexe (ou réindexe) un projet et toutes ses entrées associées.
     func index(project: Project) {
         var items: [CSSearchableItem] = [makeProjectItem(project)]
         items.append(contentsOf: project.infoEntries.map { makeInfoItem($0, project: project) })
@@ -57,6 +64,8 @@ final class SpotlightIndexService {
         }
     }
 
+    /// Retire de l'index un projet et toutes ses entrées (infos + collaborateurs).
+    /// Idempotent : supprimer un identifiant absent de l'index est sans effet (no-op).
     func remove(project: Project) {
         let identifiers = [projectIdentifier(project)] + project.infoEntries.map { infoIdentifier($0) } + project.collaboratorEntries.map { collaboratorEntryIdentifier($0) }
         CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: identifiers) { error in
@@ -66,6 +75,11 @@ final class SpotlightIndexService {
         }
     }
 
+    // Les `domainIdentifier` ("projects", "project-info",
+    // "project-collaborator-info", "collaborators") regroupent les items par
+    // type et servent de clés pour la requête de diagnostic et les suppressions
+    // en masse. Tout le contenu indexé (noms, comptes-rendus, notes) est privé
+    // à l'utilisateur : l'index Spotlight reste local à l'appareil.
     private func makeProjectItem(_ project: Project) -> CSSearchableItem {
         let attributes = CSSearchableItemAttributeSet(contentType: .text)
         attributes.title = "OneToOne - \(project.name)"

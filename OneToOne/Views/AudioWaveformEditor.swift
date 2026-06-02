@@ -68,6 +68,10 @@ struct AudioWaveformEditor: View {
         }
     }
 
+    /// Dessine la waveform dans le `Canvas` : barres centrées verticalement,
+    /// colorées en accent (zone conservée) ou grisées (zone supprimée) selon le
+    /// `mode` et la position du marqueur. Les barres sont agrégées en deux paths
+    /// (actif/inactif) pour ne produire que deux strokes au lieu d'un par barre.
     private func drawPeaks(ctx: GraphicsContext, size: CGSize) {
         guard !peaks.isEmpty, totalDuration > 0 else { return }
         let availableHeight = size.height - Self.topPad - Self.bottomPad
@@ -103,6 +107,9 @@ struct AudioWaveformEditor: View {
         ctx.stroke(inactivePath, with: .color(.secondary.opacity(0.35)), lineWidth: lineWidth)
     }
 
+    /// Marqueur draggable positionné à `markerSeconds` : ligne verticale,
+    /// poignées circulaires en haut/bas et bulle affichant le temps. Le `width`
+    /// est l'espace horizontal disponible pour convertir le temps en position x.
     @ViewBuilder
     private func marker(width: CGFloat, height: CGFloat) -> some View {
         let x = totalDuration > 0 ? CGFloat(markerSeconds / totalDuration) * width : 0
@@ -135,6 +142,8 @@ struct AudioWaveformEditor: View {
         }
     }
 
+    /// Règle temporelle sous la waveform : 5 graduations équidistantes de 0 à
+    /// `totalDuration`, formatées par `formatAudioTime`.
     @ViewBuilder
     private func timeRuler(width: CGFloat) -> some View {
         HStack {

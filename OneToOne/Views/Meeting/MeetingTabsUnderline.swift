@@ -1,8 +1,12 @@
 import SwiftUI
 
+/// Barre d'onglets de la réunion avec soulignement animé (`matchedGeometryEffect`).
+/// Les cases disponibles sont définies par ``MeetingView/MeetingSection``.
 struct MeetingTabsUnderline: View {
     @Binding var selection: MeetingView.MeetingSection
+    /// Nombre de pièces jointes, affiché en badge sur l'onglet Documents quand > 0.
     let attachmentsCount: Int
+    /// Vrai si un rapport existe, affiche une coche sur l'onglet Rapport.
     let hasReport: Bool
 
     @Namespace private var underlineNS
@@ -50,6 +54,8 @@ struct MeetingTabsUnderline: View {
         .buttonStyle(.plain)
     }
 
+    /// Badge contextuel de l'onglet : compteur de pièces jointes (`attachmentsCount`)
+    /// sur Documents, coche sur Rapport si `hasReport`, rien sinon.
     @ViewBuilder
     private func badge(for section: MeetingView.MeetingSection) -> some View {
         switch section {

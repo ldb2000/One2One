@@ -25,6 +25,9 @@ final class CohereEngine: STTEngine {
         #endif
     }
 
+    /// Charge le modèle depuis le premier dossier candidat valide (idempotent :
+    /// no-op si déjà chargé). Le chargement disque s'exécute hors du main thread
+    /// via `Task.detached`. Lève `STTError` si le modèle est introuvable ou KO.
     func load() async throws {
         #if canImport(MLXAudioSTT)
         guard model == nil else { return }
@@ -48,6 +51,9 @@ final class CohereEngine: STTEngine {
         #endif
     }
 
+    /// Transcrit un clip 16 kHz mono déjà découpé. Génération déterministe
+    /// (temperature 0) lancée hors du main thread ; renvoie le texte trimmé,
+    /// ou "" si le modèle n'est pas chargé.
     #if canImport(MLX)
     func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String {
         #if canImport(MLXAudioSTT)

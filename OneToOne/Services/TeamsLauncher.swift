@@ -6,16 +6,20 @@ import AppKit
 /// No MS Graph, no auth — just URL scheme rewriting.
 enum TeamsLauncher {
 
-    /// Public entry point — fire-and-forget.
+    /// Point d'entrée public — fire-and-forget.
+    /// Parse `urlString`, tente la réécriture vers le scheme `msteams:` (app
+    /// desktop) et ouvre l'URL via `NSWorkspace`. Si l'URL n'est pas une URL de
+    /// jonction Teams, ouvre l'URL d'origine telle quelle (fallback navigateur).
+    /// No-op silencieux si `urlString` n'est pas une URL valide.
     static func open(_ urlString: String) {
         guard let parsed = URL(string: urlString) else { return }
-        let target = rewriteToMSTeams(parsed) ?? parsed
-        NSWorkspace.shared.open(target)
+        NSWorkspace.shared.open(rewriteToMSTeams(parsed) ?? parsed)
     }
 
-    /// Rewrites `https://teams.microsoft.com/l/meetup-join/...` to
-    /// `msteams:/l/meetup-join/...` so the desktop app handles it.
-    /// Returns nil if the URL is not a Teams meet-join URL.
+    /// Réécrit `https://teams.microsoft.com/l/meetup-join/...` en
+    /// `msteams:/l/meetup-join/...` pour que l'app desktop la prenne en charge.
+    /// Retourne l'URL telle quelle si elle est déjà en scheme `msteams`,
+    /// ou `nil` si ce n'est pas une URL de jonction de réunion Teams.
     static func rewriteToMSTeams(_ url: URL) -> URL? {
         if url.scheme?.lowercased() == "msteams" { return url }
         guard let host = url.host?.lowercased(),

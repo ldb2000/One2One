@@ -65,6 +65,10 @@ enum HistoryMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Gabarit de rapport piloté par l'IA : préambule, corps de prompt et sections
+/// ordonnées que `AIReportService` demande au LLM de produire, ainsi que la
+/// stratégie d'historique (résumés / RAG). Peut être fourni par l'app
+/// (`isBuiltIn`) ou créé par l'utilisateur.
 @Model
 final class ReportTemplate {
     /// Optional — SwiftData migration caveat. Use `ensuredStableID`.
@@ -108,6 +112,9 @@ final class ReportTemplate {
         self.updatedAt = Date()
     }
 
+    /// Renvoie `stableID` en backfillant un nouvel UUID si la DB contient `nil`
+    /// (lignes antérieures à l'ajout du champ). Persiste immédiatement.
+    /// Contrairement à `stableID` (Optional, brut), garantit une valeur non nil.
     var ensuredStableID: UUID {
         if let stableID { return stableID }
         let new = UUID()
@@ -116,16 +123,22 @@ final class ReportTemplate {
         return new
     }
 
+    /// Accès typé à `kindRaw` (catégorie du template). Fallback `.custom` si la
+    /// valeur stockée est inconnue.
     var kind: ReportTemplateKind {
         get { ReportTemplateKind(rawValue: kindRaw) ?? .custom }
         set { kindRaw = newValue.rawValue }
     }
 
+    /// Accès typé à `historyModeRaw` : stratégie d'historique injectée au prompt
+    /// (aucune / N derniers résumés / RAG / hybride). Fallback `.none`.
     var historyMode: HistoryMode {
         get { HistoryMode(rawValue: historyModeRaw) ?? .none }
         set { historyModeRaw = newValue.rawValue }
     }
 
+    /// Sections ordonnées du rapport, vue typée au-dessus de `sectionsJSON`.
+    /// Le setter touche `updatedAt` (horodatage de dernière modification).
     var sections: [TemplateSection] {
         get { Self.decodeSections(sectionsJSON) }
         set { sectionsJSON = Self.encodeSections(newValue); updatedAt = Date() }

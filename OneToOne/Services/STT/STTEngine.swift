@@ -12,6 +12,8 @@ protocol STTEngine: AnyObject {
     var isLoaded: Bool { get }
     func load() async throws
     #if canImport(MLX)
+    /// Transcrit un clip 16 kHz mono déjà découpé et renvoie le texte trimmé
+    /// (chaîne vide si le modèle n'est pas chargé).
     func transcribe(clip: MLXArray, language: String, maxTokens: Int) async -> String
     #endif
 }
@@ -30,6 +32,9 @@ enum STTModelResolver {
         return nil
     }
 
+    /// Dossiers candidats dans l'ordre de priorité : snapshot HF le plus récent,
+    /// dossier managé OneToOne, puis chemin manuel (si `manualKey` renseigne une
+    /// valeur en UserDefaults). Sert aussi au message d'erreur `modelMissing`.
     static func candidateDirectories(repoId: String, manualKey: String?) -> [URL] {
         var out: [URL] = []
         if let snap = firstSnapshot(repoId: repoId) { out.append(snap) }
@@ -40,6 +45,8 @@ enum STTModelResolver {
         return out
     }
 
+    /// Dossier modèle géré par OneToOne sous Application Support (créé au besoin),
+    /// dérivé de `repoId` avec les `/` remplacés par `_`.
     static func managedDirectory(repoId: String) -> URL {
         let base = URL.applicationSupportDirectory
             .appendingPathComponent("OneToOne", isDirectory: true)

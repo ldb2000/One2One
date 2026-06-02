@@ -60,11 +60,18 @@ struct ActionsPanel: View {
         }
     }
 
+    /// Le collaborateur « en face » d'un 1:1 (1er participant), uniquement pour
+    /// les réunions `.oneToOne`. `nil` pour tout autre type : sert à n'afficher
+    /// le rappel des actions ouvertes que dans le contexte d'un tête-à-tête.
     private var oneToOnePartner: Collaborator? {
         guard meeting.kind == .oneToOne else { return nil }
         return meeting.participants.first
     }
 
+    /// Actions ouvertes (non terminées) assignées à `collab`, agrégées depuis
+    /// ses assignations directes et celles de ses interviews, dédupliquées, et
+    /// en excluant celles de la réunion courante. Triées par échéance croissante
+    /// (les actions sans échéance en dernier).
     private func otherCollabOpenActions(for collab: Collaborator) -> [ActionTask] {
         // Tasks assigned to collab, open, not part of THIS meeting.
         let direct = collab.assignedTasks
@@ -363,11 +370,18 @@ struct ActionsPanel: View {
 
     // MARK: - Utilities
 
-    private func shortDate(_ d: Date) -> String {
+    /// Formateur de date court (jj/MM/aaaa, locale fr_FR) mis en cache : un
+    /// `DateFormatter` est coûteux à instancier, on le réutilise pour toutes
+    /// les lignes d'actions.
+    private static let shortDateFormatter: DateFormatter = {
         let df = DateFormatter()
         df.locale = Locale(identifier: "fr_FR")
         df.timeZone = .current
         df.dateFormat = "dd/MM/yyyy"
-        return df.string(from: d)
+        return df
+    }()
+
+    private func shortDate(_ d: Date) -> String {
+        Self.shortDateFormatter.string(from: d)
     }
 }

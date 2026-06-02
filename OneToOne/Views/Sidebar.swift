@@ -2,6 +2,21 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
+/// Couleur associée à un niveau de risque projet ("Critique", "Élevé", "Modéré",
+/// sinon vert par défaut). Factorise le mapping partagé entre plusieurs vues.
+private func riskLevelColor(_ level: String) -> Color {
+    switch level {
+    case "Critique": return .red
+    case "Élevé": return .orange
+    case "Modéré": return .yellow
+    default: return .green
+    }
+}
+
+/// Barre latérale principale de l'app : navigation (tableau de bord, assistant,
+/// actions, réunions, notes…), arborescence collaborateurs / projets par entité,
+/// recherche globale, sélection multiple de projets (opérations en lot),
+/// drag & drop de projets entre entités et pied de page de la file de jobs.
 struct MainSidebarView: View {
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
@@ -587,19 +602,23 @@ struct MainSidebarView: View {
 
     // MARK: - Batch Operations
 
-    private func batchSetPhase(_ phase: String) {
-        for project in selectedProjects { project.phase = phase }
+    /// Affecte `value` au `keyPath` de tous les projets sélectionnés puis sauvegarde.
+    /// Helper générique factorisant les opérations de modification en lot.
+    private func batchUpdate<T>(_ keyPath: ReferenceWritableKeyPath<Project, T>, _ value: T) {
+        for project in selectedProjects { project[keyPath: keyPath] = value }
         try? context.save()
+    }
+
+    private func batchSetPhase(_ phase: String) {
+        batchUpdate(\.phase, phase)
     }
 
     private func batchSetStatus(_ status: String) {
-        for project in selectedProjects { project.status = status }
-        try? context.save()
+        batchUpdate(\.status, status)
     }
 
     private func batchSetEntity(_ entity: Entity?) {
-        for project in selectedProjects { project.entity = entity }
-        try? context.save()
+        batchUpdate(\.entity, entity)
     }
 
     private func batchArchive() {
@@ -645,14 +664,10 @@ struct MainSidebarView: View {
         }
     }
 
+    /// Pastille colorée affichant le niveau de risque (couleur via `riskLevelColor`).
     @ViewBuilder
     private func riskBadge(_ level: String) -> some View {
-        let color: Color = switch level {
-        case "Critique": .red
-        case "Élevé": .orange
-        case "Modéré": .yellow
-        default: .green
-        }
+        let color = riskLevelColor(level)
         Text(level)
             .font(.caption2)
             .padding(.horizontal, 5)
@@ -749,6 +764,8 @@ struct MainSidebarView: View {
 
 // MARK: - Entity Detail View
 
+/// Vue de détail d'une entité : édition du nom et de la description, et liste
+/// des projets rattachés avec leur statut et niveau de risque.
 struct EntityDetailView: View {
     @Bindable var entity: Entity
     @Environment(\.modelContext) private var context
@@ -787,8 +804,8 @@ struct EntityDetailView: View {
                                     if let risk = project.riskLevel, !risk.isEmpty {
                                         Text(risk).font(.caption2)
                                             .padding(.horizontal, 4)
-                                            .background(riskColor(risk).opacity(0.2))
-                                            .foregroundColor(riskColor(risk))
+                                            .background(riskLevelColor(risk).opacity(0.2))
+                                            .foregroundColor(riskLevelColor(risk))
                                             .cornerRadius(3)
                                     }
                                 }
@@ -816,19 +833,14 @@ struct EntityDetailView: View {
             }
         }
     }
-
-    private func riskColor(_ level: String) -> Color {
-        switch level {
-        case "Critique": return .red
-        case "Élevé": return .orange
-        case "Modéré": return .yellow
-        default: return .green
-        }
-    }
 }
 
 // MARK: - Dashboard View
 
+/// Tableau de bord global : statistiques projets, heatmap d'activité réunions,
+/// temps passé par semaine, risques & alertes, vue Gantt des phases, actions
+/// en cours, réunions récentes, ainsi que l'import de fichiers / backlog xlsx
+/// (avec backup automatique et rollback) et l'export hebdomadaire assisté par IA.
 struct DashboardView: View {
     @Query private var projects: [Project]
     @Query private var interviews: [Interview]
@@ -1076,10 +1088,12 @@ struct DashboardView: View {
         .textSelection(.enabled)
     }
 
+    /// Projets « à surveiller » : statut Red/Yellow ou niveau de risque Critique/Élevé.
     private var riskyProjects: [Project] {
         projects.filter { p in
-            p.status.lowercased() == "red" || p.status.lowercased() == "yellow" ||
-            p.riskLevel == "Critique" || p.riskLevel == "Élevé"
+            let status = p.status.lowercased()
+            return status == "red" || status == "yellow" ||
+                p.riskLevel == "Critique" || p.riskLevel == "Élevé"
         }
     }
 
@@ -1239,8 +1253,8 @@ struct DashboardView: View {
                                             .font(.caption)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
-                                            .background(riskColor(risk).opacity(0.2))
-                                            .foregroundColor(riskColor(risk))
+                                            .background(riskLevelColor(risk).opacity(0.2))
+                                            .foregroundColor(riskLevelColor(risk))
                                             .cornerRadius(4)
                                     }
                                 }
@@ -1629,15 +1643,6 @@ struct DashboardView: View {
         }
     }
 
-    private func riskColor(_ level: String) -> Color {
-        switch level {
-        case "Critique": return .red
-        case "Élevé": return .orange
-        case "Modéré": return .yellow
-        default: return .green
-        }
-    }
-
     private func exportProjectOverview() {
         let content = ExportService().exportProjectsOverview(projects: projects, entities: entities)
         let panel = NSSavePanel()
@@ -1655,6 +1660,8 @@ struct DashboardView: View {
 
 // MARK: - Gantt Phase View
 
+/// Mini-Gantt par phase (Cadrage / Design / Build / Run) : une ligne par projet,
+/// la phase courante est colorée selon le statut, les phases passées en vert.
 struct GanttPhaseView: View {
     let projects: [Project]
     private let phases = ["Cadrage", "Design", "Build", "Run"]
@@ -1724,6 +1731,8 @@ struct GanttPhaseView: View {
     }
 }
 
+/// Regroupe les `GanttPhaseView` par entité (plus une section « Sans entité »
+/// pour les projets orphelins).
 struct EntityGroupedGanttView: View {
     let entities: [Entity]
     let orphanProjects: [Project]
@@ -1754,6 +1763,7 @@ struct EntityGroupedGanttView: View {
 
 // MARK: - Reusable components
 
+/// Carte de statistique du tableau de bord : un titre et une valeur colorée.
 struct StatCard: View {
     let title: String
     let value: String
@@ -1780,6 +1790,8 @@ struct StatCard: View {
     }
 }
 
+/// Avatar circulaire d'un collaborateur dans la sidebar : photo si disponible,
+/// sinon une pastille avec l'icône « personne ».
 struct SidebarCollaboratorAvatar: View {
     let collaborator: Collaborator
 
@@ -1804,6 +1816,7 @@ struct SidebarCollaboratorAvatar: View {
     }
 }
 
+/// Section titrée réutilisable : un titre, un séparateur, puis le contenu fourni.
 struct SectionView<Content: View>: View {
     let title: String
     @ViewBuilder let content: () -> Content
@@ -1822,6 +1835,8 @@ struct SectionView<Content: View>: View {
 
 // MARK: - Import Prompt Sheet
 
+/// Feuille modale d'import IA : aperçu du fichier extrait et édition du prompt
+/// avant envoi. `onImport` est appelé pour lancer l'import, `onCancel` pour annuler.
 struct ImportPromptSheet: View {
     let fileName: String
     let filePreview: String

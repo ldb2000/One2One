@@ -53,6 +53,9 @@ enum AIClient {
 
     // MARK: - Claude CLI (setup-token / OAuth)
 
+    /// Invoque le binaire `claude` du PATH utilisateur via un shell de login
+    /// (récupère HOME/PATH) et renvoie sa sortie texte. Échoue si le CLI est
+    /// absent, renvoie un code non nul, ou une réponse vide.
     private static func callClaudeCLI(prompt: String, model: String) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -96,12 +99,16 @@ enum AIClient {
         }
     }
 
+    /// Échappe un argument en le mettant entre quotes simples (sûr pour
+    /// l'injection dans la ligne de commande shell du CLI).
     private static func quoteShellArg(_ arg: String) -> String {
         "'" + arg.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: - Anthropic (API Key)
 
+    /// Appel non-streaming de l'API Messages Anthropic (clé `x-api-key`).
+    /// Extrait le premier bloc `text` de la réponse.
     private static func callAnthropic(prompt: String, settings: AppSettings) async throws -> String {
         guard !settings.cloudToken.isEmpty else { throw IngestionError.noAPIKey }
 
@@ -142,6 +149,9 @@ enum AIClient {
 
     // MARK: - OpenAI-compatible (OpenAI, Ollama, Gemini)
 
+    /// Appel non-streaming d'un endpoint `chat/completions` compatible OpenAI
+    /// (OpenAI, Ollama, Gemini). Ollama n'exige pas de clé et bénéficie d'un
+    /// timeout étendu pour le cold-load du modèle.
     private static func callOpenAICompatible(prompt: String, settings: AppSettings) async throws -> String {
         // Ollama doesn't need an API key
         if settings.provider != .ollama {
@@ -190,6 +200,9 @@ enum AIClient {
 
     // MARK: - Streaming (OpenAI-compat SSE)
 
+    /// Variante streaming SSE de `callOpenAICompatible` : accumule les deltas
+    /// `choices[].delta.content` et appelle `onProgress` à chaque fragment,
+    /// jusqu'au sentinelle `[DONE]`.
     private static func callOpenAICompatibleStream(
         prompt: String,
         settings: AppSettings,
@@ -252,6 +265,9 @@ enum AIClient {
 
     // MARK: - Streaming (Anthropic SSE)
 
+    /// Variante streaming SSE de `callAnthropic` : accumule les événements
+    /// `content_block_delta` et appelle `onProgress` à chaque fragment,
+    /// jusqu'à `message_stop`.
     private static func callAnthropicStream(
         prompt: String,
         settings: AppSettings,
@@ -309,6 +325,9 @@ enum AIClient {
         return accumulated
     }
 
+    /// Convertit une erreur brute en `IngestionError` lisible : préserve les
+    /// `IngestionError` existantes et mappe les `URLError` en message réseau
+    /// (avec un message spécifique Ollama si c'est le provider actif).
     private static func normalizeError(_ error: Error, settings: AppSettings) -> Error {
         if let ingestionError = error as? IngestionError {
             return ingestionError

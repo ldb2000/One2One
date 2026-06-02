@@ -44,6 +44,7 @@ struct PromptTemplate: Identifiable {
 }
 
 extension PromptTemplate {
+    /// Catalogue des templates prédéfinis affichés dans l'onglet « Découvrir ».
     static let gallery: [PromptTemplate] = [
         PromptTemplate(
             icon: "doc.text.magnifyingglass",
@@ -117,6 +118,9 @@ enum GalleryTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Galerie de prompts du chatbot, à trois onglets : templates prédéfinis
+/// (« Découvrir »), questions récentes (« Historique ») et prompts enregistrés
+/// par l'utilisateur (« Enregistré »).
 struct ChatbotTemplateGallery: View {
     let history: [String]
     let onSelect: (PromptTemplate) -> Void
@@ -254,6 +258,8 @@ struct ChatbotTemplateGallery: View {
 
 // MARK: - Card
 
+/// Vignette d'un template dans la galerie : icône teintée, titre et description
+/// avec placeholders colorés.
 struct TemplateCard: View {
     let template: PromptTemplate
 
@@ -306,6 +312,8 @@ struct TemplateCard: View {
 
 // MARK: - Configure sheet
 
+/// Sheet de configuration d'un template : un champ par variable (picker ou texte
+/// libre selon le `kind`), aperçu du prompt rendu, puis envoi via `onSubmit`.
 struct TemplateConfigSheet: View {
     let template: PromptTemplate
     let onSubmit: (String) -> Void
@@ -362,6 +370,8 @@ struct TemplateConfigSheet: View {
         }
     }
 
+    /// Construit le champ de saisie adapté au type de la variable : picker de
+    /// collaborateur, de projet, de période, ou champ texte libre.
     @ViewBuilder
     private func fieldFor(_ v: TemplateVariable) -> some View {
         switch v.kind {
@@ -390,10 +400,13 @@ struct TemplateConfigSheet: View {
         }
     }
 
+    /// Binding sur la valeur saisie pour `key` dans le dictionnaire `values`.
     private func bindingFor(_ key: String) -> Binding<String> {
         Binding(get: { values[key] ?? "" }, set: { values[key] = $0 })
     }
 
+    /// Prompt final : `promptTemplate` avec chaque `{Key}` remplacé par sa valeur.
+    /// Les placeholders dont la valeur est vide sont laissés tels quels.
     private var renderedPrompt: String {
         var out = template.promptTemplate
         for v in template.variables {
@@ -445,6 +458,8 @@ extension SavedPrompt {
 
 // MARK: - Save sheet
 
+/// Sheet permettant d'enregistrer un prompt personnalisé (titre, texte avec
+/// placeholders `{Key}`, icône) dans un `SavedPrompt` persisté.
 struct SavePromptSheet: View {
     let initialPrompt: String
     let onSaved: (SavedPrompt) -> Void
@@ -541,6 +556,8 @@ struct SavePromptSheet: View {
 
 // MARK: - Helpers
 
+/// Fragment d'un template après découpage : soit du texte littéral, soit une
+/// clé de placeholder (le contenu entre `{...}`).
 enum TemplatePart {
     case literal(String)
     case placeholder(String)

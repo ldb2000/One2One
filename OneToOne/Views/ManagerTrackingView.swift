@@ -27,9 +27,13 @@ struct ManagerTrackingView: View {
     @State private var manualCategory = "Information"
     @State private var manualTag = ""
 
+    /// Onglets du suivi manager.
     enum Tab: String, Identifiable, CaseIterable {
+        /// Points actifs à aborder (`archivedAt == nil`).
         case current = "Rapport courant"
+        /// Points archivés (`archivedAt != nil`).
         case history = "Historique"
+        /// Actions demandées au manager (`ActionTask.fromManager == true`).
         case actions = "Actions demandées"
         var id: String { rawValue }
     }
@@ -38,6 +42,7 @@ struct ManagerTrackingView: View {
         settingsList.canonicalSettings ?? AppSettings()
     }
 
+    /// Points actifs triés par ordre manuel puis par date de création (plus récent d'abord).
     private var currentItems: [ManagerReportItem] {
         rawCurrentItems.sorted {
             if $0.manualOrder != $1.manualOrder { return $0.manualOrder < $1.manualOrder }
@@ -45,6 +50,7 @@ struct ManagerTrackingView: View {
         }
     }
 
+    /// Points archivés triés par date d'archivage décroissante.
     private var archivedItems: [ManagerReportItem] {
         rawArchivedItems.sorted { ($0.archivedAt ?? .distantPast) > ($1.archivedAt ?? .distantPast) }
     }
@@ -55,11 +61,13 @@ struct ManagerTrackingView: View {
         }
     }
 
+    /// Points actifs filtrés par la catégorie sélectionnée (toutes si aucun filtre).
     private var filteredCurrent: [ManagerReportItem] {
         guard let f = filterCategory else { return currentItems }
         return currentItems.filter { $0.category == f }
     }
 
+    /// Points archivés filtrés par catégorie puis par la recherche texte (snippet, notes, tag).
     private var filteredHistory: [ManagerReportItem] {
         var result = archivedItems
         if let f = filterCategory {
@@ -250,10 +258,13 @@ struct ManagerTrackingView: View {
 
     // MARK: - Item row
 
+    /// Ligne d'un point du rapport manager : badge catégorie/tag, extrait contextuel, notes et source.
     private struct ItemRow: View {
         let item: ManagerReportItem
         let settings: AppSettings
+        /// Affiche la date d'archivage (utilisé dans l'onglet Historique).
         var showArchiveDate: Bool = false
+        /// Callback de suppression ; le bouton corbeille n'apparaît que s'il est fourni.
         var onDelete: (() -> Void)? = nil
         @Environment(\.modelContext) private var context
         @State private var confirmDelete = false

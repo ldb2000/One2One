@@ -35,13 +35,16 @@ struct ManagerAgendaSidebar: View {
     @State private var manualTag = ""
     @State private var pendingDeleteItem: ManagerReportItem?
 
+    /// Points non abordés (non cochés) passant le filtre de catégorie courant.
     private var unchecked: [ManagerReportItem] {
         items.filter { !$0.isCompleted && passesFilter($0) }
     }
+    /// Points déjà abordés (cochés) passant le filtre de catégorie courant.
     private var checked: [ManagerReportItem] {
         items.filter { $0.isCompleted && passesFilter($0) }
     }
 
+    /// Vrai si l'item correspond à la catégorie sélectionnée (ou si aucun filtre n'est actif).
     private func passesFilter(_ item: ManagerReportItem) -> Bool {
         if let f = filterCategory { return item.category == f }
         return true
@@ -140,6 +143,7 @@ struct ManagerAgendaSidebar: View {
         }
     }
 
+    /// En-tête : titre, picker de filtre par catégorie et message d'erreur de génération.
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -165,6 +169,7 @@ struct ManagerAgendaSidebar: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
+    /// Pied de page : bouton d'ajout manuel et bouton de génération du CR manager (désactivé tant qu'aucun point n'est coché).
     private var footer: some View {
         HStack {
             Button {
@@ -192,6 +197,7 @@ struct ManagerAgendaSidebar: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
+    /// Ligne d'un point : case à cocher (abordé), extrait contextuel, source, bouton d'expansion (notes) et suppression.
     @ViewBuilder
     private func itemRow(_ item: ManagerReportItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -294,6 +300,8 @@ struct ManagerAgendaSidebar: View {
         }
     }
 
+    /// Génère le CR manager à partir des points cochés, puis décode les actions extraites
+    /// et ouvre la feuille de revue (`showActionReview`). Les erreurs alimentent `generationError`.
     @MainActor
     private func generate() async {
         generationError = nil

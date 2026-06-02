@@ -18,6 +18,8 @@ struct GeminiOAuthCredentials: Codable {
         case email
     }
 
+    /// Considère le token expiré 60 s avant `expiryDate` (marge de sécurité
+    /// pour éviter d'utiliser un token qui expire pendant une requête en vol).
     var isExpired: Bool {
         Date().timeIntervalSince1970 * 1000 >= expiryDate - 60_000
     }
@@ -142,7 +144,10 @@ final class GeminiTokenStorage {
         }
     }
 
-    /// Import from ~/.gemini/oauth_creds.json (if Gemini CLI is installed)
+    /// Import from ~/.gemini/oauth_creds.json (if Gemini CLI is installed).
+    /// Assumes the Gemini CLI stores credentials at this fixed home-relative
+    /// path; `projectId`/`email` are absent from that file so they default to
+    /// empty. Returns `nil` if the file is missing or unparsable.
     func importFromGeminiCLI() -> GeminiOAuthCredentials? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let credsPath = home.appendingPathComponent(".gemini/oauth_creds.json")
@@ -189,6 +194,10 @@ final class GeminiOAuthClient {
         extractGeminiCLICredentials()
     }
 
+    /// Scrapes the OAuth client_id/secret embedded in the Gemini CLI's
+    /// `oauth2.js`. The three candidate paths cover the usual npm install
+    /// locations on macOS (npm `/usr/local`, Homebrew `/opt/homebrew`, and a
+    /// user-local `~/.npm-global`). Best-effort: leaves both empty if none match.
     private func extractGeminiCLICredentials() {
         let paths = [
             "/usr/local/lib/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",

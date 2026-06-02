@@ -9,6 +9,7 @@ struct CalendarMeetingPicker: View {
     @Query(sort: \Meeting.date, order: .forward) private var allMeetings: [Meeting]
     let onPick: (Meeting) -> Void
 
+    /// Réunions dont l'heure de début planifiée (ou la date) est encore à venir.
     private var futureMeetings: [Meeting] {
         let now = Date()
         return allMeetings.filter { ($0.scheduledStart ?? $0.date) >= now }
@@ -46,10 +47,14 @@ struct CalendarMeetingPicker: View {
         .frame(minWidth: 520, minHeight: 320)
     }
 
-    private func formatDate(_ d: Date) -> String {
+    private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "fr_FR")
         f.dateFormat = "d MMM HH:mm"
-        return f.string(from: d)
+        return f
+    }()
+
+    private func formatDate(_ d: Date) -> String {
+        Self.dateFormatter.string(from: d)
     }
 }
