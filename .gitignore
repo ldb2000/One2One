@@ -8,7 +8,8 @@
 *.xcworkspace/xcuserdata/
 DerivedData/
 *.xcuserstate
-Package.resolved
+# Package.resolved est suivi : deps mlx-swift-lm/Gemma4Swift en branch:main
+# → le lock fige les revisions pour des builds reproductibles.
 
 # Claude
 .claude/

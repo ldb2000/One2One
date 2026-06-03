@@ -8,6 +8,10 @@ import HuggingFace
 import Tokenizers
 #endif
 
+#if canImport(Gemma4Swift)
+import Gemma4Swift
+#endif
+
 /// Provider **« Directe »** : exécute un LLM (par défaut Gemma MLX) directement
 /// en Swift, **in-process**, sans serveur externe (contrairement à Ollama).
 ///
@@ -34,11 +38,25 @@ enum DirectLLMClient {
     /// Renvoie le `ModelContainer` pour `repo`, en le chargeant (et téléchargeant
     /// si nécessaire) au premier appel. Reporte la progression de téléchargement
     /// via `onProgress` (utile : un modèle 8-bit ~26-31 Go met du temps).
+    /// Enregistre (une fois) l'implémentation Gemma 4 de `Gemma4Swift` dans le
+    /// registry de mlx-swift-lm : remplace le builder dense par celui qui gère
+    /// les variantes **MoE** (`gemma-4-26b-a4b`, `31b`), sinon mlx-swift-lm
+    /// échoue sur les poids `experts`. No-op pour les modèles non-Gemma4.
+    private static var gemma4Registered = false
+    private static func registerGemma4IfNeeded() async {
+        #if canImport(Gemma4Swift)
+        if gemma4Registered { return }
+        await Gemma4Registration.register()
+        gemma4Registered = true
+        #endif
+    }
+
     private static func ensureContainer(
         repo: String,
         onProgress: AIClient.ProgressCallback?
     ) async throws -> ModelContainer {
         if let container, loadedRepo == repo { return container }
+        await registerGemma4IfNeeded()
         if let onProgress { await onProgress("Chargement du modèle \(repo)…") }
 
         let progressForward: @Sendable (Progress) -> Void = { progress in
