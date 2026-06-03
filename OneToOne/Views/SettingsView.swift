@@ -98,11 +98,11 @@ struct SettingsView: View {
                                     .foregroundColor(.secondary)
 
                                 LabeledContent("Modèle (repo HF MLX)") {
-                                    EditableTextField(placeholder: "mlx-community/gemma-4-31b-8bit", text: $directModelRepo)
+                                    EditableTextField(placeholder: "mlx-community/gemma-4-26b-a4b-it-8bit", text: $directModelRepo)
                                         .frame(height: 24)
                                 }
 
-                                Text("Ex. mlx-community/gemma-4-31b-8bit · gemma-4-26b-a4b-it-8bit · gemma-4-e4b-it-8bit")
+                                Text("Ex. mlx-community/gemma-4-26b-a4b-it-8bit (défaut, déjà en cache) · gemma-4-e4b-it-8bit (léger) · gemma-4-31b-8bit (téléchargement ~31 Go)")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -967,7 +967,7 @@ struct SettingsView: View {
     private func updateDefaults(for provider: AIProvider) {
         switch provider {
         case .direct:
-            if directModelRepo.isEmpty { directModelRepo = "mlx-community/gemma-4-31b-8bit" }
+            if directModelRepo.isEmpty { directModelRepo = "mlx-community/gemma-4-26b-a4b-it-8bit" }
         case .geminiOAuth:
             apiEndpoint = "https://generativelanguage.googleapis.com/v1beta"
             modelName = "gemini-2.5-pro"

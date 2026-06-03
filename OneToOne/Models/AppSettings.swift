@@ -67,7 +67,7 @@ final class AppSettings {
     /// Repo HuggingFace MLX chargé par le provider `.direct` (LLM in-process).
     /// Téléchargé au premier usage s'il est absent du cache. Vide → défaut
     /// défini par `DirectLLMClient`.
-    var directModelRepo: String = "mlx-community/gemma-4-31b-8bit"
+    var directModelRepo: String = "mlx-community/gemma-4-26b-a4b-it-8bit"
 
     // Per-feature AI toggles
     var useAIForImport: Bool = true

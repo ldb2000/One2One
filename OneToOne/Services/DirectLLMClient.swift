@@ -21,7 +21,9 @@ import Tokenizers
 @MainActor
 enum DirectLLMClient {
     /// Repo HuggingFace MLX utilisé si `AppSettings.directModelRepo` est vide.
-    static let defaultModelRepo = "mlx-community/gemma-4-31b-8bit"
+    /// Défaut = le 26B déjà présent dans le cache HF (pas de gros téléchargement
+    /// au premier usage). Modifiable dans Réglages → IA.
+    static let defaultModelRepo = "mlx-community/gemma-4-26b-a4b-it-8bit"
 
     #if canImport(MLXLLM)
     /// Conteneur chargé et repo associé. Cache mono-modèle : si l'utilisateur
