@@ -330,7 +330,7 @@ struct MeetingView: View {
         }
         .fileImporter(
             isPresented: $showWavImporter,
-            allowedContentTypes: [.audio, .wav, .mp3, .mpeg4Audio, .aiff],
+            allowedContentTypes: [.audio, .wav, .mp3, .mpeg4Audio, .aiff, .mpeg4Movie, .movie],
             allowsMultipleSelection: false
         ) { result in
             Task { await importExistingWAV(result: result) }
@@ -1152,6 +1152,8 @@ struct MeetingView: View {
     /// Attache un WAV/audio déjà présent sur disque au meeting courant.
     /// Si le fichier vit déjà sous `recordings/`, on pointe dessus directement.
     /// Sinon on copie sous `recordings/<UUID>.<ext>` pour stabiliser le chemin.
+    /// Les fichiers compressés (m4a, mp3, mp4/mov…) sont transcodés en WAV
+    /// 16 kHz mono résilient via `AudioImportService.prepareForPipeline`.
     /// La durée est lue via `AVAudioFile` puis stockée dans `meeting.durationSeconds`.
     private func importExistingWAV(result: Result<[URL], Error>) async {
         wavImportError = nil
@@ -1179,13 +1181,21 @@ struct MeetingView: View {
                 try fm.copyItem(at: src, to: target)
             }
 
-            let file = try AVAudioFile(forReading: target)
+            // Tout le pipeline aval (waveform, STT, diarisation, éditeur) lit via
+            // AVAudioFile. Les fichiers compressés sont transcodés en WAV 16 kHz
+            // mono résilient (paquets corrompus → silence) — seul format sans piège.
+            let (audioURL, transcoded) = try await AudioImportService.prepareForPipeline(target, outputDir: recordingsDir)
+            if transcoded, target != src {
+                try? fm.removeItem(at: target)  // copie intermédiaire devenue inutile
+            }
+
+            let file = try AVAudioFile(forReading: audioURL)
             let durationSeconds = Double(file.length) / file.processingFormat.sampleRate
 
-            meeting.wavFilePath = target.path
+            meeting.wavFilePath = audioURL.path
             meeting.durationSeconds = Int(durationSeconds.rounded())
             saveContext()
-            print("[MeetingView] importWAV → \(target.path) duration=\(durationSeconds)s")
+            print("[MeetingView] importWAV → \(audioURL.path) duration=\(durationSeconds)s")
         } catch {
             wavImportError = error.localizedDescription
             print("[MeetingView] importWAV failed: \(error)")

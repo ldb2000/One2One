@@ -108,6 +108,29 @@ final class TranscriptionService: ObservableObject {
                           in context: ModelContext,
                           onPhase: ((TranscriptionPhase) -> Void)? = nil,
                           onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
+        // Auto-réparation : les fichiers compressés peuvent être indécodables par
+        // AVAudioFile (Opus dans .mp4 → length == 0 ; paquets AAC corrompus en
+        // plein flux → ExtAudioFileRead -50, même quand length > 0 et que les
+        // métadonnées semblent saines). Avant de transcrire, tout non-WAV est
+        // transcodé en WAV 16 kHz mono résilient (zones corrompues → silence,
+        // timeline préservée) et la réunion repointée dessus. Couvre les meetings
+        // importés avant que l'import ne fasse lui-même cette conversion.
+        // L'ancien fichier est conservé par prudence.
+        var audioURL = audioURL
+        let (prepared, transcoded) = try await AudioImportService.prepareForPipeline(
+            audioURL, outputDir: audioURL.deletingLastPathComponent())
+        if transcoded {
+            sttLog.warning("audio non-WAV (\(audioURL.lastPathComponent, privacy: .public)) — transcodé en \(prepared.lastPathComponent, privacy: .public)")
+            if meeting.wavFilePath == audioURL.path {
+                meeting.wavFilePath = prepared.path
+                if let f = try? AVAudioFile(forReading: prepared) {
+                    meeting.durationSeconds = Int((Double(f.length) / f.processingFormat.sampleRate).rounded())
+                }
+                try? context.save()
+            }
+            audioURL = prepared
+        }
+
         isTranscribing = true
         progressFraction = 0
         progressLabel = ""

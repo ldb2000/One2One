@@ -155,6 +155,14 @@ final class PyannoteDiarizer {
     /// seul bloc (`haveData` puis `endOfStream`).
     nonisolated private static func loadMono16k(url: URL) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
+        // Codec non décodable (ex. Opus dans .mp4) : le fichier s'ouvre mais
+        // length == 0, et read(into:) échouerait en -50. Message clair plutôt
+        // que l'erreur CoreAudio cryptique.
+        guard file.length > 0 else {
+            throw NSError(domain: "PyannoteDiarizer", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Audio illisible (0 échantillon décodable) — codec non pris en charge. Relancez la transcription : elle ré-encode le fichier en .m4a lisible."
+            ])
+        }
         let inFormat = file.processingFormat
         guard let outFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
