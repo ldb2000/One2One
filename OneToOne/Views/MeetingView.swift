@@ -348,6 +348,52 @@ struct MeetingView: View {
             didAutoStart = true
             Task { await startRecording() }
         }
+        .focusedSceneValue(\.meetingMenu, makeMenuActions())
+    }
+
+    /// Construit la source d'actions partagée par le « ⋯ » et les menus natifs
+    /// (réutilise les mêmes closures que le call-site du chrome bar).
+    private func makeMenuActions() -> MeetingMenuActions {
+        MeetingMenuActions(
+            meetingTitle: meeting.title,
+            isRecording: recorder.isRecording,
+            isPaused: recorder.isPaused,
+            isTranscribing: stt.isTranscribing,
+            isGeneratingReport: isGeneratingReport,
+            hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+            hasPlayableAudio: meeting.hasPlayableAudio,
+            hasReport: !meeting.summary.isEmpty,
+            hasTranscript: !meeting.rawTranscript.isEmpty,
+            startRecording: { Task { await startRecording() } },
+            stopRecording: { Task { await stopRecordingAndTranscribe() } },
+            appendRecording: { Task { await startAppendRecording() } },
+            togglePause: { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
+            retranscribe: { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
+            generateReport: { Task { await generateReport() } },
+            toggleCustomPrompt: { showCustomPrompt.toggle() },
+            importCalendar: { showCalendarImporter = true },
+            importExistingWAV: { showWavImporter = true },
+            editAudio: { audioEditMode = .trimStart },
+            revealWAV: {
+                if let url = meeting.wavFileURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            },
+            deleteMeeting: { showDeleteConfirm = true },
+            exportMarkdown: {
+                let md = ExportService().exportMeetingMarkdown(meeting: meeting)
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(md, forType: .string)
+            },
+            exportPDF: {
+                let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
+                ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
+            },
+            exportMail: { opts in ExportService().exportMeetingMail(meeting: meeting, options: opts) },
+            exportOutlook: { opts in ExportService().exportMeetingOutlook(meeting: meeting, options: opts) },
+            exportAppleNotes: { opts in ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts) }
+        )
     }
 
     // MARK: - Main panel
