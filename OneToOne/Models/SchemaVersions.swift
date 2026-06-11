@@ -46,7 +46,8 @@ enum SchemaV1: VersionedSchema {
             ManagerMeetingReport.self,
             TranscriptSegment.self,
             ReportTemplate.self,
-            ReportRevision.self
+            ReportRevision.self,
+            AgendaProjectRule.self
         ]
     }
 }

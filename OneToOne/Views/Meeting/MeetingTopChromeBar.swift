@@ -58,7 +58,7 @@ struct MeetingTopChromeBar: View {
     /// Crée une note Apple Notes avec le rapport (selon les options).
     let onExportAppleNotes: (MeetingMailExportOptions) -> Void
     /// Force la sauvegarde immédiate du contexte SwiftData.
-    let onSaveNow: () -> Void
+    let onDeleteMeeting: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -436,7 +436,9 @@ struct MeetingTopChromeBar: View {
             Button(action: onRevealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
                 .disabled(!meeting.hasPlayableAudio)
             Divider()
-            Button(action: onSaveNow) { Label("Enregistrer maintenant", systemImage: "checkmark.circle") }
+            Button(role: .destructive, action: onDeleteMeeting) {
+                Label("Supprimer la réunion…", systemImage: "trash")
+            }
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.body)

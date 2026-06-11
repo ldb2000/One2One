@@ -9,10 +9,12 @@ struct AgendaInspectorPanel: View {
 
     @Environment(\.modelContext) private var context
     @Query private var appSettings: [AppSettings]
+    @Query(sort: \Project.name) private var projects: [Project]
 
     @StateObject private var agenda = CalendarAgendaService.shared
     @State private var selectedDate: Date = Date()
     @State private var events: [CalendarMeetingEvent] = []
+    @State private var ruleIndex: AgendaProjectResolver.Index?
 
     private let importer = CalendarMeetingImportService()
 
@@ -98,6 +100,7 @@ struct AgendaInspectorPanel: View {
                         .foregroundStyle(.green)
                 }
             }
+            projectBadge(for: event)
             HStack(spacing: 8) {
                 if let url = event.teamsJoinURL {
                     Button {
@@ -137,6 +140,77 @@ struct AgendaInspectorPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    /// Badge-menu d'affectation projet : reflète la résolution du titre (règle
+    /// manuelle pleine, suggestion auto suffixée « ? », « Ignoré », ou rien) et
+    /// permet d'affecter un projet, confirmer la suggestion, ignorer le titre
+    /// ou retirer la règle. La règle s'applique à toutes les occurrences du titre.
+    @ViewBuilder
+    private func projectBadge(for event: CalendarMeetingEvent) -> some View {
+        let assignment = ruleIndex?.resolve(title: event.title) ?? AgendaProjectAssignment.none
+        Menu {
+            if case .suggested(let project, _) = assignment {
+                Button("Confirmer « \(project.name) »") {
+                    assign(title: event.title, project: project, ignored: false)
+                }
+                Divider()
+            }
+            ForEach(projects) { project in
+                Button {
+                    assign(title: event.title, project: project, ignored: false)
+                } label: {
+                    if case .rule(let rule) = assignment, rule.project === project {
+                        Label(project.name, systemImage: "checkmark")
+                    } else {
+                        Text(project.name)
+                    }
+                }
+            }
+            Divider()
+            Button("Ignorer ce titre") {
+                assign(title: event.title, project: nil, ignored: true)
+            }
+            if case .rule = assignment {
+                Button("Retirer la règle", role: .destructive) {
+                    AgendaProjectResolver.removeRule(for: event.title, context: context)
+                    try? context.save()
+                    reload()
+                }
+            }
+        } label: {
+            badgeLabel(for: assignment)
+                .font(.caption)
+                .lineLimit(1)
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Affecter un projet — la règle s'applique à toutes les occurrences de ce titre")
+    }
+
+    @ViewBuilder
+    private func badgeLabel(for assignment: AgendaProjectAssignment) -> some View {
+        switch assignment {
+        case .rule(let rule) where rule.isIgnored:
+            Label("Ignoré", systemImage: "eye.slash")
+                .foregroundStyle(.secondary)
+        case .rule(let rule):
+            Label(rule.project?.name ?? "Projet…", systemImage: "folder.fill")
+                .foregroundStyle(Color.accentColor)
+        case .suggested(let project, _):
+            Label("\(project.name) ?", systemImage: "folder.badge.questionmark")
+                .foregroundStyle(.secondary)
+        case .none:
+            Label("Projet…", systemImage: "folder.badge.plus")
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func assign(title: String, project: Project?, ignored: Bool) {
+        AgendaProjectResolver.setRule(title: title, project: project, ignored: ignored, context: context)
+        try? context.save()
+        reload()
+    }
+
     private var permissionDeniedView: some View {
         VStack(spacing: 12) {
             Image(systemName: "calendar.badge.exclamationmark")
@@ -169,6 +243,7 @@ struct AgendaInspectorPanel: View {
 
     private func reload() {
         events = agenda.events(for: selectedDate)
+        ruleIndex = AgendaProjectResolver.makeIndex(context: context)
     }
 
     private func existingMeeting(for eventID: String) -> Meeting? {

@@ -132,14 +132,22 @@ final class CalendarMeetingImportService: ObservableObject {
         meeting.calendarEventTitle = event.title
         meeting.meetingDurationSeconds = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
 
-        let suggestion = ProjectMatchService.suggestKind(for: event, context: context, settings: settings)
-        meeting.kind = suggestion.kind
-        if let project = suggestion.project {
-            meeting.project = project
-        }
-        if let collab = suggestion.collaborator,
-           !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
-            meeting.participants.append(collab)
+        // Une règle d'affectation manuelle (titre → projet) prime sur le fuzzy
+        // match. Une règle « Ignoré » n'empêche pas un import explicite.
+        if let rule = AgendaProjectResolver.rule(for: event.title, context: context),
+           let ruleProject = rule.project, !rule.isIgnored {
+            meeting.kind = .project
+            meeting.project = ruleProject
+        } else {
+            let suggestion = ProjectMatchService.suggestKind(for: event, context: context, settings: settings)
+            meeting.kind = suggestion.kind
+            if let project = suggestion.project {
+                meeting.project = project
+            }
+            if let collab = suggestion.collaborator,
+               !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
+                meeting.participants.append(collab)
+            }
         }
 
         // Materialize attendees as Collaborator. Skip self only when we can

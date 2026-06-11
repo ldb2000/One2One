@@ -23,6 +23,8 @@ struct MeetingDetailsBlock: View {
     let addParticipant: (Collaborator) -> Void
     /// Retire un collaborateur des participants.
     let removeParticipant: (Collaborator) -> Void
+    /// Retire tous les participants (et purge les fiches jetables, cf. MeetingView).
+    let removeAllParticipants: () -> Void
     /// Définit le statut de présence (présent/absent) d'un participant.
     let setParticipantStatus: (MeetingAttendanceStatus, Collaborator) -> Void
     /// Renvoie le statut de présence courant d'un collaborateur.
@@ -36,6 +38,9 @@ struct MeetingDetailsBlock: View {
     @State private var showCreateProjectSheet = false
     @State private var showProjectSearch = false
     @State private var showResyncConfirmation: Bool = false
+    @State private var showParticipantSearch = false
+    @State private var showCollaboratorSearch = false
+    @State private var showRemoveAllConfirm = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -169,10 +174,30 @@ struct MeetingDetailsBlock: View {
 
     private var participantsBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("PARTICIPANTS")
-                .font(MeetingTheme.sectionLabel)
-                .tracking(1.2)
-                .foregroundColor(.secondary)
+            HStack(spacing: 10) {
+                Text("PARTICIPANTS")
+                    .font(MeetingTheme.sectionLabel)
+                    .tracking(1.2)
+                    .foregroundColor(.secondary)
+                if !meeting.participants.isEmpty {
+                    Button {
+                        showRemoveAllConfirm = true
+                    } label: {
+                        Label("Tout retirer", systemImage: "person.2.slash")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Retirer tous les participants de la réunion")
+                    .confirmationDialog("Retirer les \(meeting.participants.count) participants ?",
+                                        isPresented: $showRemoveAllConfirm) {
+                        Button("Tout retirer", role: .destructive) { removeAllParticipants() }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text("Les collaborateurs qui n'apparaissent dans aucune autre réunion et n'ont ni notes, ni entretiens, ni actions seront aussi supprimés de l'annuaire.")
+                    }
+                }
+            }
 
             HStack(spacing: 8) {
                 if !meeting.calendarEventTitle.isEmpty {
@@ -238,15 +263,19 @@ struct MeetingDetailsBlock: View {
                     .buttonStyle(.plain)
                 }
 
-                Menu {
-                    ForEach(availableCollaborators) { c in
-                        Button(c.name) { addParticipant(c) }
-                    }
+                Button {
+                    showParticipantSearch.toggle()
                 } label: {
                     Label("Ajouter", systemImage: "plus.circle").font(.caption)
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 100)
+                .buttonStyle(.plain)
+                .popover(isPresented: $showParticipantSearch, arrowEdge: .bottom) {
+                    CollaboratorSearchPicker(
+                        collaborators: availableCollaborators,
+                        tint: settings.meetingParticipantColor,
+                        onSelect: { addParticipant($0) }
+                    )
+                }
             }
         }
     }
@@ -289,16 +318,20 @@ struct MeetingDetailsBlock: View {
                 }
 
                 if !rest.isEmpty {
-                    Menu {
-                        ForEach(rest, id: \.persistentModelID) { c in
-                            Button(c.name) { addParticipant(c) }
-                        }
+                    Button {
+                        showCollaboratorSearch.toggle()
                     } label: {
-                        Label("Plus (\(rest.count))", systemImage: "ellipsis.circle")
+                        Label("Plus (\(rest.count))", systemImage: "magnifyingglass")
                             .font(.caption)
                     }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 110)
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showCollaboratorSearch, arrowEdge: .bottom) {
+                        CollaboratorSearchPicker(
+                            collaborators: ranked,
+                            tint: settings.meetingCollaboratorColor,
+                            onSelect: { addParticipant($0) }
+                        )
+                    }
                 }
             }
         }
@@ -499,6 +532,93 @@ private struct ProjectSearchPicker: View {
         if !project.chefDeProjet.isEmpty { parts.append("CP: \(project.chefDeProjet)") }
         if !project.architecte.isEmpty { parts.append("AT: \(project.architecte)") }
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Recherche collaborateur
+
+/// Popover d'ajout de participants avec champ de recherche en haut — adapté
+/// aux gros annuaires (300+ collaborateurs). Filtre insensible à la casse sur
+/// nom, rôle et email. Le popover reste ouvert après chaque ajout pour
+/// enchaîner plusieurs personnes ; ⏎ ajoute le premier résultat et vide la
+/// recherche. La liste fournie par le parent se réduit au fil des ajouts.
+private struct CollaboratorSearchPicker: View {
+    let collaborators: [Collaborator]
+    /// Couleur des pastilles d'initiales (fallback sans photo).
+    let tint: Color
+    let onSelect: (Collaborator) -> Void
+
+    @State private var query: String = ""
+    @FocusState private var queryFocused: Bool
+
+    private var filtered: [Collaborator] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return collaborators }
+        return collaborators.filter { c in
+            c.name.localizedCaseInsensitiveContains(q) ||
+            c.role.localizedCaseInsensitiveContains(q) ||
+            c.email.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField("Nom, rôle, email…", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($queryFocused)
+                    .onSubmit {
+                        guard let first = filtered.first else { return }
+                        onSelect(first)
+                        query = ""
+                    }
+                if !query.isEmpty {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(.secondary) }
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if filtered.isEmpty {
+                        Text(collaborators.isEmpty ? "Tout le monde participe déjà" : "Aucun résultat")
+                            .font(.caption).foregroundColor(.secondary)
+                            .padding(.horizontal, 10).padding(.vertical, 12)
+                    } else {
+                        ForEach(filtered, id: \.persistentModelID) { c in
+                            Button {
+                                onSelect(c)
+                                query = ""
+                            } label: {
+                                HStack(spacing: 8) {
+                                    AvatarMini(collaborator: c, tint: tint)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(c.name).lineLimit(1)
+                                        let meta = [c.role, c.email].filter { !$0.isEmpty }.joined(separator: " · ")
+                                        if !meta.isEmpty {
+                                            Text(meta).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    Image(systemName: "plus.circle")
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(width: 320, height: 300)
+        }
+        .onAppear { queryFocused = true }
     }
 }
 

@@ -114,6 +114,10 @@ final class Project {
     @Relationship(deleteRule: .cascade, inverse: \Note.project)
     var notes: [Note] = []
 
+    /// Règles d'affectation agenda → projet : supprimées avec le projet.
+    @Relationship(deleteRule: .cascade, inverse: \AgendaProjectRule.project)
+    var agendaRules: [AgendaProjectRule] = []
+
     init(code: String, name: String, domain: String, sponsor: String = "", projectType: String = "Métier", phase: String, status: String = "Unknown") {
         self.code = code
         self.name = name

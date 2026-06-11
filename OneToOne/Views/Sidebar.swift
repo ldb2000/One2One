@@ -849,6 +849,11 @@ struct DashboardView: View {
     @Query private var meetings: [Meeting]
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
+    @ObservedObject private var agenda = CalendarAgendaService.shared
+    private let calendarImporter = CalendarMeetingImportService()
+    /// Événements calendrier des semaines affichées (clé = début de semaine),
+    /// source principale du « Temps passé en réunions ».
+    @State private var agendaEventsByWeek: [Date: [CalendarMeetingEvent]] = [:]
     @State private var showingFileImporter = false
     @State private var showingBacklogImporter = false
     /// Chemin mémorisé du xlsx backlog (canal Teams synchronisé via OneDrive
@@ -938,59 +943,93 @@ struct DashboardView: View {
         Calendar.current.date(byAdding: .day, value: -7, to: currentWeekStart) ?? currentWeekStart
     }
 
-    /// Liste agrégée des meetings d'une semaine, regroupés par "ligne" :
-    /// - Réunions Projet → 1 ligne par projet
-    /// - 1:1 → 1 ligne agrégée "1:1 (cumul)"
-    /// - Architecture (work) → 1 ligne agrégée
-    /// - Globale → 1 ligne agrégée
-    /// - Sans rattachement → "Sans projet"
+    /// Recharge les événements calendrier des deux semaines affichées (sans
+    /// annulés ni journées entières). Sans accès calendrier, le décompte
+    /// retombe sur les seules réunions importées (comportement historique).
+    private func reloadAgendaEvents() {
+        guard agenda.hasCalendarAccess else {
+            agendaEventsByWeek = [:]
+            return
+        }
+        var byWeek: [Date: [CalendarMeetingEvent]] = [:]
+        for weekStart in [currentWeekStart, previousWeekStart] {
+            let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+            byWeek[weekStart] = calendarImporter.fetchEvents(start: weekStart, end: weekEnd)
+                .filter { !$0.isCancelled && !$0.isAllDay }
+        }
+        agendaEventsByWeek = byWeek
+    }
+
+    /// Ligne d'agrégation d'une réunion : projet (1 ligne par projet) ou
+    /// catégorie agrégée (1:1, Manager, Architecture, Globale, Sans projet).
+    private func breakdownKey(for meeting: Meeting) -> (key: String, symbol: String) {
+        switch meeting.kind {
+        case .project:
+            return (meeting.project?.name ?? "Sans projet", MeetingKind.project.sfSymbol)
+        case .oneToOne:
+            return ("1:1 (cumul)", MeetingKind.oneToOne.sfSymbol)
+        case .manager:
+            return ("1:1 Manager (cumul)", MeetingKind.manager.sfSymbol)
+        case .work:
+            return ("Architecture", MeetingKind.work.sfSymbol)
+        case .global:
+            return ("Globale", MeetingKind.global.sfSymbol)
+        }
+    }
+
+    /// Temps de la semaine agrégé par « ligne », en fusionnant agenda et réunions :
+    /// 1. Les événements calendrier sont la source principale. Classement par
+    ///    événement : règle manuelle (projet ou Ignoré → exclu) > réunion
+    ///    importée (`calendarEventID`) > suggestion fuzzy > « Sans projet ».
+    /// 2. Les réunions ad hoc (sans événement calendrier compté en 1) sont
+    ///    ajoutées avec la logique historique — c'est la déduplication.
     private func weeklyTimeBreakdown(weekStart: Date) -> [(name: String, seconds: Int, symbol: String)] {
         let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
         var totals: [String: (seconds: Int, symbol: String)] = [:]
-        for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
-            let secs = meetingTrackedSeconds(meeting)
-            guard secs > 0 else { continue }
-            let key: String
-            let symbol: String
-            switch meeting.kind {
-            case .project:
-                key = meeting.project?.name ?? "Sans projet"
-                symbol = MeetingKind.project.sfSymbol
-            case .oneToOne:
-                key = "1:1 (cumul)"
-                symbol = MeetingKind.oneToOne.sfSymbol
-            case .manager:
-                key = "1:1 Manager (cumul)"
-                symbol = MeetingKind.manager.sfSymbol
-            case .work:
-                key = "Architecture"
-                symbol = MeetingKind.work.sfSymbol
-            case .global:
-                key = "Globale"
-                symbol = MeetingKind.global.sfSymbol
-            }
+        func add(_ key: String, _ symbol: String, _ secs: Int) {
             let prev = totals[key] ?? (0, symbol)
             totals[key] = (prev.seconds + secs, symbol)
         }
+
+        let ruleIndex = AgendaProjectResolver.makeIndex(context: context)
+        let meetingsByEventID = Dictionary(
+            meetings.filter { !$0.calendarEventID.isEmpty }.map { ($0.calendarEventID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // 1. Événements agenda de la semaine.
+        var countedEventIDs = Set<String>()
+        for event in agendaEventsByWeek[weekStart] ?? [] {
+            let secs = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
+            guard secs > 0 else { continue }
+            countedEventIDs.insert(event.id)
+
+            let assignment = ruleIndex.resolve(title: event.title)
+            if assignment.isIgnored { continue }
+            if case .rule(let rule) = assignment, let project = rule.project {
+                add(project.name, MeetingKind.project.sfSymbol, secs)
+            } else if let meeting = meetingsByEventID[event.id] {
+                let line = breakdownKey(for: meeting)
+                add(line.key, line.symbol, secs)
+            } else if case .suggested(let project, _) = assignment {
+                add(project.name, MeetingKind.project.sfSymbol, secs)
+            } else {
+                add("Sans projet", MeetingKind.project.sfSymbol, secs)
+            }
+        }
+
+        // 2. Réunions ad hoc (hors calendrier, ou événement absent du fetch).
+        for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
+            if !meeting.calendarEventID.isEmpty && countedEventIDs.contains(meeting.calendarEventID) { continue }
+            let secs = meetingTrackedSeconds(meeting)
+            guard secs > 0 else { continue }
+            let line = breakdownKey(for: meeting)
+            add(line.key, line.symbol, secs)
+        }
+
         return totals
             .map { (name: $0.key, seconds: $0.value.seconds, symbol: $0.value.symbol) }
             .sorted { $0.seconds > $1.seconds }
-    }
-
-    private var weeklyTimePerProject: [(name: String, seconds: Int, symbol: String)] {
-        weeklyTimeBreakdown(weekStart: currentWeekStart)
-    }
-
-    private var previousWeeklyTimePerProject: [(name: String, seconds: Int, symbol: String)] {
-        weeklyTimeBreakdown(weekStart: previousWeekStart)
-    }
-
-    private var weeklyTimeTotalSeconds: Int {
-        weeklyTimePerProject.reduce(0) { $0 + $1.seconds }
-    }
-
-    private var previousWeeklyTimeTotalSeconds: Int {
-        previousWeeklyTimePerProject.reduce(0) { $0 + $1.seconds }
     }
 
     private static func formatHM(_ seconds: Int) -> String {
@@ -1013,20 +1052,24 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var weeklyTimeSection: some View {
+        // Calculé une fois par semaine affichée (le breakdown fusionne agenda
+        // + réunions avec résolution de règles, inutile de le refaire 2×).
+        let current = weeklyTimeBreakdown(weekStart: currentWeekStart)
+        let previous = weeklyTimeBreakdown(weekStart: previousWeekStart)
         SectionView(title: "Temps passé en réunions") {
             VStack(alignment: .leading, spacing: 16) {
                 weekBreakdownView(
                     title: "Semaine en cours",
                     weekStart: currentWeekStart,
-                    breakdown: weeklyTimePerProject,
-                    total: weeklyTimeTotalSeconds
+                    breakdown: current,
+                    total: current.reduce(0) { $0 + $1.seconds }
                 )
                 Divider()
                 weekBreakdownView(
                     title: "Semaine précédente",
                     weekStart: previousWeekStart,
-                    breakdown: previousWeeklyTimePerProject,
-                    total: previousWeeklyTimeTotalSeconds
+                    breakdown: previous,
+                    total: previous.reduce(0) { $0 + $1.seconds }
                 )
             }
         }
@@ -1426,6 +1469,11 @@ struct DashboardView: View {
                 agendaInspectorOpen = true
             }
         }
+        .task {
+            await agenda.bootstrap()
+            reloadAgendaEvents()
+        }
+        .onChange(of: agenda.eventsToday) { _, _ in reloadAgendaEvents() }
         .fileImporter(
             isPresented: $showingFileImporter,
             allowedContentTypes: [.pdf, .presentation, .plainText, .text, .commaSeparatedText, .spreadsheet, .item],

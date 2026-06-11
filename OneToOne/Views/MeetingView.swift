@@ -112,6 +112,8 @@ struct MeetingView: View {
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
+    @State private var showDeleteConfirm = false
+    @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
     /// instead of `.sheet(isPresented:)` avoids a SwiftUI race where the sheet
@@ -204,8 +206,14 @@ struct MeetingView: View {
                 onExportAppleNotes: { opts in
                     ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts)
                 },
-                onSaveNow: saveMeetingNow
+                onDeleteMeeting: { showDeleteConfirm = true }
             )
+            .confirmationDialog("Supprimer la réunion ?", isPresented: $showDeleteConfirm) {
+                Button("Supprimer", role: .destructive) { deleteMeeting() }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Notes, transcription et rapport seront supprimés définitivement. Le fichier audio sur disque est conservé.")
+            }
 
             HStack {
                 prepBadgeView
@@ -363,6 +371,7 @@ struct MeetingView: View {
                 calendarImportError: $calendarImportError,
                 addParticipant: addParticipant,
                 removeParticipant: removeParticipant,
+                removeAllParticipants: removeAllParticipants,
                 setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
                 participantStatus: { c in participantStatus(for: c) },
                 addAdhoc: addAdhocParticipant,
@@ -1037,6 +1046,38 @@ struct MeetingView: View {
         meeting.participants.removeAll { $0.persistentModelID == c.persistentModelID }
         meeting.clearParticipantStatus(for: c)
         saveContext()
+    }
+
+    /// Retire tous les participants de la réunion. Les fiches « jetables » —
+    /// collaborateurs présents dans aucune autre réunion et sans aucune donnée
+    /// rattachée (entretiens, notes, actions, projets, empreinte vocale, épinglage)
+    /// — sont supprimées de l'annuaire au passage : typiquement les fiches créées
+    /// par import calendrier ou ad-hoc pour cette seule réunion.
+    private func removeAllParticipants() {
+        let removed = meeting.participants
+        meeting.participants.removeAll()
+        for c in removed {
+            meeting.clearParticipantStatus(for: c)
+            if isThrowawayCollaborator(c) {
+                context.delete(c)
+            }
+        }
+        saveContext()
+    }
+
+    /// `true` si le collaborateur ne porte aucune donnée en dehors de la réunion
+    /// courante : aucune autre réunion, ni entretien, note, action, projet (CP/AT),
+    /// empreinte vocale ou épinglage sidebar.
+    private func isThrowawayCollaborator(_ c: Collaborator) -> Bool {
+        let otherMeetings = c.meetings.filter { $0.persistentModelID != meeting.persistentModelID }
+        return otherMeetings.isEmpty
+            && c.interviews.isEmpty
+            && c.notes.isEmpty
+            && c.assignedTasks.isEmpty
+            && c.projectsAsManager.isEmpty
+            && c.projectsAsArchitect.isEmpty
+            && c.voicePrint == nil
+            && c.pinLevel == 0
     }
 
     private func setParticipantStatus(_ status: MeetingAttendanceStatus, for collaborator: Collaborator) {
@@ -2283,8 +2324,22 @@ struct MeetingView: View {
         try? context.save()
     }
 
-    private func saveMeetingNow() {
-        saveContext()
+    /// Supprime la réunion courante après confirmation. Stoppe un éventuel
+    /// enregistrement en cours, quitte la vue PUIS supprime au cycle suivant :
+    /// supprimer le modèle pendant que la vue l'observe ferait crasher SwiftData.
+    /// Le fichier audio sur disque est conservé (récupérable via l'import des
+    /// WAV orphelins).
+    private func deleteMeeting() {
+        if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
+            _ = recorder.stop()
+        }
+        let target = meeting
+        let ctx = context
+        dismiss()
+        Task { @MainActor in
+            ctx.delete(target)
+            do { try ctx.save() } catch { print("[MeetingView] delete FAILED: \(error)") }
+        }
     }
 }
 
