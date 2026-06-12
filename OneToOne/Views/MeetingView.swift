@@ -172,41 +172,10 @@ struct MeetingView: View {
                 reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
                 capturedSlidesCount: currentSlides.count,
-                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
-                onStartRecording: { Task { await startRecording() } },
-                onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
-                onAppendRecording: { Task { await startAppendRecording() } },
-                onTogglePause:    { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
-                onTogglePlay:     { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
-                onRetranscribe:   { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
-                onGenerateReport: { Task { await generateReport() } },
+                actions: makeMenuActions(),
+                onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
-                onShowSlides:       { showSlidesList = true },
-                onToggleCustomPrompt: { showCustomPrompt.toggle() },
-                onImportCalendar:     { showCalendarImporter = true },
-                onImportExistingWAV:  { showWavImporter = true },
-                onRevealWAV: {
-                    if let url = meeting.wavFileURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                },
-                onEditAudio: { audioEditMode = .trimStart },
-                onExportMarkdown: {
-                    let md = ExportService().exportMeetingMarkdown(meeting: meeting)
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(md, forType: .string)
-                },
-                onExportPDF: {
-                    let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
-                    ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
-                },
-                onExportMail:        { opts in ExportService().exportMeetingMail(meeting: meeting, options: opts) },
-                onExportOutlook:     { opts in ExportService().exportMeetingOutlook(meeting: meeting, options: opts) },
-                onExportAppleNotes: { opts in
-                    ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts)
-                },
-                onDeleteMeeting: { showDeleteConfirm = true }
+                onShowSlides: { showSlidesList = true }
             )
             .confirmationDialog("Supprimer la réunion ?", isPresented: $showDeleteConfirm) {
                 Button("Supprimer", role: .destructive) { deleteMeeting() }
