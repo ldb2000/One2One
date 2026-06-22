@@ -10,7 +10,14 @@ import MLX
 /// historique (cache HF + managed + chemin manuel UserDefaults).
 @MainActor
 final class CohereEngine: STTEngine {
-    static let repoId = "beshkenadze/cohere-transcribe-03-2026-mlx-8bit"
+    /// Variantes acceptées, par ordre de préférence. La résolution retient la
+    /// première réellement présente en cache : 8bit (léger) si dispo, sinon la
+    /// fp16 (précise, plus lourde). Évite l'échec « Modèle STT introuvable »
+    /// quand seule l'une des variantes a été téléchargée.
+    static let repoIds = [
+        "beshkenadze/cohere-transcribe-03-2026-mlx-8bit",
+        "beshkenadze/cohere-transcribe-03-2026-mlx-fp16",
+    ]
     static let manualPathKey = "onetoone_cohere_manual_model_path"
 
     #if canImport(MLXAudioSTT)
@@ -32,10 +39,10 @@ final class CohereEngine: STTEngine {
         #if canImport(MLXAudioSTT)
         guard model == nil else { return }
         guard let dir = STTModelResolver.resolveExistingDirectory(
-            repoId: Self.repoId, manualKey: Self.manualPathKey,
+            repoIds: Self.repoIds, manualKey: Self.manualPathKey,
             contains: { STTModelResolver.containsSafetensors($0) }) else {
             throw STTError.modelMissing(searched: STTModelResolver.candidateDirectories(
-                repoId: Self.repoId, manualKey: Self.manualPathKey))
+                repoIds: Self.repoIds, manualKey: Self.manualPathKey))
         }
         do {
             struct Box: @unchecked Sendable { let model: CohereTranscribeModel }
