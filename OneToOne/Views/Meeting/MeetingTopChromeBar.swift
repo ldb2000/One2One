@@ -17,48 +17,17 @@ struct MeetingTopChromeBar: View {
     let reportProgressChars: Int
     let reportElapsedSeconds: Int
     let capturedSlidesCount: Int
-    let hasWav: Bool
 
-    /// Démarre un nouvel enregistrement audio.
-    let onStartRecording: () -> Void
-    /// Arrête l'enregistrement en cours.
-    let onStopRecording: () -> Void
-    /// Reprend l'enregistrement en concaténant à l'audio existant.
-    let onAppendRecording: () -> Void
-    /// Bascule pause/reprise de l'enregistrement.
-    let onTogglePause: () -> Void
+    /// Source d'actions partagée avec les menus natifs (cf. MeetingMenuActions).
+    let actions: MeetingMenuActions
+
+    // Closures propres à la barre (absentes des menus natifs) :
     /// Bascule lecture/pause de l'audio enregistré.
     let onTogglePlay: () -> Void
-    /// Relance la transcription (STT) sur l'audio existant.
-    let onRetranscribe: () -> Void
-    /// Lance la génération du compte-rendu à partir du transcript.
-    let onGenerateReport: () -> Void
     /// Ouvre la configuration de la source de capture d'écran.
     let onShowCaptureSetup: () -> Void
     /// Ouvre la galerie des slides capturées.
     let onShowSlides: () -> Void
-    /// Affiche/masque le champ de prompt spécifique à la réunion.
-    let onToggleCustomPrompt: () -> Void
-    /// Importe un événement depuis le calendrier.
-    let onImportCalendar: () -> Void
-    /// Importe un fichier WAV existant comme audio de la réunion.
-    let onImportExistingWAV: () -> Void
-    /// Révèle le fichier WAV dans le Finder.
-    let onRevealWAV: () -> Void
-    /// Ouvre l'éditeur audio (découpe).
-    let onEditAudio: () -> Void
-    /// Copie le rapport au format Markdown dans le presse-papiers.
-    let onExportMarkdown: () -> Void
-    /// Exporte le rapport en PDF.
-    let onExportPDF: () -> Void
-    /// Crée un e-mail Apple Mail avec le rapport (selon les options choisies).
-    let onExportMail: (MeetingMailExportOptions) -> Void
-    /// Crée un e-mail Microsoft Outlook avec le rapport (selon les options).
-    let onExportOutlook: (MeetingMailExportOptions) -> Void
-    /// Crée une note Apple Notes avec le rapport (selon les options).
-    let onExportAppleNotes: (MeetingMailExportOptions) -> Void
-    /// Force la sauvegarde immédiate du contexte SwiftData.
-    let onSaveNow: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -134,7 +103,7 @@ struct MeetingTopChromeBar: View {
     private var recorderPill: some View {
         if recorder.isRecording {
             recordingPill
-        } else if hasWav {
+        } else if actions.hasWav {
             playbackPill
         } else {
             idlePill
@@ -142,7 +111,7 @@ struct MeetingTopChromeBar: View {
     }
 
     private var idlePill: some View {
-        Button(action: onStartRecording) {
+        Button(action: actions.startRecording) {
             Label("Enregistrer", systemImage: "record.circle")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.white)
@@ -159,13 +128,13 @@ struct MeetingTopChromeBar: View {
             Text(formatDuration(recorder.elapsedSeconds))
                 .font(.caption.monospacedDigit().bold())
                 .foregroundColor(.white)
-            Button(action: onTogglePause) {
+            Button(action: actions.togglePause) {
                 Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
                     .foregroundColor(.white)
                     .font(.caption2)
             }
             .buttonStyle(.plain)
-            Button(action: onStopRecording) {
+            Button(action: actions.stopRecording) {
                 Image(systemName: "stop.fill")
                     .foregroundColor(.white)
                     .font(.caption2)
@@ -189,14 +158,14 @@ struct MeetingTopChromeBar: View {
             Text("\(formatDuration(player.currentTime)) / \(formatDuration(max(player.duration, TimeInterval(meeting.durationSeconds))))")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.white)
-            Button(action: onAppendRecording) {
+            Button(action: actions.appendRecording) {
                 Image(systemName: "plus.circle.fill")
                     .foregroundColor(.white).font(.caption2)
             }
             .buttonStyle(.plain)
             .help("Reprendre l'enregistrement (concaténation)")
             .disabled(stt.isTranscribing || isGeneratingReport)
-            Button(action: onRetranscribe) {
+            Button(action: actions.retranscribe) {
                 Image(systemName: "arrow.clockwise")
                     .foregroundColor(.white).font(.caption2)
             }
@@ -274,7 +243,7 @@ struct MeetingTopChromeBar: View {
     @ViewBuilder
     private var reportButton: some View {
         let disabled = meeting.rawTranscript.isEmpty || recorder.isRecording || stt.isTranscribing || isGeneratingReport
-        Button(action: onGenerateReport) {
+        Button(action: actions.generateReport) {
             HStack(spacing: 6) {
                 if isGeneratingReport {
                     ProgressView().controlSize(.small).tint(.white)
@@ -372,71 +341,49 @@ struct MeetingTopChromeBar: View {
 
     private var moreMenu: some View {
         Menu {
-            Section("Exporter") {
-                Button(action: onExportMarkdown) { Label("Copier Markdown", systemImage: "doc.text") }
-                Button(action: onExportPDF) { Label("Exporter PDF", systemImage: "doc.richtext") }
-
+            Menu {
+                Button(action: actions.exportMarkdown) { Label("Copier Markdown", systemImage: "doc.text") }
+                Button(action: actions.exportPDF) { Label("Exporter PDF", systemImage: "doc.richtext") }
                 Menu {
-                    Button { onExportMail([]) } label: {
-                        Label("Rapport seul", systemImage: "envelope")
-                    }
-                    Button { onExportMail(.includeSlidesPDF) } label: {
-                        Label("Rapport + slides (PDF)", systemImage: "envelope.badge")
-                    }
-                    Button { onExportMail([.includeTranscript]) } label: {
-                        Label("Rapport + transcript", systemImage: "envelope")
-                    }
-                    Button { onExportMail([.includeTranscript, .includeSlidesPDF]) } label: {
-                        Label("Rapport + transcript + slides", systemImage: "envelope.badge")
-                    }
-                } label: {
-                    Label("Envoyer via Apple Mail", systemImage: "envelope")
-                }
-
+                    Button { actions.exportMail([]) } label: { Label("Rapport seul", systemImage: "envelope") }
+                    Button { actions.exportMail(.includeSlidesPDF) } label: { Label("Rapport + slides (PDF)", systemImage: "envelope.badge") }
+                    Button { actions.exportMail([.includeTranscript]) } label: { Label("Rapport + transcript", systemImage: "envelope") }
+                    Button { actions.exportMail([.includeTranscript, .includeSlidesPDF]) } label: { Label("Rapport + transcript + slides", systemImage: "envelope.badge") }
+                } label: { Label("Envoyer via Apple Mail", systemImage: "envelope") }
                 Menu {
-                    Button { onExportOutlook([]) } label: {
-                        Label("Rapport seul", systemImage: "envelope")
-                    }
-                    Button { onExportOutlook(.includeSlidesPDF) } label: {
-                        Label("Rapport + slides (PDF)", systemImage: "envelope.badge")
-                    }
-                    Button { onExportOutlook([.includeTranscript]) } label: {
-                        Label("Rapport + transcript", systemImage: "envelope")
-                    }
-                    Button { onExportOutlook([.includeTranscript, .includeSlidesPDF]) } label: {
-                        Label("Rapport + transcript + slides", systemImage: "envelope.badge")
-                    }
-                } label: {
-                    Label("Envoyer via Microsoft Outlook", systemImage: "paperplane")
-                }
-
+                    Button { actions.exportOutlook([]) } label: { Label("Rapport seul", systemImage: "envelope") }
+                    Button { actions.exportOutlook(.includeSlidesPDF) } label: { Label("Rapport + slides (PDF)", systemImage: "envelope.badge") }
+                    Button { actions.exportOutlook([.includeTranscript]) } label: { Label("Rapport + transcript", systemImage: "envelope") }
+                    Button { actions.exportOutlook([.includeTranscript, .includeSlidesPDF]) } label: { Label("Rapport + transcript + slides", systemImage: "envelope.badge") }
+                } label: { Label("Envoyer via Microsoft Outlook", systemImage: "paperplane") }
                 Menu {
-                    Button { onExportAppleNotes([]) } label: {
-                        Label("Rapport seul", systemImage: "note.text")
-                    }
-                    Button { onExportAppleNotes(.includeSlidesPDF) } label: {
-                        Label("Rapport + slides", systemImage: "note.text.badge.plus")
-                    }
-                    Button { onExportAppleNotes([.includeTranscript]) } label: {
-                        Label("Rapport + transcript", systemImage: "note.text")
-                    }
-                    Button { onExportAppleNotes([.includeTranscript, .includeSlidesPDF]) } label: {
-                        Label("Rapport + transcript + slides", systemImage: "note.text.badge.plus")
-                    }
-                } label: {
-                    Label("Exporter vers Apple Notes", systemImage: "note.text")
-                }
+                    Button { actions.exportAppleNotes([]) } label: { Label("Rapport seul", systemImage: "note.text") }
+                    Button { actions.exportAppleNotes(.includeSlidesPDF) } label: { Label("Rapport + slides", systemImage: "note.text.badge.plus") }
+                    Button { actions.exportAppleNotes([.includeTranscript]) } label: { Label("Rapport + transcript", systemImage: "note.text") }
+                    Button { actions.exportAppleNotes([.includeTranscript, .includeSlidesPDF]) } label: { Label("Rapport + transcript + slides", systemImage: "note.text.badge.plus") }
+                } label: { Label("Exporter vers Apple Notes", systemImage: "note.text") }
+            } label: {
+                Label("Exporter", systemImage: "square.and.arrow.up")
             }
+            .disabled(!actions.hasReport)
+
             Divider()
-            Button(action: onToggleCustomPrompt) { Label("Prompt spécifique", systemImage: "text.bubble") }
-            Button(action: onImportCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
-            Button(action: onImportExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
-            Button(action: onEditAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
-                .disabled(!meeting.hasPlayableAudio)
-            Button(action: onRevealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
-                .disabled(!meeting.hasPlayableAudio)
+            Button(action: actions.toggleCustomPrompt) { Label("Prompt spécifique", systemImage: "text.bubble") }
+            Menu {
+                Button(action: actions.importCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
+                Button(action: actions.importExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
+            } label: { Label("Importer", systemImage: "square.and.arrow.down") }
+            Menu {
+                Button(action: actions.editAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
+                    .disabled(!actions.hasPlayableAudio)
+                Button(action: actions.revealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
+                    .disabled(!actions.hasPlayableAudio)
+            } label: { Label("Audio", systemImage: "waveform") }
+
             Divider()
-            Button(action: onSaveNow) { Label("Enregistrer maintenant", systemImage: "checkmark.circle") }
+            Button(role: .destructive, action: actions.deleteMeeting) {
+                Label("Supprimer la réunion…", systemImage: "trash")
+            }
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.body)

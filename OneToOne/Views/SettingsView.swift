@@ -545,6 +545,10 @@ struct SettingsView: View {
 
                         Divider()
 
+                        AgendaRulesSettingsList()
+
+                        Divider()
+
                         Toggle("Récupérer photos depuis Contacts (auto)", isOn: Binding(
                             get: { settings.contactPhotoSyncEnabled },
                             set: { newValue in
@@ -1171,6 +1175,51 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                }
+            }
+        }
+    }
+}
+
+/// Liste des règles d'affectation agenda → projet (créées depuis le panneau
+/// agenda), avec suppression par ligne. Une règle s'applique à toutes les
+/// occurrences d'un même titre d'événement.
+struct AgendaRulesSettingsList: View {
+    @Environment(\.modelContext) private var context
+    @Query(sort: \AgendaProjectRule.createdAt, order: .reverse) private var rules: [AgendaProjectRule]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Règles d'affectation agenda → projet")
+                .font(.caption)
+            if rules.isEmpty {
+                Text("Aucune règle. Affectez un projet à un événement depuis le panneau Agenda.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else {
+                ForEach(rules) { rule in
+                    HStack(spacing: 8) {
+                        Image(systemName: rule.isIgnored ? "eye.slash" : "folder.fill")
+                            .foregroundStyle(rule.isIgnored ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                        Text(rule.displayTitle)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(rule.isIgnored ? "Ignoré" : (rule.project?.name ?? "Sans projet"))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            context.delete(rule)
+                            try? context.save()
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Supprimer la règle")
+                    }
+                    .font(.caption)
                 }
             }
         }

@@ -8,10 +8,13 @@ import SwiftData
 /// `startAddToManagerReport` / `confirmAddNote`).
 struct AllNotesView: View {
     @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
+    @Query(sort: \Project.name) private var projects: [Project]
+    @Query(sort: \Collaborator.name) private var collaborators: [Collaborator]
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @State private var searchText: String = ""
     @State private var editingNote: Note?
+    @State private var newNote: Note?
     @State private var scopeFilter: ScopeFilter = .all
 
     // Manager report add-from-note flow (mirrors MeetingView)
@@ -71,6 +74,22 @@ struct AllNotesView: View {
                 Spacer()
                 Text("\(filtered.count) note\(filtered.count > 1 ? "s" : "")")
                     .font(.caption).foregroundColor(.secondary)
+                Menu {
+                    Button("Note libre") { startNewNote() }
+                    Menu("Pour un projet") {
+                        ForEach(projects) { p in
+                            Button(p.name) { startNewNote(project: p) }
+                        }
+                    }
+                    Menu("Pour un collaborateur") {
+                        ForEach(collaborators) { c in
+                            Button(c.name) { startNewNote(collaborator: c) }
+                        }
+                    }
+                } label: {
+                    Label("Nouvelle note", systemImage: "plus")
+                }
+                .fixedSize()
             }
 
             HStack {
@@ -88,7 +107,7 @@ struct AllNotesView: View {
                     notes.isEmpty ? "Aucune note" : "Aucun résultat",
                     systemImage: "note.text",
                     description: Text(notes.isEmpty
-                        ? "Crée une note depuis la fiche d'un projet ou d'un collaborateur."
+                        ? "Clique « Nouvelle note », ou crée une note depuis la fiche d'un projet ou d'un collaborateur."
                         : "Aucune note ne correspond à cette recherche.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -122,6 +141,9 @@ struct AllNotesView: View {
         .sheet(item: $editingNote) { n in
             NoteEditorSheet(note: n)
         }
+        .sheet(item: $newNote) { n in
+            NoteEditorSheet(note: n, isNew: true)
+        }
         .sheet(item: $pendingNoteAdd) { pending in
             ManagerClassificationSheet(
                 snippet: noteSnippetFor(pending.note),
@@ -144,6 +166,14 @@ struct AllNotesView: View {
                 }
             )
         }
+    }
+
+    /// Crée une note (libre, projet ou collaborateur) et ouvre l'éditeur en
+    /// mode création — « Annuler » supprimera la note pré-insérée.
+    private func startNewNote(project: Project? = nil, collaborator: Collaborator? = nil) {
+        let note = Note(project: project, collaborator: collaborator)
+        context.insert(note)
+        newNote = note
     }
 
     // MARK: - Add note to manager report

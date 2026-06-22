@@ -1,21 +1,32 @@
 import SwiftUI
 
-/// Pastille ronde teintée affichant les initiales d'un collaborateur.
+/// Pastille ronde d'un collaborateur : sa photo si disponible, sinon ses
+/// initiales sur fond teinté.
 struct AvatarCircle: View {
     let collaborator: Collaborator
     /// Diamètre de la pastille en points.
     let size: CGFloat
-    /// Couleur de fond de la pastille.
+    /// Couleur de fond de la pastille (fallback initiales).
     let tint: Color
 
     var body: some View {
-        ZStack {
-            Circle().fill(tint)
-            Text(initials(for: collaborator.name))
-                .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+        Group {
+            if let url = collaborator.photoURL(),
+               let image = NSImage(contentsOf: url) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Circle().fill(tint)
+                    Text(initials(for: collaborator.name))
+                        .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+            }
         }
         .frame(width: size, height: size)
+        .clipShape(Circle())
     }
 
     /// Calcule jusqu'à deux initiales en majuscules à partir des deux premiers mots du nom.

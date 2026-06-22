@@ -15,9 +15,11 @@ struct MeetingsListView: View {
     @State private var searchText = ""
     @State private var filterProject: Project?
     @State private var filterKind: MeetingKind? = nil
+    @State private var filterCollaborator: Collaborator?
     @State private var bulkImportReport: String?
     @State private var isBulkImporting = false
     @State private var showProjectFilterPicker = false
+    @State private var showCollaboratorFilterPicker = false
     @State private var agendaInspectorOpen: Bool = false
     @Query private var allAppSettings: [AppSettings]
 
@@ -33,6 +35,26 @@ struct MeetingsListView: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Nombre de réunions par collaborateur participant (pour le picker du filtre).
+    private var collaboratorMeetingCounts: [PersistentIdentifier: Int] {
+        var counts: [PersistentIdentifier: Int] = [:]
+        for meeting in meetings {
+            for p in meeting.participants {
+                counts[p.persistentModelID, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    /// Collaborateurs participant à au moins une réunion — même logique que
+    /// `projectsWithMeetings` : pas de bruit dans le filtre.
+    private var collaboratorsWithMeetings: [Collaborator] {
+        let counts = collaboratorMeetingCounts
+        return collaborators
+            .filter { (counts[$0.persistentModelID] ?? 0) > 0 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private var filteredMeetings: [Meeting] {
         var result = meetings
 
@@ -44,6 +66,12 @@ struct MeetingsListView: View {
             result = result.filter { meeting in
                 meeting.kind == .oneToOne &&
                 meeting.participants.contains(where: { $0.ensuredStableID == collab.ensuredStableID })
+            }
+        }
+
+        if let collab = filterCollaborator {
+            result = result.filter { meeting in
+                meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID })
             }
         }
 
@@ -74,8 +102,9 @@ struct MeetingsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Filters
-            HStack(spacing: 12) {
+            // Filters — chips harmonisées : Type (menu), Projet et Collaborateur
+            // (popovers avec recherche). Une chip active est teintée accent.
+            HStack(spacing: 8) {
                 Menu {
                     Button {
                         filterKind = nil
@@ -91,43 +120,25 @@ struct MeetingsListView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: filterKind?.sfSymbol ?? "line.3.horizontal.decrease.circle")
-                            .foregroundColor(.secondary)
-                        Text(filterKind?.label ?? "Tous types")
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2).foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    )
+                    filterChip(icon: filterKind?.sfSymbol ?? "line.3.horizontal.decrease",
+                               text: filterKind?.label ?? "Type",
+                               isActive: filterKind != nil)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Filtrer par type de réunion")
 
                 Button {
                     showProjectFilterPicker.toggle()
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                        if let p = filterProject {
-                            Text(p.code).font(.caption.monospaced()).foregroundColor(.secondary)
-                            Text(p.name).lineLimit(1).truncationMode(.tail)
-                        } else {
-                            Text("Tous les projets").foregroundColor(.secondary)
-                        }
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2).foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .frame(maxWidth: 280, alignment: .leading)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    )
+                    filterChip(icon: "folder",
+                               text: filterProject?.name ?? "Projet",
+                               isActive: filterProject != nil,
+                               maxWidth: 240)
                 }
                 .buttonStyle(.plain)
+                .help("Filtrer par projet")
                 .popover(isPresented: $showProjectFilterPicker, arrowEdge: .bottom) {
                     MeetingsProjectFilterPicker(
                         projects: projectsWithMeetings,
@@ -141,6 +152,43 @@ struct MeetingsListView: View {
                             showProjectFilterPicker = false
                         }
                     )
+                }
+
+                Button {
+                    showCollaboratorFilterPicker.toggle()
+                } label: {
+                    filterChip(icon: "person.2",
+                               text: filterCollaborator?.name ?? "Collaborateur",
+                               isActive: filterCollaborator != nil,
+                               maxWidth: 220,
+                               avatar: filterCollaborator)
+                }
+                .buttonStyle(.plain)
+                .help("Filtrer par collaborateur participant")
+                .popover(isPresented: $showCollaboratorFilterPicker, arrowEdge: .bottom) {
+                    MeetingsCollaboratorFilterPicker(
+                        collaborators: collaboratorsWithMeetings,
+                        selected: filterCollaborator,
+                        meetingCounts: collaboratorMeetingCounts,
+                        onSelect: { c in
+                            filterCollaborator = c
+                            showCollaboratorFilterPicker = false
+                        }
+                    )
+                }
+
+                if filterKind != nil || filterProject != nil || filterCollaborator != nil {
+                    Button {
+                        filterKind = nil
+                        filterProject = nil
+                        filterCollaborator = nil
+                    } label: {
+                        Label("Réinitialiser", systemImage: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Effacer tous les filtres")
                 }
 
                 Spacer()
@@ -261,6 +309,43 @@ struct MeetingsListView: View {
         }
         .searchable(text: $searchText, prompt: "Rechercher (titre, rapport, transcription, notes…)")
         .navigationTitle("Réunions")
+    }
+
+    /// Capsule de filtre : avatar (si fourni) ou icône, libellé, chevron.
+    /// Active → teintée accent ; inactive → neutre discrète.
+    @ViewBuilder
+    private func filterChip(icon: String,
+                            text: String,
+                            isActive: Bool,
+                            maxWidth: CGFloat? = nil,
+                            avatar: Collaborator? = nil) -> some View {
+        HStack(spacing: 6) {
+            if let avatar {
+                AvatarCircle(collaborator: avatar, size: 16, tint: .accentColor)
+            } else {
+                Image(systemName: icon)
+                    .font(.caption)
+            }
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption2)
+                .opacity(0.6)
+        }
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(maxWidth: maxWidth)
+        .fixedSize(horizontal: maxWidth == nil, vertical: false)
+        .background(
+            Capsule().fill(isActive ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.07))
+        )
+        .overlay(
+            Capsule().stroke(isActive ? Color.accentColor.opacity(0.45) : Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .foregroundColor(isActive ? .accentColor : .primary)
+        .contentShape(Capsule())
     }
 
     /// Crée une réunion vide (titre vide, date du jour, sans notes), l'insère
@@ -470,6 +555,104 @@ private struct MeetingsProjectFilterPicker: View {
         if !project.chefDeProjet.isEmpty { parts.append("CP: \(project.chefDeProjet)") }
         if !project.architecte.isEmpty { parts.append("AT: \(project.architecte)") }
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Filtre collaborateur avec recherche
+
+/// Popover de sélection de collaborateur pour le filtre de la liste réunions :
+/// ne propose QUE les collaborateurs participant à au moins une réunion ;
+/// recherche case-insensitive sur nom et email, avatar et compteur par ligne.
+private struct MeetingsCollaboratorFilterPicker: View {
+    let collaborators: [Collaborator]
+    let selected: Collaborator?
+    let meetingCounts: [PersistentIdentifier: Int]
+    let onSelect: (Collaborator?) -> Void
+
+    @State private var query: String = ""
+    @FocusState private var queryFocused: Bool
+
+    private var filtered: [Collaborator] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return collaborators }
+        return collaborators.filter { c in
+            c.name.localizedCaseInsensitiveContains(q) ||
+            c.email.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField("Nom, email…", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($queryFocused)
+                if !query.isEmpty {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(.secondary) }
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        onSelect(nil)
+                    } label: {
+                        HStack {
+                            Image(systemName: selected == nil ? "checkmark" : "circle.dotted")
+                                .foregroundColor(selected == nil ? .accentColor : .secondary)
+                                .frame(width: 18)
+                            Text("Tous les collaborateurs")
+                            Spacer()
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+
+                    if filtered.isEmpty {
+                        Text("Aucun collaborateur correspondant")
+                            .font(.caption).foregroundColor(.secondary)
+                            .padding(.horizontal, 10).padding(.vertical, 12)
+                    } else {
+                        ForEach(filtered) { collab in
+                            Button {
+                                onSelect(collab)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: collab == selected ? "checkmark" : "circle")
+                                        .foregroundColor(collab == selected ? .accentColor : .secondary)
+                                        .frame(width: 18)
+                                    AvatarCircle(collaborator: collab, size: 22, tint: .accentColor)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(collab.name).lineLimit(1)
+                                        if !collab.email.isEmpty {
+                                            Text(collab.email)
+                                                .font(.caption2).foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    let count = meetingCounts[collab.persistentModelID] ?? 0
+                                    Text("\(count)").font(.caption.monospacedDigit()).foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(collab == selected ? Color.accentColor.opacity(0.08) : Color.clear)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(width: 340, height: 320)
+        }
+        .onAppear { queryFocused = true }
     }
 }
 

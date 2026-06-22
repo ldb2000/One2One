@@ -112,6 +112,8 @@ struct MeetingView: View {
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
+    @State private var showDeleteConfirm = false
+    @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
     /// instead of `.sheet(isPresented:)` avoids a SwiftUI race where the sheet
@@ -170,42 +172,17 @@ struct MeetingView: View {
                 reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
                 capturedSlidesCount: currentSlides.count,
-                hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
-                onStartRecording: { Task { await startRecording() } },
-                onStopRecording:  { Task { await stopRecordingAndTranscribe() } },
-                onAppendRecording: { Task { await startAppendRecording() } },
-                onTogglePause:    { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
-                onTogglePlay:     { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
-                onRetranscribe:   { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
-                onGenerateReport: { Task { await generateReport() } },
+                actions: makeMenuActions(),
+                onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
-                onShowSlides:       { showSlidesList = true },
-                onToggleCustomPrompt: { showCustomPrompt.toggle() },
-                onImportCalendar:     { showCalendarImporter = true },
-                onImportExistingWAV:  { showWavImporter = true },
-                onRevealWAV: {
-                    if let url = meeting.wavFileURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                },
-                onEditAudio: { audioEditMode = .trimStart },
-                onExportMarkdown: {
-                    let md = ExportService().exportMeetingMarkdown(meeting: meeting)
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(md, forType: .string)
-                },
-                onExportPDF: {
-                    let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
-                    ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
-                },
-                onExportMail:        { opts in ExportService().exportMeetingMail(meeting: meeting, options: opts) },
-                onExportOutlook:     { opts in ExportService().exportMeetingOutlook(meeting: meeting, options: opts) },
-                onExportAppleNotes: { opts in
-                    ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts)
-                },
-                onSaveNow: saveMeetingNow
+                onShowSlides: { showSlidesList = true }
             )
+            .confirmationDialog("Supprimer la réunion ?", isPresented: $showDeleteConfirm) {
+                Button("Supprimer", role: .destructive) { deleteMeeting() }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Notes, transcription et rapport seront supprimés définitivement. Le fichier audio sur disque est conservé.")
+            }
 
             HStack {
                 prepBadgeView
@@ -340,6 +317,52 @@ struct MeetingView: View {
             didAutoStart = true
             Task { await startRecording() }
         }
+        .focusedSceneValue(\.meetingMenu, makeMenuActions())
+    }
+
+    /// Construit la source d'actions partagée par le « ⋯ » et les menus natifs
+    /// (réutilise les mêmes closures que le call-site du chrome bar).
+    private func makeMenuActions() -> MeetingMenuActions {
+        MeetingMenuActions(
+            meetingTitle: meeting.title,
+            isRecording: recorder.isRecording,
+            isPaused: recorder.isPaused,
+            isTranscribing: stt.isTranscribing,
+            isGeneratingReport: isGeneratingReport,
+            hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
+            hasPlayableAudio: meeting.hasPlayableAudio,
+            hasReport: !meeting.summary.isEmpty,
+            hasTranscript: !meeting.rawTranscript.isEmpty,
+            startRecording: { Task { await startRecording() } },
+            stopRecording: { Task { await stopRecordingAndTranscribe() } },
+            appendRecording: { Task { await startAppendRecording() } },
+            togglePause: { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
+            retranscribe: { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
+            generateReport: { Task { await generateReport() } },
+            toggleCustomPrompt: { showCustomPrompt.toggle() },
+            importCalendar: { showCalendarImporter = true },
+            importExistingWAV: { showWavImporter = true },
+            editAudio: { audioEditMode = .trimStart },
+            revealWAV: {
+                if let url = meeting.wavFileURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            },
+            deleteMeeting: { showDeleteConfirm = true },
+            exportMarkdown: {
+                let md = ExportService().exportMeetingMarkdown(meeting: meeting)
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(md, forType: .string)
+            },
+            exportPDF: {
+                let name = "Reunion_\(meeting.date.formatted(.iso8601.year().month().day()))_\(meeting.title).pdf"
+                ExportService().exportMeetingPDF(meeting: meeting, fileName: name)
+            },
+            exportMail: { opts in ExportService().exportMeetingMail(meeting: meeting, options: opts) },
+            exportOutlook: { opts in ExportService().exportMeetingOutlook(meeting: meeting, options: opts) },
+            exportAppleNotes: { opts in ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts) }
+        )
     }
 
     // MARK: - Main panel
@@ -363,6 +386,7 @@ struct MeetingView: View {
                 calendarImportError: $calendarImportError,
                 addParticipant: addParticipant,
                 removeParticipant: removeParticipant,
+                removeAllParticipants: removeAllParticipants,
                 setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
                 participantStatus: { c in participantStatus(for: c) },
                 addAdhoc: addAdhocParticipant,
@@ -1037,6 +1061,38 @@ struct MeetingView: View {
         meeting.participants.removeAll { $0.persistentModelID == c.persistentModelID }
         meeting.clearParticipantStatus(for: c)
         saveContext()
+    }
+
+    /// Retire tous les participants de la réunion. Les fiches « jetables » —
+    /// collaborateurs présents dans aucune autre réunion et sans aucune donnée
+    /// rattachée (entretiens, notes, actions, projets, empreinte vocale, épinglage)
+    /// — sont supprimées de l'annuaire au passage : typiquement les fiches créées
+    /// par import calendrier ou ad-hoc pour cette seule réunion.
+    private func removeAllParticipants() {
+        let removed = meeting.participants
+        meeting.participants.removeAll()
+        for c in removed {
+            meeting.clearParticipantStatus(for: c)
+            if isThrowawayCollaborator(c) {
+                context.delete(c)
+            }
+        }
+        saveContext()
+    }
+
+    /// `true` si le collaborateur ne porte aucune donnée en dehors de la réunion
+    /// courante : aucune autre réunion, ni entretien, note, action, projet (CP/AT),
+    /// empreinte vocale ou épinglage sidebar.
+    private func isThrowawayCollaborator(_ c: Collaborator) -> Bool {
+        let otherMeetings = c.meetings.filter { $0.persistentModelID != meeting.persistentModelID }
+        return otherMeetings.isEmpty
+            && c.interviews.isEmpty
+            && c.notes.isEmpty
+            && c.assignedTasks.isEmpty
+            && c.projectsAsManager.isEmpty
+            && c.projectsAsArchitect.isEmpty
+            && c.voicePrint == nil
+            && c.pinLevel == 0
     }
 
     private func setParticipantStatus(_ status: MeetingAttendanceStatus, for collaborator: Collaborator) {
@@ -2283,8 +2339,22 @@ struct MeetingView: View {
         try? context.save()
     }
 
-    private func saveMeetingNow() {
-        saveContext()
+    /// Supprime la réunion courante après confirmation. Stoppe un éventuel
+    /// enregistrement en cours, quitte la vue PUIS supprime au cycle suivant :
+    /// supprimer le modèle pendant que la vue l'observe ferait crasher SwiftData.
+    /// Le fichier audio sur disque est conservé (récupérable via l'import des
+    /// WAV orphelins).
+    private func deleteMeeting() {
+        if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
+            _ = recorder.stop()
+        }
+        let target = meeting
+        let ctx = context
+        dismiss()
+        Task { @MainActor in
+            ctx.delete(target)
+            do { try ctx.save() } catch { print("[MeetingView] delete FAILED: \(error)") }
+        }
     }
 }
 

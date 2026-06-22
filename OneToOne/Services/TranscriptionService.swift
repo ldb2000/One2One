@@ -66,7 +66,7 @@ enum STTError: LocalizedError {
 /// Transcription locale via modèle Cohere MLX 8-bit (même moteur que Mickey).
 ///
 /// Résolution du modèle — ordre de priorité :
-///   1. HuggingFace cache partagé : `~/.cache/huggingface/hub/models--beshkenadze--cohere-transcribe-03-2026-mlx-8bit/snapshots/<commit>/`
+///   1. HuggingFace cache partagé : `~/.cache/huggingface/hub/models--beshkenadze--cohere-transcribe-03-2026-mlx-{8bit,fp16}/snapshots/<commit>/` (1re variante présente)
 ///   2. Dossier géré par OneToOne : `~/Library/Application Support/OneToOne/models/…/`
 ///   3. Chemin manuel (UserDefaults, NSOpenPanel)
 @MainActor

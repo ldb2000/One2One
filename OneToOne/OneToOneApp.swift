@@ -73,6 +73,7 @@ struct OneToOneApp: App {
                 .environmentObject(router)
         }
         .modelContainer(container)
+        .commands { MeetingCommands() }
 
         WindowGroup(id: "1to1-meeting", for: OneToOneLaunchToken.self) { $token in
             OneToOneMeetingWindowContent(token: token)

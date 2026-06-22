@@ -849,8 +849,17 @@ struct DashboardView: View {
     @Query private var meetings: [Meeting]
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
+    @ObservedObject private var agenda = CalendarAgendaService.shared
+    private let calendarImporter = CalendarMeetingImportService()
+    /// Événements calendrier des semaines affichées (clé = début de semaine),
+    /// source principale du « Temps passé en réunions ».
+    @State private var agendaEventsByWeek: [Date: [CalendarMeetingEvent]] = [:]
     @State private var showingFileImporter = false
     @State private var showingBacklogImporter = false
+    /// Chemin mémorisé du xlsx backlog (canal Teams synchronisé via OneDrive
+    /// dans ~/Library/CloudStorage). Propre à la machine → UserDefaults, pas
+    /// AppSettings (le chemin n'a pas de sens dans un backup restauré ailleurs).
+    @AppStorage("backlogXlsxPath") private var backlogXlsxPath: String = ""
     @State private var agendaInspectorOpen: Bool = false
     @State private var heatmapSelectedEntity: Entity? = nil
     @State private var isProcessing = false
@@ -934,59 +943,93 @@ struct DashboardView: View {
         Calendar.current.date(byAdding: .day, value: -7, to: currentWeekStart) ?? currentWeekStart
     }
 
-    /// Liste agrégée des meetings d'une semaine, regroupés par "ligne" :
-    /// - Réunions Projet → 1 ligne par projet
-    /// - 1:1 → 1 ligne agrégée "1:1 (cumul)"
-    /// - Architecture (work) → 1 ligne agrégée
-    /// - Globale → 1 ligne agrégée
-    /// - Sans rattachement → "Sans projet"
+    /// Recharge les événements calendrier des deux semaines affichées (sans
+    /// annulés ni journées entières). Sans accès calendrier, le décompte
+    /// retombe sur les seules réunions importées (comportement historique).
+    private func reloadAgendaEvents() {
+        guard agenda.hasCalendarAccess else {
+            agendaEventsByWeek = [:]
+            return
+        }
+        var byWeek: [Date: [CalendarMeetingEvent]] = [:]
+        for weekStart in [currentWeekStart, previousWeekStart] {
+            let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+            byWeek[weekStart] = calendarImporter.fetchEvents(start: weekStart, end: weekEnd)
+                .filter { !$0.isCancelled && !$0.isAllDay }
+        }
+        agendaEventsByWeek = byWeek
+    }
+
+    /// Ligne d'agrégation d'une réunion : projet (1 ligne par projet) ou
+    /// catégorie agrégée (1:1, Manager, Architecture, Globale, Sans projet).
+    private func breakdownKey(for meeting: Meeting) -> (key: String, symbol: String) {
+        switch meeting.kind {
+        case .project:
+            return (meeting.project?.name ?? "Sans projet", MeetingKind.project.sfSymbol)
+        case .oneToOne:
+            return ("1:1 (cumul)", MeetingKind.oneToOne.sfSymbol)
+        case .manager:
+            return ("1:1 Manager (cumul)", MeetingKind.manager.sfSymbol)
+        case .work:
+            return ("Architecture", MeetingKind.work.sfSymbol)
+        case .global:
+            return ("Globale", MeetingKind.global.sfSymbol)
+        }
+    }
+
+    /// Temps de la semaine agrégé par « ligne », en fusionnant agenda et réunions :
+    /// 1. Les événements calendrier sont la source principale. Classement par
+    ///    événement : règle manuelle (projet ou Ignoré → exclu) > réunion
+    ///    importée (`calendarEventID`) > suggestion fuzzy > « Sans projet ».
+    /// 2. Les réunions ad hoc (sans événement calendrier compté en 1) sont
+    ///    ajoutées avec la logique historique — c'est la déduplication.
     private func weeklyTimeBreakdown(weekStart: Date) -> [(name: String, seconds: Int, symbol: String)] {
         let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
         var totals: [String: (seconds: Int, symbol: String)] = [:]
-        for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
-            let secs = meetingTrackedSeconds(meeting)
-            guard secs > 0 else { continue }
-            let key: String
-            let symbol: String
-            switch meeting.kind {
-            case .project:
-                key = meeting.project?.name ?? "Sans projet"
-                symbol = MeetingKind.project.sfSymbol
-            case .oneToOne:
-                key = "1:1 (cumul)"
-                symbol = MeetingKind.oneToOne.sfSymbol
-            case .manager:
-                key = "1:1 Manager (cumul)"
-                symbol = MeetingKind.manager.sfSymbol
-            case .work:
-                key = "Architecture"
-                symbol = MeetingKind.work.sfSymbol
-            case .global:
-                key = "Globale"
-                symbol = MeetingKind.global.sfSymbol
-            }
+        func add(_ key: String, _ symbol: String, _ secs: Int) {
             let prev = totals[key] ?? (0, symbol)
             totals[key] = (prev.seconds + secs, symbol)
         }
+
+        let ruleIndex = AgendaProjectResolver.makeIndex(context: context)
+        let meetingsByEventID = Dictionary(
+            meetings.filter { !$0.calendarEventID.isEmpty }.map { ($0.calendarEventID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // 1. Événements agenda de la semaine.
+        var countedEventIDs = Set<String>()
+        for event in agendaEventsByWeek[weekStart] ?? [] {
+            let secs = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
+            guard secs > 0 else { continue }
+            countedEventIDs.insert(event.id)
+
+            let assignment = ruleIndex.resolve(title: event.title)
+            if assignment.isIgnored { continue }
+            if case .rule(let rule) = assignment, let project = rule.project {
+                add(project.name, MeetingKind.project.sfSymbol, secs)
+            } else if let meeting = meetingsByEventID[event.id] {
+                let line = breakdownKey(for: meeting)
+                add(line.key, line.symbol, secs)
+            } else if case .suggested(let project, _) = assignment {
+                add(project.name, MeetingKind.project.sfSymbol, secs)
+            } else {
+                add("Sans projet", MeetingKind.project.sfSymbol, secs)
+            }
+        }
+
+        // 2. Réunions ad hoc (hors calendrier, ou événement absent du fetch).
+        for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
+            if !meeting.calendarEventID.isEmpty && countedEventIDs.contains(meeting.calendarEventID) { continue }
+            let secs = meetingTrackedSeconds(meeting)
+            guard secs > 0 else { continue }
+            let line = breakdownKey(for: meeting)
+            add(line.key, line.symbol, secs)
+        }
+
         return totals
             .map { (name: $0.key, seconds: $0.value.seconds, symbol: $0.value.symbol) }
             .sorted { $0.seconds > $1.seconds }
-    }
-
-    private var weeklyTimePerProject: [(name: String, seconds: Int, symbol: String)] {
-        weeklyTimeBreakdown(weekStart: currentWeekStart)
-    }
-
-    private var previousWeeklyTimePerProject: [(name: String, seconds: Int, symbol: String)] {
-        weeklyTimeBreakdown(weekStart: previousWeekStart)
-    }
-
-    private var weeklyTimeTotalSeconds: Int {
-        weeklyTimePerProject.reduce(0) { $0 + $1.seconds }
-    }
-
-    private var previousWeeklyTimeTotalSeconds: Int {
-        previousWeeklyTimePerProject.reduce(0) { $0 + $1.seconds }
     }
 
     private static func formatHM(_ seconds: Int) -> String {
@@ -1009,20 +1052,24 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var weeklyTimeSection: some View {
+        // Calculé une fois par semaine affichée (le breakdown fusionne agenda
+        // + réunions avec résolution de règles, inutile de le refaire 2×).
+        let current = weeklyTimeBreakdown(weekStart: currentWeekStart)
+        let previous = weeklyTimeBreakdown(weekStart: previousWeekStart)
         SectionView(title: "Temps passé en réunions") {
             VStack(alignment: .leading, spacing: 16) {
                 weekBreakdownView(
                     title: "Semaine en cours",
                     weekStart: currentWeekStart,
-                    breakdown: weeklyTimePerProject,
-                    total: weeklyTimeTotalSeconds
+                    breakdown: current,
+                    total: current.reduce(0) { $0 + $1.seconds }
                 )
                 Divider()
                 weekBreakdownView(
                     title: "Semaine précédente",
                     weekStart: previousWeekStart,
-                    breakdown: previousWeeklyTimePerProject,
-                    total: previousWeeklyTimeTotalSeconds
+                    breakdown: previous,
+                    total: previous.reduce(0) { $0 + $1.seconds }
                 )
             }
         }
@@ -1159,7 +1206,14 @@ struct DashboardView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(isProcessing)
 
-                    Button(action: { showingBacklogImporter = true }) {
+                    Menu {
+                        if !backlogXlsxPath.isEmpty {
+                            Text((backlogXlsxPath as NSString).abbreviatingWithTildeInPath)
+                            Button("Oublier ce fichier") { backlogXlsxPath = "" }
+                            Divider()
+                        }
+                        Button("Choisir le fichier xlsx…") { showingBacklogImporter = true }
+                    } label: {
                         if backlogImportRunning {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
@@ -1168,10 +1222,14 @@ struct DashboardView: View {
                         } else {
                             Label("Importer Backlog Projets", systemImage: "tablecells.badge.ellipsis")
                         }
+                    } primaryAction: {
+                        Task { await runBacklogImportFromKnownPath() }
                     }
                     .buttonStyle(.bordered)
                     .disabled(backlogImportRunning)
-                    .help("Importer / mettre à jour les projets depuis l'export xlsx (feuille Backlog_2025).")
+                    .help(backlogXlsxPath.isEmpty
+                        ? "Importer / mettre à jour les projets depuis l'export xlsx (feuille Backlog_2025)."
+                        : "Met à jour les projets depuis \((backlogXlsxPath as NSString).abbreviatingWithTildeInPath).")
                 }
 
                 heatmapSection
@@ -1411,6 +1469,11 @@ struct DashboardView: View {
                 agendaInspectorOpen = true
             }
         }
+        .task {
+            await agenda.bootstrap()
+            reloadAgendaEvents()
+        }
+        .onChange(of: agenda.eventsToday) { _, _ in reloadAgendaEvents() }
         .fileImporter(
             isPresented: $showingFileImporter,
             allowedContentTypes: [.pdf, .presentation, .plainText, .text, .commaSeparatedText, .spreadsheet, .item],
@@ -1441,19 +1504,77 @@ struct DashboardView: View {
         }
     }
 
+    /// Action principale du bouton backlog : importe depuis le chemin
+    /// mémorisé (canal Teams synchronisé OneDrive), sinon tente une
+    /// auto-détection dans ~/Library/CloudStorage, sinon ouvre le sélecteur.
+    private func runBacklogImportFromKnownPath() async {
+        if !backlogXlsxPath.isEmpty,
+           FileManager.default.fileExists(atPath: backlogXlsxPath) {
+            await runBacklogImport(xlsx: URL(fileURLWithPath: backlogXlsxPath))
+            return
+        }
+        if let detected = await Task.detached(priority: .userInitiated, operation: {
+            Self.detectBacklogXlsx()
+        }).value {
+            await runBacklogImport(xlsx: detected)
+            return
+        }
+        showingBacklogImporter = true
+    }
+
+    /// Cherche le xlsx backlog dans les bibliothèques OneDrive/SharePoint
+    /// synchronisées (~/Library/CloudStorage), p.ex. après « Ajouter un
+    /// raccourci à OneDrive » sur le dossier 04_SUIVI_PROJET du canal Teams
+    /// ADSF-EquipeChefdeProjets. Ignore les copies des conversations Teams
+    /// (souvent périmées) et retourne le millésime le plus récent
+    /// (`STTi_BACKLOG_PROJET_<année>.xlsx` max).
+    private nonisolated static func detectBacklogXlsx() -> URL? {
+        let fm = FileManager.default
+        let cloudRoot = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/CloudStorage")
+        guard let providers = try? fm.contentsOfDirectory(
+            at: cloudRoot, includingPropertiesForKeys: nil
+        ) else { return nil }
+
+        var candidates: [URL] = []
+        for provider in providers {
+            guard let enumerator = fm.enumerator(
+                at: provider,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+            for case let url as URL in enumerator {
+                if enumerator.level > 4 { enumerator.skipDescendants(); continue }
+                let name = url.lastPathComponent
+                guard name.hasPrefix("STTi_BACKLOG_PROJET"), name.hasSuffix(".xlsx"),
+                      !url.path.contains("Fichiers de conversation Microsoft Teams"),
+                      !url.path.contains("Microsoft Teams Chat Files")
+                else { continue }
+                candidates.append(url)
+            }
+        }
+        return candidates.max { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// Variante sélecteur de fichier (1er usage ou changement de fichier).
+    private func runBacklogImport(result: Result<[URL], Error>) async {
+        guard case let .success(urls) = result, let xlsx = urls.first else { return }
+        let needsScope = xlsx.startAccessingSecurityScopedResource()
+        defer { if needsScope { xlsx.stopAccessingSecurityScopedResource() } }
+        await runBacklogImport(xlsx: xlsx)
+    }
+
     /// Lance l'import du backlog projets depuis un xlsx. Idempotent :
     /// les projets dont le code existe déjà sont mis à jour (phase, CP, AT,
     /// domaine, nom, entité). Les nouveaux sont créés. Aucune suppression.
-    private func runBacklogImport(result: Result<[URL], Error>) async {
-        guard case let .success(urls) = result, let xlsx = urls.first else { return }
+    /// En cas de succès, le chemin est mémorisé pour les imports suivants
+    /// en un clic.
+    private func runBacklogImport(xlsx: URL) async {
         backlogImportRunning = true
         importError = nil
         importResult = nil
         canRollback = false
         defer { backlogImportRunning = false }
-
-        let needsScope = xlsx.startAccessingSecurityScopedResource()
-        defer { if needsScope { xlsx.stopAccessingSecurityScopedResource() } }
 
         // Le script vit dans le repo à côté de l'app. On le résout par
         // rapport au binaire en cours d'exécution (.build/.../OneToOne) →
@@ -1467,6 +1588,7 @@ struct DashboardView: View {
                 context: context
             )
             importResult = "Backlog importé : \(summary.inserted) créé(s), \(summary.updated) mis à jour, \(summary.unchanged) inchangé(s), \(summary.entitiesCreated) entité(s) créée(s) sur \(summary.rowsParsed) lignes."
+            backlogXlsxPath = xlsx.path
         } catch {
             importError = error.localizedDescription
         }

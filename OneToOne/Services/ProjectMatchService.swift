@@ -105,7 +105,7 @@ enum ProjectMatchService {
     /// score combine le recouvrement de tokens et la similarité Jaro-Winkler
     /// (on garde le max des deux).
     @MainActor
-    private static func bestProjectMatch(title: String, in context: ModelContext) -> (Project, Double)? {
+    static func bestProjectMatch(title: String, in context: ModelContext) -> (Project, Double)? {
         let descriptor = FetchDescriptor<Project>()
         let projects = (try? context.fetch(descriptor)) ?? []
         guard !projects.isEmpty else { return nil }
