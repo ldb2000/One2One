@@ -80,6 +80,79 @@ enum MailService {
         return parseList(raw)
     }
 
+    // MARK: - Scan automatique (mails lus, fenêtre d'historique)
+
+    /// Liste les messages **lus** de `mailbox` reçus dans les `lookbackDays`
+    /// derniers jours. Contrairement à `listRecent`, le filtrage (statut lu +
+    /// date) se fait côté AppleScript ; les messages étant itérés du plus
+    /// récent au plus ancien, l'itération s'arrête au premier message plus
+    /// vieux que le cutoff. Le corps n'est pas chargé (preview = excerpt).
+    /// `limit` est un garde-fou anti-emballement : s'il est atteint, la fenêtre
+    /// est tronquée (les mails les plus anciens ne sont pas vus) — l'appelant
+    /// doit le détecter (`count == limit`) et le signaler.
+    static func listRecentRead(
+        limit: Int = 2000,
+        lookbackDays: Int,
+        mailbox: MailboxRef
+    ) async throws -> [MailSnippet] {
+        let script = buildAutoScanScript(limit: limit, lookbackDays: lookbackDays, mailbox: mailbox)
+        let raw = try await runAppleScript(script)
+        return parseList(raw)
+    }
+
+    /// Construit le script du scan automatique. `internal` pour les tests.
+    static func buildAutoScanScript(limit: Int, lookbackDays: Int, mailbox: MailboxRef) -> String {
+        let sep = "|⎯|"
+        let rowEnd = "‡"
+        let accountFilter = #"name of acct is "\#(escape(mailbox.accountName))""#
+        let mailboxFilter = #"name of mbx is "\#(escape(mailbox.mailboxName))""#
+
+        return """
+        tell application "Mail"
+            set output to ""
+            set theLimit to \(limit)
+            set theCutoff to (current date) - (\(lookbackDays) * days)
+            set collected to 0
+            repeat with acct in accounts
+                if \(accountFilter) then
+                    set acctName to name of acct
+                    repeat with mbx in mailboxes of acct
+                        if \(mailboxFilter) then
+                            set mbxName to name of mbx
+                            set theMsgs to messages of mbx
+                            set n to count of theMsgs
+                            set i to 1
+                            repeat while i <= n and collected < theLimit
+                                set m to item i of theMsgs
+                                try
+                                    set dtv to date received of m
+                                    if dtv < theCutoff then exit repeat
+                                    if (read status of m) is true then
+                                        set subj to subject of m
+                                        set snd to (sender of m) as string
+                                        set dt to dtv as string
+                                        set mid to message id of m
+                                        set prev to ""
+                                        try
+                                            set prev to (excerpt of m) as string
+                                        on error
+                                            set prev to ""
+                                        end try
+                                        set output to output & mid & "\(sep)" & acctName & "\(sep)" & mbxName & "\(sep)" & subj & "\(sep)" & snd & "\(sep)" & dt & "\(sep)" & prev & "\(rowEnd)"
+                                        set collected to collected + 1
+                                    end if
+                                end try
+                                set i to i + 1
+                            end repeat
+                        end if
+                    end repeat
+                end if
+            end repeat
+            return output
+        end tell
+        """
+    }
+
     /// Énumère les boîtes de réception (inbox) de tous les comptes Mail configurés.
     static func listMailboxes() async throws -> [MailboxRef] {
         let sep = "|⎯|"
