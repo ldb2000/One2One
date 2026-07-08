@@ -17,6 +17,32 @@ struct EmbeddingService {
     static let baseURLKey = "onetoone_ollama_url"
     static let modelKey = "onetoone_embedding_model"
 
+    // MARK: - Backend (MLX in-process par défaut, Ollama legacy)
+
+    enum Backend: String { case mlx, ollama }
+
+    /// Rôle du texte pour les modèles asymétriques (nomic) :
+    /// `.document` à l'indexation, `.query` pour la recherche.
+    enum Role { case document, query }
+
+    static let backendKey = "onetoone_embedding_backend"
+    static let defaultMLXModel = "nomic-ai/nomic-embed-text-v1.5"
+
+    static var backend: Backend {
+        Backend(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .mlx
+    }
+
+    /// Préfixe nomic (search_document: / search_query:) — seulement en backend
+    /// MLX avec un modèle nomic. Le chemin Ollama reste sans préfixe
+    /// (comportement historique, cohérent avec l'index existant).
+    static func prefixedText(_ text: String, role: Role, backend: Backend, model: String) -> String {
+        guard backend == .mlx, model.lowercased().contains("nomic") else { return text }
+        switch role {
+        case .document: return "search_document: " + text
+        case .query:    return "search_query: " + text
+        }
+    }
+
     /// Erreurs remontées par les appels d'embedding Ollama.
     enum EmbeddingError: LocalizedError {
         /// URL de base Ollama invalide / inconstruisible.
@@ -44,14 +70,19 @@ struct EmbeddingService {
     }
 
     static var model: String {
-        UserDefaults.standard.string(forKey: modelKey) ?? defaultModel
+        if let stored = UserDefaults.standard.string(forKey: modelKey), !stored.isEmpty {
+            return stored
+        }
+        switch backend {
+        case .mlx:    return defaultMLXModel
+        case .ollama: return defaultModel
+        }
     }
 
-    /// Embed un texte. Appel synchrone logique, async signature.
-    static func embed(_ text: String) async throws -> [Float] {
-        let stripped = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !stripped.isEmpty else { return [] }
-
+    /// Embed un texte via Ollama. Appel synchrone logique, async signature.
+    /// Reçoit le texte déjà strippé (le guard `!stripped.isEmpty` est fait par
+    /// l'appelant `embed`).
+    private static func embedOllama(_ stripped: String) async throws -> [Float] {
         let raw = baseURL.trimmingCharacters(in: .whitespaces)
         let cleaned = raw.hasSuffix("/") ? String(raw.dropLast()) : raw
         guard let url = URL(string: "\(cleaned)/api/embeddings") else {
@@ -87,23 +118,61 @@ struct EmbeddingService {
         return decoded.embedding.map { Float($0) }
     }
 
-    /// Batch embed avec concurrence limitée pour ne pas saturer Ollama.
-    /// Au plus `concurrency` requêtes simultanées (via `AsyncSemaphore`, min. 1).
+    /// Embed un texte selon le backend courant.
+    static func embed(_ text: String, role: Role = .document) async throws -> [Float] {
+        let stripped = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stripped.isEmpty else { return [] }
+        switch backend {
+        case .mlx:
+            let prefixed = prefixedText(stripped, role: role, backend: .mlx, model: model)
+            let vectors = try await MLXEmbeddingEngine.embedBatch([prefixed], modelRepo: model)
+            return vectors.first ?? []
+        case .ollama:
+            return try await embedOllama(stripped)
+        }
+    }
+
+    /// Batch embed. En backend MLX, les textes sont préfixés (rôle) et envoyés
+    /// à `MLXEmbeddingEngine` en sous-lots de 16 (borne mémoire GPU), l'ordre
+    /// de `texts` étant préservé. En backend Ollama, concurrence limitée
+    /// (via `AsyncSemaphore`, min. 1) — comportement historique inchangé.
     /// L'ordre du tableau renvoyé suit celui de `texts` (réindexation par
     /// position), indépendamment de l'ordre d'achèvement des tâches.
     /// Aucune logique de retry : la première erreur d'`embed` propage et annule
     /// le groupe. Un texte vide ou en échec se traduit par un vecteur vide.
-    static func embedBatch(_ texts: [String], concurrency: Int = 4) async throws -> [[Float]] {
+    static func embedBatch(_ texts: [String], role: Role = .document, concurrency: Int = 4) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
+
+        if backend == .mlx {
+            let currentModel = model
+            var results = [[Float]](repeating: [], count: texts.count)
+            // Indices des textes non vides, préfixés, envoyés par sous-lots de 16.
+            let nonEmpty: [(Int, String)] = texts.enumerated().compactMap { i, t in
+                let stripped = t.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !stripped.isEmpty else { return nil }
+                return (i, prefixedText(stripped, role: role, backend: .mlx, model: currentModel))
+            }
+            var cursor = 0
+            while cursor < nonEmpty.count {
+                let slice = Array(nonEmpty[cursor..<min(cursor + 16, nonEmpty.count)])
+                let vectors = try await MLXEmbeddingEngine.embedBatch(slice.map(\.1), modelRepo: currentModel)
+                for (offset, (originalIndex, _)) in slice.enumerated() where offset < vectors.count {
+                    results[originalIndex] = vectors[offset]
+                }
+                cursor += 16
+            }
+            return results
+        }
+
+        // Chemin Ollama historique (concurrence limitée).
         var results: [Int: [Float]] = [:]
         let sem = AsyncSemaphore(value: max(1, concurrency))
-
         try await withThrowingTaskGroup(of: (Int, [Float]).self) { group in
             for (i, t) in texts.enumerated() {
                 await sem.wait()
                 group.addTask {
                     defer { Task { await sem.signal() } }
-                    let v = try await embed(t)
+                    let v = try await embed(t, role: role)
                     return (i, v)
                 }
             }

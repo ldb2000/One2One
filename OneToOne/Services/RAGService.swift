@@ -167,7 +167,7 @@ struct RAGQuery {
         scope: Scope = Scope(),
         context: ModelContext
     ) async throws -> [Result] {
-        let queryVec = try await EmbeddingService.embed(query)
+        let queryVec = try await EmbeddingService.embed(query, role: .query)
         guard !queryVec.isEmpty else { return [] }
 
         let chunks = filtered(context: context, scope: scope)
