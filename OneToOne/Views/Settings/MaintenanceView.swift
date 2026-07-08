@@ -10,9 +10,15 @@ struct MaintenanceView: View {
     @State private var stats: StorageStatsService.Stats?
     @AppStorage("onetoone_embedding_backend") private var embeddingBackendRaw: String = "mlx"
     @AppStorage("onetoone_embedding_model") private var embeddingModelOverride: String = ""
+    @ObservedObject private var queue = JobQueue.shared
 
     private var settings: AppSettings {
         settingsList.canonicalSettings ?? AppSettings()
+    }
+
+    /// Job de ré-embedding en cours (au plus un : concurrence 1 sur .embedding).
+    private var activeEmbeddingJob: JobQueue.Job? {
+        queue.jobs.first { $0.kind == .embedding && !$0.status.isTerminal }
     }
 
     var body: some View {
@@ -281,20 +287,35 @@ struct MaintenanceView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            batchRow(
-                count: BatchJobsService.staleChunks(in: context).count,
-                label: "chunks à ré-embedder",
-                buttonLabel: "Ré-embedder l'index",
-                action: enqueueReembedStaleChunks
-            )
+            if let job = activeEmbeddingJob {
+                HStack(spacing: 8) {
+                    if let p = job.progress {
+                        ProgressView(value: max(0, min(1, p)))
+                            .progressViewStyle(.linear)
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                    }
+                    if let s = job.statusText, !s.isEmpty {
+                        Text(s).font(.caption).foregroundStyle(.secondary).fixedSize()
+                    }
+                    Button("Annuler") { queue.cancel(job.id) }
+                }
+            } else {
+                batchRow(
+                    count: BatchJobsService.staleChunks(in: context).count,
+                    label: "chunks à ré-embedder",
+                    buttonLabel: "Ré-embedder l'index",
+                    action: enqueueReembedStaleChunks
+                )
+            }
         }
     }
 
     private func enqueueReembedStaleChunks() {
-        let queue = JobQueue.shared
         let stale = BatchJobsService.staleChunks(in: context)
         guard !stale.isEmpty else { return }
-        _ = queue.start(kind: .maintenance, meetingTitle: "Ré-embedding RAG (\(stale.count) chunks)") { jobID in
+        _ = queue.start(kind: .embedding, meetingTitle: "Ré-embedding RAG (\(stale.count) chunks)") { jobID in
             let total = stale.count
             var done = 0
             var cursor = 0

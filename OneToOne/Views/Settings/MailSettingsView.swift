@@ -9,8 +9,14 @@ struct MailSettingsView: View {
     @State private var availableMailboxes: [MailboxRef] = []
     @State private var isLoadingMailboxes = false
     @State private var mailboxStatus: String?
+    @ObservedObject private var queue = JobQueue.shared
 
     private var settings: AppSettings { settingsList.canonicalSettings ?? AppSettings() }
+
+    /// Job de scan en cours (au plus un : concurrence 1 sur .mailScan).
+    private var activeScanJob: JobQueue.Job? {
+        queue.jobs.first { $0.kind == .mailScan && !$0.status.isTerminal }
+    }
 
     /// Binding générique : écrit dans AppSettings, sauve et ré-arme la boucle.
     private func binding<T>(_ get: @escaping (AppSettings) -> T,
@@ -27,6 +33,13 @@ struct MailSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // État de l'index — recalculé à chaque rendu (transitions de jobs
+            // incluses, via l'observation de la queue).
+            let stats = IndexStatsService.snapshot(in: context)
+            Text("\(stats.indexedMails) mail(s) indexé(s) · \(stats.pendingSuggestions) suggestion(s) en attente · \(stats.totalChunks) chunks vectorisés (dont \(stats.staleChunks) obsolète(s))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Toggle("Scanner automatiquement mes mails (mails lus uniquement)",
                    isOn: binding({ $0.mailAutoIndexEnabled }, { $0.mailAutoIndexEnabled = $1 }))
 
@@ -96,11 +109,31 @@ struct MailSettingsView: View {
             Divider()
 
             HStack(spacing: 12) {
-                Button("Scanner maintenant") {
-                    MailAutoIndexService.shared.scanNow(context: context, settings: settings)
+                if let job = activeScanJob {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            if let p = job.progress {
+                                ProgressView(value: max(0, min(1, p)))
+                                    .progressViewStyle(.linear)
+                                    .frame(maxWidth: 220)
+                            } else {
+                                ProgressView()
+                                    .progressViewStyle(.linear)
+                                    .frame(maxWidth: 220)
+                            }
+                            Button("Annuler") { queue.cancel(job.id) }
+                        }
+                        Text(job.statusText?.isEmpty == false ? job.statusText! : "Scan en cours…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button("Scanner maintenant") {
+                        MailAutoIndexService.shared.scanNow(context: context, settings: settings)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!settings.mailAutoIndexEnabled || settings.mailAutoIndexMailboxes.isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!settings.mailAutoIndexEnabled || settings.mailAutoIndexMailboxes.isEmpty)
 
                 if let last = settings.mailAutoIndexLastScanAt {
                     Text("Dernière passe : \(last.formatted(date: .abbreviated, time: .shortened)) — \(settings.mailAutoIndexLastScanStatus)")
