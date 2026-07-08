@@ -294,7 +294,7 @@ struct MaintenanceView: View {
         let queue = JobQueue.shared
         let stale = BatchJobsService.staleChunks(in: context)
         guard !stale.isEmpty else { return }
-        _ = queue.start(kind: .maintenance, meetingTitle: "Ré-embedding RAG (\(stale.count) chunks)") { jobID in
+        _ = queue.start(kind: .embedding, meetingTitle: "Ré-embedding RAG (\(stale.count) chunks)") { jobID in
             let total = stale.count
             var done = 0
             var cursor = 0

@@ -15,7 +15,7 @@ final class JobQueue: ObservableObject {
 
     static let shared = JobQueue()
 
-    enum JobKind: String { case transcription, report, audioEdit, diarization, maintenance, mailScan }
+    enum JobKind: String { case transcription, report, audioEdit, diarization, maintenance, mailScan, embedding }
 
     enum JobStatus: Equatable {
         case queued       // attente — limite de concurrence par kind
@@ -65,7 +65,8 @@ final class JobQueue: ObservableObject {
         .audioEdit:     1,
         .diarization:   1,
         .maintenance:   1,
-        .mailScan:      1
+        .mailScan:      1,
+        .embedding:     1
     ]
 
     /// Enfile un nouveau job en tête de liste avec le statut `.queued`, puis
