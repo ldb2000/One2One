@@ -24,6 +24,8 @@ enum SchemaV1: VersionedSchema {
             Project.self,
             ProjectMail.self,
             ProjectMailAttachment.self,
+            MailIndexSuggestion.self,
+            MailScanRecord.self,
             ProjectInfoEntry.self,
             ProjectCollaboratorEntry.self,
             ProjectAttachment.self,

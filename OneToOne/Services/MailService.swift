@@ -22,7 +22,7 @@ struct MailSnippet: Identifiable, Hashable {
 }
 
 /// Référence vers une boîte aux lettres (couple compte + nom de boîte).
-struct MailboxRef: Identifiable, Hashable {
+struct MailboxRef: Identifiable, Hashable, Codable {
     var id: String { "\(accountName)|\(mailboxName)" }
     let accountName: String
     let mailboxName: String
