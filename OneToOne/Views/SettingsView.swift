@@ -456,6 +456,10 @@ struct SettingsView: View {
                     .padding(.vertical, 5)
                 }
 
+                GroupBox("Mails (scan automatique & RAG)") {
+                    MailSettingsView().padding(8)
+                }
+
                 GroupBox("Calendrier & menubar") {
                     VStack(alignment: .leading, spacing: 10) {
                         TextField("Votre email (filtrage 'moi' dans participants)", text: Binding(

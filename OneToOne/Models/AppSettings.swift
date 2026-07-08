@@ -243,6 +243,26 @@ final class AppSettings {
     var autoCleanupOnLaunch: Bool = false
     var lastCleanupAt: Date?
 
+    // MARK: - Scan automatique des mails
+
+    /// Active le scan périodique des boîtes Mail.app sélectionnées.
+    var mailAutoIndexEnabled: Bool = false
+    /// Boîtes scannées, tableau de `MailboxRef` encodé JSON (accesseur calculé
+    /// côté Services : les modèles ne référencent pas les types Services).
+    var mailAutoIndexMailboxesJSON: String = "[]"
+    /// Profondeur d'historique scannée, en jours.
+    var mailAutoIndexLookbackDays: Int = 90
+    /// Intervalle entre deux passes, en minutes (app ouverte).
+    var mailAutoIndexIntervalMinutes: Int = 60
+    /// Confiance ≥ seuil → rattachement automatique.
+    var mailAutoIndexAutoThreshold: Double = 0.75
+    /// Confiance ≥ seuil (et < auto) → file de validation.
+    var mailAutoIndexSuggestThreshold: Double = 0.45
+    /// Fin de la dernière passe de scan.
+    var mailAutoIndexLastScanAt: Date?
+    /// Résumé lisible de la dernière passe (« 3 rattachés, 2 suggérés… »).
+    var mailAutoIndexLastScanStatus: String = ""
+
     static let defaultMeetingParticipantColorHex  = "#A8D490"
     static let defaultMeetingAbsentColorHex       = "#E8A8A8"
     static let defaultMeetingCollaboratorColorHex = "#A8C2E0"

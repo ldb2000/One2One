@@ -25,6 +25,8 @@ struct MailBrowserView: View {
     @State private var availableAttachments: [MailAttachmentFile] = []
     @State private var selectedAttachmentIDs: Set<String> = []
     @State private var isLoadingAttachments = false
+    @Query private var pendingSuggestions: [MailIndexSuggestion]
+    @State private var showSuggestionReview = false
 
     /// Pièces jointes effectivement cochées : on conserve `availableAttachments`
     /// (la liste complète, pour l'affichage et « Tout sélectionner ») et on
@@ -47,6 +49,9 @@ struct MailBrowserView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Mails")
+        .sheet(isPresented: $showSuggestionReview) {
+            MailSuggestionReviewSheet(onClose: { showSuggestionReview = false })
+        }
         .onAppear { Task { await loadMailboxesAndReload() } }
     }
 
@@ -89,6 +94,14 @@ struct MailBrowserView: View {
                 .buttonStyle(.bordered)
                 .disabled(isLoading)
                 .help("Actualiser les mails")
+
+                Button {
+                    showSuggestionReview = true
+                } label: {
+                    Label("À valider (\(pendingSuggestions.count))", systemImage: "tray.full")
+                }
+                .disabled(pendingSuggestions.isEmpty)
+                .help("Mails suggérés par le scan automatique, en attente de validation")
             }
 
             HStack(spacing: 12) {

@@ -8,6 +8,8 @@ struct MaintenanceView: View {
     @Environment(\.modelContext) private var context
     @Query private var settingsList: [AppSettings]
     @State private var stats: StorageStatsService.Stats?
+    @AppStorage("onetoone_embedding_backend") private var embeddingBackendRaw: String = "mlx"
+    @AppStorage("onetoone_embedding_model") private var embeddingModelOverride: String = ""
 
     private var settings: AppSettings {
         settingsList.canonicalSettings ?? AppSettings()
@@ -17,6 +19,7 @@ struct MaintenanceView: View {
         VStack(alignment: .leading, spacing: 22) {
             storageSection
             batchJobsSection
+            embeddingSection
             cleanupAudioSection
             filesCleanupSection
             databaseSection
@@ -244,6 +247,75 @@ struct MaintenanceView: View {
                         meeting.speakerAssignmentsJSON = s
                     }
                     try? context.save()
+                }
+            }
+        }
+    }
+
+    // MARK: - Embeddings / RAG Section
+
+    @ViewBuilder
+    private var embeddingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("EMBEDDINGS / RAG", systemImage: "point.3.connected.trianglepath.dotted")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Picker("Backend d'embedding", selection: $embeddingBackendRaw) {
+                Text("MLX (in-process)").tag("mlx")
+                Text("Ollama (legacy)").tag("ollama")
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
+
+            LabeledContent("Modèle") {
+                EditableTextField(
+                    placeholder: embeddingBackendRaw == "mlx"
+                        ? EmbeddingService.defaultMLXModel
+                        : EmbeddingService.defaultModel,
+                    text: $embeddingModelOverride
+                )
+                .frame(height: 24)
+            }
+            Text("Vide = modèle par défaut du backend. Changer de backend ou de modèle rend l'index existant obsolète : lancer le ré-embedding ci-dessous.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            batchRow(
+                count: BatchJobsService.staleChunks(in: context).count,
+                label: "chunks à ré-embedder",
+                buttonLabel: "Ré-embedder l'index",
+                action: enqueueReembedStaleChunks
+            )
+        }
+    }
+
+    private func enqueueReembedStaleChunks() {
+        let queue = JobQueue.shared
+        let stale = BatchJobsService.staleChunks(in: context)
+        guard !stale.isEmpty else { return }
+        _ = queue.start(kind: .maintenance, meetingTitle: "Ré-embedding RAG (\(stale.count) chunks)") { jobID in
+            let total = stale.count
+            var done = 0
+            var cursor = 0
+            while cursor < total {
+                try Task.checkCancellation()
+                let batch = Array(stale[cursor..<min(cursor + 16, total)])
+                let vectors = try await EmbeddingService.embedBatch(batch.map(\.text), role: .document)
+                await MainActor.run {
+                    for (i, chunk) in batch.enumerated() {
+                        let v = (i < vectors.count) ? vectors[i] : []
+                        if !v.isEmpty {
+                            chunk.setEmbedding(v, model: EmbeddingService.model)
+                        }
+                    }
+                    try? context.save()
+                }
+                done += batch.count
+                cursor += 16
+                await MainActor.run {
+                    queue.updateProgress(jobID, fraction: Double(done) / Double(total),
+                                         status: "\(done)/\(total) chunks")
                 }
             }
         }

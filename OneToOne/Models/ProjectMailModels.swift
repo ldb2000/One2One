@@ -64,3 +64,75 @@ final class ProjectMailAttachment {
         self.filePath = filePath
     }
 }
+
+// MARK: - Scan automatique des mails
+
+/// Verdict d'évaluation d'un mail par le scan automatique.
+enum MailScanVerdict: String {
+    case attached   // rattaché automatiquement à un projet (indexé)
+    case suggested  // en attente de validation utilisateur
+    case ignored    // aucun match projet — non indexé
+}
+
+/// Trace d'évaluation d'un mail par le scan automatique : garantit qu'un
+/// `messageId` déjà traité n'est jamais ré-évalué. Purgé au-delà de la
+/// fenêtre d'historique + 30 jours (cf. `MailScanStore.purgeRecords`).
+@Model
+final class MailScanRecord {
+    var messageId: String
+    /// Stocké en String (contournement bug SwiftData sur les enums).
+    var verdictRaw: String = MailScanVerdict.ignored.rawValue
+    var evaluatedAt: Date = Date()
+
+    var verdict: MailScanVerdict {
+        get { MailScanVerdict(rawValue: verdictRaw) ?? .ignored }
+        set { verdictRaw = newValue.rawValue }
+    }
+
+    init(messageId: String, verdict: MailScanVerdict, evaluatedAt: Date = Date()) {
+        self.messageId = messageId
+        self.verdictRaw = verdict.rawValue
+        self.evaluatedAt = evaluatedAt
+    }
+}
+
+/// Match incertain en attente de validation utilisateur. Sans corps ni
+/// embedding : le corps (fetch AppleScript lent) n'est récupéré qu'à la
+/// validation, qui matérialise un `ProjectMail` via `ProjectMailStore.save`.
+@Model
+final class MailIndexSuggestion {
+    var messageId: String
+    var accountName: String
+    var mailbox: String
+    var subject: String
+    var sender: String
+    var preview: String = ""
+    var dateReceived: Date
+    /// Score du matcher (0–1) au moment du scan.
+    var confidence: Double = 0
+    var createdAt: Date = Date()
+    /// Relation sans inverse déclaré (même pattern que
+    /// `ProjectCollaboratorEntry.collaborator`) : la suppression du projet
+    /// laisse une suggestion orpheline, nettoyée par `MailScanStore`.
+    var suggestedProject: Project?
+
+    init(
+        messageId: String,
+        accountName: String,
+        mailbox: String,
+        subject: String,
+        sender: String,
+        dateReceived: Date,
+        preview: String = "",
+        confidence: Double = 0
+    ) {
+        self.messageId = messageId
+        self.accountName = accountName
+        self.mailbox = mailbox
+        self.subject = subject
+        self.sender = sender
+        self.dateReceived = dateReceived
+        self.preview = preview
+        self.confidence = confidence
+    }
+}

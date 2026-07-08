@@ -35,4 +35,14 @@ enum BatchJobsService {
                 && (m.speakerAssignmentsJSON.isEmpty || m.speakerAssignmentsJSON == "{}")
         }
     }
+
+    /// Chunks RAG dont l'embedding est absent ou calculé avec un autre modèle
+    /// que le modèle courant (`EmbeddingService.model`). Candidats au
+    /// ré-embedding après changement de backend/modèle.
+    static func staleChunks(in context: ModelContext) -> [TranscriptChunk] {
+        let descriptor = FetchDescriptor<TranscriptChunk>()
+        let all = (try? context.fetch(descriptor)) ?? []
+        let current = EmbeddingService.model
+        return all.filter { $0.embeddingData == nil || $0.embeddingModel != current }
+    }
 }

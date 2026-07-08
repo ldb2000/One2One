@@ -40,7 +40,8 @@ diarisation tournent sur l'appareil (MLX/Metal), les jetons API sont stockés da
 | STT local | `mlx-audio-swift` (`MLXAudioSTT`), `mlx-swift` (`MLX`) — Cohere / Voxtral |
 | Diarisation | `speech-swift` (`SpeechVAD`, pipeline Pyannote + WeSpeaker ResNet34) |
 | Markdown | `swift-markdown` (CommonMark + GFM) + moteur WYSIWYG maison |
-| IA distante | Claude (OAuth + API), Gemini (OAuth), OpenAI-compatible, Ollama (embeddings) |
+| IA distante | Claude (OAuth + API), Gemini (OAuth), OpenAI-compatible, Ollama (embeddings, legacy) |
+| Embeddings locaux | `mlx-swift-lm` (`MLXEmbedders`) — `nomic-ai/nomic-embed-text-v1.5` in-process, défaut |
 | Système | EventKit, Contacts, ScreenCaptureKit, Vision (OCR), CoreSpotlight, Carbon (hotkeys), UserNotifications, Keychain, App Groups |
 
 **Dépendances SwiftPM** (`Package.swift`) :
@@ -86,7 +87,7 @@ graph TD
     end
 
     subgraph MODEL["Couche Modèle — SwiftData (14 fichiers)"]
-        SCHEMA[(SchemaV1 — 25 @Model)]
+        SCHEMA[(SchemaV1 — 28 @Model)]
     end
 
     subgraph MD["Module Markdown WYSIWYG (13 fichiers, autonome)"]
@@ -162,7 +163,7 @@ bootstrap de l'agenda calendrier, synchro des photos de contacts, génération d
 
 ## 5. Modèle de données (SwiftData)
 
-Le schéma versionné `SchemaV1` (`SchemaVersions.swift`) déclare **25 types `@Model`**.
+Le schéma versionné `SchemaV1` (`SchemaVersions.swift`) déclare **28 types `@Model`**.
 La stratégie de migration repose sur la **lightweight migration** automatique de SwiftData
 (ajout de champs optionnels / avec valeur par défaut) ; un changement cassant nécessitera un
 `SchemaV2` *nested* + `MigrationStage` (documenté dans le fichier).
@@ -213,7 +214,7 @@ erDiagram
 | Actions | `ActionTask`, `ActionComment`, `ProjectAlert` |
 | Manager | `ManagerReportItem`, `ManagerMeetingReport` |
 | Rapports | `ReportTemplate`, `ReportRevision` (boucle écrivain/critique) |
-| Mail / RAG | `ProjectMail`, `ProjectMailAttachment` |
+| Mail / RAG | `ProjectMail`, `ProjectMailAttachment`, `MailIndexSuggestion` (suggestion en attente de validation), `MailScanRecord` (trace de dédup du scan) |
 | Divers | `Note`, `NoteAttachment`, `SavedPrompt`, `AppSettings` |
 
 ### Conventions de modélisation
@@ -260,7 +261,7 @@ graph LR
     AIClient -->|Claude OAuth| ANTH
     AIClient -->|Gemini OAuth| GEM
     AIClient -->|API key| HTTP[Anthropic / OpenAI-compatible]
-    RAGQ --> EMB[EmbeddingService -- Ollama]
+    RAGQ --> EMB[EmbeddingService -- routeur MLX/Ollama]
 ```
 
 - **`AIClient`** — routeur central (`enum`) sélectionnant le fournisseur via `AppSettings`
@@ -277,9 +278,16 @@ graph LR
 - **`ManagerCRGenerator` / `ManagerCategoryClassifier` / `ManagerSnippetElaborator`** —
   flux de CR manager (résumé d'items cochés, classification de catégorie, élaboration de
   snippets, extraction d'actions → `ActionTask`).
-- **RAG** : `EmbeddingService` (Ollama `nomic-embed-text`, similarité cosinus),
-  `RAGService` (`TextChunker` / `RAGIndexer` / `RAGQuery`) — indexe les `TranscriptChunk`
-  et répond avec citations.
+- **RAG** : `EmbeddingService` — routeur à deux backends piloté par la clé UserDefaults
+  `onetoone_embedding_backend` : **`.mlx`** (défaut) délègue à `MLXEmbeddingEngine`
+  (`MLXEmbedders`, `mlx-swift-lm`, modèle `nomic-ai/nomic-embed-text-v1.5` in-process, préfixes
+  `search_document:`/`search_query:` selon le rôle — indexation vs requête) ; **`.ollama`**
+  (legacy) appelle `nomic-embed-text` via l'API HTTP Ollama. Similarité cosinus commune aux
+  deux backends. Un changement de backend/modèle rend les chunks existants obsolètes :
+  `BatchJobsService.staleChunks` les détecte et la section « EMBEDDINGS / RAG » de
+  `MaintenanceView` propose de « Ré-embedder l'index ». `RAGService`
+  (`TextChunker` / `RAGIndexer` / `RAGQuery`) indexe les `TranscriptChunk` et répond avec
+  citations.
 
 ### 6.2 Pipeline STT / Diarisation (« diarize-first »)
 
@@ -395,6 +403,29 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
 - **`ScreenCaptureService`** (+ `OCRService` Vision, `PerceptualHasher`) — capture de slides
   (ScreenCaptureKit), détection auto par hash perceptuel, OCR, indexation.
 
+**Scan automatique des mails** — `MailAutoIndexService` (singleton `@MainActor`, boucle
+périodique selon le même pattern que `ContactPhotoService`) scanne périodiquement les boîtes
+Mail.app sélectionnées (réglages « Mails ») dans un job `JobQueue.JobKind.mailScan` :
+
+1. **Lecture** — `MailService.listRecentRead` liste les mails lus des boîtes choisies sur une
+   fenêtre glissante (`mailAutoIndexLookbackDays`), déduplication via `MailScanStore`
+   (`MailScanRecord`, purgé au-delà fenêtre + 30 j).
+2. **Matching étage 1 (heuristiques)** — `MailProjectMatcher.match` note chaque projet actif
+   sur trois signaux (le meilleur gagne) : continuité de fil déjà rattaché (confiance 0.95),
+   recouvrement de tokens + Jaro-Winkler sujet↔nom de projet ou code projet cité tel quel
+   (0.9), appartenance de l'expéditeur à l'équipe projet (bonus +0.2, ou 0.4 seul).
+3. **Matching étage 2 (LLM)** — sous le seuil auto, `MailLLMClassifier.classify` interroge
+   Gemma 4 en local (`DirectLLMClient`) avec les projets candidats ; le verdict LLM **remplace**
+   l'heuristique (`.verdict`), une réponse inexploitable force l'ignorance (`.unparseable`), une
+   erreur LLM retombe sur l'heuristique (`.unavailable`).
+4. **Décision par seuils** (`AppSettings.mailAutoIndexAutoThreshold` / `…SuggestThreshold`) :
+   au-dessus du seuil auto → rattachement direct (`ProjectMailStore.save`, corps + pièces
+   jointes récupérés, embeddings générés) ; entre les deux seuils → file de validation
+   (`MailIndexSuggestion`, revue via `MailSuggestionReviewSheet` + `MailSuggestionService`) ;
+   sous le seuil bas → ignoré. Un mail en erreur (embedding indisponible, AppleScript en échec)
+   reste sans `MailScanRecord` et est re-tenté à la passe suivante ; un `ProjectMail`
+   partiellement sauvé sans chunks est annulé plutôt que laissé orphelin.
+
 ### 6.7 Maintenance & infrastructure
 
 - **`JobQueue`** (singleton) — file de jobs asynchrones (transcription, rapport, diarisation,
@@ -508,8 +539,9 @@ réunion (`PrepCarryoverService`, flags d'idempotence).
 (`ManagerCategoryClassifier`), génération du CR (`ManagerCRGenerator`) → `ManagerMeetingReport`
 + `ActionTask` extraites (revue via `ManagerActionReviewSheet`).
 
-**D. RAG / Chatbot** — indexation des transcripts/mails en `TranscriptChunk` (embeddings
-Ollama) ; `RAGChatView` interroge `RAGQuery` (top-K + similarité) et répond avec citations.
+**D. RAG / Chatbot** — indexation des transcripts/mails en `TranscriptChunk` (embeddings via
+`EmbeddingService`, MLX in-process par défaut) ; `RAGChatView` interroge `RAGQuery` (top-K +
+similarité) et répond avec citations.
 
 **E. Lancement rapide 1:1** — hotkey global / Spotlight / AppIntent → `QuickLaunchRouter`
 publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec auto-record.
@@ -603,4 +635,4 @@ bloquants**) :
 
 ---
 
-*Dernière mise à jour : 2026-06-02.*
+*Dernière mise à jour : 2026-07-08.*

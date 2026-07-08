@@ -55,6 +55,9 @@ xcodebuild -scheme Gemma4Swift -destination "platform=macOS" \
   via `Gemma4Registration.register()` (appelé par `DirectLLMClient`). `mlx-swift-lm` est sur `branch: main`
   (requis par Gemma4Swift + fournit `LLMTypeRegistry`).
 - Modèles **denses** (Qwen3.5, Gemma 3…) fonctionnent sans Gemma4Swift.
+- **Embeddings** : `EmbeddingService` route vers **MLXEmbedders** in-process par défaut
+  (`nomic-ai/nomic-embed-text-v1.5`, préfixes `search_document:`/`search_query:`) ;
+  Ollama reste disponible en legacy (`onetoone_embedding_backend` = `ollama`).
 
 ### Cache HuggingFace
 Les modèles sont chargés depuis `~/.cache/huggingface/hub` (téléchargés au 1er usage si absents).
