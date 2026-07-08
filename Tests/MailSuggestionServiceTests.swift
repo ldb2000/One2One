@@ -88,6 +88,35 @@ final class MailSuggestionServiceTests: XCTestCase {
         XCTAssertEqual(try context.fetch(FetchDescriptor<MailScanRecord>()).first?.verdict, .suggested)
     }
 
+    func test_validate_echecMaterialize_nettoieLeProjectMailSansChunks() async throws {
+        let (suggestion, _) = try makeFixture()
+        var fetchers = stubFetchers()
+        fetchers.materialize = { snippet, body, _, project, context in
+            // Simule ProjectMailStore.save : persiste le ProjectMail (sans
+            // chunks, l'embedding n'a pas encore eu lieu) PUIS échoue.
+            let mail = ProjectMail(messageId: snippet.messageId,
+                                   accountName: snippet.accountName,
+                                   mailbox: snippet.mailbox,
+                                   subject: snippet.subject,
+                                   sender: snippet.sender,
+                                   dateReceived: snippet.dateReceived,
+                                   body: body)
+            mail.project = project
+            context.insert(mail)
+            try context.save()
+            throw NSError(domain: "stub", code: -1)
+        }
+
+        do {
+            try await MailSuggestionService.validate(suggestion, in: context, fetchers: fetchers)
+            XCTFail("validate aurait dû lever")
+        } catch { /* attendu */ }
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<MailIndexSuggestion>()).count, 1)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<MailScanRecord>()).first?.verdict, .suggested)
+        XCTAssertTrue(try context.fetch(FetchDescriptor<ProjectMail>()).isEmpty)
+    }
+
     func test_ignore_supprimeEtTraceLeVerdict() throws {
         let (suggestion, _) = try makeFixture()
         MailSuggestionService.ignore(suggestion, in: context)

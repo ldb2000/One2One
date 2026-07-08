@@ -47,12 +47,21 @@ enum MailScanStore {
         return old.count
     }
 
-    /// Supprime les suggestions dont le projet a disparu (relation nullifiée).
+    /// Supprime les suggestions dont le projet a disparu (relation nullifiée),
+    /// ainsi que leur `MailScanRecord` (verdict `.suggested`) : sans cette
+    /// purge, le messageId resterait « connu » pour toujours et ne serait
+    /// plus jamais ré-évalué contre les projets restants.
     @discardableResult
     static func deleteOrphanSuggestions(in context: ModelContext) -> Int {
         let all = (try? context.fetch(FetchDescriptor<MailIndexSuggestion>())) ?? []
         let orphans = all.filter { $0.suggestedProject == nil }
+        let orphanMessageIds = Set(orphans.map(\.messageId))
         orphans.forEach { context.delete($0) }
+
+        let records = (try? context.fetch(FetchDescriptor<MailScanRecord>())) ?? []
+        records.filter { orphanMessageIds.contains($0.messageId) }
+            .forEach { context.delete($0) }
+
         return orphans.count
     }
 }

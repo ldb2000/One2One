@@ -59,7 +59,21 @@ enum MailSuggestionService {
             dateReceived: suggestion.dateReceived,
             preview: suggestion.preview,
             body: nil)
-        try await fetchers.materialize(snippet, body, attachments, project, context)
+        do {
+            try await fetchers.materialize(snippet, body, attachments, project, context)
+        } catch {
+            // ⚠️ ProjectMailStore.save persiste le ProjectMail AVANT
+            // l'embedding (reindex) : si l'embedding a échoué, un ProjectMail
+            // sans chunks a pu être sauvé — il rendrait le messageId
+            // « connu » à jamais sans jamais être indexé. On l'annule
+            // explicitement (même nettoyage que MailAutoIndexService.runScan).
+            if let halfSaved = ((try? context.fetch(FetchDescriptor<ProjectMail>())) ?? [])
+                .first(where: { $0.messageId == suggestion.messageId && $0.chunks.isEmpty }) {
+                context.delete(halfSaved)
+                try? context.save()
+            }
+            throw error
+        }
         MailScanStore.setVerdict(suggestion.messageId, verdict: .attached, in: context)
         context.delete(suggestion)
         try context.save()

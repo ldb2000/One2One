@@ -70,6 +70,8 @@ final class MailScanStoreTests: XCTestCase {
         let orphan = makeSuggestion("s-orphan") // suggestedProject == nil
         context.insert(withProject)
         context.insert(orphan)
+        context.insert(MailScanRecord(messageId: "s-orphan", verdict: .suggested))
+        context.insert(MailScanRecord(messageId: "s-ok", verdict: .suggested))
         try context.save()
 
         let deleted = MailScanStore.deleteOrphanSuggestions(in: context)
@@ -77,5 +79,12 @@ final class MailScanStoreTests: XCTestCase {
         XCTAssertEqual(deleted, 1)
         let remaining = try context.fetch(FetchDescriptor<MailIndexSuggestion>())
         XCTAssertEqual(remaining.map(\.messageId), ["s-ok"])
+
+        // Le MailScanRecord de l'orphelin doit disparaître avec la suggestion
+        // (sinon le messageId reste « connu » à jamais et n'est plus jamais
+        // ré-évalué). Le record d'un messageId non-orphelin doit survivre.
+        let remainingRecords = try context.fetch(FetchDescriptor<MailScanRecord>())
+        XCTAssertFalse(remainingRecords.contains { $0.messageId == "s-orphan" })
+        XCTAssertTrue(remainingRecords.contains { $0.messageId == "s-ok" })
     }
 }
