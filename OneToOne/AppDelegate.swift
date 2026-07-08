@@ -47,6 +47,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Scan automatique des mails (si activé dans les Réglages)
+        Task { @MainActor in
+            let ctx = container.mainContext
+            if let settings = (try? ctx.fetch(FetchDescriptor<AppSettings>()))?.canonicalSettings {
+                MailAutoIndexService.shared.reschedule(context: ctx, settings: settings)
+            }
+        }
+
         // Route notification and agenda taps to open the target Meeting
         let nc = NotificationCenter.default
         notifObservers.append(

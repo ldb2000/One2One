@@ -192,6 +192,8 @@ struct JobQueueSidebar: View {
                 Image(systemName: "person.wave.2").foregroundStyle(Color.accentColor)
             case .maintenance:
                 Image(systemName: "wrench.and.screwdriver").foregroundStyle(Color.accentColor)
+            case .mailScan:
+                Image(systemName: "envelope.badge").foregroundStyle(Color.accentColor)
             }
         case .cancelling: Image(systemName: "xmark.circle").foregroundStyle(.orange)
         case .succeeded:  Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -271,6 +273,7 @@ struct JobQueueSidebar: View {
         case .audioEdit:     return "Édition audio"
         case .diarization:   return "Diarisation"
         case .maintenance:   return "Maintenance"
+        case .mailScan:      return "Scan mails"
         }
     }
 }
