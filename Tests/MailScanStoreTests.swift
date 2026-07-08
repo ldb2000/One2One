@@ -40,6 +40,7 @@ final class MailScanStoreTests: XCTestCase {
         try context.save()
 
         let purged = MailScanStore.purgeRecords(olderThanDays: 120, in: context)
+        try context.save()
         XCTAssertEqual(purged, 1)
         let remaining = try context.fetch(FetchDescriptor<MailScanRecord>())
         XCTAssertEqual(remaining.map(\.messageId), ["recent"])
@@ -72,6 +73,7 @@ final class MailScanStoreTests: XCTestCase {
         try context.save()
 
         let deleted = MailScanStore.deleteOrphanSuggestions(in: context)
+        try context.save()
         XCTAssertEqual(deleted, 1)
         let remaining = try context.fetch(FetchDescriptor<MailIndexSuggestion>())
         XCTAssertEqual(remaining.map(\.messageId), ["s-ok"])
