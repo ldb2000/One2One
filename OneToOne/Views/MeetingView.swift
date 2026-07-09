@@ -148,6 +148,7 @@ struct MeetingView: View {
     enum MeetingSection: String, CaseIterable, Identifiable {
         case preparation = "Préparation"
         case liveNotes = "Notes live"
+        case liveTranscript = "Direct"
         case transcript = "Transcription"
         case report = "Rapport"
         case documents = "Documents"
@@ -518,6 +519,8 @@ struct MeetingView: View {
                 }
         case .liveNotes:
             MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
+        case .liveTranscript:
+            LiveTranscriptPanel()
         case .transcript:
             transcriptView
         case .report:
@@ -1171,6 +1174,18 @@ struct MeetingView: View {
             return
         }
         do {
+            // Ouvre le flux live AVANT de démarrer le recorder (le tap doit
+            // exister dès la 1re trame) et lance la transcription en direct.
+            if settings.liveTranscriptionEnabled {
+                let stream = recorder.makeAudioStream()
+                Task {
+                    await LiveTranscriptionService.shared.begin(
+                        audioStream: stream,
+                        language: stt.language,
+                        variant: settings.voxtralVariant)
+                }
+                activeSection = .liveTranscript
+            }
             let url = try await recorder.start(meetingID: meeting.stableID)
             meeting.wavFilePath = url.path
             saveContext()
@@ -1193,6 +1208,18 @@ struct MeetingView: View {
         }
         pendingAppendBaseURL = existing
         do {
+            // Même câblage que startRecording() : le complément audio est lui
+            // aussi transcrit en direct si le réglage est actif.
+            if settings.liveTranscriptionEnabled {
+                let stream = recorder.makeAudioStream()
+                Task {
+                    await LiveTranscriptionService.shared.begin(
+                        audioStream: stream,
+                        language: stt.language,
+                        variant: settings.voxtralVariant)
+                }
+                activeSection = .liveTranscript
+            }
             let url = try await recorder.start(meetingID: meeting.stableID)
             // On laisse meeting.wavFilePath pointer sur l'ancien jusqu'à la
             // concaténation post-stop ; en cas d'arrêt anormal, l'utilisateur
@@ -1264,6 +1291,14 @@ struct MeetingView: View {
             return
         }
         guard let stopped = recorder.stop() else { return }
+
+        // Le flux audio est terminé par recorder.stop() (continuation.finish()),
+        // donc end() peut drainer et se terminer sans bloquer. Les segments
+        // horodatés seront consommés en Task 8 (nettoyage + diarisation).
+        let liveSegments = settings.liveTranscriptionEnabled
+            ? await LiveTranscriptionService.shared.end()
+            : []
+        _ = liveSegments
 
         // Laisse le FS finaliser le header WAV avant de le relire.
         try? await Task.sleep(nanoseconds: 400_000_000)
@@ -2347,6 +2382,11 @@ struct MeetingView: View {
     private func deleteMeeting() {
         if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
             _ = recorder.stop()
+            // recorder.stop() clôt le flux audio : end() peut drainer sans
+            // bloquer. On jette le résultat (suppression = annulation du live).
+            if settings.liveTranscriptionEnabled {
+                Task { _ = await LiveTranscriptionService.shared.end() }
+            }
         }
         let target = meeting
         let ctx = context
