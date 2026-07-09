@@ -98,7 +98,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
     /// Flux des buffers 16 kHz mono Float32 de l'enregistrement en cours.
     /// À appeler juste avant `start()`. Se termine au `stop()`/`cancel()`.
     func makeAudioStream() -> AsyncStream<[Float]> {
-        AsyncStream { continuation in
+        streamContinuation?.finish()  // Termine l'ancienne continuation si elle existe
+        return AsyncStream { continuation in
             self.streamContinuation = continuation
         }
     }
@@ -160,6 +161,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
         } catch {
             audioLog.error("AudioRecorder(engine): start failed \(error.localizedDescription, privacy: .public)")
             teardownEngine()
+            try? FileManager.default.removeItem(at: fileURL)
             throw AudioError.startFailed
         }
     }
@@ -193,6 +195,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     func cancel() {
+        guard isRecording else { resetState(); return }
         let url = currentFileURL
         finalizeAndTeardown()
         if let url { try? FileManager.default.removeItem(at: url) }
