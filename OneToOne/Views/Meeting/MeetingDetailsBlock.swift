@@ -33,6 +33,10 @@ struct MeetingDetailsBlock: View {
     let addAdhoc: () -> Void
     /// Persiste le `modelContext` après mutation du modèle.
     let saveContext: () -> Void
+    /// Resynchronise titre/dates/lien Teams/participants depuis le calendrier
+    /// (logique portée par `MeetingView.resyncFromCalendarInMeetingView()`,
+    /// partagée avec `ManageParticipantsSheet`).
+    let onResync: () -> Void
 
     @Environment(\.modelContext) private var context
     @State private var showCreateProjectSheet = false
@@ -224,7 +228,7 @@ struct MeetingDetailsBlock: View {
                    isPresented: $showResyncConfirmation) {
                 Button("Annuler", role: .cancel) { }
                 Button("Remplacer", role: .destructive) {
-                    resyncFromCalendar()
+                    onResync()
                 }
             } message: {
                 Text("Le titre, les dates et le lien Teams seront remplacés par les valeurs du calendrier.")
@@ -370,58 +374,6 @@ struct MeetingDetailsBlock: View {
         }
     }
 
-    /// Recharge titre, dates, lien Teams et participants depuis l'événement calendrier
-    /// correspondant à `meeting.calendarEventID`, puis modifie le modèle, sauvegarde le
-    /// contexte et reprogramme la notification. Sans correspondance, ne fait rien.
-    /// Les participants sont dédupliqués par email puis par nom (insensible à la casse).
-    @MainActor
-    private func resyncFromCalendar() {
-        let eventID = meeting.calendarEventID
-        guard !eventID.isEmpty else { return }
-        let importer = CalendarMeetingImportService()
-        let now = Date()
-        let cal = Calendar.current
-        let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
-        let end = cal.date(byAdding: .day, value: 60, to: now) ?? now
-        let events = importer.fetchEvents(start: start, end: end)
-        guard let match = events.first(where: { $0.id == eventID }) else { return }
-
-        meeting.title = match.title
-        meeting.scheduledStart = match.startDate
-        meeting.scheduledEnd = match.endDate
-        meeting.teamsJoinURL = match.teamsJoinURL
-        meeting.date = match.startDate
-        if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
-        meeting.meetingDurationSeconds = max(0, Int(match.endDate.timeIntervalSince(match.startDate).rounded()))
-
-        // Re-import missing participants (dedup by email then name).
-        let me = settings.userEmail.lowercased()
-        let allCollabs = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
-        for attendee in match.attendees {
-            let email = (attendee.email ?? "").lowercased()
-            if !me.isEmpty && email == me { continue }
-            let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let collab: Collaborator
-            if !email.isEmpty, let m = allCollabs.first(where: { $0.email.lowercased() == email }) {
-                collab = m
-            } else if !name.isEmpty, let m = allCollabs.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
-                collab = m
-            } else {
-                let c = Collaborator(name: name.isEmpty ? "Participant" : name)
-                c.email = attendee.email ?? ""
-                context.insert(c)
-                collab = c
-            }
-            if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
-                meeting.participants.append(collab)
-            }
-            meeting.setParticipantStatus(attendee.status, for: collab)
-        }
-
-        // Persist before scheduling so storeIdentifier stays stable.
-        try? context.save()
-        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
-    }
 }
 
 // MARK: - Recherche projet

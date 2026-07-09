@@ -58,7 +58,11 @@ struct MeetingTopChromeBar: View {
                 chevron
                 Text(project.name).fontWeight(.semibold).foregroundColor(.primary)
             } else {
-                Text(meeting.kind.label).fontWeight(.semibold).foregroundColor(.primary)
+                Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
+                    .font(.caption)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    .foregroundColor(.primary)
             }
             audioStatusBadge
         }

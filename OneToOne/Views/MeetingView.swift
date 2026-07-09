@@ -86,7 +86,7 @@ struct MeetingView: View {
     @State private var newTaskDueDate: Date? = nil
     @State private var newAdhocName = ""
     @State private var showCustomPrompt = false
-    @State private var activeSection: MeetingSection = .liveNotes
+    @State private var activeSection: MeetingSection = .overview
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
     @State private var reportEditMode: Bool = false
@@ -113,6 +113,8 @@ struct MeetingView: View {
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
     @State private var showDeleteConfirm = false
+    @State private var showParticipantsSheet = false
+    @State private var isEditingLayout = false
     @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
@@ -142,10 +144,10 @@ struct MeetingView: View {
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
     @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
-    @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
     /// Onglet actif du panneau principal de la réunion.
     enum MeetingSection: String, CaseIterable, Identifiable {
+        case overview = "Vue d'ensemble"
         case preparation = "Préparation"
         case liveNotes = "Notes live"
         case liveTranscript = "Direct"
@@ -228,45 +230,7 @@ struct MeetingView: View {
 
             transcriptionPhaseBanner
 
-            // HStack au lieu de HSplitView : NSSplitView ne gère pas bien
-                // les changements drastiques de largeur (36px rail ↔ 360px expand)
-                // — provoque récursion infinie dans
-                // `_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines`
-                // et crash AppKit. HStack avec frame fixe au call-site = stable.
-            HStack(spacing: 0) {
-                mainPanel.frame(minWidth: 520, maxWidth: .infinity)
-                if meeting.kind == .manager {
-                    ManagerAgendaSidebar(meeting: meeting, settings: settings)
-                        .frame(width: 380)
-                } else {
-                    ConfigurableRightSidebar(
-                        meeting: meeting,
-                        settings: settings,
-                        allCollaborators: allCollaborators,
-                        currentSlides: currentSlides,
-                        collapsed: $actionsCollapsed,
-                        newTaskTitle: $newTaskTitle,
-                        selectedCollaborator: $selectedCollaborator,
-                        showNewTaskDueDate: $showNewTaskDueDate,
-                        newTaskDueDate: $newTaskDueDate,
-                        onAddTask: addTask,
-                        onDeleteTask: { task in
-                            context.delete(task)
-                            saveContext()
-                        },
-                        onToggleTaskCompletion: { task in
-                            task.isCompleted.toggle()
-                            saveContext()
-                        },
-                        onShowSlides:       { showSlidesList = true },
-                        onShowCaptureSetup: { showCaptureSetup = true },
-                        saveContext: saveContext
-                    )
-                    // Largeur déterministe (pas de range) : évite oscillations
-                    // de constraint solver entre min/max.
-                    .frame(width: actionsCollapsed ? 36 : 360)
-                }
-            }
+            mainPanel
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
         .textSelection(.enabled)
@@ -301,6 +265,21 @@ struct MeetingView: View {
         }
         .sheet(item: $audioEditMode) { mode in
             AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
+        }
+        .sheet(isPresented: $showParticipantsSheet) {
+            ManageParticipantsSheet(
+                meeting: meeting, settings: settings,
+                availableCollaborators: availableCollaborators,
+                collaboratorsCount: allCollaborators.count,
+                newAdhocName: $newAdhocName,
+                addParticipant: addParticipant,
+                removeParticipant: removeParticipant,
+                removeAllParticipants: removeAllParticipants,
+                setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
+                participantStatus: { c in participantStatus(for: c) },
+                addAdhoc: addAdhocParticipant,
+                onResync: { resyncFromCalendarInMeetingView() },
+                onClose: { showParticipantsSheet = false })
         }
         .popover(isPresented: $showSlidesList) { slidesPopover }
         .popover(isPresented: $showCaptureSetup) {
@@ -391,13 +370,16 @@ struct MeetingView: View {
                 setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
                 participantStatus: { c in participantStatus(for: c) },
                 addAdhoc: addAdhocParticipant,
-                saveContext: saveContext
+                saveContext: saveContext,
+                onResync: { resyncFromCalendarInMeetingView() }
             )
             MeetingTabsUnderline(
                 selection: $activeSection,
                 attachmentsCount: meeting.attachments.count,
                 hasReport: !meeting.summary.isEmpty,
-                showLiveTab: settings.liveTranscriptionEnabled
+                showLiveTab: settings.liveTranscriptionEnabled,
+                date: meeting.date,
+                isEditingLayout: $isEditingLayout
             )
             sectionContent
                 .padding(.horizontal, 28)
@@ -513,6 +495,20 @@ struct MeetingView: View {
     @ViewBuilder
     private var sectionContent: some View {
         switch activeSection {
+        case .overview:
+            OverviewDashboard(
+                meeting: meeting, settings: settings, allCollaborators: allCollaborators,
+                currentSlides: currentSlides, isEditing: $isEditingLayout,
+                newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
+                showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
+                onAddTask: addTask,
+                onDeleteTask: { task in context.delete(task); saveContext() },
+                onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
+                onShowSlides: { showSlidesList = true },
+                onShowCaptureSetup: { showCaptureSetup = true },
+                onManageParticipants: { showParticipantsSheet = true },
+                onExpandTranscript: { activeSection = .liveTranscript },
+                saveContext: saveContext)
         case .preparation:
             MeetingPrepTab(meeting: meeting)
                 .onAppear {
@@ -1142,6 +1138,61 @@ struct MeetingView: View {
         }
 
         saveContext()
+    }
+
+    /// Recharge titre, dates, lien Teams et participants depuis l'événement calendrier
+    /// correspondant à `meeting.calendarEventID`, puis modifie le modèle, sauvegarde le
+    /// contexte et reprogramme la notification. Sans correspondance, ne fait rien.
+    /// Les participants sont dédupliqués par email puis par nom (insensible à la casse).
+    /// Logique partagée (DRY) entre le bouton Resync de `MeetingDetailsBlock` et celui
+    /// de `ManageParticipantsSheet` — les deux pointent vers cette méthode unique.
+    @MainActor
+    private func resyncFromCalendarInMeetingView() {
+        let eventID = meeting.calendarEventID
+        guard !eventID.isEmpty else { return }
+        let importer = CalendarMeetingImportService()
+        let now = Date()
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        let end = cal.date(byAdding: .day, value: 60, to: now) ?? now
+        let events = importer.fetchEvents(start: start, end: end)
+        guard let match = events.first(where: { $0.id == eventID }) else { return }
+
+        meeting.title = match.title
+        meeting.scheduledStart = match.startDate
+        meeting.scheduledEnd = match.endDate
+        meeting.teamsJoinURL = match.teamsJoinURL
+        meeting.date = match.startDate
+        if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
+        meeting.meetingDurationSeconds = max(0, Int(match.endDate.timeIntervalSince(match.startDate).rounded()))
+
+        // Re-import missing participants (dedup by email then name).
+        let me = settings.userEmail.lowercased()
+        let allCollabs = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
+        for attendee in match.attendees {
+            let email = (attendee.email ?? "").lowercased()
+            if !me.isEmpty && email == me { continue }
+            let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let collab: Collaborator
+            if !email.isEmpty, let m = allCollabs.first(where: { $0.email.lowercased() == email }) {
+                collab = m
+            } else if !name.isEmpty, let m = allCollabs.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                collab = m
+            } else {
+                let c = Collaborator(name: name.isEmpty ? "Participant" : name)
+                c.email = attendee.email ?? ""
+                context.insert(c)
+                collab = c
+            }
+            if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
+                meeting.participants.append(collab)
+            }
+            meeting.setParticipantStatus(attendee.status, for: collab)
+        }
+
+        // Persist before scheduling so storeIdentifier stays stable.
+        try? context.save()
+        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
     }
 
     private func resolveCollaborator(for attendee: CalendarMeetingAttendee) -> Collaborator {
