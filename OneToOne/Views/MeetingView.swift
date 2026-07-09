@@ -96,7 +96,12 @@ struct MeetingView: View {
     @State private var transcriptionProgress: Double? = nil   // 0.0–1.0 when known
     @State private var transcriptionProgressStatus: String? = nil
     @State private var speakerPickerSearch: String = ""
-    @State private var showDocImporter = false
+    /// Cible du sélecteur de fichiers UNIFIÉ. On n'utilise qu'un seul
+    /// `.fileImporter` : macOS/SwiftUI ne présente pas fiablement plusieurs
+    /// `.fileImporter` coexistant dans la même hiérarchie (l'un masque l'autre,
+    /// d'où « impossible d'importer »).
+    enum FileImportTarget { case wav, documents }
+    @State private var fileImportTarget: FileImportTarget?
     @State private var attachmentError: String?
     @State private var isImportingAttachment = false
     @State private var isDraggingDoc = false
@@ -104,7 +109,6 @@ struct MeetingView: View {
     @State private var showSlidesList = false
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
-    @State private var showWavImporter = false
     @State private var wavImportError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
@@ -294,11 +298,20 @@ struct MeetingView: View {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
         }
         .fileImporter(
-            isPresented: $showWavImporter,
-            allowedContentTypes: [.audio, .wav, .mp3, .mpeg4Audio, .aiff, .mpeg4Movie, .movie],
-            allowsMultipleSelection: false
+            isPresented: Binding(
+                get: { fileImportTarget != nil },
+                set: { if !$0 { fileImportTarget = nil } }
+            ),
+            allowedContentTypes: fileImportAllowedTypes,
+            allowsMultipleSelection: fileImportTarget == .documents
         ) { result in
-            Task { await importExistingWAV(result: result) }
+            let target = fileImportTarget
+            fileImportTarget = nil
+            switch target {
+            case .wav:       Task { await importExistingWAV(result: result) }
+            case .documents: Task { await importDocuments(result: result) }
+            case .none:      break
+            }
         }
         .onAppear {
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
@@ -329,7 +342,7 @@ struct MeetingView: View {
             generateReport: { Task { await generateReport() } },
             toggleCustomPrompt: { showDetailsSheet = true },
             importCalendar: { showCalendarImporter = true },
-            importExistingWAV: { showWavImporter = true },
+            importExistingWAV: { fileImportTarget = .wav },
             editAudio: { audioEditMode = .trimStart },
             revealWAV: {
                 if let url = meeting.wavFileURL {
@@ -354,6 +367,20 @@ struct MeetingView: View {
     }
 
     // MARK: - Main panel
+
+    /// Types autorisés du sélecteur unifié, selon la cible active.
+    private var fileImportAllowedTypes: [UTType] {
+        switch fileImportTarget {
+        case .documents:
+            var types: [UTType] = [.pdf, .plainText, .text, .presentation, .spreadsheet, .content, .item]
+            for ext in ["docx", "pptx", "xlsx"] {
+                if let t = UTType(filenameExtension: ext) { types.append(t) }
+            }
+            return types
+        default:
+            return [.audio, .wav, .mp3, .mpeg4Audio, .aiff, .mpeg4Movie, .movie]
+        }
+    }
 
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -528,7 +555,7 @@ struct MeetingView: View {
                         Text("Import + indexation…").font(.caption)
                     }
                 }
-                Button(action: { showDocImporter = true }) {
+                Button(action: { fileImportTarget = .documents }) {
                     Label("Importer", systemImage: "doc.badge.plus")
                 }
                 .buttonStyle(.borderedProminent)
@@ -580,19 +607,6 @@ struct MeetingView: View {
                 await handleFileDrop(providers)
             }
             return true
-        }
-        .fileImporter(
-            isPresented: $showDocImporter,
-            allowedContentTypes: [
-                .pdf, .plainText, .text, .presentation, .spreadsheet,
-                UTType(filenameExtension: "docx")!,
-                UTType(filenameExtension: "pptx")!,
-                UTType(filenameExtension: "xlsx")!,
-                .content, .item
-            ],
-            allowsMultipleSelection: true
-        ) { result in
-            Task { await importDocuments(result: result) }
         }
     }
 
