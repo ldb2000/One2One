@@ -353,22 +353,11 @@ struct MeetingView: View {
             // chrome (MeetingTopChromeBar). Le bloc Détails reste, replié par défaut.
             MeetingDetailsBlock(
                 meeting: meeting,
-                settings: settings,
-                allCollaborators: allCollaborators,
-                availableCollaborators: availableCollaborators,
                 projects: projects,
                 expanded: $detailsExpanded,
                 showCustomPrompt: $showCustomPrompt,
-                newAdhocName: $newAdhocName,
                 calendarImportError: $calendarImportError,
-                addParticipant: addParticipant,
-                removeParticipant: removeParticipant,
-                removeAllParticipants: removeAllParticipants,
-                setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
-                participantStatus: { c in participantStatus(for: c) },
-                addAdhoc: addAdhocParticipant,
-                saveContext: saveContext,
-                onResync: { resyncFromCalendarInMeetingView() }
+                saveContext: saveContext
             )
             MeetingTabsUnderline(
                 selection: $activeSection,

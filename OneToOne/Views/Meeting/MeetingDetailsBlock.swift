@@ -1,50 +1,26 @@
 import SwiftUI
 import SwiftData
 
-/// Section repliable « Détails de la réunion » : type, projet, participants,
-/// collaborateurs suggérés et prompt personnalisé. Les mutations du modèle sont
+/// Section repliable « Détails de la réunion » : projet et prompt personnalisé.
+/// (Le type est édité dans le chrome ; les participants dans la carte Présence
+/// et la modale « Gérer les participants ».) Les mutations du modèle sont
 /// déléguées aux closures fournies par la vue parente.
 struct MeetingDetailsBlock: View {
     @Bindable var meeting: Meeting
-    let settings: AppSettings
-    let allCollaborators: [Collaborator]
-    /// Collaborateurs non encore participants, proposés à l'ajout.
-    let availableCollaborators: [Collaborator]
     let projects: [Project]
 
     /// Contrôle l'ouverture/fermeture de la section détaillée.
     @Binding var expanded: Bool
     @Binding var showCustomPrompt: Bool
-    @Binding var newAdhocName: String
     /// Message d'erreur d'import calendrier, affiché en rouge sous le formulaire.
     @Binding var calendarImportError: String?
 
-    /// Ajoute un collaborateur aux participants de la réunion.
-    let addParticipant: (Collaborator) -> Void
-    /// Retire un collaborateur des participants.
-    let removeParticipant: (Collaborator) -> Void
-    /// Retire tous les participants (et purge les fiches jetables, cf. MeetingView).
-    let removeAllParticipants: () -> Void
-    /// Définit le statut de présence (présent/absent) d'un participant.
-    let setParticipantStatus: (MeetingAttendanceStatus, Collaborator) -> Void
-    /// Renvoie le statut de présence courant d'un collaborateur.
-    let participantStatus: (Collaborator) -> MeetingAttendanceStatus
-    /// Crée et ajoute un participant ad-hoc à partir du nom saisi.
-    let addAdhoc: () -> Void
     /// Persiste le `modelContext` après mutation du modèle.
     let saveContext: () -> Void
-    /// Resynchronise titre/dates/lien Teams/participants depuis le calendrier
-    /// (logique portée par `MeetingView.resyncFromCalendarInMeetingView()`,
-    /// partagée avec `ManageParticipantsSheet`).
-    let onResync: () -> Void
 
     @Environment(\.modelContext) private var context
     @State private var showCreateProjectSheet = false
     @State private var showProjectSearch = false
-    @State private var showResyncConfirmation: Bool = false
-    @State private var showParticipantSearch = false
-    @State private var showCollaboratorSearch = false
-    @State private var showRemoveAllConfirm = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -163,186 +139,6 @@ struct MeetingDetailsBlock: View {
             )
         }
     }
-
-    private var participantsBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text("PARTICIPANTS")
-                    .font(MeetingTheme.sectionLabel)
-                    .tracking(1.2)
-                    .foregroundColor(.secondary)
-                if !meeting.participants.isEmpty {
-                    Button {
-                        showRemoveAllConfirm = true
-                    } label: {
-                        Label("Tout retirer", systemImage: "person.2.slash")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Retirer tous les participants de la réunion")
-                    .confirmationDialog("Retirer les \(meeting.participants.count) participants ?",
-                                        isPresented: $showRemoveAllConfirm) {
-                        Button("Tout retirer", role: .destructive) { removeAllParticipants() }
-                        Button("Annuler", role: .cancel) {}
-                    } message: {
-                        Text("Les collaborateurs qui n'apparaissent dans aucune autre réunion et n'ont ni notes, ni entretiens, ni actions seront aussi supprimés de l'annuaire.")
-                    }
-                }
-            }
-
-            HStack(spacing: 8) {
-                if !meeting.calendarEventTitle.isEmpty {
-                    Label(
-                        "\(meeting.calendarEventTitle) • \(meeting.date.formatted(date: .abbreviated, time: .shortened))",
-                        systemImage: "calendar"
-                    )
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-                if !meeting.calendarEventID.isEmpty {
-                    Button {
-                        showResyncConfirmation = true
-                    } label: {
-                        Label("Resync", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Recharger titre / dates / lien Teams depuis le calendrier")
-                }
-            }
-            .alert("Resynchroniser depuis le calendrier ?",
-                   isPresented: $showResyncConfirmation) {
-                Button("Annuler", role: .cancel) { }
-                Button("Remplacer", role: .destructive) {
-                    onResync()
-                }
-            } message: {
-                Text("Le titre, les dates et le lien Teams seront remplacés par les valeurs du calendrier.")
-            }
-
-            FlowLayout(spacing: 8) {
-                ForEach(meeting.participants, id: \.persistentModelID) { p in
-                    Menu {
-                        ForEach(MeetingAttendanceStatus.allCases) { status in
-                            Button(action: { setParticipantStatus(status, p) }) {
-                                Label(status.label, systemImage: status.sfSymbol)
-                            }
-                        }
-                        Divider()
-                        Button(role: .destructive, action: { removeParticipant(p) }) {
-                            Label("Retirer", systemImage: "trash")
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            AvatarMini(collaborator: p, tint: settings.meetingParticipantColor)
-                            Text(p.name)
-                                .font(.caption)
-                                .foregroundColor(.primary)
-                            if participantStatus(p) == .refused {
-                                Image(systemName: MeetingAttendanceStatus.refused.sfSymbol)
-                                    .font(.caption2)
-                                    .foregroundColor(.primary)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(participantChipColor(for: p))
-                        .cornerRadius(12)
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                }
-
-                Button {
-                    showParticipantSearch.toggle()
-                } label: {
-                    Label("Ajouter", systemImage: "plus.circle").font(.caption)
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showParticipantSearch, arrowEdge: .bottom) {
-                    CollaboratorSearchPicker(
-                        collaborators: availableCollaborators,
-                        tint: settings.meetingParticipantColor,
-                        onSelect: { addParticipant($0) }
-                    )
-                }
-            }
-        }
-    }
-
-    private var collaboratorsBlock: some View {
-        let ranked = availableCollaborators.sorted { lhs, rhs in
-            let l = lhs.interviews.count + lhs.meetings.count
-            let r = rhs.interviews.count + rhs.meetings.count
-            if l != r { return l > r }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-        let topN = Array(ranked.prefix(6))
-        let rest = Array(ranked.dropFirst(6))
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("COLLABORATEURS")
-                    .font(MeetingTheme.sectionLabel)
-                    .tracking(1.2)
-                    .foregroundColor(.secondary)
-                Text("(top 6)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.7))
-            }
-
-            FlowLayout(spacing: 8) {
-                ForEach(topN, id: \.persistentModelID) { c in
-                    Button(action: { addParticipant(c) }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus.circle.fill").font(.caption2)
-                            Text(c.name).font(.caption)
-                        }
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(settings.meetingCollaboratorColor)
-                        .cornerRadius(12)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if !rest.isEmpty {
-                    Button {
-                        showCollaboratorSearch.toggle()
-                    } label: {
-                        Label("Plus (\(rest.count))", systemImage: "magnifyingglass")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showCollaboratorSearch, arrowEdge: .bottom) {
-                        CollaboratorSearchPicker(
-                            collaborators: ranked,
-                            tint: settings.meetingCollaboratorColor,
-                            onSelect: { addParticipant($0) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private var adhocRow: some View {
-        HStack(spacing: 6) {
-            TextField("Ad-hoc : nom…", text: $newAdhocName)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 220)
-                .onSubmit { addAdhoc() }
-            Button(action: addAdhoc) {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(.bordered)
-            .disabled(newAdhocName.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-    }
-
     @ViewBuilder
     private func labeled<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 8) {
@@ -351,14 +147,6 @@ struct MeetingDetailsBlock: View {
                 .tracking(1.2)
                 .foregroundColor(.secondary)
             content()
-        }
-    }
-
-    private func participantChipColor(for c: Collaborator) -> Color {
-        switch participantStatus(c) {
-        case .present: return settings.meetingParticipantColor
-        case .refused: return settings.meetingAbsentColor
-        case .pending: return settings.meetingCollaboratorColor
         }
     }
 
@@ -473,93 +261,6 @@ private struct ProjectSearchPicker: View {
         if !project.chefDeProjet.isEmpty { parts.append("CP: \(project.chefDeProjet)") }
         if !project.architecte.isEmpty { parts.append("AT: \(project.architecte)") }
         return parts.joined(separator: " · ")
-    }
-}
-
-// MARK: - Recherche collaborateur
-
-/// Popover d'ajout de participants avec champ de recherche en haut — adapté
-/// aux gros annuaires (300+ collaborateurs). Filtre insensible à la casse sur
-/// nom, rôle et email. Le popover reste ouvert après chaque ajout pour
-/// enchaîner plusieurs personnes ; ⏎ ajoute le premier résultat et vide la
-/// recherche. La liste fournie par le parent se réduit au fil des ajouts.
-private struct CollaboratorSearchPicker: View {
-    let collaborators: [Collaborator]
-    /// Couleur des pastilles d'initiales (fallback sans photo).
-    let tint: Color
-    let onSelect: (Collaborator) -> Void
-
-    @State private var query: String = ""
-    @FocusState private var queryFocused: Bool
-
-    private var filtered: [Collaborator] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return collaborators }
-        return collaborators.filter { c in
-            c.name.localizedCaseInsensitiveContains(q) ||
-            c.role.localizedCaseInsensitiveContains(q) ||
-            c.email.localizedCaseInsensitiveContains(q)
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                TextField("Nom, rôle, email…", text: $query)
-                    .textFieldStyle(.plain)
-                    .focused($queryFocused)
-                    .onSubmit {
-                        guard let first = filtered.first else { return }
-                        onSelect(first)
-                        query = ""
-                    }
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(.secondary) }
-                        .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if filtered.isEmpty {
-                        Text(collaborators.isEmpty ? "Tout le monde participe déjà" : "Aucun résultat")
-                            .font(.caption).foregroundColor(.secondary)
-                            .padding(.horizontal, 10).padding(.vertical, 12)
-                    } else {
-                        ForEach(filtered, id: \.persistentModelID) { c in
-                            Button {
-                                onSelect(c)
-                                query = ""
-                            } label: {
-                                HStack(spacing: 8) {
-                                    AvatarMini(collaborator: c, tint: tint)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(c.name).lineLimit(1)
-                                        let meta = [c.role, c.email].filter { !$0.isEmpty }.joined(separator: " · ")
-                                        if !meta.isEmpty {
-                                            Text(meta).font(.caption2).foregroundColor(.secondary).lineLimit(1)
-                                        }
-                                    }
-                                    Spacer()
-                                    Image(systemName: "plus.circle")
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.horizontal, 10).padding(.vertical, 5)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            Divider()
-                        }
-                    }
-                }
-            }
-            .frame(width: 320, height: 300)
-        }
-        .onAppear { queryFocused = true }
     }
 }
 
