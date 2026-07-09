@@ -32,4 +32,12 @@ public extension MarkdownTextEditor {
         copy.readOnly = flag
         return copy
     }
+
+    /// Enregistre l'éditeur dans `MarkdownEditorRegistry` sous cet identifiant
+    /// pour qu'une `MarkdownToolbar(textViewID:)` puisse le piloter.
+    func markdownEditorID(_ id: String) -> Self {
+        var copy = self
+        copy.editorID = id
+        return copy
+    }
 }

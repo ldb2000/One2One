@@ -12,6 +12,7 @@ public struct MarkdownTextEditor: View {
     var features: Set<MarkdownFeature> = .basic
     var debounce: TimeInterval = 0.3
     var readOnly: Bool = false
+    var editorID: String = ""
 
     public init(text: Binding<String>) {
         self._text = text
@@ -23,7 +24,8 @@ public struct MarkdownTextEditor: View {
             placeholder: placeholder,
             features: features,
             debounce: debounce,
-            readOnly: readOnly
+            readOnly: readOnly,
+            editorID: editorID
         )
     }
 }

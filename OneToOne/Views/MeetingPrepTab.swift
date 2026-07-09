@@ -36,13 +36,16 @@ struct MeetingPrepTab: View {
     /// (demande confirmation si des notes existent déjà).
     @ViewBuilder
     private var editorPane: some View {
+        let prepID = "meetingPrep.\(meeting.persistentModelID.hashValue)"
         VStack(spacing: 0) {
+            MarkdownToolbar(textViewID: prepID)
+                .padding(.horizontal, 8).padding(.top, 6)
             MarkdownEditorView(
                 text: Binding(
                     get: { meeting.prepNotes },
                     set: { meeting.prepNotes = $0; saveCtx() }
                 ),
-                textViewID: "meetingPrep.\(meeting.persistentModelID.hashValue)"
+                textViewID: prepID
             )
             if let err = generationError {
                 Text(err).font(.caption).foregroundStyle(.red).padding(.horizontal)
