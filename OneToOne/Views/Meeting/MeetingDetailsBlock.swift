@@ -8,66 +8,49 @@ import SwiftData
 struct MeetingDetailsBlock: View {
     @Bindable var meeting: Meeting
     let projects: [Project]
-
-    /// Contrôle l'ouverture/fermeture de la section détaillée.
-    @Binding var expanded: Bool
-    @Binding var showCustomPrompt: Bool
-    /// Message d'erreur d'import calendrier, affiché en rouge sous le formulaire.
+    /// Message d'erreur d'import calendrier, affiché en rouge.
     @Binding var calendarImportError: String?
-
     /// Persiste le `modelContext` après mutation du modèle.
     let saveContext: () -> Void
+    /// Ferme la modale.
+    let onClose: () -> Void
 
     @Environment(\.modelContext) private var context
     @State private var showCreateProjectSheet = false
     @State private var showProjectSearch = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    expanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("Détails de la réunion")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Détails de la réunion").font(.title2.bold())
+                Spacer()
+                Button { onClose() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.1)))
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 10)
-
-            if expanded {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Type déplacé dans le chrome ; participants/collaborateurs gérés via
-                    // la carte Présence et la modale « Gérer les participants ».
-                    typeProjectRow
-                    if showCustomPrompt {
-                        TextEditor(text: $meeting.customPrompt)
-                            .font(.body)
-                            .frame(height: 70)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(MeetingTheme.hairline, lineWidth: 1)
-                            )
-                    }
-                    if let calendarImportError, !calendarImportError.isEmpty {
-                        Text(calendarImportError)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 16)
+            // Type édité dans le chrome ; participants via la carte Présence / la modale.
+            // Ce panneau ne porte plus que le projet associé et le prompt spécifique.
+            typeProjectRow
+            VStack(alignment: .leading, spacing: 6) {
+                Text("PROMPT SPÉCIFIQUE (RAPPORT)")
+                    .font(MeetingTheme.sectionLabel).tracking(1.2).foregroundColor(.secondary)
+                TextEditor(text: $meeting.customPrompt)
+                    .font(.body)
+                    .frame(height: 120)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(MeetingTheme.hairline, lineWidth: 1)
+                    )
             }
+            if let calendarImportError, !calendarImportError.isEmpty {
+                Text(calendarImportError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+            Spacer()
         }
+        .padding(20)
+        .frame(width: 520, height: 440)
         .background(MeetingTheme.canvasCream)
     }
 

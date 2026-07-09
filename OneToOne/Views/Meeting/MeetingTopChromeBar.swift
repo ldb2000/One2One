@@ -389,7 +389,7 @@ struct MeetingTopChromeBar: View {
             .disabled(!actions.hasReport)
 
             Divider()
-            Button(action: actions.toggleCustomPrompt) { Label("Prompt spécifique", systemImage: "text.bubble") }
+            Button(action: actions.toggleCustomPrompt) { Label("Détails de la réunion…", systemImage: "slider.horizontal.3") }
             Menu {
                 Button(action: actions.importCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
                 Button(action: actions.importExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }

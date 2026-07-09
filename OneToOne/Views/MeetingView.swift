@@ -85,7 +85,7 @@ struct MeetingView: View {
     @State private var showNewTaskDueDate = false
     @State private var newTaskDueDate: Date? = nil
     @State private var newAdhocName = ""
-    @State private var showCustomPrompt = false
+    @State private var showDetailsSheet = false
     @State private var activeSection: MeetingSection = .overview
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
@@ -143,7 +143,6 @@ struct MeetingView: View {
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
-    @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = false
 
     /// Onglet actif du panneau principal de la réunion.
     enum MeetingSection: String, CaseIterable, Identifiable {
@@ -266,6 +265,15 @@ struct MeetingView: View {
         .sheet(item: $audioEditMode) { mode in
             AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
         }
+        .sheet(isPresented: $showDetailsSheet) {
+            MeetingDetailsBlock(
+                meeting: meeting,
+                projects: projects,
+                calendarImportError: $calendarImportError,
+                saveContext: saveContext,
+                onClose: { showDetailsSheet = false }
+            )
+        }
         .sheet(isPresented: $showParticipantsSheet) {
             ManageParticipantsSheet(
                 meeting: meeting, settings: settings,
@@ -319,7 +327,7 @@ struct MeetingView: View {
             togglePause: { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
             retranscribe: { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
             generateReport: { Task { await generateReport() } },
-            toggleCustomPrompt: { showCustomPrompt.toggle() },
+            toggleCustomPrompt: { showDetailsSheet = true },
             importCalendar: { showCalendarImporter = true },
             importExistingWAV: { showWavImporter = true },
             editAudio: { audioEditMode = .trimStart },
@@ -349,16 +357,10 @@ struct MeetingView: View {
 
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // En-tête éditorial retiré : le titre de la réunion vit désormais dans le
-            // chrome (MeetingTopChromeBar). Le bloc Détails reste, replié par défaut.
-            MeetingDetailsBlock(
-                meeting: meeting,
-                projects: projects,
-                expanded: $detailsExpanded,
-                showCustomPrompt: $showCustomPrompt,
-                calendarImportError: $calendarImportError,
-                saveContext: saveContext
-            )
+            // En-tête éditorial + bloc « Détails de la réunion » retirés du dashboard :
+            // titre & type dans le chrome, participants dans la carte Présence / la modale.
+            // Le projet associé et le prompt spécifique vivent dans la modale Détails
+            // (ouverte via le menu « … »).
             MeetingTabsUnderline(
                 selection: $activeSection,
                 attachmentsCount: meeting.attachments.count,
