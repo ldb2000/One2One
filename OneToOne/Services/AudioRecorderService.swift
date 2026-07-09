@@ -220,6 +220,15 @@ final class AudioRecorderService: NSObject, ObservableObject {
             self.lastError = "Périphérique audio modifié — enregistrement interrompu. Vérifie l'entrée micro."
             audioLog.error("AudioRecorder(engine): configuration change → stop")
             _ = self.stop()
+            // Ce chemin (notification système) contourne MeetingView, donc
+            // LiveTranscriptionService.end()/abort() ne sont jamais appelés côté UI.
+            // Sans ce nettoyage, une session live reste bloquée (isLive=true, modèle
+            // Voxtral résident, consumeTask non annulée) et begin() ressort ensuite en
+            // silence (guard !isLive) : la transcription live est morte jusqu'au
+            // redémarrage de l'app. abort() est idempotent (no-op si aucune session
+            // n'était active), d'où ce couplage assumé entre les deux singletons
+            // @MainActor du module pour nettoyer la session live à la source.
+            LiveTranscriptionService.shared.abort()
         }
     }
 
