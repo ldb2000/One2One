@@ -707,6 +707,14 @@ struct SettingsView: View {
                             }
                         }
 
+                        Toggle("Transcription en direct (aperçu pendant l'enregistrement)", isOn: Binding(
+                            get: { settings.liveTranscriptionEnabled },
+                            set: { settings.liveTranscriptionEnabled = $0; saveSettings() }
+                        ))
+                        Text("Sollicite le processeur en continu pendant la réunion (batterie, ventilateur). Le transcript final reste nettoyé et attribué aux locuteurs après l'enregistrement.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
                         Divider()
                         Text("Collaborateurs enrôlés").font(.caption.bold()).foregroundColor(.secondary)
                         enrolledCollabsList

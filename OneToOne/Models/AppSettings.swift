@@ -138,6 +138,10 @@ final class AppSettings {
     /// Bannière de confirmation au démarrage de l'enregistrement.
     var notifRecordingStart: Bool = true
 
+    /// Affiche une transcription en direct pendant l'enregistrement (opt-in ;
+    /// sollicite le GPU/Neural Engine en continu — impact batterie/ventilateur).
+    var liveTranscriptionEnabled: Bool = false
+
     /// Pré-rappel style Outlook (banner + son + bouton Teams).
     var notifMeetingPreStart: Bool = true
     /// Minutes avant le début pour le pré-rappel (Outlook default = 15).
