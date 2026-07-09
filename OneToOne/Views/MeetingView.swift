@@ -1310,7 +1310,8 @@ struct MeetingView: View {
 
         // Le flux audio est terminé par recorder.stop() (continuation.finish()),
         // donc end() peut drainer et se terminer sans bloquer. Les segments
-        // horodatés seront consommés en Task 8 (nettoyage + diarisation).
+        // horodatés sont consommés en Task 8 (nettoyage + diarisation) plus
+        // bas, via finalizeLiveTranscript.
         // Garde sur l'état réel du service (isLive), pas sur le réglage : si
         // l'utilisateur désactive liveTranscriptionEnabled EN COURS
         // d'enregistrement (Réglages = fenêtre séparée), une session live
@@ -1318,10 +1319,16 @@ struct MeetingView: View {
         let liveSegments = LiveTranscriptionService.shared.isLive
             ? await LiveTranscriptionService.shared.end()
             : []
-        _ = liveSegments
 
         // Laisse le FS finaliser le header WAV avant de le relire.
         try? await Task.sleep(nanoseconds: 400_000_000)
+
+        // Capturé AVANT la concaténation ci-dessous, qui remet
+        // `pendingAppendBaseURL` à nil une fois le merge effectué. En mode
+        // append, les timestamps live ne couvrent que le nouveau segment (pas
+        // l'audio concaténé complet) → la finalisation live est exclue, le
+        // chemin batch (re-STT complet) est forcé.
+        let wasAppend = pendingAppendBaseURL != nil
 
         // Concaténation si on était en mode "ajout d'un enregistrement".
         var finalURL = stopped.url
@@ -1374,21 +1381,46 @@ struct MeetingView: View {
             transcriptionPhase = .transcribing
             transcriptionProgress = nil
             transcriptionProgressStatus = nil
-            let result = try await stt.runTranscription(
-                audioURL: finalURL,
-                meeting: meeting,
-                settings: settings,
-                in: context,
-                onPhase: { phase in
-                    Task { @MainActor in self.transcriptionPhase = phase }
-                },
-                onProgress: { fraction, status in
-                    Task { @MainActor in
-                        self.transcriptionProgress = fraction
-                        self.transcriptionProgressStatus = status
+            // Live actif (et pas un append, cf. note ci-dessus) → pas de 2e
+            // passe STT : nettoyage + diarisation seule + attribution par
+            // timestamps. Sinon (live désactivé, ou append) → pipeline batch
+            // inchangé.
+            let useLive = !liveSegments.isEmpty && !wasAppend
+            let result: STTResult
+            if useLive {
+                result = try await stt.finalizeLiveTranscript(
+                    segments: liveSegments,
+                    audioURL: finalURL,
+                    meeting: meeting,
+                    settings: settings,
+                    in: context,
+                    onPhase: { phase in
+                        Task { @MainActor in self.transcriptionPhase = phase }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                result = try await stt.runTranscription(
+                    audioURL: finalURL,
+                    meeting: meeting,
+                    settings: settings,
+                    in: context,
+                    onPhase: { phase in
+                        Task { @MainActor in self.transcriptionPhase = phase }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
+                    }
+                )
+            }
             transcriptionPhase = .idle
             transcriptionProgress = nil
             transcriptionProgressStatus = nil

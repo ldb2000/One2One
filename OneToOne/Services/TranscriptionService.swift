@@ -198,6 +198,58 @@ final class TranscriptionService: ObservableObject {
         }
     }
 
+    /// Finalise un transcript live (aucune 2ᵉ passe STT) : nettoyage anti-boucles
+    /// du texte, diarisation Pyannote seule, attribution des locuteurs par
+    /// recouvrement de timestamps, puis persistance via le chemin existant.
+    func finalizeLiveTranscript(segments: [LiveSegment],
+                                audioURL: URL,
+                                meeting: Meeting,
+                                settings: AppSettings,
+                                in context: ModelContext,
+                                onPhase: ((TranscriptionPhase) -> Void)? = nil,
+                                onProgress: ((Double, String) -> Void)? = nil) async throws -> STTResult {
+        // 1. Nettoyage anti-répétitions, segment par segment.
+        let cleaned = segments.map {
+            LiveSegment(start: $0.start, end: $0.end,
+                        text: Self.collapseRepetitions($0.text))
+        }
+
+        // 2. Diarisation Pyannote seule (pas de STT). PyannoteDiarizer émet ses
+        //    propres phases via `onPhase`/`onProgress` transmis ci-dessous.
+        let diar: PyannoteDiarizer.DiarizeOutput
+        do {
+            diar = try await PyannoteDiarizer.shared.diarize(
+                audioURL: audioURL,
+                clusterThreshold: Float(settings.diarizationClusterThreshold),
+                onPhase: onPhase, onProgress: onProgress)
+        } catch {
+            // Repli : pas de diarisation → tout sur locuteur 0, persistance anonyme.
+            let blocks = LiveDiarizationAligner.alignToBlocks(segments: cleaned, turns: [])
+            persistBlocks(blocks, assignments: [Int: SpeakerMatcher.Assignment](), meeting: meeting, in: context)
+            let text = blocks.map { $0.text }.joined(separator: "\n")
+            return STTResult(text: text, language: self.language,
+                             durationSeconds: cleaned.last?.end ?? 0, segments: [])
+        }
+
+        // 3. Attribution des locuteurs par timestamps.
+        let blocks = LiveDiarizationAligner.alignToBlocks(segments: cleaned, turns: diar.turns)
+
+        // 4. Matching collaborateurs + persistance (chemin existant).
+        onPhase?(.matching)
+        let assignments = SpeakerMatcher.match(
+            clusterEmbeddings: diar.perClusterEmbedding, meeting: meeting,
+            in: context, settings: settings)
+        let canonical = canonicalizeBlocks(blocks, assignments: assignments)
+        persistBlocks(canonical, assignments: assignments, meeting: meeting, in: context)
+
+        let text = canonical.map { $0.text }.joined(separator: "\n")
+        var result = STTResult(text: text, language: self.language,
+                               durationSeconds: diar.turns.last?.endSec ?? (cleaned.last?.end ?? 0),
+                               segments: [])
+        result.clusterEmbeddings = diar.perClusterEmbedding
+        return result
+    }
+
     private func makeEngine(kind: STTEngineKind, settings: AppSettings) -> STTEngine {
         switch kind {
         case .cohere:  return CohereEngine()
