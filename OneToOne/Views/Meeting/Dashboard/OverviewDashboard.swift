@@ -24,6 +24,11 @@ struct OverviewDashboard: View {
 
     @State private var entries: [PanelLayoutEntry] = []
 
+    /// Hauteur max des cartes embarquant un `ScrollView` interne non borné (Actions, Projets,
+    /// Capture, Agenda manager) : le `ScrollView` extérieur de `body` + un `ScrollView` interne
+    /// non borné déclenchent une récursion de layout macOS (`_NSDetectedLayoutRecursion` → freeze).
+    private let cardScrollMaxHeight: CGFloat = 380
+
     /// Cartes visibles, dans l'ordre du layout, filtrées selon le kind.
     private var visibleIDs: [RightSidebarPanelID] {
         entries.filter { entry in
@@ -91,18 +96,26 @@ struct OverviewDashboard: View {
                              showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
                              onAddTask: onAddTask, onDeleteTask: onDeleteTask,
                              onToggleTaskCompletion: onToggleTaskCompletion, saveContext: saveContext)
+                    // Borne la hauteur pour éviter la récursion de layout (ScrollView imbriqués) sur macOS.
+                    .frame(maxHeight: cardScrollMaxHeight)
             }
         case .projects:
             DashboardCard(title: "Projets affectés", systemImage: "folder.fill", isEditing: isEditing) { EmptyView() } content: {
                 ProjectsPanel(meeting: meeting)
+                    // Borne la hauteur par sécurité (contenu potentiellement scrollable/extensible).
+                    .frame(maxHeight: cardScrollMaxHeight)
             }
         case .capture:
             DashboardCard(title: "Capture", systemImage: "camera", isEditing: isEditing) { EmptyView() } content: {
                 CapturePanel(currentSlides: currentSlides, onShowSlides: onShowSlides, onShowCaptureSetup: onShowCaptureSetup)
+                    // Borne la hauteur par sécurité (contenu potentiellement scrollable/extensible).
+                    .frame(maxHeight: cardScrollMaxHeight)
             }
         case .managerAgenda:
             DashboardCard(title: "Agenda manager", systemImage: "list.bullet.rectangle", isEditing: isEditing) { EmptyView() } content: {
                 ManagerAgendaSidebar(meeting: meeting, settings: settings)
+                    // Borne la hauteur pour éviter la récursion de layout (ScrollView imbriqués) sur macOS.
+                    .frame(maxHeight: cardScrollMaxHeight)
             }
         }
     }
