@@ -52,16 +52,15 @@ struct OverviewDashboard: View {
     @ViewBuilder
     private func grid(narrow: Bool) -> some View {
         let ids = visibleIDs
+        let heroIDs: [RightSidebarPanelID] = (!narrow && ids.count >= 2) ? Array(ids.prefix(2)) : []
+        let rest = Array(ids.dropFirst(heroIDs.count))
         VStack(spacing: 16) {
-            // Rangée héro : 2 premières cartes.
-            if ids.count >= 2 && !narrow {
+            if !heroIDs.isEmpty {
                 HStack(alignment: .top, spacing: 16) {
-                    card(ids[0]).frame(maxWidth: .infinity)
-                    card(ids[1]).frame(maxWidth: .infinity).layoutPriority(1)
+                    card(heroIDs[0]).frame(maxWidth: .infinity)
+                    card(heroIDs[1]).frame(maxWidth: .infinity).layoutPriority(1)
                 }
             }
-            // Reste : grille 3 colonnes (ou 1 colonne si étroit).
-            let rest = narrow ? ids : Array(ids.dropFirst(2))
             let columns = narrow
                 ? [GridItem(.flexible())]
                 : [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
@@ -114,7 +113,7 @@ struct OverviewDashboard: View {
             Spacer()
             Menu {
                 Section("Cartes visibles") {
-                    ForEach(entries) { entry in
+                    ForEach(entries.filter { $0.id != .managerAgenda || meeting.kind == .manager }) { entry in
                         Button {
                             if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
                                 entries[idx].visible.toggle(); persist()
