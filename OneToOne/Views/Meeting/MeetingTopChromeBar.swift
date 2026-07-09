@@ -62,13 +62,26 @@ struct MeetingTopChromeBar: View {
                 .font(.body.weight(.semibold))
                 .frame(maxWidth: 460, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-            // Badge de type de réunion.
-            Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
-                .font(.caption)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Capsule().fill(Color.secondary.opacity(0.12)))
-                .foregroundColor(.primary)
-                .fixedSize()
+            // Badge de type de réunion — éditable (source unique du type, remplace le
+            // picker du bloc Détails).
+            Menu {
+                Picker("Type de réunion", selection: Binding(
+                    get: { meeting.kind },
+                    set: { meeting.kind = $0; try? modelContext.save() }
+                )) {
+                    ForEach(MeetingKind.allCases) { k in
+                        Label(k.label, systemImage: k.sfSymbol).tag(k)
+                    }
+                }
+            } label: {
+                Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
+                    .font(.caption)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    .foregroundColor(.primary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
             audioStatusBadge
         }
         .lineLimit(1)

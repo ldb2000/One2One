@@ -70,10 +70,9 @@ struct MeetingDetailsBlock: View {
 
             if expanded {
                 VStack(alignment: .leading, spacing: 14) {
+                    // Type déplacé dans le chrome ; participants/collaborateurs gérés via
+                    // la carte Présence et la modale « Gérer les participants ».
                     typeProjectRow
-                    participantsBlock
-                    if !availableCollaborators.isEmpty { collaboratorsBlock }
-                    adhocRow
                     if showCustomPrompt {
                         TextEditor(text: $meeting.customPrompt)
                             .font(.body)
@@ -98,18 +97,7 @@ struct MeetingDetailsBlock: View {
 
     private var typeProjectRow: some View {
         HStack(spacing: 16) {
-            labeled("TYPE") {
-                Picker("", selection: Binding(
-                    get: { meeting.kind },
-                    set: { meeting.kind = $0; saveContext() }
-                )) {
-                    ForEach(MeetingKind.allCases) { k in
-                        Label(k.label, systemImage: k.sfSymbol).tag(k)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 180)
-            }
+            // Le type de réunion est édité depuis le chrome (badge à côté du titre).
             if meeting.kind == .project {
                 labeled("PROJET") {
                     HStack(spacing: 8) {

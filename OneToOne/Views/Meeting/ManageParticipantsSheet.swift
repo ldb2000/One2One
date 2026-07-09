@@ -51,7 +51,7 @@ struct ManageParticipantsSheet: View {
             Divider()
             footer
         }
-        .frame(width: 640, height: 720)
+        .frame(width: 640, height: 600)
         .background(MeetingTheme.canvasCream)
     }
 
