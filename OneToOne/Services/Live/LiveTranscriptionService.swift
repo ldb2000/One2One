@@ -129,4 +129,21 @@ final class LiveTranscriptionService: ObservableObject {
         ring = []
         return result
     }
+
+    /// Arrête immédiatement le live SANS drainer (flux éventuellement non
+    /// terminé). À utiliser quand la transcription n'est pas récupérée : échec
+    /// de démarrage de l'enregistrement, annulation. Annule la tâche de
+    /// consommation (ce qui termine sa boucle `for await` même si le flux n'est
+    /// pas fini) et remet l'état à zéro.
+    func abort() {
+        generation += 1
+        consumeTask?.cancel()
+        consumeTask = nil
+        isLive = false
+        statusMessage = nil
+        engine = nil
+        segmenter = nil
+        segments = []
+        ring = []
+    }
 }

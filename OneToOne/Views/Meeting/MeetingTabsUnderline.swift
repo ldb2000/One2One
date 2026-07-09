@@ -8,12 +8,15 @@ struct MeetingTabsUnderline: View {
     let attachmentsCount: Int
     /// Vrai si un rapport existe, affiche une coche sur l'onglet Rapport.
     let hasReport: Bool
+    /// Vrai si le réglage de transcription live est actif ; contrôle
+    /// l'affichage de l'onglet « Direct » (sinon onglet vide inutile).
+    let showLiveTab: Bool
 
     @Namespace private var underlineNS
 
     var body: some View {
         HStack(spacing: 28) {
-            ForEach(MeetingView.MeetingSection.allCases) { section in
+            ForEach(MeetingView.MeetingSection.allCases.filter { $0 != .liveTranscript || showLiveTab }) { section in
                 tab(section)
             }
             Spacer()

@@ -396,7 +396,8 @@ struct MeetingView: View {
             MeetingTabsUnderline(
                 selection: $activeSection,
                 attachmentsCount: meeting.attachments.count,
-                hasReport: !meeting.summary.isEmpty
+                hasReport: !meeting.summary.isEmpty,
+                showLiveTab: settings.liveTranscriptionEnabled
             )
             sectionContent
                 .padding(.horizontal, 28)
@@ -1191,6 +1192,11 @@ struct MeetingView: View {
             saveContext()
         } catch {
             recorder.lastError = error.localizedDescription
+            // recorder.start() a throw avant la fin du flux live (le throw a
+            // lieu avant le do/catch interne qui finit le flux) : sans abort(),
+            // consume() resterait bloqué à l'infini sur un flux jamais fermé.
+            // No-op sûr si le live n'a pas démarré (settings désactivé).
+            LiveTranscriptionService.shared.abort()
         }
     }
 
@@ -1229,6 +1235,9 @@ struct MeetingView: View {
         } catch {
             pendingAppendBaseURL = nil
             recorder.lastError = error.localizedDescription
+            // Idem startRecording() : le flux live n'est pas terminé, abort()
+            // annule la tâche de consommation sans attendre son drainage.
+            LiveTranscriptionService.shared.abort()
         }
     }
 
@@ -1295,7 +1304,11 @@ struct MeetingView: View {
         // Le flux audio est terminé par recorder.stop() (continuation.finish()),
         // donc end() peut drainer et se terminer sans bloquer. Les segments
         // horodatés seront consommés en Task 8 (nettoyage + diarisation).
-        let liveSegments = settings.liveTranscriptionEnabled
+        // Garde sur l'état réel du service (isLive), pas sur le réglage : si
+        // l'utilisateur désactive liveTranscriptionEnabled EN COURS
+        // d'enregistrement (Réglages = fenêtre séparée), une session live
+        // encore active ne doit pas fuiter.
+        let liveSegments = LiveTranscriptionService.shared.isLive
             ? await LiveTranscriptionService.shared.end()
             : []
         _ = liveSegments
@@ -2384,7 +2397,9 @@ struct MeetingView: View {
             _ = recorder.stop()
             // recorder.stop() clôt le flux audio : end() peut drainer sans
             // bloquer. On jette le résultat (suppression = annulation du live).
-            if settings.liveTranscriptionEnabled {
+            // Garde sur isLive (état réel), pas sur le réglage — cf.
+            // stopRecordingAndTranscribe().
+            if LiveTranscriptionService.shared.isLive {
                 Task { _ = await LiveTranscriptionService.shared.end() }
             }
         }
