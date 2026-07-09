@@ -14,7 +14,7 @@ struct LiveSegment: Sendable {
     let text: String
 }
 
-/// Orchestme la transcription en direct : flux audio → VAD → fenêtres → Voxtral
+/// Orchestre la transcription en direct : flux audio → VAD → fenêtres → Voxtral
 /// (séquentiel) → fusion. Éphémère en mémoire ; le texte final est produit à la
 /// fin via `end()` puis nettoyé/diarisé par le pipeline batch.
 @MainActor
@@ -34,11 +34,14 @@ final class LiveTranscriptionService: ObservableObject {
     private var ring: [Float] = []
     private var segments: [LiveSegment] = []
     private var consumeTask: Task<Void, Never>?
+    private var generation = 0
 
     private init() {}
 
     func begin(audioStream: AsyncStream<[Float]>, language: String, variant: VoxtralVariant) async {
         guard !isLive else { return }
+        generation += 1
+        let gen = generation
         isLive = true
         liveTranscript = ""
         statusMessage = "Chargement du modèle…"
@@ -47,15 +50,24 @@ final class LiveTranscriptionService: ObservableObject {
         segments = []
 
         let eng = VoxtralEngine(variant: variant)
-        do { try await eng.load() } catch {
-            statusMessage = "Transcription en direct indisponible (modèle STT manquant)."
-            isLive = false
+        do {
+            try await eng.load()
+        } catch {
+            // N'écrase l'état que si la session n'a pas été arrêtée entre-temps.
+            if gen == generation {
+                statusMessage = "Transcription en direct indisponible (modèle STT manquant)."
+                isLive = false
+            }
             return
         }
+        // Session arrêtée pendant le chargement du modèle ?
+        guard gen == generation else { return }
         engine = eng
 
         let seg = LiveVADSegmenter()
         let sileroOK = await seg.loadSilero()
+        // Session arrêtée pendant le chargement du VAD ?
+        guard gen == generation else { return }
         segmenter = seg
         statusMessage = sileroOK ? nil : "Découpe par énergie (VAD indisponible)."
 
@@ -98,9 +110,16 @@ final class LiveTranscriptionService: ObservableObject {
     }
 
     /// Arrête le live et renvoie les segments horodatés accumulés.
+    /// PRÉCONDITION : l'enregistreur doit déjà avoir été arrêté/annulé
+    /// (le flux audio est terminé) avant d'appeler `end()`, afin que le drainage
+    /// de la tâche de consommation soit borné.
     @discardableResult
-    func end() -> [LiveSegment] {
-        consumeTask?.cancel()
+    func end() async -> [LiveSegment] {
+        generation += 1                 // invalide toute begin() en cours de chargement
+        // Draine le travail en vol : le flux étant terminé par AudioRecorderService
+        // (stop/cancel → continuation.finish()), la boucle se vide (VAD + flush +
+        // dernière fenêtre transcrite) puis se termine.
+        await consumeTask?.value
         consumeTask = nil
         isLive = false
         statusMessage = nil
