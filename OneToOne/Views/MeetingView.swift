@@ -1174,28 +1174,32 @@ struct MeetingView: View {
             recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
             return
         }
+        // Ouvre le flux live AVANT de démarrer le recorder (la continuation doit
+        // exister dès le 1er tap pour que start() puisse construire le TapSink),
+        // mais on ne lance sa consommation (begin) qu'APRÈS le succès de start() :
+        // sinon un throw synchrone de start() (ex. double-tap → alreadyRecording)
+        // court contre la Task begin() et peut la faire démarrer sur un flux
+        // jamais terminé → hang infini.
+        let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
+            ? recorder.makeAudioStream() : nil
         do {
-            // Ouvre le flux live AVANT de démarrer le recorder (le tap doit
-            // exister dès la 1re trame) et lance la transcription en direct.
-            if settings.liveTranscriptionEnabled {
-                let stream = recorder.makeAudioStream()
+            let url = try await recorder.start(meetingID: meeting.stableID)
+            // start() a réussi : on peut maintenant démarrer la transcription live.
+            if let liveStream {
                 Task {
                     await LiveTranscriptionService.shared.begin(
-                        audioStream: stream,
+                        audioStream: liveStream,
                         language: stt.language,
                         variant: settings.voxtralVariant)
                 }
                 activeSection = .liveTranscript
             }
-            let url = try await recorder.start(meetingID: meeting.stableID)
             meeting.wavFilePath = url.path
             saveContext()
         } catch {
             recorder.lastError = error.localizedDescription
-            // recorder.start() a throw avant la fin du flux live (le throw a
-            // lieu avant le do/catch interne qui finit le flux) : sans abort(),
-            // consume() resterait bloqué à l'infini sur un flux jamais fermé.
-            // No-op sûr si le live n'a pas démarré (settings désactivé).
+            // Défense : no-op si begin() n'a jamais démarré (start() a throw
+            // avant qu'on ne lance la consommation du flux live).
             LiveTranscriptionService.shared.abort()
         }
     }
@@ -1213,20 +1217,23 @@ struct MeetingView: View {
             return
         }
         pendingAppendBaseURL = existing
+        // Même câblage que startRecording() : le flux live est préparé avant
+        // start() mais sa consommation (begin) n'est lancée qu'après succès,
+        // pour éviter la course avec un throw synchrone de start().
+        let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
+            ? recorder.makeAudioStream() : nil
         do {
-            // Même câblage que startRecording() : le complément audio est lui
-            // aussi transcrit en direct si le réglage est actif.
-            if settings.liveTranscriptionEnabled {
-                let stream = recorder.makeAudioStream()
+            let url = try await recorder.start(meetingID: meeting.stableID)
+            // start() a réussi : on peut maintenant démarrer la transcription live.
+            if let liveStream {
                 Task {
                     await LiveTranscriptionService.shared.begin(
-                        audioStream: stream,
+                        audioStream: liveStream,
                         language: stt.language,
                         variant: settings.voxtralVariant)
                 }
                 activeSection = .liveTranscript
             }
-            let url = try await recorder.start(meetingID: meeting.stableID)
             // On laisse meeting.wavFilePath pointer sur l'ancien jusqu'à la
             // concaténation post-stop ; en cas d'arrêt anormal, l'utilisateur
             // garde son enregistrement initial. La nouvelle URL est conservée
@@ -1235,8 +1242,8 @@ struct MeetingView: View {
         } catch {
             pendingAppendBaseURL = nil
             recorder.lastError = error.localizedDescription
-            // Idem startRecording() : le flux live n'est pas terminé, abort()
-            // annule la tâche de consommation sans attendre son drainage.
+            // Défense : no-op si begin() n'a jamais démarré (start() a throw
+            // avant qu'on ne lance la consommation du flux live).
             LiveTranscriptionService.shared.abort()
         }
     }
