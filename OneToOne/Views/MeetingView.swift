@@ -749,6 +749,12 @@ struct MeetingView: View {
             isImportingAttachment = true
             defer { isImportingAttachment = false }
             for url in urls {
+                // Les URL issues du sélecteur de fichiers (ou d'un glisser-déposer)
+                // sont à portée de sécurité (security-scoped) : il faut demander
+                // l'accès avant de lire, comme le fait l'import WAV. Sans ça, la
+                // lecture échoue et l'import « ne fait rien ».
+                let needsScope = url.startAccessingSecurityScopedResource()
+                defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
                 do {
                     try await MeetingAttachmentService.importDocument(
                         url: url,
