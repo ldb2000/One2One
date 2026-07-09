@@ -22,9 +22,10 @@ actor LiveVADSegmenter {
     private var elapsedSeconds: Double = 0
     private var speechOpenStart: Double?
     private var silenceAccumulated: Double = 0
-    private var lastSpeechEnd: Double = 0
     // Noise floor glissant pour le fallback.
     private var noiseFloor: Float = 0.005
+    // Samples résiduels (< une frame) reportés d'un appel de feedRMS à l'autre.
+    private var pendingSamples: [Float] = []
 
     init(minSilenceSeconds: Float = 0.6, maxWindowSeconds: Double = 30) {
         self.minSilenceSeconds = minSilenceSeconds
@@ -56,8 +57,8 @@ actor LiveVADSegmenter {
         elapsedSeconds = 0
         speechOpenStart = nil
         silenceAccumulated = 0
-        lastSpeechEnd = 0
         noiseFloor = 0.005
+        pendingSamples = []
     }
 
     /// Segments de parole clos détectés dans ce buffer.
@@ -65,7 +66,6 @@ actor LiveVADSegmenter {
         #if canImport(SpeechVAD)
         if useSilero, let processor {
             let events = processor.process(samples: samples)
-            elapsedSeconds += Double(samples.count) / sampleRate
             var out: [ClosedRange<Double>] = []
             for e in events {
                 if case let .speechEnded(segment) = e {
@@ -101,32 +101,41 @@ actor LiveVADSegmenter {
     // MARK: - Fallback RMS
     private func feedRMS(_ samples: [Float], sampleRate: Double) -> [ClosedRange<Double>] {
         let frameSamples = max(1, Int(0.030 * sampleRate))
+        // Préfixer les samples résiduels laissés par l'appel précédent : aucune
+        // donnée n'est perdue même si les buffers ne sont pas multiples de frameSamples.
+        let combined = pendingSamples + samples
         var closed: [ClosedRange<Double>] = []
         var i = 0
-        while i + frameSamples <= samples.count {
+        while i + frameSamples <= combined.count {
             var rms: Float = 0
-            samples.withUnsafeBufferPointer { buf in
+            combined.withUnsafeBufferPointer { buf in
                 vDSP_rmsqv(buf.baseAddress!.advanced(by: i), 1, &rms, vDSP_Length(frameSamples))
             }
             let frameDur = Double(frameSamples) / sampleRate
             elapsedSeconds += frameDur
-            // Noise floor glissant (EMA lente).
-            noiseFloor = 0.995 * noiseFloor + 0.005 * rms
+            // Seuil calculé à partir du plancher de bruit AVANT toute mise à jour,
+            // pour que le plancher ne poursuive pas le signal pendant la parole.
             let threshold = max(0.005, noiseFloor * 1.5)
             if rms >= threshold {
                 if speechOpenStart == nil { speechOpenStart = elapsedSeconds - frameDur }
                 silenceAccumulated = 0
-            } else if speechOpenStart != nil {
-                silenceAccumulated += frameDur
-                if silenceAccumulated >= Double(minSilenceSeconds) {
-                    let start = speechOpenStart!
-                    closed.append(contentsOf: splitLongWindow(start...(elapsedSeconds - silenceAccumulated)))
-                    speechOpenStart = nil
-                    silenceAccumulated = 0
+            } else {
+                // Frame de silence : seul cas où le plancher de bruit est mis à jour (EMA lente).
+                noiseFloor = 0.995 * noiseFloor + 0.005 * rms
+                if speechOpenStart != nil {
+                    silenceAccumulated += frameDur
+                    if silenceAccumulated >= Double(minSilenceSeconds) {
+                        let start = speechOpenStart!
+                        closed.append(contentsOf: splitLongWindow(start...(elapsedSeconds - silenceAccumulated)))
+                        speechOpenStart = nil
+                        silenceAccumulated = 0
+                    }
                 }
             }
             i += frameSamples
         }
+        // Conserver les samples résiduels (< une frame) pour le prochain appel.
+        pendingSamples = Array(combined[i...])
         // Forcer une coupe si la fenêtre ouverte dépasse maxWindowSeconds.
         if let start = speechOpenStart, elapsedSeconds - start >= maxWindowSeconds {
             closed.append(contentsOf: splitLongWindow(start...elapsedSeconds))
