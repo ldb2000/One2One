@@ -50,23 +50,27 @@ struct MeetingTopChromeBar: View {
     // MARK: - Breadcrumb
 
     private var breadcrumb: some View {
-        HStack(spacing: 6) {
-            Text("One2One").foregroundColor(.secondary)
+        HStack(spacing: 8) {
+            Text("One2One").font(.caption).foregroundColor(.secondary)
             chevron
             if let project = meeting.project {
-                Text("Projets").foregroundColor(.secondary)
+                Text(project.name).font(.caption).foregroundColor(.secondary)
                 chevron
-                Text(project.name).fontWeight(.semibold).foregroundColor(.primary)
-            } else {
-                Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
-                    .font(.caption)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
-                    .foregroundColor(.primary)
             }
+            // Titre de la réunion, éditable en ligne (déplacé ici depuis l'en-tête éditorial).
+            EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: 460, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            // Badge de type de réunion.
+            Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
+                .font(.caption)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                .foregroundColor(.primary)
+                .fixedSize()
             audioStatusBadge
         }
-        .font(.caption)
         .lineLimit(1)
         .truncationMode(.middle)
     }

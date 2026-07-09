@@ -19,21 +19,25 @@ struct PresenceCard: View {
             EmptyView()
         } content: {
             let s = stats
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 18) {
                     donut(present: s.present, refused: s.refused, pending: s.pending,
                           total: s.total, percent: s.percent)
-                        .frame(width: 120, height: 120)
-                    VStack(alignment: .leading, spacing: 10) {
+                        .frame(width: 108, height: 108)
+                    VStack(alignment: .leading, spacing: 8) {
                         legendRow(color: .green, count: s.present, label: "présents")
                         legendRow(color: MeetingTheme.accentOrange, count: s.refused, label: "ont refusé")
                         if s.pending > 0 {
                             legendRow(color: .orange, count: s.pending, label: "en attente")
                         }
                     }
+                    .fixedSize()
+                    Spacer(minLength: 0)
                 }
-                MeetingAvatarStack(participants: meeting.participants,
-                                   tint: { _ in settings.meetingParticipantColor })
+                if !meeting.participants.isEmpty {
+                    MeetingAvatarStack(participants: meeting.participants,
+                                       tint: { _ in settings.meetingParticipantColor })
+                }
                 Button(action: onManage) {
                     Text("Gérer les participants")
                         .frame(maxWidth: .infinity)
@@ -42,6 +46,7 @@ struct PresenceCard: View {
                 }
                 .buttonStyle(.plain)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 

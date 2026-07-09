@@ -143,7 +143,7 @@ struct MeetingView: View {
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
-    @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
+    @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = false
 
     /// Onglet actif du panneau principal de la réunion.
     enum MeetingSection: String, CaseIterable, Identifiable {
@@ -349,11 +349,8 @@ struct MeetingView: View {
 
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            MeetingHeaderEditorial(
-                meeting: meeting,
-                settings: settings,
-                detailsExpanded: $detailsExpanded
-            )
+            // En-tête éditorial retiré : le titre de la réunion vit désormais dans le
+            // chrome (MeetingTopChromeBar). Le bloc Détails reste, replié par défaut.
             MeetingDetailsBlock(
                 meeting: meeting,
                 settings: settings,
