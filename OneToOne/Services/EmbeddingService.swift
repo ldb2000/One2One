@@ -26,21 +26,36 @@ struct EmbeddingService {
     enum Role { case document, query }
 
     static let backendKey = "onetoone_embedding_backend"
-    static let defaultMLXModel = "nomic-ai/nomic-embed-text-v1.5"
+    /// e5-base multilingue (xlm-roberta, positions absolues). nomic v1.5 est
+    /// inchargeable via MLXEmbedders : bug upstream NomicBert qui exige des
+    /// positions absolues alors que le checkpoint est 100 % rotary
+    /// (« Key embeddings.position_embeddings… » au verify des poids).
+    static let defaultMLXModel = "intfloat/multilingual-e5-base"
 
     static var backend: Backend {
         Backend(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .mlx
     }
 
-    /// Préfixe nomic (search_document: / search_query:) — seulement en backend
-    /// MLX avec un modèle nomic. Le chemin Ollama reste sans préfixe
-    /// (comportement historique, cohérent avec l'index existant).
+    /// Préfixes asymétriques par famille de modèle — seulement en backend MLX.
+    /// nomic : search_document: / search_query: ; e5 : passage: / query:
+    /// (requis par l'entraînement de ces familles). Le chemin Ollama reste
+    /// sans préfixe (comportement historique, cohérent avec l'index existant).
     static func prefixedText(_ text: String, role: Role, backend: Backend, model: String) -> String {
-        guard backend == .mlx, model.lowercased().contains("nomic") else { return text }
-        switch role {
-        case .document: return "search_document: " + text
-        case .query:    return "search_query: " + text
+        guard backend == .mlx else { return text }
+        let family = model.lowercased()
+        if family.contains("nomic") {
+            switch role {
+            case .document: return "search_document: " + text
+            case .query:    return "search_query: " + text
+            }
         }
+        if family.contains("e5") {
+            switch role {
+            case .document: return "passage: " + text
+            case .query:    return "query: " + text
+            }
+        }
+        return text
     }
 
     /// Erreurs remontées par les appels d'embedding Ollama.

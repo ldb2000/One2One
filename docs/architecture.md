@@ -41,7 +41,7 @@ diarisation tournent sur l'appareil (MLX/Metal), les jetons API sont stockés da
 | Diarisation | `speech-swift` (`SpeechVAD`, pipeline Pyannote + WeSpeaker ResNet34) |
 | Markdown | `swift-markdown` (CommonMark + GFM) + moteur WYSIWYG maison |
 | IA distante | Claude (OAuth + API), Gemini (OAuth), OpenAI-compatible, Ollama (embeddings, legacy) |
-| Embeddings locaux | `mlx-swift-lm` (`MLXEmbedders`) — `nomic-ai/nomic-embed-text-v1.5` in-process, défaut |
+| Embeddings locaux | `mlx-swift-lm` (`MLXEmbedders`) — `intfloat/multilingual-e5-base` in-process, défaut |
 | Système | EventKit, Contacts, ScreenCaptureKit, Vision (OCR), CoreSpotlight, Carbon (hotkeys), UserNotifications, Keychain, App Groups |
 
 **Dépendances SwiftPM** (`Package.swift`) :
@@ -280,8 +280,9 @@ graph LR
   snippets, extraction d'actions → `ActionTask`).
 - **RAG** : `EmbeddingService` — routeur à deux backends piloté par la clé UserDefaults
   `onetoone_embedding_backend` : **`.mlx`** (défaut) délègue à `MLXEmbeddingEngine`
-  (`MLXEmbedders`, `mlx-swift-lm`, modèle `nomic-ai/nomic-embed-text-v1.5` in-process, préfixes
-  `search_document:`/`search_query:` selon le rôle — indexation vs requête) ; **`.ollama`**
+  (`MLXEmbedders`, `mlx-swift-lm`, modèle `intfloat/multilingual-e5-base` in-process, préfixes
+  `query:`/`passage:` selon le rôle — requête vs indexation ; nomic v1.5 inchargeable,
+  bug upstream NomicBert rotary) ; **`.ollama`**
   (legacy) appelle `nomic-embed-text` via l'API HTTP Ollama. Similarité cosinus commune aux
   deux backends. Un changement de backend/modèle rend les chunks existants obsolètes :
   `BatchJobsService.staleChunks` les détecte et la section « EMBEDDINGS / RAG » de

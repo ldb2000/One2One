@@ -43,11 +43,12 @@ enum MLXEmbeddingEngine {
         return loaded
     }
 
-    /// Embedde un lot de textes. Retourne un vecteur (768 dim pour nomic v1.5)
+    /// Embedde un lot de textes. Retourne un vecteur (768 dim pour e5-base)
     /// par texte, dans l'ordre d'entrée.
     static func embedBatch(_ texts: [String], modelRepo: String) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
         let container = try await ensureContainer(repo: modelRepo)
+        let applyLayerNorm = modelRepo.lowercased().contains("nomic")
         return try await container.perform { context in
             let tokenizer = context.tokenizer
             let encoded = texts.map { tokenizer.encode(text: $0, addSpecialTokens: true) }
@@ -60,12 +61,13 @@ enum MLXEmbeddingEngine {
             let tokenTypes = MLXArray.zeros(like: padded)
             let output = context.model(
                 padded, positionIds: nil, tokenTypeIds: tokenTypes, attentionMask: mask)
-            // Pooling mean + L2 (stratégie chargée depuis 1_Pooling/config.json du
-            // repo nomic) ; mask passé pour exclure le padding de la moyenne ;
-            // applyLayerNorm requis par la recette nomic v1.5.
+            // Pooling (stratégie chargée depuis 1_Pooling/config.json du repo) + L2 ;
+            // mask passé pour exclure le padding de la moyenne. applyLayerNorm fait
+            // partie de la recette Matryoshka de nomic uniquement — il fausserait
+            // les vecteurs des autres familles (e5, bge…).
             let result = context.pooling(
                 output, mask: mask.asType(.float32),
-                normalize: true, applyLayerNorm: true)
+                normalize: true, applyLayerNorm: applyLayerNorm)
             result.eval()
             return result.map { $0.asArray(Float.self) }
         }

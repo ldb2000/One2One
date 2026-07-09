@@ -28,7 +28,10 @@ struct EmbeddingServiceRoutingTests {
     func defaultBackendAndModel() throws {
         try withDefaults([EmbeddingService.backendKey: nil, EmbeddingService.modelKey: nil]) {
             #expect(EmbeddingService.backend == .mlx)
-            #expect(EmbeddingService.model == "nomic-ai/nomic-embed-text-v1.5")
+            // e5-base multilingue : nomic v1.5 est inchargeable via MLXEmbedders
+            // (bug upstream NomicBert : positions absolues exigées alors que le
+            // checkpoint est rotary — « Key embeddings.position_embeddings… »).
+            #expect(EmbeddingService.model == "intfloat/multilingual-e5-base")
         }
         try withDefaults([EmbeddingService.backendKey: "ollama", EmbeddingService.modelKey: nil]) {
             #expect(EmbeddingService.backend == .ollama)
@@ -55,8 +58,22 @@ struct EmbeddingServiceRoutingTests {
         // Ollama : jamais de préfixe (comportement historique conservé)
         #expect(EmbeddingService.prefixedText(t, role: .document, backend: .ollama,
                                               model: "nomic-embed-text") == t)
-        // Modèle non-nomic en mlx : pas de préfixe
+        // Modèle sans famille de préfixe connue en mlx : pas de préfixe
         #expect(EmbeddingService.prefixedText(t, role: .query, backend: .mlx,
                                               model: "BAAI/bge-m3") == t)
+    }
+
+    @Test("Préfixes e5 (query:/passage:) pour la famille multilingual-e5")
+    func e5Prefixes() {
+        let t = "Compte rendu du copil"
+        #expect(EmbeddingService.prefixedText(t, role: .document, backend: .mlx,
+                                              model: "intfloat/multilingual-e5-base")
+                == "passage: Compte rendu du copil")
+        #expect(EmbeddingService.prefixedText(t, role: .query, backend: .mlx,
+                                              model: "intfloat/multilingual-e5-base")
+                == "query: Compte rendu du copil")
+        // Ollama : pas de préfixe même pour un modèle e5
+        #expect(EmbeddingService.prefixedText(t, role: .query, backend: .ollama,
+                                              model: "multilingual-e5-base") == t)
     }
 }

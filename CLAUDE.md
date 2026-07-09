@@ -56,8 +56,12 @@ xcodebuild -scheme Gemma4Swift -destination "platform=macOS" \
   (requis par Gemma4Swift + fournit `LLMTypeRegistry`).
 - Modèles **denses** (Qwen3.5, Gemma 3…) fonctionnent sans Gemma4Swift.
 - **Embeddings** : `EmbeddingService` route vers **MLXEmbedders** in-process par défaut
-  (`nomic-ai/nomic-embed-text-v1.5`, préfixes `search_document:`/`search_query:`) ;
-  Ollama reste disponible en legacy (`onetoone_embedding_backend` = `ollama`).
+  (`intfloat/multilingual-e5-base`, préfixes `query:`/`passage:`) ; Ollama reste
+  disponible en legacy (`onetoone_embedding_backend` = `ollama`).
+  ⚠️ **nomic-embed-text-v1.5 est inchargeable via MLXEmbedders** (bug upstream
+  NomicBert : positions absolues exigées alors que le checkpoint est rotary →
+  « Key embeddings.position_embeddings… ») ; `BAAI/bge-m3` ne publie pas de
+  safetensors (seulement `pytorch_model.bin`, illisible par `loadWeights`).
 
 ### Cache HuggingFace
 Les modèles sont chargés depuis `~/.cache/huggingface/hub` (téléchargés au 1er usage si absents).
