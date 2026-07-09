@@ -1,3 +1,4 @@
+import EventKit
 import Foundation
 import SwiftData
 
@@ -42,23 +43,37 @@ enum MeetingKind: String, CaseIterable, Identifiable {
 
 /// Statut de présence d'un collaborateur à une réunion.
 /// Persisté par collaborateur dans `Meeting.participantStatusesJSON`.
+/// ⚠️ Les raw values (`"participant"`/`"absent"`) sont conservées pour la
+/// compatibilité des données existantes ; ne pas les renommer.
 enum MeetingAttendanceStatus: String, Codable, CaseIterable, Identifiable {
-    case participant
-    case absent
+    case present = "participant"
+    case refused = "absent"
+    case pending = "pending"
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .participant: return "Participant"
-        case .absent: return "Absent"
+        case .present: return "Présent"
+        case .refused: return "A refusé"
+        case .pending: return "En attente"
         }
     }
 
     var sfSymbol: String {
         switch self {
-        case .participant: return "person.fill.checkmark"
-        case .absent: return "person.fill.xmark"
+        case .present: return "person.fill.checkmark"
+        case .refused: return "person.fill.xmark"
+        case .pending: return "person.fill.questionmark"
+        }
+    }
+
+    /// Mappe un statut de participation EventKit vers un statut de présence.
+    static func fromCalendar(_ ek: EKParticipantStatus) -> MeetingAttendanceStatus {
+        switch ek {
+        case .declined: return .refused
+        case .tentative, .pending: return .pending
+        default: return .present   // accepted, unknown, delegated…
         }
     }
 }
@@ -193,7 +208,7 @@ extension Meeting {
     func participantStatus(for collaborator: Collaborator) -> MeetingAttendanceStatus {
         guard let raw = participantStatuses[collaborator.ensuredStableID.uuidString],
               let status = MeetingAttendanceStatus(rawValue: raw) else {
-            return .participant
+            return .present
         }
         return status
     }
@@ -213,10 +228,12 @@ extension Meeting {
     var participantsDescription: String {
         participants.map { collaborator in
             switch participantStatus(for: collaborator) {
-            case .participant:
+            case .present:
                 return collaborator.name
-            case .absent:
-                return "\(collaborator.name) (absent)"
+            case .refused:
+                return "\(collaborator.name) (a refusé)"
+            case .pending:
+                return "\(collaborator.name) (en attente)"
             }
         }
         .joined(separator: ", ")

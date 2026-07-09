@@ -248,8 +248,8 @@ struct MeetingDetailsBlock: View {
                             Text(p.name)
                                 .font(.caption)
                                 .foregroundColor(.primary)
-                            if participantStatus(p) == .absent {
-                                Image(systemName: MeetingAttendanceStatus.absent.sfSymbol)
+                            if participantStatus(p) == .refused {
+                                Image(systemName: MeetingAttendanceStatus.refused.sfSymbol)
                                     .font(.caption2)
                                     .foregroundColor(.primary)
                             }
@@ -364,8 +364,9 @@ struct MeetingDetailsBlock: View {
 
     private func participantChipColor(for c: Collaborator) -> Color {
         switch participantStatus(c) {
-        case .participant: return settings.meetingParticipantColor
-        case .absent:      return settings.meetingAbsentColor
+        case .present: return settings.meetingParticipantColor
+        case .refused: return settings.meetingAbsentColor
+        case .pending: return settings.meetingCollaboratorColor
         }
     }
 

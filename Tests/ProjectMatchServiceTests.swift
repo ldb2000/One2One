@@ -24,7 +24,7 @@ final class ProjectMatchServiceTests: XCTestCase {
             endDate: start.addingTimeInterval(3600),
             calendarTitle: "Work",
             attendees: attendees.map {
-                CalendarMeetingAttendee(id: $0.email, name: $0.name, email: $0.email, status: .participant)
+                CalendarMeetingAttendee(id: $0.email, name: $0.name, email: $0.email, status: .present)
             },
             teamsJoinURL: nil,
             isCancelled: false,

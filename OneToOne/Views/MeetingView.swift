@@ -1057,7 +1057,7 @@ struct MeetingView: View {
 
     private func addParticipant(_ c: Collaborator) {
         meeting.participants.append(c)
-        meeting.setParticipantStatus(.participant, for: c)
+        meeting.setParticipantStatus(.present, for: c)
         saveContext()
     }
 

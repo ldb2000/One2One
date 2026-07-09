@@ -75,7 +75,7 @@ final class CalendarMeetingImportService: ObservableObject {
                             id: email ?? name.lowercased(),
                             name: name,
                             email: email,
-                            status: attendee.participantStatus == .declined ? .absent : .participant
+                            status: MeetingAttendanceStatus.fromCalendar(attendee.participantStatus)
                         )
                     },
                     teamsJoinURL: TeamsURLExtractor.extract(

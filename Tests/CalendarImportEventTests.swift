@@ -32,9 +32,9 @@ final class CalendarImportEventTests: XCTestCase {
             endDate: start.addingTimeInterval(1800),
             calendarTitle: "Work",
             attendees: [
-                CalendarMeetingAttendee(id: "me@example.com", name: "Me", email: "me@example.com", status: .participant),
-                CalendarMeetingAttendee(id: "x@y.com", name: "X", email: "x@y.com", status: .participant),
-                CalendarMeetingAttendee(id: "y@y.com", name: "Y", email: "y@y.com", status: .participant)
+                CalendarMeetingAttendee(id: "me@example.com", name: "Me", email: "me@example.com", status: .present),
+                CalendarMeetingAttendee(id: "x@y.com", name: "X", email: "x@y.com", status: .present),
+                CalendarMeetingAttendee(id: "y@y.com", name: "Y", email: "y@y.com", status: .present)
             ],
             teamsJoinURL: teamsURL,
             isCancelled: false,
@@ -77,8 +77,8 @@ final class CalendarImportEventTests: XCTestCase {
             endDate: Date().addingTimeInterval(1800),
             calendarTitle: "Work",
             attendees: [
-                CalendarMeetingAttendee(id: "me@example.com", name: "Me", email: "me@example.com", status: .participant),
-                CalendarMeetingAttendee(id: "alice@example.com", name: "Alice", email: "alice@example.com", status: .participant)
+                CalendarMeetingAttendee(id: "me@example.com", name: "Me", email: "me@example.com", status: .present),
+                CalendarMeetingAttendee(id: "alice@example.com", name: "Alice", email: "alice@example.com", status: .present)
             ],
             teamsJoinURL: nil,
             isCancelled: false,

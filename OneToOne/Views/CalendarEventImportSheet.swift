@@ -99,7 +99,7 @@ struct CalendarEventImportSheet: View {
 
                         if !event.attendees.isEmpty {
                             Text(event.attendees.map { attendee in
-                                attendee.status == .absent ? "\(attendee.name) (absent)" : attendee.name
+                                attendee.status == .refused ? "\(attendee.name) (absent)" : attendee.name
                             }.joined(separator: ", "))
                             .font(.caption)
                             .foregroundColor(.secondary)
