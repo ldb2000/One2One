@@ -1,28 +1,37 @@
 import Foundation
 import SwiftUI
 
-/// Identifiants des panels configurables de la sidebar droite des réunions.
-/// L'ordre des `allCases` détermine le layout par défaut.
+/// Identifiants des cartes configurables du dashboard réunion (onglet
+/// « Vue d'ensemble »). L'ordre des `allCases` détermine le layout par défaut.
 enum RightSidebarPanelID: String, CaseIterable, Codable, Identifiable {
+    case presence
+    case transcription
     case actions
-    case projects
     case capture
+    case projects
+    case managerAgenda
 
     var id: String { rawValue }
 
     var defaultTitle: String {
         switch self {
-        case .actions:  return "Actions"
-        case .projects: return "Projets affectés"
-        case .capture:  return "Capture"
+        case .presence:      return "Présence"
+        case .transcription: return "Transcription"
+        case .actions:       return "Actions"
+        case .capture:       return "Capture"
+        case .projects:      return "Projets affectés"
+        case .managerAgenda: return "Agenda manager"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .actions:  return "checklist"
-        case .projects: return "folder.fill"
-        case .capture:  return "camera"
+        case .presence:      return "person.3.fill"
+        case .transcription: return "waveform"
+        case .actions:       return "checklist"
+        case .capture:       return "camera"
+        case .projects:      return "folder.fill"
+        case .managerAgenda: return "list.bullet.rectangle"
         }
     }
 }

@@ -198,6 +198,8 @@ struct ConfigurableRightSidebar: View {
                 onShowSlides: onShowSlides,
                 onShowCaptureSetup: onShowCaptureSetup
             )
+        default:
+            EmptyView()
         }
     }
 
