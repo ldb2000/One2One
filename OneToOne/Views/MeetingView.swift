@@ -880,8 +880,14 @@ struct MeetingView: View {
                         .frame(maxWidth: .infinity, minHeight: 240)
                     }
                 } else {
-                    transcriptToolbar
-                    if showSpeakersView && !meeting.transcriptSegments.isEmpty {
+                    // Contrôles speakers (toggle « Afficher speakers », détection,
+                    // compteur de segments) uniquement en mode Diarisation ; en
+                    // transcription seule il n'y a qu'un locuteur → transcript à plat.
+                    if settings.transcriptionMode == .diarizeFirst {
+                        transcriptToolbar
+                    }
+                    if settings.transcriptionMode == .diarizeFirst
+                        && showSpeakersView && !meeting.transcriptSegments.isEmpty {
                         transcriptSegmentsView
                     } else if !meeting.mergedTranscript.isEmpty {
                         MeetingHighlightableTextView(
