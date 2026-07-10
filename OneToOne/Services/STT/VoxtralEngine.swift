@@ -17,7 +17,7 @@ enum VoxtralVariant: String, Codable, CaseIterable, Sendable {
     var repoId: String {
         switch self {
         case .realtime4bit: return "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"
-        case .realtimeFP16: return "mlx-community/Voxtral-Mini-4B-Realtime-2602"
+        case .realtimeFP16: return "mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16"
         }
     }
 

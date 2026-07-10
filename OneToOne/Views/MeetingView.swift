@@ -74,6 +74,7 @@ struct MeetingView: View {
     // MARK: - Services
 
     @StateObject private var recorder = AudioRecorderService.shared
+    @ObservedObject private var liveService = LiveTranscriptionService.shared
     @StateObject private var stt = TranscriptionService.shared
     @StateObject private var player = AudioPlayerService()
     @StateObject private var captureService = ScreenCaptureService()
@@ -153,7 +154,6 @@ struct MeetingView: View {
         case overview = "Vue d'ensemble"
         case preparation = "Préparation"
         case liveNotes = "Notes live"
-        case liveTranscript = "Direct"
         case transcript = "Transcription"
         case report = "Rapport"
         case documents = "Documents"
@@ -392,7 +392,6 @@ struct MeetingView: View {
                 selection: $activeSection,
                 attachmentsCount: meeting.attachments.count,
                 hasReport: !meeting.summary.isEmpty,
-                showLiveTab: settings.liveTranscriptionEnabled,
                 date: meeting.date,
                 isEditingLayout: $isEditingLayout
             )
@@ -522,7 +521,7 @@ struct MeetingView: View {
                 onShowSlides: { showSlidesList = true },
                 onShowCaptureSetup: { showCaptureSetup = true },
                 onManageParticipants: { showParticipantsSheet = true },
-                onExpandTranscript: { activeSection = .liveTranscript },
+                onExpandTranscript: { activeSection = .transcript },
                 saveContext: saveContext)
         case .preparation:
             MeetingPrepTab(meeting: meeting)
@@ -532,10 +531,14 @@ struct MeetingView: View {
         case .liveNotes:
             VStack(alignment: .leading, spacing: 8) {
                 MarkdownToolbar(textViewID: "meetingLiveNotes")
-                MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
+                MarkdownEditorView(
+                    text: Binding(
+                        get: { meeting.liveNotes },
+                        set: { meeting.liveNotes = $0; saveContext() }
+                    ),
+                    textViewID: "meetingLiveNotes"
+                )
             }
-        case .liveTranscript:
-            LiveTranscriptPanel()
         case .transcript:
             transcriptView
         case .report:
@@ -834,16 +837,48 @@ struct MeetingView: View {
     }
 
 
+    /// Vrai tant qu'une session live tourne ou qu'un texte live existe (avant que
+    /// le transcript final ne soit produit au `stop()`).
+    private var isLiveActive: Bool {
+        liveService.isLive || !liveService.liveTranscript.isEmpty
+    }
+
+    /// Aperçu de la transcription en direct, affiché en tête de l'onglet
+    /// « Transcription » pendant l'enregistrement (même source que le widget).
+    private var liveTranscriptSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.badge.mic")
+                    .foregroundColor(liveService.isLive ? .red : .secondary)
+                Text("Transcription en direct").font(.headline)
+                if let status = liveService.statusMessage {
+                    Text(status).font(.caption).foregroundColor(.secondary)
+                }
+            }
+            Text(liveService.liveTranscript.isEmpty ? "En écoute…" : liveService.liveTranscript)
+                .font(.body)
+                .foregroundColor(liveService.liveTranscript.isEmpty ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
     private var transcriptView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if isLiveActive {
+                    liveTranscriptSection
+                    if !meeting.rawTranscript.isEmpty { Divider() }
+                }
                 if meeting.rawTranscript.isEmpty {
-                    ContentUnavailableView(
-                        "Aucune transcription",
-                        systemImage: "waveform",
-                        description: Text("Démarre un enregistrement pour voir la transcription ici.")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                    if !isLiveActive {
+                        ContentUnavailableView(
+                            "Aucune transcription",
+                            systemImage: "waveform",
+                            description: Text("Démarre un enregistrement pour voir la transcription ici.")
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                    }
                 } else {
                     transcriptToolbar
                     if showSpeakersView && !meeting.transcriptSegments.isEmpty {
@@ -1254,7 +1289,8 @@ struct MeetingView: View {
                         language: stt.language,
                         variant: settings.voxtralVariant)
                 }
-                activeSection = .liveTranscript
+                // La transcription live s'affiche dans le widget (Vue d'ensemble)
+                // et dans l'onglet « Transcription » — pas de bascule d'onglet.
             }
             meeting.wavFilePath = url.path
             saveContext()
@@ -1294,7 +1330,7 @@ struct MeetingView: View {
                         language: stt.language,
                         variant: settings.voxtralVariant)
                 }
-                activeSection = .liveTranscript
+                // Live affiché dans le widget + l'onglet « Transcription ».
             }
             // On laisse meeting.wavFilePath pointer sur l'ancien jusqu'à la
             // concaténation post-stop ; en cas d'arrêt anormal, l'utilisateur
@@ -2525,4 +2561,3 @@ private extension DateFormatter {
         return f
     }()
 }
-
