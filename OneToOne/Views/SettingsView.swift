@@ -641,32 +641,31 @@ struct SettingsView: View {
                             Text("Diarisation (locuteurs)").tag(TranscriptionMode.diarizeFirst)
                         }
 
-                        if settings.transcriptionMode == .transcriptionOnly {
-                            Picker("Moteur STT", selection: Binding(
-                                get: { settings.transcriptionEngine },
-                                set: { settings.transcriptionEngine = $0; saveSettings() }
-                            )) {
-                                Text("Cohere Transcribe").tag(STTEngineKind.cohere)
-                                Text("Voxtral").tag(STTEngineKind.voxtral)
-                                Text("Qwen3-ASR (langue forcée)").tag(STTEngineKind.qwen3)
-                            }
+                        // Moteur + langue s'appliquent aux 3 chemins (batch, diarisation, live).
+                        Picker("Moteur STT", selection: Binding(
+                            get: { settings.transcriptionEngine },
+                            set: { settings.transcriptionEngine = $0; saveSettings() }
+                        )) {
+                            Text("Cohere Transcribe").tag(STTEngineKind.cohere)
+                            Text("Voxtral").tag(STTEngineKind.voxtral)
+                            Text("Qwen3-ASR (langue forcée)").tag(STTEngineKind.qwen3)
+                        }
 
-                            Picker("Langue", selection: Binding(
-                                get: { stt.language },
-                                set: { stt.language = $0 }
-                            )) {
-                                Text("Français").tag("fr")
-                                Text("English").tag("en")
-                                Text("Español").tag("es")
-                                Text("Deutsch").tag("de")
-                                Text("Italiano").tag("it")
-                                Text("Português").tag("pt")
-                            }
-                            if settings.transcriptionEngine != .qwen3 {
-                                Text("La langue n'est réellement forcée qu'avec le moteur Qwen3-ASR. Cohere et Voxtral auto-détectent (peuvent basculer de langue).")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+                        Picker("Langue", selection: Binding(
+                            get: { stt.language },
+                            set: { stt.language = $0 }
+                        )) {
+                            Text("Français").tag("fr")
+                            Text("English").tag("en")
+                            Text("Español").tag("es")
+                            Text("Deutsch").tag("de")
+                            Text("Italiano").tag("it")
+                            Text("Português").tag("pt")
+                        }
+                        if settings.transcriptionEngine != .qwen3 {
+                            Text("La langue n'est réellement forcée qu'avec le moteur Qwen3-ASR. Cohere et Voxtral auto-détectent (peuvent basculer de langue).")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
 
                         Picker("Variante Voxtral", selection: Binding(

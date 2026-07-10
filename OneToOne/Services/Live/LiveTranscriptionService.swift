@@ -28,7 +28,7 @@ final class LiveTranscriptionService: ObservableObject {
 
     private let sampleRate: Double = 16_000
     private let overlapSeconds: Double = 1.5
-    private var engine: VoxtralEngine?
+    private var engine: STTEngine?
     private var segmenter: LiveVADSegmenter?
     private var merger = LiveTranscriptMerger()
     private var ring: [Float] = []
@@ -38,7 +38,8 @@ final class LiveTranscriptionService: ObservableObject {
 
     private init() {}
 
-    func begin(audioStream: AsyncStream<[Float]>, language: String, variant: VoxtralVariant) async {
+    func begin(audioStream: AsyncStream<[Float]>, language: String,
+               engineKind: STTEngineKind, variant: VoxtralVariant) async {
         guard !isLive else { return }
         generation += 1
         let gen = generation
@@ -49,7 +50,14 @@ final class LiveTranscriptionService: ObservableObject {
         ring = []
         segments = []
 
-        let eng = VoxtralEngine(variant: variant)
+        // Même moteur que le batch (Réglages) : Qwen3-ASR force la langue en live
+        // aussi ; Voxtral/Cohere auto-détectent. `variant` ne sert qu'à Voxtral.
+        let eng: STTEngine
+        switch engineKind {
+        case .cohere:  eng = CohereEngine()
+        case .voxtral: eng = VoxtralEngine(variant: variant)
+        case .qwen3:   eng = Qwen3ASREngine()
+        }
         do {
             try await eng.load()
         } catch {

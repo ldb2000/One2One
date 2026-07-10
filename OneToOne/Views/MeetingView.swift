@@ -1287,6 +1287,7 @@ struct MeetingView: View {
                     await LiveTranscriptionService.shared.begin(
                         audioStream: liveStream,
                         language: stt.language,
+                        engineKind: settings.transcriptionEngine,
                         variant: settings.voxtralVariant)
                 }
                 // La transcription live s'affiche dans le widget (Vue d'ensemble)
@@ -1328,6 +1329,7 @@ struct MeetingView: View {
                     await LiveTranscriptionService.shared.begin(
                         audioStream: liveStream,
                         language: stt.language,
+                        engineKind: settings.transcriptionEngine,
                         variant: settings.voxtralVariant)
                 }
                 // Live affiché dans le widget + l'onglet « Transcription ».

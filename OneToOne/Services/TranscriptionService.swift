@@ -154,7 +154,10 @@ final class TranscriptionService: ObservableObject {
             return result
 
         case .diarizeFirst:
-            let engine: STTEngine = VoxtralEngine(variant: settings.voxtralVariant)
+            // Le STT par tour suit le moteur choisi (Réglages) : Qwen3-ASR force
+            // la langue, comme pour le batch. La segmentation locuteurs (pyannote)
+            // est indépendante du moteur.
+            let engine: STTEngine = makeEngine(kind: settings.transcriptionEngine, settings: settings)
             onPhase?(.loadingModel)
             try await engine.load()
             let diar: (blocks: [TurnMerger.Block], embeddings: [Int: [Float]], duration: Double)
