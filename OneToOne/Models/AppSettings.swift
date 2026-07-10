@@ -12,6 +12,10 @@ enum TranscriptionMode: String, Codable, CaseIterable, Sendable {
 enum STTEngineKind: String, Codable, CaseIterable, Sendable {
     case cohere
     case voxtral
+    /// Qwen3-ASR (0.6B, léger) — seul moteur qui **force** la langue de décodage
+    /// (`STTGenerateParameters.language`), évitant les bascules intempestives
+    /// (ex. hallucinations en japonais sur du français).
+    case qwen3
 }
 
 enum AIProvider: String, Codable, CaseIterable {

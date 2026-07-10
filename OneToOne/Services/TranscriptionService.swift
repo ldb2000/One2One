@@ -254,6 +254,7 @@ final class TranscriptionService: ObservableObject {
         switch kind {
         case .cohere:  return CohereEngine()
         case .voxtral: return VoxtralEngine(variant: settings.voxtralVariant)
+        case .qwen3:   return Qwen3ASREngine()
         }
     }
 
