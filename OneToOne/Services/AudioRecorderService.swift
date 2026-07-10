@@ -303,7 +303,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
 /// le tout sérialisé sur une file dédiée. `@unchecked Sendable` : tout l'état
 /// mutable est protégé par `queue`. La `continuation` d'`AsyncStream` est
 /// Sendable et peut être appelée depuis n'importe quel thread.
-private final class TapSink: @unchecked Sendable {
+final class TapSink: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.onetoone.audio.write")
     private let converter: AVAudioConverter
     private let targetFormat: AVAudioFormat
@@ -331,8 +331,14 @@ private final class TapSink: @unchecked Sendable {
             guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return nil }
             var consumed = false
             var err: NSError?
+            // `.noDataNow` (et non `.endOfStream`) une fois le buffer fourni : le
+            // converter est réutilisé buffer après buffer sur toute la session. Or
+            // `.endOfStream` le FINALISE définitivement — après le 1er buffer, tous
+            // les `convert` suivants renvoient 0 frame (→ `process` = nil, WAV figé à
+            // ~0,1 s). `.noDataNow` signale « plus rien pour l'instant » sans clore le
+            // flux : l'état interne du resampler est conservé pour l'appel suivant.
             _ = converter.convert(to: outBuf, error: &err) { _, status in
-                if consumed { status.pointee = .endOfStream; return nil }
+                if consumed { status.pointee = .noDataNow; return nil }
                 consumed = true
                 status.pointee = .haveData
                 return buffer

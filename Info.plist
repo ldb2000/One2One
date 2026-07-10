@@ -19,10 +19,12 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>443</string>
+	<string>445</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSContactsUsageDescription</key>
 	<string>OneToOne récupère la photo de profil de vos collaborateurs depuis vos Contacts macOS pour enrichir les listes de participants.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>OneToOne utilise le microphone pour enregistrer les réunions et générer les transcriptions.</string>
 </dict>
 </plist>
