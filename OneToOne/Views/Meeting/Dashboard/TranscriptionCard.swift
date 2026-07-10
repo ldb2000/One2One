@@ -5,12 +5,18 @@ import SwiftUI
 /// donc « Détecter » est un affordance désactivé en direct ; « Speakers » ne fait
 /// qu'afficher/masquer d'éventuels libellés de locuteur.
 struct TranscriptionCard: View {
+    let meeting: Meeting
     @ObservedObject private var live = LiveTranscriptionService.shared
     var isEditing: Bool = false
     /// Bascule vers l'onglet « Direct » plein écran.
     let onExpand: () -> Void
 
     @State private var showSpeakers: Bool = true
+
+    /// Transcript final généré (hors enregistrement) : fusionné, sinon brut.
+    private var finalTranscript: String {
+        meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript
+    }
 
     var body: some View {
         DashboardCard(title: "Transcription", systemImage: "waveform", isEditing: isEditing) {
@@ -31,10 +37,13 @@ struct TranscriptionCard: View {
                     Label("En direct", systemImage: "circle.fill")
                         .font(.caption).foregroundColor(MeetingTheme.accentOrange)
                 }
+                // En direct : flux live. Sinon : transcript final généré.
+                let displayed = live.isLive ? live.liveTranscript : finalTranscript
+                let placeholder = live.isLive ? "En écoute…" : "Aucune transcription."
                 ScrollView {
-                    Text(live.liveTranscript.isEmpty ? "En écoute…" : live.liveTranscript)
+                    Text(displayed.isEmpty ? placeholder : displayed)
                         .font(.body)
-                        .foregroundColor(live.liveTranscript.isEmpty ? .secondary : .primary)
+                        .foregroundColor(displayed.isEmpty ? .secondary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }

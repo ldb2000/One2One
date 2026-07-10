@@ -88,7 +88,9 @@ struct OverviewDashboard: View {
         case .presence:
             PresenceCard(meeting: meeting, settings: settings, isEditing: isEditing, onManage: onManageParticipants)
         case .transcription:
-            TranscriptionCard(isEditing: isEditing, onExpand: onExpandTranscript)
+            TranscriptionCard(meeting: meeting, isEditing: isEditing, onExpand: onExpandTranscript)
+        case .summary:
+            SummaryCard(meeting: meeting, settings: settings, isEditing: isEditing, saveContext: saveContext)
         case .actions:
             DashboardCard(title: "Actions", systemImage: "checklist", isEditing: isEditing) { EmptyView() } content: {
                 ActionsPanel(meeting: meeting, settings: settings, allCollaborators: allCollaborators,

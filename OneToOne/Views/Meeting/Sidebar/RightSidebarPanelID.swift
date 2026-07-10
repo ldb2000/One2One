@@ -6,6 +6,7 @@ import SwiftUI
 enum RightSidebarPanelID: String, CaseIterable, Codable, Identifiable {
     case presence
     case transcription
+    case summary
     case actions
     case capture
     case projects
@@ -17,6 +18,7 @@ enum RightSidebarPanelID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .presence:      return "Présence"
         case .transcription: return "Transcription"
+        case .summary:       return "Résumé"
         case .actions:       return "Actions"
         case .capture:       return "Capture"
         case .projects:      return "Projets affectés"
@@ -28,6 +30,7 @@ enum RightSidebarPanelID: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .presence:      return "person.3.fill"
         case .transcription: return "waveform"
+        case .summary:       return "text.line.first.and.arrowtriangle.forward"
         case .actions:       return "checklist"
         case .capture:       return "camera"
         case .projects:      return "folder.fill"
