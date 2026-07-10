@@ -529,16 +529,13 @@ struct MeetingView: View {
                     PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
                 }
         case .liveNotes:
-            VStack(alignment: .leading, spacing: 8) {
-                MarkdownToolbar(textViewID: "meetingLiveNotes")
-                MarkdownEditorView(
-                    text: Binding(
-                        get: { meeting.liveNotes },
-                        set: { meeting.liveNotes = $0; saveContext() }
-                    ),
-                    textViewID: "meetingLiveNotes"
-                )
-            }
+            MarkdownNoteEditor(
+                text: Binding(
+                    get: { meeting.liveNotes },
+                    set: { meeting.liveNotes = $0; saveContext() }
+                ),
+                editorID: "meetingLiveNotes"
+            )
         case .transcript:
             transcriptView
         case .report:
