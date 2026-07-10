@@ -51,10 +51,9 @@ struct SummaryCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     ScrollView {
-                        Text(meeting.shortSummary)
-                            .font(.body)
+                        // Rendu markdown (puces, gras, titres) plutôt que texte brut.
+                        MarkdownText(markdown: meeting.shortSummary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
                     }
                     .frame(minHeight: 120, maxHeight: 220)
                 }
