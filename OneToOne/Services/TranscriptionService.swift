@@ -217,6 +217,16 @@ final class TranscriptionService: ObservableObject {
                         text: Self.collapseRepetitions($0.text))
         }
 
+        // Respecte le mode : en « Transcription seule », AUCUNE diarisation — on
+        // conserve les segments live (locuteur unique), sans passe Pyannote.
+        if settings.transcriptionMode == .transcriptionOnly {
+            let blocks = LiveDiarizationAligner.alignToBlocks(segments: cleaned, turns: [])
+            persistBlocks(blocks, assignments: [Int: SpeakerMatcher.Assignment](), meeting: meeting, in: context)
+            let text = blocks.map { $0.text }.joined(separator: "\n")
+            return STTResult(text: text, language: self.language,
+                             durationSeconds: cleaned.last?.end ?? 0, segments: [])
+        }
+
         // 2. Diarisation Pyannote seule (pas de STT). PyannoteDiarizer émet ses
         //    propres phases via `onPhase`/`onProgress` transmis ci-dessous.
         let diar: PyannoteDiarizer.DiarizeOutput
