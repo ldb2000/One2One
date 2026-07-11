@@ -163,6 +163,15 @@ struct ActionsListView: View {
                 }, fillsAvailableSpace: true)
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .calendar {
+                ScrollView {
+                    CalendarBoard(tasks: filteredTasks, onToggle: { task in
+                        task.isCompleted.toggle()
+                        task.completedAt = task.isCompleted ? Date() : nil
+                        saveContext()
+                    }, fillsAvailableSpace: true)
+                    .padding()
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
