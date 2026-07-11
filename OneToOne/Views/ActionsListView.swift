@@ -110,13 +110,13 @@ struct ActionsListView: View {
 
                 Spacer()
 
-                if viewMode == .kanban {
+                if viewMode == .kanban || viewMode == .sticky {
                     Picker("", selection: $kanbanGrouping) {
                         ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
-                    .help("Regrouper les colonnes par…")
+                    .help("Regrouper par…")
                 }
 
                 Picker("", selection: $viewMode) {
@@ -186,11 +186,19 @@ struct ActionsListView: View {
                 }
             } else if viewMode == .sticky {
                 ScrollView {
-                    StickyBoard(tasks: filteredTasks, onToggle: { task in
-                        task.isCompleted.toggle()
-                        task.completedAt = task.isCompleted ? Date() : nil
-                        saveContext()
-                    }, fillsAvailableSpace: true)
+                    StickyBoard(
+                        tasks: filteredTasks,
+                        columns: KanbanBoard.columns(for: kanbanGrouping, tasks: filteredTasks),
+                        allCollaborators: collaborators,
+                        onToggle: { task in
+                            task.isCompleted.toggle()
+                            task.completedAt = task.isCompleted ? Date() : nil
+                            saveContext()
+                        },
+                        onChanged: saveContext,
+                        onDelete: { task in context.delete(task); saveContext() },
+                        fillsAvailableSpace: true
+                    )
                     .padding()
                 }
             } else {

@@ -281,9 +281,22 @@ struct ActionsPanel: View {
     }
 
     private var stickyView: some View {
-        ScrollView {
-            StickyBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion)
+        VStack(spacing: 6) {
+            Picker("", selection: $kanbanGrouping) {
+                ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
+            }
+            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10)
+            ScrollView {
+                StickyBoard(
+                    tasks: meeting.tasks,
+                    columns: KanbanBoard.columns(for: kanbanGrouping, tasks: meeting.tasks),
+                    allCollaborators: allCollaborators,
+                    onToggle: onToggleTaskCompletion,
+                    onChanged: saveContext,
+                    onDelete: onDeleteTask
+                )
                 .padding(10)
+            }
         }
     }
 
