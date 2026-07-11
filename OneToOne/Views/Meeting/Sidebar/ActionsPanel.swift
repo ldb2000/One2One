@@ -50,6 +50,7 @@ struct ActionsPanel: View {
     @Environment(\.modelContext) private var context
     @State private var showingAddCollaboratorSheet: Bool = false
     @State private var viewMode: ActionsViewMode = .liste
+    @State private var kanbanGrouping: ActionGrouping = .destinataire
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -248,9 +249,20 @@ struct ActionsPanel: View {
     // MARK: - Vues Kanban / Eisenhower
 
     private var kanbanView: some View {
-        ScrollView {
-            KanbanBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion, onMove: moveTask)
+        VStack(spacing: 6) {
+            Picker("", selection: $kanbanGrouping) {
+                ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
+            }
+            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10)
+            ScrollView {
+                KanbanBoard(
+                    columns: KanbanBoard.columns(for: kanbanGrouping, tasks: meeting.tasks),
+                    tasks: meeting.tasks,
+                    onToggle: onToggleTaskCompletion,
+                    onChanged: saveContext
+                )
                 .padding(10)
+            }
         }
     }
 
@@ -275,13 +287,6 @@ struct ActionsPanel: View {
         }
     }
 
-    /// Déplace une action vers un destinataire (drag Kanban) ; nettoie l'assignee
-    /// hors mode collaborateur.
-    private func moveTask(_ task: ActionTask, to audience: ActionAudience) {
-        task.destinataire = audience
-        if audience != .collaborateur { task.collaborator = nil }
-        saveContext()
-    }
 
     // MARK: - Priority
 

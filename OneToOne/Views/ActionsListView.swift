@@ -18,6 +18,7 @@ struct ActionsListView: View {
     @State private var filterCollaborator: Collaborator?
     @State private var filterDueDate: DueDateFilter = .any
     @State private var viewMode: ActionsViewMode = .liste
+    @State private var kanbanGrouping: ActionGrouping = .destinataire
 
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
@@ -109,6 +110,15 @@ struct ActionsListView: View {
 
                 Spacer()
 
+                if viewMode == .kanban {
+                    Picker("", selection: $kanbanGrouping) {
+                        ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .help("Regrouper les colonnes par…")
+                }
+
                 Picker("", selection: $viewMode) {
                     ForEach(ActionsViewMode.allCases, id: \.self) { mode in
                         Image(systemName: mode.systemImage).tag(mode)
@@ -117,7 +127,7 @@ struct ActionsListView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
-                .help("Vue Liste ou Eisenhower")
+                .help("Changer de vue")
 
                 Button(action: addAction) {
                     Label("Nouvelle action", systemImage: "plus")
@@ -152,15 +162,17 @@ struct ActionsListView: View {
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewMode == .kanban {
-                KanbanBoard(tasks: filteredTasks, onToggle: { task in
-                    task.isCompleted.toggle()
-                    task.completedAt = task.isCompleted ? Date() : nil
-                    saveContext()
-                }, onMove: { task, audience in
-                    task.destinataire = audience
-                    if audience != .collaborateur { task.collaborator = nil }
-                    saveContext()
-                }, fillsAvailableSpace: true)
+                KanbanBoard(
+                    columns: KanbanBoard.columns(for: kanbanGrouping, tasks: filteredTasks),
+                    tasks: filteredTasks,
+                    onToggle: { task in
+                        task.isCompleted.toggle()
+                        task.completedAt = task.isCompleted ? Date() : nil
+                        saveContext()
+                    },
+                    onChanged: saveContext,
+                    fillsAvailableSpace: true
+                )
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewMode == .calendar {
