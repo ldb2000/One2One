@@ -74,7 +74,54 @@ struct OverviewDashboard: View {
     private func card(_ id: RightSidebarPanelID) -> some View {
         cardContent(id)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay { if isEditing { editOverlay(id) } }
             .modifier(DragReorderModifier(id: id, entries: $entries, enabled: isEditing, persist: persist))
+    }
+
+    /// Calque d'édition affiché sur une carte en mode Personnaliser : titre +
+    /// choix de taille (boutons) + Masquer. Le déplacement se fait en glissant.
+    @ViewBuilder
+    private func editOverlay(_ id: RightSidebarPanelID) -> some View {
+        let entry = entries.first { $0.id == id }
+        RoundedRectangle(cornerRadius: 16)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                VStack(spacing: 12) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "line.3.horizontal").foregroundColor(.secondary)
+                        Image(systemName: id.systemImage).foregroundColor(.secondary)
+                        Text(id.defaultTitle).font(.headline)
+                    }
+                    HStack(spacing: 6) {
+                        sizeChip(id, cols: 1, rows: 1, "1×1", entry: entry)
+                        sizeChip(id, cols: 2, rows: 1, "2×1", entry: entry)
+                        sizeChip(id, cols: 1, rows: 2, "1×2", entry: entry)
+                        sizeChip(id, cols: 1, rows: 3, "1×3", entry: entry)
+                    }
+                    Button { toggleVisible(id) } label: {
+                        Label("Masquer", systemImage: "eye.slash").font(.caption)
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                }
+                .padding()
+            }
+            .overlay(RoundedRectangle(cornerRadius: 16)
+                .stroke(MeetingTheme.accentOrange, lineWidth: 1.5))
+            .help("Glisser pour déplacer")
+    }
+
+    private func sizeChip(_ id: RightSidebarPanelID, cols: Int, rows: Int, _ label: String,
+                          entry: PanelLayoutEntry?) -> some View {
+        let active = entry?.cols == cols && entry?.rows == rows
+        return Button { setSpan(id, cols: cols, rows: rows) } label: {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(active ? MeetingTheme.accentOrange : Color.secondary.opacity(0.15))
+                .foregroundColor(active ? .white : .primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -117,36 +164,34 @@ struct OverviewDashboard: View {
         }
     }
 
+    /// Cartes masquées (candidates à réafficher), filtrées selon le kind.
+    private var hiddenEntries: [PanelLayoutEntry] {
+        entries.filter { entry in
+            guard !entry.visible else { return false }
+            if entry.id == .managerAgenda { return meeting.kind == .manager }
+            return true
+        }
+    }
+
     private var editBar: some View {
-        HStack {
-            Text("Glisser les cartes pour réordonner").font(.caption).foregroundColor(.secondary)
-            Spacer()
-            Menu {
-                Section("Cartes") {
-                    ForEach(entries.filter { $0.id != .managerAgenda || meeting.kind == .manager }) { entry in
-                        Menu {
-                            Button {
-                                toggleVisible(entry.id)
-                            } label: {
-                                Label(entry.visible ? "Masquer" : "Afficher",
-                                      systemImage: entry.visible ? "eye.slash" : "eye")
-                            }
-                            Divider()
-                            Section("Taille") {
-                                sizeButton(entry.id, cols: 1, rows: 1, "1×1")
-                                sizeButton(entry.id, cols: 2, rows: 1, "2×1 (large)")
-                                sizeButton(entry.id, cols: 1, rows: 2, "1×2 (haut)")
-                                sizeButton(entry.id, cols: 1, rows: 3, "1×3 (très haut)")
-                            }
-                        } label: {
-                            Label(entry.id.defaultTitle,
-                                  systemImage: entry.visible ? "checkmark.circle.fill" : "circle")
-                        }
+        HStack(spacing: 8) {
+            Text("Glisse une carte pour la déplacer · règle sa taille dessus")
+                .font(.caption).foregroundColor(.secondary)
+            if !hiddenEntries.isEmpty {
+                Divider().frame(height: 14)
+                ForEach(hiddenEntries) { entry in
+                    Button { toggleVisible(entry.id) } label: {
+                        Label(entry.id.defaultTitle, systemImage: "plus")
+                            .font(.caption)
                     }
+                    .buttonStyle(.bordered).controlSize(.small)
                 }
-                Divider()
-                Button("Réinitialiser") { entries = PanelLayoutEntry.defaultLayout; persist() }
-            } label: { Label("Cartes", systemImage: "gearshape") }
+            }
+            Spacer()
+            Button { entries = PanelLayoutEntry.defaultLayout; persist() } label: {
+                Label("Réinitialiser", systemImage: "arrow.counterclockwise").font(.caption)
+            }
+            .buttonStyle(.bordered).controlSize(.small)
         }
     }
 
@@ -168,14 +213,6 @@ struct OverviewDashboard: View {
         persist()
     }
 
-    @ViewBuilder
-    private func sizeButton(_ id: RightSidebarPanelID, cols: Int, rows: Int, _ label: String) -> some View {
-        let entry = entries.first { $0.id == id }
-        let isCurrent = entry?.cols == cols && entry?.rows == rows
-        Button { setSpan(id, cols: cols, rows: rows) } label: {
-            if isCurrent { Label(label, systemImage: "checkmark") } else { Text(label) }
-        }
-    }
 }
 
 /// Drag & drop de réordonnancement d'une carte (payload = `RightSidebarPanelID.rawValue`).
