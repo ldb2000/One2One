@@ -29,6 +29,10 @@ struct OverviewDashboard: View {
     /// non borné déclenchent une récursion de layout macOS (`_NSDetectedLayoutRecursion` → freeze).
     private let cardScrollMaxHeight: CGFloat = 380
 
+    /// Hauteur uniforme de toutes les cartes du dashboard (contenu aligné en haut,
+    /// scroll interne si besoin) → grille visuellement régulière.
+    private let standardCardHeight: CGFloat = 360
+
     /// Cartes visibles, dans l'ordre du layout, filtrées selon le kind.
     private var visibleIDs: [RightSidebarPanelID] {
         entries.filter { entry in
@@ -79,6 +83,7 @@ struct OverviewDashboard: View {
     @ViewBuilder
     private func card(_ id: RightSidebarPanelID) -> some View {
         cardContent(id)
+            .frame(height: standardCardHeight, alignment: .top)
             .modifier(DragReorderModifier(id: id, entries: $entries, enabled: isEditing, persist: persist))
     }
 

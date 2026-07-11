@@ -47,7 +47,7 @@ struct TranscriptionCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
-                .frame(minHeight: 120, maxHeight: 200)
+                .frame(minHeight: 120, maxHeight: .infinity)
                 if let status = live.statusMessage {
                     Text(status).font(.caption).foregroundColor(.secondary)
                 }

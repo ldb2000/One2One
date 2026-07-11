@@ -55,7 +55,7 @@ struct SummaryCard: View {
                         MarkdownText(markdown: meeting.shortSummary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(minHeight: 120, maxHeight: 220)
+                    .frame(minHeight: 120, maxHeight: .infinity)
                 }
             }
         }
