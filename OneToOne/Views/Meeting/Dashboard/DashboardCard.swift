@@ -44,7 +44,7 @@ struct DashboardCard<HeaderActions: View, Content: View>: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(MeetingTheme.surfaceCream)
