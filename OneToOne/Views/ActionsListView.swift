@@ -17,6 +17,7 @@ struct ActionsListView: View {
     @State private var filterEntity: Entity?
     @State private var filterCollaborator: Collaborator?
     @State private var filterDueDate: DueDateFilter = .any
+    @State private var viewMode: ActionsViewMode = .liste
 
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
@@ -108,6 +109,16 @@ struct ActionsListView: View {
 
                 Spacer()
 
+                Picker("", selection: $viewMode) {
+                    ForEach(ActionsViewMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Vue Liste ou Eisenhower")
+
                 Button(action: addAction) {
                     Label("Nouvelle action", systemImage: "plus")
                 }
@@ -132,6 +143,15 @@ struct ActionsListView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .eisenhower {
+                ScrollView {
+                    EisenhowerBoard(tasks: filteredTasks) { task in
+                        task.isCompleted.toggle()
+                        task.completedAt = task.isCompleted ? Date() : nil
+                        saveContext()
+                    }
+                    .padding()
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
