@@ -14,6 +14,9 @@ struct ActionsPanel: View {
     @Binding var selectedCollaborator: Collaborator?
     @Binding var showNewTaskDueDate: Bool
     @Binding var newTaskDueDate: Date?
+    @Binding var newTaskAudience: ActionAudience
+    @Binding var newTaskUrgent: Bool
+    @Binding var newTaskImportant: Bool
 
     let onAddTask: () -> Void
     let onDeleteTask: (ActionTask) -> Void
@@ -52,11 +55,34 @@ struct ActionsPanel: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                 }
-                ForEach(meeting.tasks) { task in
-                    taskRow(task)
+                ForEach(ActionAudience.allCases, id: \.self) { audience in
+                    let group = sortedGroup(meeting.tasks.filter { $0.destinataire == audience })
+                    if !group.isEmpty {
+                        HStack(spacing: 5) {
+                            Image(systemName: audience.systemImage).font(.caption2)
+                            Text(audience.sectionTitle).tracking(1.0)
+                        }
+                        .font(MeetingTheme.sectionLabel)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4).padding(.top, 4)
+                        ForEach(group) { task in
+                            taskRow(task)
+                        }
+                    }
                 }
             }
             .padding(10)
+        }
+    }
+
+    /// Tri d'un groupe : non terminées d'abord, puis par échéance croissante
+    /// (sans échéance en dernier), puis ordre manuel.
+    private func sortedGroup(_ tasks: [ActionTask]) -> [ActionTask] {
+        tasks.sorted { a, b in
+            if a.isCompleted != b.isCompleted { return !a.isCompleted }
+            let da = a.dueDate ?? .distantFuture, db = b.dueDate ?? .distantFuture
+            if da != db { return da < db }
+            return a.sortOrder < b.sortOrder
         }
     }
 
@@ -100,8 +126,35 @@ struct ActionsPanel: View {
                     .strikethrough(task.isCompleted)
                     .frame(height: 22)
 
+                priorityDot(task)
+
                 Spacer()
                 Menu {
+                    Section("Destinataire") {
+                        ForEach(ActionAudience.allCases, id: \.self) { audience in
+                            Button {
+                                task.destinataire = audience
+                                if audience != .collaborateur { task.collaborator = nil }
+                                saveContext()
+                            } label: {
+                                if task.destinataire == audience {
+                                    Label(audience.label, systemImage: "checkmark")
+                                } else {
+                                    Label(audience.label, systemImage: audience.systemImage)
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Toggle(isOn: Binding(
+                        get: { task.isUrgent },
+                        set: { task.isUrgent = $0; saveContext() }
+                    )) { Label("Urgent", systemImage: "exclamationmark") }
+                    Toggle(isOn: Binding(
+                        get: { task.isImportant },
+                        set: { task.isImportant = $0; saveContext() }
+                    )) { Label("Important", systemImage: "star") }
+                    Divider()
                     Button(role: .destructive) { onDeleteTask(task) } label: {
                         Label("Supprimer", systemImage: "trash")
                     }
@@ -147,14 +200,52 @@ struct ActionsPanel: View {
         )
     }
 
+    // MARK: - Priority
+
+    /// Pastille de priorité selon le quadrant urgent×important (rien si aucun).
+    @ViewBuilder
+    private func priorityDot(_ task: ActionTask) -> some View {
+        if task.isUrgent || task.isImportant {
+            Circle()
+                .fill(Self.quadrantColor(urgent: task.isUrgent, important: task.isImportant))
+                .frame(width: 8, height: 8)
+        }
+    }
+
+    /// Couleur du quadrant Eisenhower.
+    static func quadrantColor(urgent: Bool, important: Bool) -> Color {
+        switch (urgent, important) {
+        case (true, true):   return .red
+        case (false, true):  return .orange
+        case (true, false):  return .blue
+        default:             return .gray
+        }
+    }
+
     // MARK: - Form section
 
     private var formSection: some View {
         VStack(spacing: 8) {
             EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle)
                 .frame(height: 24)
+            Picker("", selection: $newTaskAudience) {
+                ForEach(ActionAudience.allCases, id: \.self) { a in
+                    Text(a.label).tag(a)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            HStack(spacing: 12) {
+                if newTaskAudience == .collaborateur {
+                    assigneeMenu
+                }
+                Toggle(isOn: $newTaskUrgent) { Text("Urgent").font(.caption) }
+                    .toggleStyle(.checkbox)
+                Toggle(isOn: $newTaskImportant) { Text("Important").font(.caption) }
+                    .toggleStyle(.checkbox)
+                Spacer()
+            }
             HStack(spacing: 8) {
-                assigneeMenu
                 Toggle(isOn: $showNewTaskDueDate) {
                     Label("Échéance", systemImage: "calendar").font(.caption)
                 }
@@ -165,6 +256,7 @@ struct ActionsPanel: View {
                         set: { newTaskDueDate = $0 }
                     ), displayedComponents: .date).labelsHidden()
                 }
+                Spacer()
             }
             Button(action: onAddTask) {
                 Label("Ajouter l'action", systemImage: "plus").frame(maxWidth: .infinity)

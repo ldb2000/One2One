@@ -85,6 +85,10 @@ struct MeetingView: View {
     @State private var selectedCollaborator: Collaborator?
     @State private var showNewTaskDueDate = false
     @State private var newTaskDueDate: Date? = nil
+    @State private var newTaskAudience: ActionAudience = .moi
+    @State private var newTaskUrgent = false
+    @State private var newTaskImportant = false
+    @State private var didSetActionDefaults = false
     @State private var newAdhocName = ""
     @State private var showDetailsSheet = false
     @State private var activeSection: MeetingSection = .overview
@@ -314,6 +318,7 @@ struct MeetingView: View {
             }
         }
         .onAppear {
+            applyActionDraftDefaultsIfNeeded()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
             didAutoStart = true
             Task { await startRecording() }
@@ -515,6 +520,8 @@ struct MeetingView: View {
                 currentSlides: currentSlides, isEditing: $isEditingLayout,
                 newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
                 showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
+                newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
+                newTaskImportant: $newTaskImportant,
                 onAddTask: addTask,
                 onDeleteTask: { task in context.delete(task); saveContext() },
                 onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
@@ -1856,12 +1863,30 @@ struct MeetingView: View {
         )
         t.meeting = meeting
         t.project = meeting.project
-        t.collaborator = selectedCollaborator
+        t.destinataire = newTaskAudience
+        t.collaborator = newTaskAudience == .collaborateur ? selectedCollaborator : nil
+        t.isUrgent = newTaskUrgent
+        t.isImportant = newTaskImportant
         context.insert(t)
         newTaskTitle = ""
         newTaskDueDate = nil
         showNewTaskDueDate = false
+        newTaskUrgent = false
+        newTaskImportant = false
         saveContext()
+    }
+
+    /// Défaut malin du destinataire à la 1re apparition : en 1:1, on pré-remplit
+    /// « Collaborateur » avec le partenaire ; sinon « Moi ». Une seule fois.
+    private func applyActionDraftDefaultsIfNeeded() {
+        guard !didSetActionDefaults else { return }
+        didSetActionDefaults = true
+        if meeting.kind == .oneToOne, let partner = meeting.participants.first {
+            newTaskAudience = .collaborateur
+            selectedCollaborator = partner
+        } else {
+            newTaskAudience = .moi
+        }
     }
 
     // MARK: - Utils
