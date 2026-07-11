@@ -172,6 +172,15 @@ struct ActionsListView: View {
                     }, fillsAvailableSpace: true)
                     .padding()
                 }
+            } else if viewMode == .sticky {
+                ScrollView {
+                    StickyBoard(tasks: filteredTasks, onToggle: { task in
+                        task.isCompleted.toggle()
+                        task.completedAt = task.isCompleted ? Date() : nil
+                        saveContext()
+                    }, fillsAvailableSpace: true)
+                    .padding()
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {

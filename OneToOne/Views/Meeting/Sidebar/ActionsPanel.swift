@@ -3,13 +3,14 @@ import SwiftData
 
 /// Mode d'affichage de la carte Actions (sélecteur de vue).
 enum ActionsViewMode: String, CaseIterable {
-    case liste, kanban, calendar, eisenhower
+    case liste, kanban, calendar, eisenhower, sticky
     var label: String {
         switch self {
         case .liste: return "Liste"
         case .kanban: return "Kanban"
         case .calendar: return "Calendrier"
         case .eisenhower: return "Eisenhower"
+        case .sticky: return "Post-it"
         }
     }
     var systemImage: String {
@@ -18,6 +19,7 @@ enum ActionsViewMode: String, CaseIterable {
         case .kanban: return "rectangle.split.3x1"
         case .calendar: return "calendar"
         case .eisenhower: return "square.grid.2x2"
+        case .sticky: return "note.text"
         }
     }
 }
@@ -65,6 +67,7 @@ struct ActionsPanel: View {
             case .kanban:     kanbanView
             case .calendar:   calendarView
             case .eisenhower: eisenhowerView
+            case .sticky:     stickyView
             }
             formSection
         }
@@ -261,6 +264,13 @@ struct ActionsPanel: View {
     private var eisenhowerView: some View {
         ScrollView {
             EisenhowerBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion)
+                .padding(10)
+        }
+    }
+
+    private var stickyView: some View {
+        ScrollView {
+            StickyBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion)
                 .padding(10)
         }
     }
