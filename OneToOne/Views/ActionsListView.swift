@@ -151,6 +151,18 @@ struct ActionsListView: View {
                 }, fillsAvailableSpace: true)
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .kanban {
+                KanbanBoard(tasks: filteredTasks, onToggle: { task in
+                    task.isCompleted.toggle()
+                    task.completedAt = task.isCompleted ? Date() : nil
+                    saveContext()
+                }, onMove: { task, audience in
+                    task.destinataire = audience
+                    if audience != .collaborateur { task.collaborator = nil }
+                    saveContext()
+                }, fillsAvailableSpace: true)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {

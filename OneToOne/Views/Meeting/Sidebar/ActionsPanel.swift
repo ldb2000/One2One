@@ -3,12 +3,20 @@ import SwiftData
 
 /// Mode d'affichage de la carte Actions (sélecteur de vue).
 enum ActionsViewMode: String, CaseIterable {
-    case liste, eisenhower
+    case liste, kanban, eisenhower
     var label: String {
-        switch self { case .liste: return "Liste"; case .eisenhower: return "Eisenhower" }
+        switch self {
+        case .liste: return "Liste"
+        case .kanban: return "Kanban"
+        case .eisenhower: return "Eisenhower"
+        }
     }
     var systemImage: String {
-        switch self { case .liste: return "list.bullet"; case .eisenhower: return "square.grid.2x2" }
+        switch self {
+        case .liste: return "list.bullet"
+        case .kanban: return "rectangle.split.3x1"
+        case .eisenhower: return "square.grid.2x2"
+        }
     }
 }
 
@@ -52,6 +60,7 @@ struct ActionsPanel: View {
 
             switch viewMode {
             case .liste:      tasksList
+            case .kanban:     kanbanView
             case .eisenhower: eisenhowerView
             }
             formSection
@@ -230,13 +239,28 @@ struct ActionsPanel: View {
         )
     }
 
-    // MARK: - Vue Eisenhower
+    // MARK: - Vues Kanban / Eisenhower
+
+    private var kanbanView: some View {
+        ScrollView {
+            KanbanBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion, onMove: moveTask)
+                .padding(10)
+        }
+    }
 
     private var eisenhowerView: some View {
         ScrollView {
             EisenhowerBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion)
                 .padding(10)
         }
+    }
+
+    /// Déplace une action vers un destinataire (drag Kanban) ; nettoie l'assignee
+    /// hors mode collaborateur.
+    private func moveTask(_ task: ActionTask, to audience: ActionAudience) {
+        task.destinataire = audience
+        if audience != .collaborateur { task.collaborator = nil }
+        saveContext()
     }
 
     // MARK: - Priority
