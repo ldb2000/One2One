@@ -12,6 +12,10 @@ enum TranscriptionMode: String, Codable, CaseIterable, Sendable {
 enum STTEngineKind: String, Codable, CaseIterable, Sendable {
     case cohere
     case voxtral
+    /// Qwen3-ASR (0.6B, léger) — seul moteur qui **force** la langue de décodage
+    /// (`STTGenerateParameters.language`), évitant les bascules intempestives
+    /// (ex. hallucinations en japonais sur du français).
+    case qwen3
 }
 
 enum AIProvider: String, Codable, CaseIterable {
@@ -137,6 +141,10 @@ final class AppSettings {
 
     /// Bannière de confirmation au démarrage de l'enregistrement.
     var notifRecordingStart: Bool = true
+
+    /// Affiche une transcription en direct pendant l'enregistrement (opt-in ;
+    /// sollicite le GPU/Neural Engine en continu — impact batterie/ventilateur).
+    var liveTranscriptionEnabled: Bool = false
 
     /// Pré-rappel style Outlook (banner + son + bouton Teams).
     var notifMeetingPreStart: Bool = true

@@ -24,6 +24,9 @@ let package = Package(
         // Support natif Gemma 4 MoE (26b-a4b/31b) — enregistre gemma4_text/gemma4
         // dans LLMTypeRegistry via Gemma4Registration.register().
         .package(url: "https://github.com/VincentGourbin/gemma-4-swift-mlx", branch: "main"),
+        // Éditeur/rendu markdown natif macOS (TextKit 2). Cœur sans dépendance ;
+        // highlighting/LaTeX = produits optionnels non embarqués. Apache 2.0.
+        .package(url: "https://github.com/nodes-app/swift-markdown-engine", from: "0.1.0"),
     ],
     targets: [
         .executableTarget(
@@ -42,6 +45,7 @@ let package = Package(
                 .product(name: "HuggingFace", package: "swift-huggingface"),
                 .product(name: "Tokenizers", package: "swift-transformers"),
                 .product(name: "Gemma4Swift", package: "gemma-4-swift-mlx"),
+                .product(name: "MarkdownEngine", package: "swift-markdown-engine"),
             ],
             path: "OneToOne",
             resources: [

@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:OneToOne}",
+            "name": "Debug OneToOne",
+            "target": "OneToOne",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug OneToOne"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:OneToOne}",
+            "name": "Release OneToOne",
+            "target": "OneToOne",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release OneToOne"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:OneToOne}",
+            "name": "Debug gemma-smoke",
+            "target": "gemma-smoke",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug gemma-smoke"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:OneToOne}",
+            "name": "Release gemma-smoke",
+            "target": "gemma-smoke",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release gemma-smoke"
+        }
+    ]
+}

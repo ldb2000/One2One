@@ -74,6 +74,7 @@ struct MeetingView: View {
     // MARK: - Services
 
     @StateObject private var recorder = AudioRecorderService.shared
+    @ObservedObject private var liveService = LiveTranscriptionService.shared
     @StateObject private var stt = TranscriptionService.shared
     @StateObject private var player = AudioPlayerService()
     @StateObject private var captureService = ScreenCaptureService()
@@ -85,8 +86,8 @@ struct MeetingView: View {
     @State private var showNewTaskDueDate = false
     @State private var newTaskDueDate: Date? = nil
     @State private var newAdhocName = ""
-    @State private var showCustomPrompt = false
-    @State private var activeSection: MeetingSection = .liveNotes
+    @State private var showDetailsSheet = false
+    @State private var activeSection: MeetingSection = .overview
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
     @State private var reportEditMode: Bool = false
@@ -96,7 +97,12 @@ struct MeetingView: View {
     @State private var transcriptionProgress: Double? = nil   // 0.0–1.0 when known
     @State private var transcriptionProgressStatus: String? = nil
     @State private var speakerPickerSearch: String = ""
-    @State private var showDocImporter = false
+    /// Cible du sélecteur de fichiers UNIFIÉ. On n'utilise qu'un seul
+    /// `.fileImporter` : macOS/SwiftUI ne présente pas fiablement plusieurs
+    /// `.fileImporter` coexistant dans la même hiérarchie (l'un masque l'autre,
+    /// d'où « impossible d'importer »).
+    enum FileImportTarget { case wav, documents }
+    @State private var fileImportTarget: FileImportTarget?
     @State private var attachmentError: String?
     @State private var isImportingAttachment = false
     @State private var isDraggingDoc = false
@@ -104,7 +110,6 @@ struct MeetingView: View {
     @State private var showSlidesList = false
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
-    @State private var showWavImporter = false
     @State private var wavImportError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
@@ -113,6 +118,8 @@ struct MeetingView: View {
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
     @State private var showDeleteConfirm = false
+    @State private var showParticipantsSheet = false
+    @State private var isEditingLayout = false
     @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
@@ -141,11 +148,10 @@ struct MeetingView: View {
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
-    @SceneStorage("meeting.detailsExpanded") private var detailsExpanded: Bool = true
-    @SceneStorage("meeting.actionsCollapsed") private var actionsCollapsed: Bool = false
 
     /// Onglet actif du panneau principal de la réunion.
     enum MeetingSection: String, CaseIterable, Identifiable {
+        case overview = "Vue d'ensemble"
         case preparation = "Préparation"
         case liveNotes = "Notes live"
         case transcript = "Transcription"
@@ -227,45 +233,7 @@ struct MeetingView: View {
 
             transcriptionPhaseBanner
 
-            // HStack au lieu de HSplitView : NSSplitView ne gère pas bien
-                // les changements drastiques de largeur (36px rail ↔ 360px expand)
-                // — provoque récursion infinie dans
-                // `_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines`
-                // et crash AppKit. HStack avec frame fixe au call-site = stable.
-            HStack(spacing: 0) {
-                mainPanel.frame(minWidth: 520, maxWidth: .infinity)
-                if meeting.kind == .manager {
-                    ManagerAgendaSidebar(meeting: meeting, settings: settings)
-                        .frame(width: 380)
-                } else {
-                    ConfigurableRightSidebar(
-                        meeting: meeting,
-                        settings: settings,
-                        allCollaborators: allCollaborators,
-                        currentSlides: currentSlides,
-                        collapsed: $actionsCollapsed,
-                        newTaskTitle: $newTaskTitle,
-                        selectedCollaborator: $selectedCollaborator,
-                        showNewTaskDueDate: $showNewTaskDueDate,
-                        newTaskDueDate: $newTaskDueDate,
-                        onAddTask: addTask,
-                        onDeleteTask: { task in
-                            context.delete(task)
-                            saveContext()
-                        },
-                        onToggleTaskCompletion: { task in
-                            task.isCompleted.toggle()
-                            saveContext()
-                        },
-                        onShowSlides:       { showSlidesList = true },
-                        onShowCaptureSetup: { showCaptureSetup = true },
-                        saveContext: saveContext
-                    )
-                    // Largeur déterministe (pas de range) : évite oscillations
-                    // de constraint solver entre min/max.
-                    .frame(width: actionsCollapsed ? 36 : 360)
-                }
-            }
+            mainPanel
         }
         .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
         .textSelection(.enabled)
@@ -301,16 +269,49 @@ struct MeetingView: View {
         .sheet(item: $audioEditMode) { mode in
             AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
         }
+        .sheet(isPresented: $showDetailsSheet) {
+            MeetingDetailsBlock(
+                meeting: meeting,
+                projects: projects,
+                calendarImportError: $calendarImportError,
+                saveContext: saveContext,
+                onClose: { showDetailsSheet = false }
+            )
+        }
+        .sheet(isPresented: $showParticipantsSheet) {
+            ManageParticipantsSheet(
+                meeting: meeting, settings: settings,
+                availableCollaborators: availableCollaborators,
+                collaboratorsCount: allCollaborators.count,
+                newAdhocName: $newAdhocName,
+                addParticipant: addParticipant,
+                removeParticipant: removeParticipant,
+                removeAllParticipants: removeAllParticipants,
+                setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
+                participantStatus: { c in participantStatus(for: c) },
+                addAdhoc: addAdhocParticipant,
+                onResync: { resyncFromCalendarInMeetingView() },
+                onClose: { showParticipantsSheet = false })
+        }
         .popover(isPresented: $showSlidesList) { slidesPopover }
         .popover(isPresented: $showCaptureSetup) {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
         }
         .fileImporter(
-            isPresented: $showWavImporter,
-            allowedContentTypes: [.audio, .wav, .mp3, .mpeg4Audio, .aiff, .mpeg4Movie, .movie],
-            allowsMultipleSelection: false
+            isPresented: Binding(
+                get: { fileImportTarget != nil },
+                set: { if !$0 { fileImportTarget = nil } }
+            ),
+            allowedContentTypes: fileImportAllowedTypes,
+            allowsMultipleSelection: fileImportTarget == .documents
         ) { result in
-            Task { await importExistingWAV(result: result) }
+            let target = fileImportTarget
+            fileImportTarget = nil
+            switch target {
+            case .wav:       Task { await importExistingWAV(result: result) }
+            case .documents: Task { await importDocuments(result: result) }
+            case .none:      break
+            }
         }
         .onAppear {
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
@@ -339,9 +340,9 @@ struct MeetingView: View {
             togglePause: { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
             retranscribe: { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
             generateReport: { Task { await generateReport() } },
-            toggleCustomPrompt: { showCustomPrompt.toggle() },
+            toggleCustomPrompt: { showDetailsSheet = true },
             importCalendar: { showCalendarImporter = true },
-            importExistingWAV: { showWavImporter = true },
+            importExistingWAV: { fileImportTarget = .wav },
             editAudio: { audioEditMode = .trimStart },
             revealWAV: {
                 if let url = meeting.wavFileURL {
@@ -367,35 +368,32 @@ struct MeetingView: View {
 
     // MARK: - Main panel
 
+    /// Types autorisés du sélecteur unifié, selon la cible active.
+    private var fileImportAllowedTypes: [UTType] {
+        switch fileImportTarget {
+        case .documents:
+            var types: [UTType] = [.pdf, .plainText, .text, .presentation, .spreadsheet, .content, .item]
+            for ext in ["docx", "pptx", "xlsx"] {
+                if let t = UTType(filenameExtension: ext) { types.append(t) }
+            }
+            return types
+        default:
+            return [.audio, .wav, .mp3, .mpeg4Audio, .aiff, .mpeg4Movie, .movie]
+        }
+    }
+
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            MeetingHeaderEditorial(
-                meeting: meeting,
-                settings: settings,
-                detailsExpanded: $detailsExpanded
-            )
-            MeetingDetailsBlock(
-                meeting: meeting,
-                settings: settings,
-                allCollaborators: allCollaborators,
-                availableCollaborators: availableCollaborators,
-                projects: projects,
-                expanded: $detailsExpanded,
-                showCustomPrompt: $showCustomPrompt,
-                newAdhocName: $newAdhocName,
-                calendarImportError: $calendarImportError,
-                addParticipant: addParticipant,
-                removeParticipant: removeParticipant,
-                removeAllParticipants: removeAllParticipants,
-                setParticipantStatus: { status, c in setParticipantStatus(status, for: c) },
-                participantStatus: { c in participantStatus(for: c) },
-                addAdhoc: addAdhocParticipant,
-                saveContext: saveContext
-            )
+            // En-tête éditorial + bloc « Détails de la réunion » retirés du dashboard :
+            // titre & type dans le chrome, participants dans la carte Présence / la modale.
+            // Le projet associé et le prompt spécifique vivent dans la modale Détails
+            // (ouverte via le menu « … »).
             MeetingTabsUnderline(
                 selection: $activeSection,
                 attachmentsCount: meeting.attachments.count,
-                hasReport: !meeting.summary.isEmpty
+                hasReport: !meeting.summary.isEmpty,
+                date: meeting.date,
+                isEditingLayout: $isEditingLayout
             )
             sectionContent
                 .padding(.horizontal, 28)
@@ -511,13 +509,33 @@ struct MeetingView: View {
     @ViewBuilder
     private var sectionContent: some View {
         switch activeSection {
+        case .overview:
+            OverviewDashboard(
+                meeting: meeting, settings: settings, allCollaborators: allCollaborators,
+                currentSlides: currentSlides, isEditing: $isEditingLayout,
+                newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
+                showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
+                onAddTask: addTask,
+                onDeleteTask: { task in context.delete(task); saveContext() },
+                onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
+                onShowSlides: { showSlidesList = true },
+                onShowCaptureSetup: { showCaptureSetup = true },
+                onManageParticipants: { showParticipantsSheet = true },
+                onExpandTranscript: { activeSection = .transcript },
+                saveContext: saveContext)
         case .preparation:
             MeetingPrepTab(meeting: meeting)
                 .onAppear {
                     PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
                 }
         case .liveNotes:
-            MarkdownEditorView(text: $meeting.liveNotes, textViewID: "meetingLiveNotes")
+            MarkdownNoteEditor(
+                text: Binding(
+                    get: { meeting.liveNotes },
+                    set: { meeting.liveNotes = $0; saveContext() }
+                ),
+                editorID: "meetingLiveNotes"
+            )
         case .transcript:
             transcriptView
         case .report:
@@ -540,7 +558,7 @@ struct MeetingView: View {
                         Text("Import + indexation…").font(.caption)
                     }
                 }
-                Button(action: { showDocImporter = true }) {
+                Button(action: { fileImportTarget = .documents }) {
                     Label("Importer", systemImage: "doc.badge.plus")
                 }
                 .buttonStyle(.borderedProminent)
@@ -592,19 +610,6 @@ struct MeetingView: View {
                 await handleFileDrop(providers)
             }
             return true
-        }
-        .fileImporter(
-            isPresented: $showDocImporter,
-            allowedContentTypes: [
-                .pdf, .plainText, .text, .presentation, .spreadsheet,
-                UTType(filenameExtension: "docx")!,
-                UTType(filenameExtension: "pptx")!,
-                UTType(filenameExtension: "xlsx")!,
-                .content, .item
-            ],
-            allowsMultipleSelection: true
-        ) { result in
-            Task { await importDocuments(result: result) }
         }
     }
 
@@ -761,6 +766,12 @@ struct MeetingView: View {
             isImportingAttachment = true
             defer { isImportingAttachment = false }
             for url in urls {
+                // Les URL issues du sélecteur de fichiers (ou d'un glisser-déposer)
+                // sont à portée de sécurité (security-scoped) : il faut demander
+                // l'accès avant de lire, comme le fait l'import WAV. Sans ça, la
+                // lecture échoue et l'import « ne fait rien ».
+                let needsScope = url.startAccessingSecurityScopedResource()
+                defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
                 do {
                     try await MeetingAttachmentService.importDocument(
                         url: url,
@@ -823,19 +834,57 @@ struct MeetingView: View {
     }
 
 
+    /// Vrai tant qu'une session live tourne ou qu'un texte live existe (avant que
+    /// le transcript final ne soit produit au `stop()`).
+    private var isLiveActive: Bool {
+        liveService.isLive || !liveService.liveTranscript.isEmpty
+    }
+
+    /// Aperçu de la transcription en direct, affiché en tête de l'onglet
+    /// « Transcription » pendant l'enregistrement (même source que le widget).
+    private var liveTranscriptSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.badge.mic")
+                    .foregroundColor(liveService.isLive ? .red : .secondary)
+                Text("Transcription en direct").font(.headline)
+                if let status = liveService.statusMessage {
+                    Text(status).font(.caption).foregroundColor(.secondary)
+                }
+            }
+            Text(liveService.liveTranscript.isEmpty ? "En écoute…" : liveService.liveTranscript)
+                .font(.body)
+                .foregroundColor(liveService.liveTranscript.isEmpty ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
     private var transcriptView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if isLiveActive {
+                    liveTranscriptSection
+                    if !meeting.rawTranscript.isEmpty { Divider() }
+                }
                 if meeting.rawTranscript.isEmpty {
-                    ContentUnavailableView(
-                        "Aucune transcription",
-                        systemImage: "waveform",
-                        description: Text("Démarre un enregistrement pour voir la transcription ici.")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                    if !isLiveActive {
+                        ContentUnavailableView(
+                            "Aucune transcription",
+                            systemImage: "waveform",
+                            description: Text("Démarre un enregistrement pour voir la transcription ici.")
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                    }
                 } else {
-                    transcriptToolbar
-                    if showSpeakersView && !meeting.transcriptSegments.isEmpty {
+                    // Contrôles speakers (toggle « Afficher speakers », détection,
+                    // compteur de segments) uniquement en mode Diarisation ; en
+                    // transcription seule il n'y a qu'un locuteur → transcript à plat.
+                    if settings.transcriptionMode == .diarizeFirst {
+                        transcriptToolbar
+                    }
+                    if settings.transcriptionMode == .diarizeFirst
+                        && showSpeakersView && !meeting.transcriptSegments.isEmpty {
                         transcriptSegmentsView
                     } else if !meeting.mergedTranscript.isEmpty {
                         MeetingHighlightableTextView(
@@ -1053,7 +1102,7 @@ struct MeetingView: View {
 
     private func addParticipant(_ c: Collaborator) {
         meeting.participants.append(c)
-        meeting.setParticipantStatus(.participant, for: c)
+        meeting.setParticipantStatus(.present, for: c)
         saveContext()
     }
 
@@ -1140,6 +1189,61 @@ struct MeetingView: View {
         saveContext()
     }
 
+    /// Recharge titre, dates, lien Teams et participants depuis l'événement calendrier
+    /// correspondant à `meeting.calendarEventID`, puis modifie le modèle, sauvegarde le
+    /// contexte et reprogramme la notification. Sans correspondance, ne fait rien.
+    /// Les participants sont dédupliqués par email puis par nom (insensible à la casse).
+    /// Logique partagée (DRY) entre le bouton Resync de `MeetingDetailsBlock` et celui
+    /// de `ManageParticipantsSheet` — les deux pointent vers cette méthode unique.
+    @MainActor
+    private func resyncFromCalendarInMeetingView() {
+        let eventID = meeting.calendarEventID
+        guard !eventID.isEmpty else { return }
+        let importer = CalendarMeetingImportService()
+        let now = Date()
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        let end = cal.date(byAdding: .day, value: 60, to: now) ?? now
+        let events = importer.fetchEvents(start: start, end: end)
+        guard let match = events.first(where: { $0.id == eventID }) else { return }
+
+        meeting.title = match.title
+        meeting.scheduledStart = match.startDate
+        meeting.scheduledEnd = match.endDate
+        meeting.teamsJoinURL = match.teamsJoinURL
+        meeting.date = match.startDate
+        if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
+        meeting.meetingDurationSeconds = max(0, Int(match.endDate.timeIntervalSince(match.startDate).rounded()))
+
+        // Re-import missing participants (dedup by email then name).
+        let me = settings.userEmail.lowercased()
+        let allCollabs = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
+        for attendee in match.attendees {
+            let email = (attendee.email ?? "").lowercased()
+            if !me.isEmpty && email == me { continue }
+            let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let collab: Collaborator
+            if !email.isEmpty, let m = allCollabs.first(where: { $0.email.lowercased() == email }) {
+                collab = m
+            } else if !name.isEmpty, let m = allCollabs.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                collab = m
+            } else {
+                let c = Collaborator(name: name.isEmpty ? "Participant" : name)
+                c.email = attendee.email ?? ""
+                context.insert(c)
+                collab = c
+            }
+            if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
+                meeting.participants.append(collab)
+            }
+            meeting.setParticipantStatus(attendee.status, for: collab)
+        }
+
+        // Persist before scheduling so storeIdentifier stays stable.
+        try? context.save()
+        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
+    }
+
     private func resolveCollaborator(for attendee: CalendarMeetingAttendee) -> Collaborator {
         let normalizedName = attendee.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
 
@@ -1170,12 +1274,35 @@ struct MeetingView: View {
             recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
             return
         }
+        // Ouvre le flux live AVANT de démarrer le recorder (la continuation doit
+        // exister dès le 1er tap pour que start() puisse construire le TapSink),
+        // mais on ne lance sa consommation (begin) qu'APRÈS le succès de start() :
+        // sinon un throw synchrone de start() (ex. double-tap → alreadyRecording)
+        // court contre la Task begin() et peut la faire démarrer sur un flux
+        // jamais terminé → hang infini.
+        let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
+            ? recorder.makeAudioStream() : nil
         do {
             let url = try await recorder.start(meetingID: meeting.stableID)
+            // start() a réussi : on peut maintenant démarrer la transcription live.
+            if let liveStream {
+                Task {
+                    await LiveTranscriptionService.shared.begin(
+                        audioStream: liveStream,
+                        language: stt.language,
+                        engineKind: settings.transcriptionEngine,
+                        variant: settings.voxtralVariant)
+                }
+                // La transcription live s'affiche dans le widget (Vue d'ensemble)
+                // et dans l'onglet « Transcription » — pas de bascule d'onglet.
+            }
             meeting.wavFilePath = url.path
             saveContext()
         } catch {
             recorder.lastError = error.localizedDescription
+            // Défense : no-op si begin() n'a jamais démarré (start() a throw
+            // avant qu'on ne lance la consommation du flux live).
+            LiveTranscriptionService.shared.abort()
         }
     }
 
@@ -1192,8 +1319,24 @@ struct MeetingView: View {
             return
         }
         pendingAppendBaseURL = existing
+        // Même câblage que startRecording() : le flux live est préparé avant
+        // start() mais sa consommation (begin) n'est lancée qu'après succès,
+        // pour éviter la course avec un throw synchrone de start().
+        let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
+            ? recorder.makeAudioStream() : nil
         do {
             let url = try await recorder.start(meetingID: meeting.stableID)
+            // start() a réussi : on peut maintenant démarrer la transcription live.
+            if let liveStream {
+                Task {
+                    await LiveTranscriptionService.shared.begin(
+                        audioStream: liveStream,
+                        language: stt.language,
+                        engineKind: settings.transcriptionEngine,
+                        variant: settings.voxtralVariant)
+                }
+                // Live affiché dans le widget + l'onglet « Transcription ».
+            }
             // On laisse meeting.wavFilePath pointer sur l'ancien jusqu'à la
             // concaténation post-stop ; en cas d'arrêt anormal, l'utilisateur
             // garde son enregistrement initial. La nouvelle URL est conservée
@@ -1202,6 +1345,9 @@ struct MeetingView: View {
         } catch {
             pendingAppendBaseURL = nil
             recorder.lastError = error.localizedDescription
+            // Défense : no-op si begin() n'a jamais démarré (start() a throw
+            // avant qu'on ne lance la consommation du flux live).
+            LiveTranscriptionService.shared.abort()
         }
     }
 
@@ -1265,8 +1411,27 @@ struct MeetingView: View {
         }
         guard let stopped = recorder.stop() else { return }
 
+        // Le flux audio est terminé par recorder.stop() (continuation.finish()),
+        // donc end() peut drainer et se terminer sans bloquer. Les segments
+        // horodatés sont consommés en Task 8 (nettoyage + diarisation) plus
+        // bas, via finalizeLiveTranscript.
+        // Garde sur l'état réel du service (isLive), pas sur le réglage : si
+        // l'utilisateur désactive liveTranscriptionEnabled EN COURS
+        // d'enregistrement (Réglages = fenêtre séparée), une session live
+        // encore active ne doit pas fuiter.
+        let liveSegments = LiveTranscriptionService.shared.isLive
+            ? await LiveTranscriptionService.shared.end()
+            : []
+
         // Laisse le FS finaliser le header WAV avant de le relire.
         try? await Task.sleep(nanoseconds: 400_000_000)
+
+        // Capturé AVANT la concaténation ci-dessous, qui remet
+        // `pendingAppendBaseURL` à nil une fois le merge effectué. En mode
+        // append, les timestamps live ne couvrent que le nouveau segment (pas
+        // l'audio concaténé complet) → la finalisation live est exclue, le
+        // chemin batch (re-STT complet) est forcé.
+        let wasAppend = pendingAppendBaseURL != nil
 
         // Concaténation si on était en mode "ajout d'un enregistrement".
         var finalURL = stopped.url
@@ -1319,21 +1484,46 @@ struct MeetingView: View {
             transcriptionPhase = .transcribing
             transcriptionProgress = nil
             transcriptionProgressStatus = nil
-            let result = try await stt.runTranscription(
-                audioURL: finalURL,
-                meeting: meeting,
-                settings: settings,
-                in: context,
-                onPhase: { phase in
-                    Task { @MainActor in self.transcriptionPhase = phase }
-                },
-                onProgress: { fraction, status in
-                    Task { @MainActor in
-                        self.transcriptionProgress = fraction
-                        self.transcriptionProgressStatus = status
+            // Live actif (et pas un append, cf. note ci-dessus) → pas de 2e
+            // passe STT : nettoyage + diarisation seule + attribution par
+            // timestamps. Sinon (live désactivé, ou append) → pipeline batch
+            // inchangé.
+            let useLive = !liveSegments.isEmpty && !wasAppend
+            let result: STTResult
+            if useLive {
+                result = try await stt.finalizeLiveTranscript(
+                    segments: liveSegments,
+                    audioURL: finalURL,
+                    meeting: meeting,
+                    settings: settings,
+                    in: context,
+                    onPhase: { phase in
+                        Task { @MainActor in self.transcriptionPhase = phase }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                result = try await stt.runTranscription(
+                    audioURL: finalURL,
+                    meeting: meeting,
+                    settings: settings,
+                    in: context,
+                    onPhase: { phase in
+                        Task { @MainActor in self.transcriptionPhase = phase }
+                    },
+                    onProgress: { fraction, status in
+                        Task { @MainActor in
+                            self.transcriptionProgress = fraction
+                            self.transcriptionProgressStatus = status
+                        }
+                    }
+                )
+            }
             transcriptionPhase = .idle
             transcriptionProgress = nil
             transcriptionProgressStatus = nil
@@ -2347,6 +2537,13 @@ struct MeetingView: View {
     private func deleteMeeting() {
         if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
             _ = recorder.stop()
+            // recorder.stop() clôt le flux audio : end() peut drainer sans
+            // bloquer. On jette le résultat (suppression = annulation du live).
+            // Garde sur isLive (état réel), pas sur le réglage — cf.
+            // stopRecordingAndTranscribe().
+            if LiveTranscriptionService.shared.isLive {
+                Task { _ = await LiveTranscriptionService.shared.end() }
+            }
         }
         let target = meeting
         let ctx = context
@@ -2369,4 +2566,3 @@ private extension DateFormatter {
         return f
     }()
 }
-

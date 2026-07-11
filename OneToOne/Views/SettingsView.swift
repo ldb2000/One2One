@@ -12,6 +12,9 @@ struct SettingsView: View {
     @Query private var interviews: [Interview]
     @Query private var meetings: [Meeting]
     @Environment(\.modelContext) private var context
+    /// Langue de transcription (source de vérité : `TranscriptionService`, persistée
+    /// en UserDefaults). Forcée uniquement par le moteur Qwen3-ASR.
+    @ObservedObject private var stt = TranscriptionService.shared
 
     /// Renvoie l'enregistrement `AppSettings` canonique. En crée et insère un nouveau
     /// (sauvegardé immédiatement) si aucun n'existe encore.
@@ -638,14 +641,31 @@ struct SettingsView: View {
                             Text("Diarisation (locuteurs)").tag(TranscriptionMode.diarizeFirst)
                         }
 
-                        if settings.transcriptionMode == .transcriptionOnly {
-                            Picker("Moteur STT", selection: Binding(
-                                get: { settings.transcriptionEngine },
-                                set: { settings.transcriptionEngine = $0; saveSettings() }
-                            )) {
-                                Text("Cohere Transcribe").tag(STTEngineKind.cohere)
-                                Text("Voxtral").tag(STTEngineKind.voxtral)
-                            }
+                        // Moteur + langue s'appliquent aux 3 chemins (batch, diarisation, live).
+                        Picker("Moteur STT", selection: Binding(
+                            get: { settings.transcriptionEngine },
+                            set: { settings.transcriptionEngine = $0; saveSettings() }
+                        )) {
+                            Text("Cohere Transcribe").tag(STTEngineKind.cohere)
+                            Text("Voxtral").tag(STTEngineKind.voxtral)
+                            Text("Qwen3-ASR (langue forcée)").tag(STTEngineKind.qwen3)
+                        }
+
+                        Picker("Langue", selection: Binding(
+                            get: { stt.language },
+                            set: { stt.language = $0 }
+                        )) {
+                            Text("Français").tag("fr")
+                            Text("English").tag("en")
+                            Text("Español").tag("es")
+                            Text("Deutsch").tag("de")
+                            Text("Italiano").tag("it")
+                            Text("Português").tag("pt")
+                        }
+                        if settings.transcriptionEngine != .qwen3 {
+                            Text("La langue n'est réellement forcée qu'avec le moteur Qwen3-ASR. Cohere et Voxtral auto-détectent (peuvent basculer de langue).")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
 
                         Picker("Variante Voxtral", selection: Binding(
@@ -706,6 +726,14 @@ struct SettingsView: View {
                                 ), in: 0.50...1.10, step: 0.01)
                             }
                         }
+
+                        Toggle("Transcription en direct (aperçu pendant l'enregistrement)", isOn: Binding(
+                            get: { settings.liveTranscriptionEnabled },
+                            set: { settings.liveTranscriptionEnabled = $0; saveSettings() }
+                        ))
+                        Text("Sollicite le processeur en continu pendant la réunion (batterie, ventilateur). Le transcript final reste nettoyé et attribué aux locuteurs après l'enregistrement.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
                         Divider()
                         Text("Collaborateurs enrôlés").font(.caption.bold()).foregroundColor(.secondary)

@@ -325,6 +325,9 @@ final class Meeting {
 
     // Generated report
     var summary: String = ""
+    /// Résumé court (≤10 lignes) affiché dans la carte « Résumé » de la Vue
+    /// d'ensemble ; généré à la demande via `AIClient`, indépendant du Rapport.
+    var shortSummary: String = ""
     var keyPointsJSON: String = "[]"
     var decisionsJSON: String = "[]"
     var openQuestionsJSON: String = "[]"

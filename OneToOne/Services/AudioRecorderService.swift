@@ -9,88 +9,66 @@ private let audioLog = Logger(subsystem: "com.onetoone.app", category: "audio")
 
 // MARK: - AudioRecorderService
 
-/// Enregistrement WAV (PCM 16-bit linéaire, 16 kHz mono) adapté à l'entrée
-/// du modèle Cohere MLX utilisé pour la STT.
+/// Enregistrement WAV (PCM 16-bit linéaire, 16 kHz mono) via `AVAudioEngine`.
+/// Le tap d'entrée alimente à la fois le fichier WAV (contrat historique) et un
+/// `AsyncStream<[Float]>` de buffers 16 kHz mono pour la transcription en direct.
 ///
 /// Fichiers persistés dans :
 ///   `~/Library/Application Support/OneToOne/recordings/<uuid>.wav`
-///
-/// Permissions : nécessite `NSMicrophoneUsageDescription` dans Info.plist et
-/// autorisation utilisateur (demandée au premier record).
 ///
 /// Cap durée : 3 h (configurable via `maxDurationSeconds`).
 @MainActor
 final class AudioRecorderService: NSObject, ObservableObject {
 
-    /// Singleton partagé : permet à l'enregistrement de survivre à la
-    /// destruction de la `MeetingView` quand on navigue ailleurs (Actions,
-    /// Collaborateur…). La même instance est récupérée au retour.
     static let shared = AudioRecorderService()
 
     // MARK: - Config
-
-    /// Format cible STT : WAV PCM linéaire 16-bit 16 kHz mono.
     static let sampleRate: Double = 16_000
     static let channels: UInt32 = 1
-
-    /// Cap dur par défaut : 3 heures.
     var maxDurationSeconds: TimeInterval = 3 * 60 * 60
 
     // MARK: - Published state
-
     @Published private(set) var isRecording: Bool = false
     @Published private(set) var isPaused: Bool = false
     @Published private(set) var elapsedSeconds: TimeInterval = 0
     @Published private(set) var currentFileURL: URL?
-    @Published private(set) var averagePower: Float = -160   // dB, pour VU-mètre
-    @Published private(set) var peakPower: Float = -160      // dB
+    @Published private(set) var averagePower: Float = -160
+    @Published private(set) var peakPower: Float = -160
     @Published var lastError: String?
-    /// Identifiant stable du meeting actuellement enregistré. Permet à
-    /// `MeetingView` de savoir si l'enregistrement courant lui appartient.
     @Published private(set) var activeMeetingID: UUID?
 
-    // MARK: - Internals
-
-    private var recorder: AVAudioRecorder?
-    private var levelTimer: Timer?
+    // MARK: - Internals (engine)
+    private let engine = AVAudioEngine()
+    /// Encapsule conversion + écriture WAV + diffusion live, protégé par sa
+    /// propre file série (le tap livre hors du main actor). Voir `TapSink`.
+    private var sink: TapSink?
+    private var streamContinuation: AsyncStream<[Float]>.Continuation?
     private var elapsedTimer: Timer?
     private var startDate: Date?
     private var pausedAccumulated: TimeInterval = 0
     private var pauseStartDate: Date?
+    /// Throttle de publication des meters (~0.1 s).
+    private var lastMeterPublish: TimeInterval = 0
 
     // MARK: - Permissions
-
-    /// Demande l'autorisation micro. Retourne `true` si accordée.
     func requestMicrophonePermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            return true
-        case .notDetermined:
-            return await AVCaptureDevice.requestAccess(for: .audio)
-        case .denied, .restricted:
-            return false
-        @unknown default:
-            return false
+        case .authorized: return true
+        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
+        case .denied, .restricted: return false
+        @unknown default: return false
         }
     }
 
-    // MARK: - Storage
-
-    /// Concatène deux WAV PCM linéaires dans un nouveau fichier.
-    /// Les deux fichiers doivent partager le même format audio (sample rate,
-    /// nb de canaux). Utilisé pour ajouter un enregistrement supplémentaire
-    /// à une réunion déjà enregistrée.
+    // MARK: - Storage (inchangé)
     static func concatenateWAVs(first: URL, second: URL, output: URL) throws {
         let f1 = try AVAudioFile(forReading: first)
         let f2 = try AVAudioFile(forReading: second)
-
         let outFile = try AVAudioFile(
             forWriting: output,
             settings: f1.fileFormat.settings,
             commonFormat: f1.processingFormat.commonFormat,
-            interleaved: f1.processingFormat.isInterleaved
-        )
-
+            interleaved: f1.processingFormat.isInterleaved)
         try copyAudio(from: f1, to: outFile)
         try copyAudio(from: f2, to: outFile)
     }
@@ -116,22 +94,24 @@ final class AudioRecorderService: NSObject, ObservableObject {
         return base
     }
 
-    // MARK: - Lifecycle
+    // MARK: - Live audio stream
+    /// Flux des buffers 16 kHz mono Float32 de l'enregistrement en cours.
+    /// À appeler juste avant `start()`. Se termine au `stop()`/`cancel()`.
+    func makeAudioStream() -> AsyncStream<[Float]> {
+        streamContinuation?.finish()  // Termine l'ancienne continuation si elle existe
+        return AsyncStream { continuation in
+            self.streamContinuation = continuation
+        }
+    }
 
-    /// Démarre un nouvel enregistrement. Le fichier WAV est créé immédiatement.
-    /// - Parameter meetingID: stable ID du meeting cible (sert à l'UI pour
-    ///   savoir si l'enregistrement courant la concerne).
-    /// - Returns: URL du WAV créé.
+    // MARK: - Lifecycle
     @discardableResult
     func start(meetingID: UUID? = nil) async throws -> URL {
         guard !isRecording else { throw AudioError.alreadyRecording }
-
         let granted = await requestMicrophonePermission()
         guard granted else { throw AudioError.permissionDenied }
 
-        let fileURL = Self.recordingsDirectory
-            .appending(path: "\(UUID().uuidString).wav")
-
+        let fileURL = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
             AVSampleRateKey: Self.sampleRate,
@@ -142,129 +122,151 @@ final class AudioRecorderService: NSObject, ObservableObject {
         ]
 
         do {
-            let rec = try AVAudioRecorder(url: fileURL, settings: settings)
-            rec.delegate = self
-            rec.isMeteringEnabled = true
-            guard rec.prepareToRecord() else {
-                throw AudioError.prepareFailed
-            }
-            guard rec.record(forDuration: maxDurationSeconds) else {
+            // AVAudioFile Int16 sur disque ; processingFormat = Float32 16 kHz mono.
+            let file = try AVAudioFile(forWriting: fileURL, settings: settings)
+            let targetFormat = file.processingFormat
+            let inputNode = engine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
+            guard let conv = AVAudioConverter(from: inputFormat, to: targetFormat) else {
                 throw AudioError.startFailed
             }
-            self.recorder = rec
+            let sink = TapSink(converter: conv, targetFormat: targetFormat,
+                               file: file, continuation: streamContinuation)
+            self.sink = sink
             self.currentFileURL = fileURL
-            self.isRecording = true
-            self.isPaused = false
-            self.elapsedSeconds = 0
-            self.pausedAccumulated = 0
-            self.pauseStartDate = nil
-            self.startDate = Date()
-            self.activeMeetingID = meetingID
-            // Bannière "Enregistrement en cours" si activée dans les réglages.
-            if let container = OneToOneApp.sharedContainer {
-                let ctx = container.mainContext
-                if let settings = (try? ctx.fetch(FetchDescriptor<AppSettings>()))?.first,
-                   settings.notifRecordingStart {
-                    let title: String
-                    if let id = meetingID {
-                        let descriptor = FetchDescriptor<Meeting>()
-                        let all = (try? ctx.fetch(descriptor)) ?? []
-                        title = all.first { $0.ensuredStableID == id }?.title ?? ""
-                    } else {
-                        title = ""
-                    }
-                    MeetingNotificationService.shared.notifyRecordingStarted(meetingTitle: title)
-                }
+
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                guard let samples = sink.process(buffer) else { return }
+                Task { @MainActor [weak self] in self?.publishMetersThrottled(from: samples) }
             }
-            startTimers()
-            audioLog.info("AudioRecorder: start \(fileURL.path, privacy: .public)")
-            print("[Audio] start → \(fileURL.path)")
+
+            engine.prepare()
+            try engine.start()
+
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(handleConfigurationChange),
+                name: .AVAudioEngineConfigurationChange, object: engine)
+
+            isRecording = true
+            isPaused = false
+            elapsedSeconds = 0
+            pausedAccumulated = 0
+            pauseStartDate = nil
+            startDate = Date()
+            activeMeetingID = meetingID
+            notifyRecordingStartedIfEnabled(meetingID: meetingID)
+            startElapsedTimer()
+            audioLog.info("AudioRecorder(engine): start \(fileURL.path, privacy: .public)")
             return fileURL
         } catch {
-            audioLog.error("AudioRecorder: start failed \(error.localizedDescription, privacy: .public)")
+            audioLog.error("AudioRecorder(engine): start failed \(error.localizedDescription, privacy: .public)")
+            teardownEngine()
+            try? FileManager.default.removeItem(at: fileURL)
             throw AudioError.startFailed
         }
     }
 
-    /// Suspend l'enregistrement en cours et fige le compteur de durée.
-    /// No-op si rien n'est en cours ou si déjà en pause.
     func pause() {
-        guard isRecording, !isPaused, let rec = recorder else { return }
-        rec.pause()
+        guard isRecording, !isPaused else { return }
         isPaused = true
+        sink?.setCapturing(false)      // les buffers du tap sont désormais ignorés
         pauseStartDate = Date()
-        stopLevelTimer()
-        audioLog.info("AudioRecorder: pause")
-        print("[Audio] pause")
+        audioLog.info("AudioRecorder(engine): pause")
     }
 
-    /// Reprend après une pause. Le temps écoulé en pause est exclu de la durée.
-    /// No-op si rien n'est en cours ou si pas en pause.
     func resume() {
-        guard isRecording, isPaused, let rec = recorder else { return }
+        guard isRecording, isPaused else { return }
         if let paused = pauseStartDate {
             pausedAccumulated += Date().timeIntervalSince(paused)
             pauseStartDate = nil
         }
-        guard rec.record() else {
-            lastError = "Reprise de l'enregistrement impossible."
-            return
-        }
         isPaused = false
-        startLevelTimer()
-        audioLog.info("AudioRecorder: resume")
-        print("[Audio] resume")
+        sink?.setCapturing(true)
+        audioLog.info("AudioRecorder(engine): resume")
     }
 
-    /// Arrête l'enregistrement et retourne l'URL du WAV finalisé + durée.
     @discardableResult
     func stop() -> (url: URL, duration: TimeInterval)? {
-        guard let rec = recorder, let url = currentFileURL else { return nil }
-        rec.stop()
+        guard isRecording, let url = currentFileURL else { return nil }
         let duration = elapsedSeconds
-        teardown()
-        audioLog.info("AudioRecorder: stop duration=\(duration, format: .fixed(precision: 1), privacy: .public)s")
-        print("[Audio] stop → \(duration)s → \(url.path)")
+        finalizeAndTeardown()
+        audioLog.info("AudioRecorder(engine): stop duration=\(duration, format: .fixed(precision: 1), privacy: .public)s")
         return (url, duration)
     }
 
-    /// Annule : arrête + supprime le fichier.
     func cancel() {
-        guard let rec = recorder, let url = currentFileURL else {
-            teardown()
-            return
-        }
-        rec.stop()
-        try? FileManager.default.removeItem(at: url)
-        audioLog.info("AudioRecorder: cancel")
-        print("[Audio] cancel (fichier supprimé)")
-        teardown()
+        guard isRecording else { resetState(); return }
+        let url = currentFileURL
+        finalizeAndTeardown()
+        if let url { try? FileManager.default.removeItem(at: url) }
+        audioLog.info("AudioRecorder(engine): cancel")
     }
 
-    // MARK: - Private
+    // MARK: - Meters
+    @MainActor
+    private func publishMetersThrottled(from samples: [Float]) {
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - lastMeterPublish >= 0.1 else { return }
+        lastMeterPublish = now
+        let (avg, peak) = AudioLevelMeter.levels(from: samples)
+        averagePower = avg
+        peakPower = peak
+    }
 
-    private func teardown() {
-        recorder = nil
+    // MARK: - Config change
+    @objc private nonisolated func handleConfigurationChange(_ note: Notification) {
+        Task { @MainActor [weak self] in
+            guard let self, self.isRecording else { return }
+            self.lastError = "Périphérique audio modifié — enregistrement interrompu. Vérifie l'entrée micro."
+            audioLog.error("AudioRecorder(engine): configuration change → stop")
+            _ = self.stop()
+            // Ce chemin (notification système) contourne MeetingView, donc
+            // LiveTranscriptionService.end()/abort() ne sont jamais appelés côté UI.
+            // Sans ce nettoyage, une session live reste bloquée (isLive=true, modèle
+            // Voxtral résident, consumeTask non annulée) et begin() ressort ensuite en
+            // silence (guard !isLive) : la transcription live est morte jusqu'au
+            // redémarrage de l'app. abort() est idempotent (no-op si aucune session
+            // n'était active), d'où ce couplage assumé entre les deux singletons
+            // @MainActor du module pour nettoyer la session live à la source.
+            LiveTranscriptionService.shared.abort()
+        }
+    }
+
+    // MARK: - Teardown
+    private func finalizeAndTeardown() {
+        // Retire le tap et arrête l'engine, puis `sink.finish()` sérialise la
+        // dernière écriture et ferme le fichier (finalise le header RIFF) AVANT
+        // de rendre la main → le WAV est relisible dès le retour de `stop()`.
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
+        sink?.finish()
+        sink = nil
+        streamContinuation = nil
+        resetState()
+    }
+
+    private func teardownEngine() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        sink?.finish()
+        sink = nil
+        streamContinuation = nil
+        resetState()
+    }
+
+    private func resetState() {
         currentFileURL = nil
         isRecording = false
         isPaused = false
         activeMeetingID = nil
-        stopTimers()
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
         averagePower = -160
         peakPower = -160
     }
 
-    private func startTimers() {
-        startElapsedTimer()
-        startLevelTimer()
-    }
-
-    private func stopTimers() {
-        elapsedTimer?.invalidate()
-        elapsedTimer = nil
-        stopLevelTimer()
-    }
-
+    // MARK: - Timers
     private func startElapsedTimer() {
         elapsedTimer?.invalidate()
         elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -272,42 +274,95 @@ final class AudioRecorderService: NSObject, ObservableObject {
         }
     }
 
-    private func startLevelTimer() {
-        levelTimer?.invalidate()
-        levelTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tickLevels() }
-        }
-    }
-
-    private func stopLevelTimer() {
-        levelTimer?.invalidate()
-        levelTimer = nil
-    }
-
     private func tickElapsed() {
         guard let start = startDate else { return }
         let raw = Date().timeIntervalSince(start) - pausedAccumulated
         elapsedSeconds = max(0, raw)
-        // Sécurité — l'AVAudioRecorder s'arrête déjà via `record(forDuration:)`.
-        if elapsedSeconds >= maxDurationSeconds {
-            _ = stop()
+        if elapsedSeconds >= maxDurationSeconds { _ = stop() }   // backstop cap 3 h
+    }
+
+    // MARK: - Notification bannière (inchangé fonctionnellement)
+    private func notifyRecordingStartedIfEnabled(meetingID: UUID?) {
+        guard let container = OneToOneApp.sharedContainer else { return }
+        let ctx = container.mainContext
+        guard let settings = (try? ctx.fetch(FetchDescriptor<AppSettings>()))?.first,
+              settings.notifRecordingStart else { return }
+        let title: String
+        if let id = meetingID {
+            let all = (try? ctx.fetch(FetchDescriptor<Meeting>())) ?? []
+            title = all.first { $0.ensuredStableID == id }?.title ?? ""
+        } else { title = "" }
+        MeetingNotificationService.shared.notifyRecordingStarted(meetingTitle: title)
+    }
+}
+
+// MARK: - TapSink
+
+/// Reçoit les buffers du tap `AVAudioEngine` (hors main actor), les convertit en
+/// Float32 16 kHz mono, écrit le WAV et diffuse les samples sur le flux live —
+/// le tout sérialisé sur une file dédiée. `@unchecked Sendable` : tout l'état
+/// mutable est protégé par `queue`. La `continuation` d'`AsyncStream` est
+/// Sendable et peut être appelée depuis n'importe quel thread.
+final class TapSink: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.onetoone.audio.write")
+    private let converter: AVAudioConverter
+    private let targetFormat: AVAudioFormat
+    private var file: AVAudioFile?
+    private let continuation: AsyncStream<[Float]>.Continuation?
+    private var capturing = true
+
+    init(converter: AVAudioConverter, targetFormat: AVAudioFormat,
+         file: AVAudioFile, continuation: AsyncStream<[Float]>.Continuation?) {
+        self.converter = converter
+        self.targetFormat = targetFormat
+        self.file = file
+        self.continuation = continuation
+    }
+
+    func setCapturing(_ on: Bool) { queue.sync { capturing = on } }
+
+    /// Convertit, écrit le WAV et diffuse. Renvoie les samples convertis pour le
+    /// calcul des meters, ou `nil` si en pause / erreur de conversion.
+    func process(_ buffer: AVAudioPCMBuffer) -> [Float]? {
+        queue.sync {
+            guard capturing else { return nil }
+            let ratio = targetFormat.sampleRate / buffer.format.sampleRate
+            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
+            guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return nil }
+            var consumed = false
+            var err: NSError?
+            // `.noDataNow` (et non `.endOfStream`) une fois le buffer fourni : le
+            // converter est réutilisé buffer après buffer sur toute la session. Or
+            // `.endOfStream` le FINALISE définitivement — après le 1er buffer, tous
+            // les `convert` suivants renvoient 0 frame (→ `process` = nil, WAV figé à
+            // ~0,1 s). `.noDataNow` signale « plus rien pour l'instant » sans clore le
+            // flux : l'état interne du resampler est conservé pour l'appel suivant.
+            _ = converter.convert(to: outBuf, error: &err) { _, status in
+                if consumed { status.pointee = .noDataNow; return nil }
+                consumed = true
+                status.pointee = .haveData
+                return buffer
+            }
+            guard err == nil, outBuf.frameLength > 0,
+                  let ptr = outBuf.floatChannelData?[0] else { return nil }
+            try? file?.write(from: outBuf)
+            let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
+            continuation?.yield(samples)
+            return samples
         }
     }
 
-    private func tickLevels() {
-        guard let rec = recorder, rec.isRecording else { return }
-        rec.updateMeters()
-        averagePower = rec.averagePower(forChannel: 0)
-        peakPower = rec.peakPower(forChannel: 0)
+    /// Ferme le fichier (finalise le header WAV) et termine le flux live.
+    func finish() {
+        queue.sync { file = nil }
+        continuation?.finish()
     }
 }
 
 // MARK: - Errors
-
 enum AudioError: LocalizedError {
     case permissionDenied
     case alreadyRecording
-    case prepareFailed
     case startFailed
 
     var errorDescription: String? {
@@ -316,24 +371,8 @@ enum AudioError: LocalizedError {
             return "Accès au microphone refusé. Activer dans Réglages Système → Confidentialité → Microphone."
         case .alreadyRecording:
             return "Un enregistrement est déjà en cours."
-        case .prepareFailed:
-            return "Impossible de préparer l'enregistrement audio."
         case .startFailed:
             return "Impossible de démarrer l'enregistrement audio."
         }
-    }
-}
-
-// MARK: - Delegate
-
-extension AudioRecorderService: @preconcurrency AVAudioRecorderDelegate {
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            lastError = "Enregistrement interrompu."
-        }
-    }
-
-    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        lastError = error?.localizedDescription ?? "Erreur d'encodage audio."
     }
 }

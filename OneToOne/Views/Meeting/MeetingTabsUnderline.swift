@@ -8,6 +8,9 @@ struct MeetingTabsUnderline: View {
     let attachmentsCount: Int
     /// Vrai si un rapport existe, affiche une coche sur l'onglet Rapport.
     let hasReport: Bool
+    let date: Date
+    /// Bascule le mode édition de la grille ; affiché seulement sur Vue d'ensemble.
+    @Binding var isEditingLayout: Bool
 
     @Namespace private var underlineNS
 
@@ -17,6 +20,15 @@ struct MeetingTabsUnderline: View {
                 tab(section)
             }
             Spacer()
+            Label(date.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
+                .font(.caption).foregroundColor(.secondary)
+            if selection == .overview {
+                Button { isEditingLayout.toggle() } label: {
+                    Label("Personnaliser", systemImage: "square.grid.2x2")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+            }
         }
         .padding(.horizontal, 28)
         .padding(.top, 6)

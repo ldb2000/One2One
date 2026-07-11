@@ -50,19 +50,40 @@ struct MeetingTopChromeBar: View {
     // MARK: - Breadcrumb
 
     private var breadcrumb: some View {
-        HStack(spacing: 6) {
-            Text("One2One").foregroundColor(.secondary)
+        HStack(spacing: 8) {
+            Text("One2One").font(.caption).foregroundColor(.secondary)
             chevron
             if let project = meeting.project {
-                Text("Projets").foregroundColor(.secondary)
+                Text(project.name).font(.caption).foregroundColor(.secondary)
                 chevron
-                Text(project.name).fontWeight(.semibold).foregroundColor(.primary)
-            } else {
-                Text(meeting.kind.label).fontWeight(.semibold).foregroundColor(.primary)
             }
+            // Titre de la réunion, éditable en ligne (déplacé ici depuis l'en-tête éditorial).
+            EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: 460, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            // Badge de type de réunion — éditable (source unique du type, remplace le
+            // picker du bloc Détails).
+            Menu {
+                Picker("Type de réunion", selection: Binding(
+                    get: { meeting.kind },
+                    set: { meeting.kind = $0; try? modelContext.save() }
+                )) {
+                    ForEach(MeetingKind.allCases) { k in
+                        Label(k.label, systemImage: k.sfSymbol).tag(k)
+                    }
+                }
+            } label: {
+                Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
+                    .font(.caption)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    .foregroundColor(.primary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
             audioStatusBadge
         }
-        .font(.caption)
         .lineLimit(1)
         .truncationMode(.middle)
     }
@@ -368,7 +389,7 @@ struct MeetingTopChromeBar: View {
             .disabled(!actions.hasReport)
 
             Divider()
-            Button(action: actions.toggleCustomPrompt) { Label("Prompt spécifique", systemImage: "text.bubble") }
+            Button(action: actions.toggleCustomPrompt) { Label("Détails de la réunion…", systemImage: "slider.horizontal.3") }
             Menu {
                 Button(action: actions.importCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
                 Button(action: actions.importExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }

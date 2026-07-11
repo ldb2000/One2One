@@ -11,6 +11,9 @@ struct EditorRepresentable: NSViewRepresentable {
     var features: Set<MarkdownFeature>
     var debounce: TimeInterval
     var readOnly: Bool
+    /// Identifiant d'enregistrement dans `MarkdownEditorRegistry` (vide = pas
+    /// d'enregistrement). Permet à une `MarkdownToolbar` de piloter cet éditeur.
+    var editorID: String = ""
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -53,8 +56,17 @@ struct EditorRepresentable: NSViewRepresentable {
         }
         scroll.documentView = editor
         context.coordinator.textView = editor
+        // Expose l'éditeur à une éventuelle MarkdownToolbar via le registre partagé.
+        if !editorID.isEmpty {
+            MarkdownEditorRegistry.shared.register(editor, id: editorID)
+        }
         applyInitialState(editor: editor, coordinator: context.coordinator)
         return scroll
+    }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        let id = coordinator.parent.editorID
+        if !id.isEmpty { MarkdownEditorRegistry.shared.unregister(id: id) }
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {

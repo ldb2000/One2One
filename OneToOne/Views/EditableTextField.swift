@@ -336,6 +336,7 @@ struct MarkdownEditorView: View {
     var body: some View {
         MarkdownTextEditor(text: $text)
             .markdownFeatures(.prep)
+            .markdownEditorID(textViewID)
     }
 }
 
@@ -386,7 +387,9 @@ struct MarkdownToolbar: View {
 
             if let wrap {
                 let selected = (tv.string as NSString).substring(with: range)
-                let replacement = wrap + (selected.isEmpty ? "texte" : selected) + wrap
+                // Espace final : déclenche la conversion markdown de l'éditeur
+                // WYSIWYG (ShortcutDetector s'active sur l'espace après `**…**`).
+                let replacement = wrap + (selected.isEmpty ? "texte" : selected) + wrap + " "
                 tv.insertText(replacement, replacementRange: range)
             } else if let prefix {
                 // Insert at beginning of current line
