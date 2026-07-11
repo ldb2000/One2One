@@ -29,17 +29,16 @@ struct OverviewDashboard: View {
     /// non borné déclenchent une récursion de layout macOS (`_NSDetectedLayoutRecursion` → freeze).
     private let cardScrollMaxHeight: CGFloat = 380
 
-    /// Hauteur uniforme de toutes les cartes du dashboard (contenu aligné en haut,
-    /// scroll interne si besoin) → grille visuellement régulière.
-    private let standardCardHeight: CGFloat = 360
+    /// Hauteur d'une rangée de la grille ; une carte 1×N fait N rangées.
+    private let gridRowHeight: CGFloat = 240
 
     /// Cartes visibles, dans l'ordre du layout, filtrées selon le kind.
-    private var visibleIDs: [RightSidebarPanelID] {
+    private var visibleEntries: [PanelLayoutEntry] {
         entries.filter { entry in
             guard entry.visible else { return false }
             if entry.id == .managerAgenda { return meeting.kind == .manager }
             return true
-        }.map(\.id)
+        }
     }
 
     var body: some View {
@@ -60,30 +59,21 @@ struct OverviewDashboard: View {
 
     @ViewBuilder
     private func grid(narrow: Bool) -> some View {
-        let ids = visibleIDs
-        let heroIDs: [RightSidebarPanelID] = (!narrow && ids.count >= 2) ? Array(ids.prefix(2)) : []
-        let rest = Array(ids.dropFirst(heroIDs.count))
-        VStack(spacing: 16) {
-            if !heroIDs.isEmpty {
-                HStack(alignment: .top, spacing: 16) {
-                    card(heroIDs[0]).frame(maxWidth: .infinity)
-                    card(heroIDs[1]).frame(maxWidth: .infinity).layoutPriority(1)
-                }
-            }
-            let columns = narrow
-                ? [GridItem(.flexible())]
-                : [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                ForEach(rest, id: \.self) { id in card(id) }
+        let columns = narrow ? 1 : 3
+        DashboardGridLayout(columns: columns, spacing: 16, rowHeight: gridRowHeight) {
+            ForEach(visibleEntries) { entry in
+                card(entry.id)
+                    .layoutValue(key: DashboardSpanKey.self,
+                                 value: CardSpan(cols: min(entry.cols, columns), rows: entry.rows))
             }
         }
     }
 
-    /// Une carte draggable/droppable en mode édition.
+    /// Une carte draggable/droppable en mode édition, qui remplit sa cellule de grille.
     @ViewBuilder
     private func card(_ id: RightSidebarPanelID) -> some View {
         cardContent(id)
-            .frame(height: standardCardHeight, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .modifier(DragReorderModifier(id: id, entries: $entries, enabled: isEditing, persist: persist))
     }
 
@@ -132,15 +122,25 @@ struct OverviewDashboard: View {
             Text("Glisser les cartes pour réordonner").font(.caption).foregroundColor(.secondary)
             Spacer()
             Menu {
-                Section("Cartes visibles") {
+                Section("Cartes") {
                     ForEach(entries.filter { $0.id != .managerAgenda || meeting.kind == .manager }) { entry in
-                        Button {
-                            if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
-                                entries[idx].visible.toggle(); persist()
+                        Menu {
+                            Button {
+                                toggleVisible(entry.id)
+                            } label: {
+                                Label(entry.visible ? "Masquer" : "Afficher",
+                                      systemImage: entry.visible ? "eye.slash" : "eye")
+                            }
+                            Divider()
+                            Section("Taille") {
+                                sizeButton(entry.id, cols: 1, rows: 1, "1×1")
+                                sizeButton(entry.id, cols: 2, rows: 1, "2×1 (large)")
+                                sizeButton(entry.id, cols: 1, rows: 2, "1×2 (haut)")
+                                sizeButton(entry.id, cols: 1, rows: 3, "1×3 (très haut)")
                             }
                         } label: {
-                            if entry.visible { Label(entry.id.defaultTitle, systemImage: "checkmark") }
-                            else { Text(entry.id.defaultTitle) }
+                            Label(entry.id.defaultTitle,
+                                  systemImage: entry.visible ? "checkmark.circle.fill" : "circle")
                         }
                     }
                 }
@@ -153,6 +153,28 @@ struct OverviewDashboard: View {
     private func persist() {
         settings.rightSidebarLayoutJSON = PanelLayoutEntry.encode(entries)
         saveContext()
+    }
+
+    private func toggleVisible(_ id: RightSidebarPanelID) {
+        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[idx].visible.toggle()
+        persist()
+    }
+
+    private func setSpan(_ id: RightSidebarPanelID, cols: Int, rows: Int) {
+        guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[idx].cols = cols
+        entries[idx].rows = rows
+        persist()
+    }
+
+    @ViewBuilder
+    private func sizeButton(_ id: RightSidebarPanelID, cols: Int, rows: Int, _ label: String) -> some View {
+        let entry = entries.first { $0.id == id }
+        let isCurrent = entry?.cols == cols && entry?.rows == rows
+        Button { setSpan(id, cols: cols, rows: rows) } label: {
+            if isCurrent { Label(label, systemImage: "checkmark") } else { Text(label) }
+        }
     }
 }
 

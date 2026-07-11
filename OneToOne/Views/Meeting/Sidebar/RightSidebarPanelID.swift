@@ -26,6 +26,20 @@ enum RightSidebarPanelID: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// Taille par défaut (colonnes, lignes) dans la grille du dashboard.
+    /// Colonnes ∈ 1…3 (max 3 par rangée) ; lignes ∈ 1…3.
+    var defaultSpan: (cols: Int, rows: Int) {
+        switch self {
+        case .presence:      return (1, 1)
+        case .transcription: return (2, 1)
+        case .summary:       return (1, 2)
+        case .actions:       return (1, 2)
+        case .capture:       return (1, 1)
+        case .projects:      return (1, 1)
+        case .managerAgenda: return (1, 1)
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .presence:      return "person.3.fill"
