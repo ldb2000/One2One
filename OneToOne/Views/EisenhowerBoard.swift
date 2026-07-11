@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Matrice d'Eisenhower réutilisable : grille 2×2 des quadrants urgent×important.
-/// Ne scrolle pas lui-même (l'appelant l'enveloppe dans un ScrollView), pour
-/// s'adapter aussi bien à la carte réunion qu'à l'écran Actions global.
+/// Matrice d'Eisenhower réutilisable : les 4 quadrants urgent×important.
+/// - `fillsAvailableSpace == false` (défaut) : grille compacte qui grandit avec
+///   le contenu (l'appelant l'enveloppe dans un ScrollView) — pour la carte réunion.
+/// - `fillsAvailableSpace == true` : vrai 2×2 qui remplit la hauteur dispo, chaque
+///   quadrant ayant son propre ascenseur — pour l'écran Actions plein.
 struct EisenhowerBoard: View {
     let tasks: [ActionTask]
     var onToggle: (ActionTask) -> Void
+    var fillsAvailableSpace: Bool = false
 
     private struct Quad { let urgent: Bool; let important: Bool; let title: String }
     private let quads: [Quad] = [
@@ -26,9 +29,17 @@ struct EisenhowerBoard: View {
     }
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
-                  alignment: .leading, spacing: 10) {
-            ForEach(quads.indices, id: \.self) { i in box(quads[i]) }
+        if fillsAvailableSpace {
+            VStack(spacing: 10) {
+                HStack(spacing: 10) { box(quads[0]); box(quads[1]) }
+                HStack(spacing: 10) { box(quads[2]); box(quads[3]) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                      alignment: .leading, spacing: 10) {
+                ForEach(quads.indices, id: \.self) { i in box(quads[i]) }
+            }
         }
     }
 
@@ -44,18 +55,37 @@ struct EisenhowerBoard: View {
                 Circle().fill(color).frame(width: 8, height: 8)
                 Text(q.title).font(.caption.weight(.semibold)).lineLimit(1)
                 Spacer()
-                if charge > 0 { Text("\(charge) 🍅").font(.caption2).foregroundColor(.secondary) }
+                if !items.isEmpty {
+                    Text("\(items.count)").font(.caption2).foregroundColor(.secondary)
+                }
+                if charge > 0 { Text("· \(charge) 🍅").font(.caption2).foregroundColor(.secondary) }
             }
-            if items.isEmpty {
-                Text("—").font(.caption2).foregroundColor(.secondary)
+            if fillsAvailableSpace {
+                ScrollView {
+                    itemsList(items)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
-                ForEach(items) { task in row(task) }
+                itemsList(items)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(minHeight: fillsAvailableSpace ? nil : 90)
+        .frame(maxHeight: fillsAvailableSpace ? .infinity : nil)
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.06)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(color.opacity(0.25), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func itemsList(_ items: [ActionTask]) -> some View {
+        if items.isEmpty {
+            Text("—").font(.caption2).foregroundColor(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(items) { task in row(task) }
+            }
+        }
     }
 
     private func row(_ task: ActionTask) -> some View {

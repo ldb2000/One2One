@@ -144,14 +144,13 @@ struct ActionsListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewMode == .eisenhower {
-                ScrollView {
-                    EisenhowerBoard(tasks: filteredTasks) { task in
-                        task.isCompleted.toggle()
-                        task.completedAt = task.isCompleted ? Date() : nil
-                        saveContext()
-                    }
-                    .padding()
-                }
+                EisenhowerBoard(tasks: filteredTasks, onToggle: { task in
+                    task.isCompleted.toggle()
+                    task.completedAt = task.isCompleted ? Date() : nil
+                    saveContext()
+                }, fillsAvailableSpace: true)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
