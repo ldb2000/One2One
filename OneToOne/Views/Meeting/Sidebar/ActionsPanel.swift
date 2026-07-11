@@ -17,6 +17,7 @@ struct ActionsPanel: View {
     @Binding var newTaskAudience: ActionAudience
     @Binding var newTaskUrgent: Bool
     @Binding var newTaskImportant: Bool
+    @Binding var newTaskPomodoros: Int
 
     let onAddTask: () -> Void
     let onDeleteTask: (ActionTask) -> Void
@@ -61,6 +62,9 @@ struct ActionsPanel: View {
                         HStack(spacing: 5) {
                             Image(systemName: audience.systemImage).font(.caption2)
                             Text(audience.sectionTitle).tracking(1.0)
+                            Spacer()
+                            let total = group.reduce(0) { $0 + $1.pomodoros }
+                            if total > 0 { Text(chargeLabel(total)) }
                         }
                         .font(MeetingTheme.sectionLabel)
                         .foregroundColor(.secondary)
@@ -189,6 +193,8 @@ struct ActionsPanel: View {
                 rowAssigneeMenu(task)
                 Text("·").foregroundColor(.secondary)
                 rowDueDateMenu(task)
+                Text("·").foregroundColor(.secondary)
+                rowChargeMenu(task)
                 Spacer()
             }
             .padding(.leading, 30)
@@ -257,6 +263,11 @@ struct ActionsPanel: View {
                     ), displayedComponents: .date).labelsHidden()
                 }
                 Spacer()
+                Stepper(value: $newTaskPomodoros, in: 0...12) {
+                    Text(newTaskPomodoros > 0 ? "\(newTaskPomodoros) 🍅" : "Charge")
+                        .font(.caption).foregroundColor(newTaskPomodoros > 0 ? .primary : .secondary)
+                }
+                .fixedSize()
             }
             Button(action: onAddTask) {
                 Label("Ajouter l'action", systemImage: "plus").frame(maxWidth: .infinity)
@@ -458,6 +469,45 @@ struct ActionsPanel: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+    }
+
+    /// Menu de charge (pomodoros) par action.
+    @ViewBuilder
+    private func rowChargeMenu(_ task: ActionTask) -> some View {
+        Menu {
+            ForEach([0, 1, 2, 3, 4, 6, 8], id: \.self) { n in
+                Button {
+                    task.pomodoros = n
+                    saveContext()
+                } label: {
+                    let text = n == 0 ? "Aucune" : chargeLabel(n)
+                    if task.pomodoros == n { Label(text, systemImage: "checkmark") } else { Text(text) }
+                }
+            }
+        } label: {
+            Label(
+                task.pomodoros > 0 ? "\(task.pomodoros) 🍅" : "Charge",
+                systemImage: "timer"
+            )
+            .font(.caption)
+            .foregroundColor(task.pomodoros > 0 ? .primary : .secondary)
+            .labelStyle(.titleAndIcon)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// "N 🍅 · ~Xh Ym" — charge en pomodoros (25 min chacun).
+    private func chargeLabel(_ pomodoros: Int) -> String {
+        let mins = pomodoros * 25
+        let time: String
+        if mins >= 60 {
+            let h = mins / 60, m = mins % 60
+            time = m == 0 ? "\(h)h" : "\(h)h\(m)"
+        } else {
+            time = "\(mins) min"
+        }
+        return "\(pomodoros) 🍅 · \(time)"
     }
 
     // MARK: - Utilities

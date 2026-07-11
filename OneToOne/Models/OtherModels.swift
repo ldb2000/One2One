@@ -272,6 +272,8 @@ final class ActionTask {
     /// Axes Eisenhower (urgent × important).
     var isUrgent: Bool = false
     var isImportant: Bool = false
+    /// Charge estimée en pomodoros (1 🍅 = 25 min). 0 = non estimée.
+    var pomodoros: Int = 0
     /// Ordre manuel (vues Kanban/Timeline ultérieures).
     var sortOrder: Int = 0
 

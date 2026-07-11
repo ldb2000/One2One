@@ -88,6 +88,7 @@ struct MeetingView: View {
     @State private var newTaskAudience: ActionAudience = .moi
     @State private var newTaskUrgent = false
     @State private var newTaskImportant = false
+    @State private var newTaskPomodoros = 0
     @State private var didSetActionDefaults = false
     @State private var newAdhocName = ""
     @State private var showDetailsSheet = false
@@ -521,7 +522,7 @@ struct MeetingView: View {
                 newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
                 showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
                 newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
-                newTaskImportant: $newTaskImportant,
+                newTaskImportant: $newTaskImportant, newTaskPomodoros: $newTaskPomodoros,
                 onAddTask: addTask,
                 onDeleteTask: { task in context.delete(task); saveContext() },
                 onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
@@ -1867,12 +1868,14 @@ struct MeetingView: View {
         t.collaborator = newTaskAudience == .collaborateur ? selectedCollaborator : nil
         t.isUrgent = newTaskUrgent
         t.isImportant = newTaskImportant
+        t.pomodoros = newTaskPomodoros
         context.insert(t)
         newTaskTitle = ""
         newTaskDueDate = nil
         showNewTaskDueDate = false
         newTaskUrgent = false
         newTaskImportant = false
+        newTaskPomodoros = 0
         saveContext()
     }
 
