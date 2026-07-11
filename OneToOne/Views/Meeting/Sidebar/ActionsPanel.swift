@@ -1,6 +1,17 @@
 import SwiftUI
 import SwiftData
 
+/// Mode d'affichage de la carte Actions (sélecteur de vue).
+enum ActionsViewMode: String, CaseIterable {
+    case liste, eisenhower
+    var label: String {
+        switch self { case .liste: return "Liste"; case .eisenhower: return "Eisenhower" }
+    }
+    var systemImage: String {
+        switch self { case .liste: return "list.bullet"; case .eisenhower: return "square.grid.2x2" }
+    }
+}
+
 /// Panneau Actions de la sidebar configurable. Wrap le tasksList + formSection
 /// (création + édition des ActionTask de la réunion). Logique identique à
 /// l'ancien MeetingActionsSidebar — refactor pur.
@@ -26,10 +37,23 @@ struct ActionsPanel: View {
 
     @Environment(\.modelContext) private var context
     @State private var showingAddCollaboratorSheet: Bool = false
+    @State private var viewMode: ActionsViewMode = .liste
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            tasksList
+            Picker("", selection: $viewMode) {
+                ForEach(ActionsViewMode.allCases, id: \.self) { mode in
+                    Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding([.horizontal, .top], 10)
+
+            switch viewMode {
+            case .liste:      tasksList
+            case .eisenhower: eisenhowerView
+            }
             formSection
         }
     }
@@ -204,6 +228,70 @@ struct ActionsPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .textBackgroundColor).opacity(0.55))
         )
+    }
+
+    // MARK: - Vue Eisenhower
+
+    private struct Quadrant { let urgent: Bool; let important: Bool; let title: String }
+
+    private var quadrants: [Quadrant] {
+        [ Quadrant(urgent: true,  important: true,  title: "Urgent & important"),
+          Quadrant(urgent: false, important: true,  title: "Important — à planifier"),
+          Quadrant(urgent: true,  important: false, title: "Urgent — à déléguer"),
+          Quadrant(urgent: false, important: false, title: "Ni urgent ni important") ]
+    }
+
+    private var eisenhowerView: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                      alignment: .leading, spacing: 10) {
+                ForEach(quadrants.indices, id: \.self) { i in
+                    quadrantBox(quadrants[i])
+                }
+            }
+            .padding(10)
+        }
+    }
+
+    @ViewBuilder
+    private func quadrantBox(_ q: Quadrant) -> some View {
+        let tasks = sortedGroup(meeting.tasks.filter {
+            !$0.isCompleted && $0.isUrgent == q.urgent && $0.isImportant == q.important
+        })
+        let color = Self.quadrantColor(urgent: q.urgent, important: q.important)
+        let charge = tasks.reduce(0) { $0 + $1.pomodoros }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 8, height: 8)
+                Text(q.title).font(.caption.weight(.semibold)).lineLimit(1)
+                Spacer()
+                if charge > 0 { Text("\(charge) 🍅").font(.caption2).foregroundColor(.secondary) }
+            }
+            if tasks.isEmpty {
+                Text("—").font(.caption2).foregroundColor(.secondary)
+            } else {
+                ForEach(tasks) { task in compactRow(task) }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(color.opacity(0.25), lineWidth: 1))
+    }
+
+    private func compactRow(_ task: ActionTask) -> some View {
+        HStack(spacing: 6) {
+            Button { onToggleTaskCompletion(task) } label: {
+                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(task.isCompleted ? .green : .secondary)
+            }
+            .buttonStyle(.plain)
+            Text(task.title).font(.caption).lineLimit(2)
+            Spacer(minLength: 4)
+            if task.pomodoros > 0 {
+                Text("\(task.pomodoros)🍅").font(.caption2).foregroundColor(.secondary)
+            }
+        }
     }
 
     // MARK: - Priority
