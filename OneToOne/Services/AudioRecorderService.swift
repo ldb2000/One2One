@@ -37,6 +37,26 @@ final class AudioRecorderService: NSObject, ObservableObject {
     @Published var lastError: String?
     @Published private(set) var activeMeetingID: UUID?
 
+    // MARK: - Propriété de l'enregistrement
+    //
+    // Le service est un singleton observé par **toutes** les fenêtres réunion :
+    // conditionner un affichage sur `isRecording` seul le fait apparaître dans
+    // toutes les fenêtres à la fois (vumètre, chrono…). Les vues doivent passer
+    // par `isRecording(for:)`.
+
+    /// Vrai si l'enregistrement en cours appartient à la réunion `meetingID`.
+    func isRecording(for meetingID: UUID?) -> Bool {
+        Self.isOwner(isRecording: isRecording, activeMeetingID: activeMeetingID, meetingID: meetingID)
+    }
+
+    /// Règle de propriété, isolée pour être testable. Un propriétaire inconnu
+    /// (`activeMeetingID == nil`) n'est revendiqué par personne — mieux vaut
+    /// n'afficher l'enregistrement nulle part que partout.
+    nonisolated static func isOwner(isRecording: Bool, activeMeetingID: UUID?, meetingID: UUID?) -> Bool {
+        guard isRecording, let activeMeetingID, let meetingID else { return false }
+        return activeMeetingID == meetingID
+    }
+
     // MARK: - Internals (engine)
     private let engine = AVAudioEngine()
     /// Encapsule conversion + écriture WAV + diffusion live, protégé par sa

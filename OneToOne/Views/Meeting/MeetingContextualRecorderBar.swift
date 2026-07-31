@@ -4,8 +4,13 @@ import SwiftUI
 /// lecteur audio, capture d'écran et progression STT/OCR. N'apparaît que lorsqu'au
 /// moins une activité est en cours (enregistrement, lecture, capture, transcription, erreurs).
 struct MeetingContextualRecorderBar: View {
-    /// Service d'enregistrement audio (état `isRecording`, niveau `averagePower`).
+    /// Service d'enregistrement audio (niveau `averagePower`, chrono).
     @ObservedObject var recorder: AudioRecorderService
+    /// Vrai si l'enregistrement en cours appartient à la réunion affichée.
+    /// ⚠️ Ne jamais retomber sur `recorder.isRecording` pour l'affichage : le
+    /// service est un singleton, le vumètre apparaîtrait dans toutes les
+    /// fenêtres réunion ouvertes (cf. `AudioRecorderService.isRecording(for:)`).
+    let isRecordingThisMeeting: Bool
     /// Service de transcription (progression et libellé affichés dans le segment de progression).
     @ObservedObject var stt: TranscriptionService
     /// Lecteur audio piloté par le segment de lecture (slider, skip).
@@ -28,19 +33,19 @@ struct MeetingContextualRecorderBar: View {
     let onDismissErrors: () -> Void
 
     var body: some View {
-        let visible = recorder.isRecording || (showPlayback && hasWav) || captureService.isCapturing
+        let visible = isRecordingThisMeeting || (showPlayback && hasWav) || captureService.isCapturing
             || stt.isTranscribing || captureService.ocrProgress != nil || !errors.isEmpty
 
         if visible {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 12) {
-                    if recorder.isRecording {
+                    if isRecordingThisMeeting {
                         recordingSegment
                     } else if showPlayback && hasWav {
                         playbackSegment
                     }
 
-                    if (recorder.isRecording || (showPlayback && hasWav)) && captureService.isCapturing {
+                    if (isRecordingThisMeeting || (showPlayback && hasWav)) && captureService.isCapturing {
                         Divider().frame(height: 20)
                     }
 

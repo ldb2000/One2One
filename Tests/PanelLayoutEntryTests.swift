@@ -12,9 +12,9 @@ final class PanelLayoutEntryTests: XCTestCase {
 
     func test_decodeFromJSON_roundTrip() throws {
         let original: [PanelLayoutEntry] = [
-            PanelLayoutEntry(id: .projects, visible: true),
-            PanelLayoutEntry(id: .actions, visible: false),
-            PanelLayoutEntry(id: .capture, visible: true)
+            PanelLayoutEntry(id: .projects, visible: true, cols: RightSidebarPanelID.projects.defaultSpan.cols, rows: RightSidebarPanelID.projects.defaultSpan.rows),
+            PanelLayoutEntry(id: .actions, visible: false, cols: RightSidebarPanelID.actions.defaultSpan.cols, rows: RightSidebarPanelID.actions.defaultSpan.rows),
+            PanelLayoutEntry(id: .capture, visible: true, cols: RightSidebarPanelID.capture.defaultSpan.cols, rows: RightSidebarPanelID.capture.defaultSpan.rows)
         ]
         let json = PanelLayoutEntry.encode(original)
         let decoded = PanelLayoutEntry.decode(json)
@@ -43,8 +43,8 @@ final class PanelLayoutEntryTests: XCTestCase {
         // `.capture` (ex: nouveau case enum ajouté après update).
         // Le décodeur doit l'ajouter en queue avec visible:true.
         let partial: [PanelLayoutEntry] = [
-            PanelLayoutEntry(id: .actions, visible: true),
-            PanelLayoutEntry(id: .projects, visible: false)
+            PanelLayoutEntry(id: .actions, visible: true, cols: RightSidebarPanelID.actions.defaultSpan.cols, rows: RightSidebarPanelID.actions.defaultSpan.rows),
+            PanelLayoutEntry(id: .projects, visible: false, cols: RightSidebarPanelID.projects.defaultSpan.cols, rows: RightSidebarPanelID.projects.defaultSpan.rows)
         ]
         let json = PanelLayoutEntry.encode(partial)
         let decoded = PanelLayoutEntry.decode(json)

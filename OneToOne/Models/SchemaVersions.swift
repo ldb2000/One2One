@@ -38,6 +38,7 @@ enum SchemaV1: VersionedSchema {
             Entity.self,
             InterviewAttachment.self,
             Meeting.self,
+            MeetingTag.self,
             MeetingAttachment.self,
             TranscriptChunk.self,
             SlideCapture.self,

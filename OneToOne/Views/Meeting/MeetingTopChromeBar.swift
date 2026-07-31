@@ -13,6 +13,11 @@ struct MeetingTopChromeBar: View {
     @ObservedObject var stt: TranscriptionService
     @ObservedObject var player: AudioPlayerService
     @ObservedObject var captureService: ScreenCaptureService
+    /// Vrai si l'enregistrement en cours appartient à la réunion affichée.
+    /// ⚠️ Pour l'affichage (pastille rouge, chrono), ne pas utiliser
+    /// `recorder.isRecording` : le service est un singleton et la pastille
+    /// apparaîtrait dans toutes les fenêtres réunion ouvertes.
+    let isRecordingThisMeeting: Bool
     let isGeneratingReport: Bool
     let reportProgressChars: Int
     let reportElapsedSeconds: Int
@@ -29,15 +34,35 @@ struct MeetingTopChromeBar: View {
     /// Ouvre la galerie des slides capturées.
     let onShowSlides: () -> Void
 
+    /// Thèmes proposés par l'IA, en attente d'acceptation (éphémères).
+    @Binding var suggestedTagNames: [String]
+    /// Une suggestion de thèmes est en cours.
+    let isSuggestingTags: Bool
+    /// Relance manuellement la suggestion de thèmes.
+    let onRequestTagSuggestions: () -> Void
+
+    /// Affiche le popover de choix du type de rapport avant génération.
+    @State private var showReportTypePicker = false
+
     var body: some View {
-        HStack(spacing: 10) {
-            breadcrumb
-            Spacer()
-            recorderPill
-            captureButton
-            templatePickerButton
-            reportButton
-            moreMenu
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                breadcrumb
+                Spacer()
+                recorderPill
+                captureButton
+                templatePickerButton
+                reportButton
+                moreMenu
+            }
+            // Rangée des thèmes, sous le fil d'Ariane : elle a besoin de toute
+            // la largeur pour passer à la ligne (FlowLayout).
+            MeetingTagEditor(
+                meeting: meeting,
+                suggestions: $suggestedTagNames,
+                isSuggesting: isSuggestingTags,
+                onRequestSuggestions: onRequestTagSuggestions
+            )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -122,7 +147,7 @@ struct MeetingTopChromeBar: View {
 
     @ViewBuilder
     private var recorderPill: some View {
-        if recorder.isRecording {
+        if isRecordingThisMeeting {
             recordingPill
         } else if actions.hasWav {
             playbackPill
@@ -132,7 +157,11 @@ struct MeetingTopChromeBar: View {
     }
 
     private var idlePill: some View {
-        Button(action: actions.startRecording) {
+        // `recorder.isRecording` (global) ici et non `isRecordingThisMeeting` :
+        // une autre réunion enregistre déjà, le service ne peut pas en démarrer
+        // un second — le bouton est grisé plutôt qu'échouer au clic.
+        let otherMeetingIsRecording = recorder.isRecording && !isRecordingThisMeeting
+        return Button(action: actions.startRecording) {
             Label("Enregistrer", systemImage: "record.circle")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.white)
@@ -140,7 +169,11 @@ struct MeetingTopChromeBar: View {
                 .background(Capsule().fill(Color.red))
         }
         .buttonStyle(.plain)
-        .disabled(stt.isTranscribing || isGeneratingReport)
+        .disabled(stt.isTranscribing || isGeneratingReport || otherMeetingIsRecording)
+        .opacity(otherMeetingIsRecording ? 0.4 : 1.0)
+        .help(otherMeetingIsRecording
+              ? "Un enregistrement est déjà en cours pour une autre réunion"
+              : "Démarrer l'enregistrement")
     }
 
     private var recordingPill: some View {
@@ -192,6 +225,16 @@ struct MeetingTopChromeBar: View {
             }
             .buttonStyle(.plain)
             .disabled(stt.isTranscribing)
+            // Bouton visible pour éditer l'audio (couper début/fin, diviser).
+            // Restauré ici : l'action était enfouie dans ⋯ → Audio et introuvable.
+            Button(action: actions.editAudio) {
+                Image(systemName: "scissors")
+                    .foregroundColor(.white).font(.caption2)
+            }
+            .buttonStyle(.plain)
+            .help("Éditer l'audio — couper le début/la fin ou diviser")
+            .disabled(!meeting.hasPlayableAudio || stt.isTranscribing || isGeneratingReport)
+            .opacity(meeting.hasPlayableAudio ? 1.0 : 0.4)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(Capsule().fill(MeetingTheme.badgeBlack))
@@ -263,8 +306,12 @@ struct MeetingTopChromeBar: View {
 
     @ViewBuilder
     private var reportButton: some View {
-        let disabled = meeting.rawTranscript.isEmpty || recorder.isRecording || stt.isTranscribing || isGeneratingReport
-        Button(action: actions.generateReport) {
+        // Le rapport a besoin d'une transcription OU d'un audio à transcrire.
+        // Sans transcript mais avec audio, le clic enchaîne transcription + rapport.
+        let needsTranscription = meeting.rawTranscript.isEmpty
+        let hasSource = !needsTranscription || meeting.hasPlayableAudio
+        let disabled = !hasSource || recorder.isRecording || stt.isTranscribing || isGeneratingReport
+        Button(action: { showReportTypePicker = true }) {
             HStack(spacing: 6) {
                 if isGeneratingReport {
                     ProgressView().controlSize(.small).tint(.white)
@@ -275,9 +322,14 @@ struct MeetingTopChromeBar: View {
                         Text("Rapport… \(formatElapsed(reportElapsedSeconds))")
                             .font(.caption.monospacedDigit())
                     }
+                } else if stt.isTranscribing {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text("Transcription…").font(.caption)
                 } else {
                     Image(systemName: "wand.and.stars")
-                    if meeting.summary.isEmpty {
+                    if needsTranscription {
+                        Text("Transcrire + Rapport")
+                    } else if meeting.summary.isEmpty {
                         Text("Rapport")
                     } else if meeting.reportGenerationDurationSeconds > 0 {
                         Text("Rapport ✓ (\(formatElapsed(Int(meeting.reportGenerationDurationSeconds.rounded()))))")
@@ -296,6 +348,56 @@ struct MeetingTopChromeBar: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .popover(isPresented: $showReportTypePicker, arrowEdge: .bottom) {
+            reportTypePicker
+        }
+    }
+
+    /// Popover de choix du type de rapport, affiché au clic sur « Rapport ».
+    /// Propose « Auto » puis les templates compatibles ; la sélection fixe
+    /// `meeting.reportTemplate` puis lance la génération.
+    private var reportTypePicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Type de rapport")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 10).padding(.bottom, 6)
+            reportTypeRow(name: "Auto (selon type)", template: nil)
+            if !compatibleTemplates.isEmpty {
+                Divider().padding(.vertical, 2)
+                ForEach(compatibleTemplates) { t in
+                    reportTypeRow(name: t.name, template: t)
+                }
+            }
+        }
+        .frame(minWidth: 240)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private func reportTypeRow(name: String, template: ReportTemplate?) -> some View {
+        let isSelected = meeting.reportTemplate?.persistentModelID == template?.persistentModelID
+        Button {
+            meeting.reportTemplate = template
+            try? modelContext.save()
+            showReportTypePicker = false
+            actions.generateReport()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: template == nil ? "wand.and.stars" : "doc.text")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(name).lineLimit(1)
+                Spacer(minLength: 12)
+                if isSelected {
+                    Image(systemName: "checkmark").font(.caption2).foregroundStyle(Color.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 12).padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
 
     private func formatElapsed(_ seconds: Int) -> String {

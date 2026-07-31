@@ -449,6 +449,11 @@ final class Meeting {
     @Relationship(deleteRule: .nullify)
     var participants: [Collaborator] = []
 
+    /// Thèmes libres de la réunion (transverses au projet / type / participants).
+    /// Many-to-many `.nullify` : l'inverse est déclaré sur `MeetingTag.meetings`.
+    @Relationship(deleteRule: .nullify)
+    var tags: [MeetingTag] = []
+
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.meeting)
     var tasks: [ActionTask] = []
 

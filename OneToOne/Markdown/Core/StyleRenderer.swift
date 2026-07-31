@@ -1,43 +1,38 @@
 import AppKit
 
-/// Traduit les attributs custom `md*` (présents dans le `NSTextStorage`)
-/// en attributs AppKit visibles (`.font`, `.foregroundColor`, etc.) pour
-/// que la WYSIWYG rendition affiche réellement gras, italique, titres, etc.
-///
-/// Appelé à chaque update du textStorage (chargement initial, ré-application
-/// d'un binding externe, ou après un changement local + auto-format).
+/// Translates custom markdown attributes (`mdBold`, `mdBlockType`, etc.) into
+/// AppKit display attributes. The storage string stays marker-free while the
+/// serializer keeps persisting markdown syntax.
 enum StyleRenderer {
-
     static let baseFontSize: CGFloat = 13
 
-    /// Recalcule entièrement le rendu visuel du `storage`. On retire d'abord les
-    /// attributs d'affichage (`.font`, `.foregroundColor`, …) sur toute la plage
-    /// avant de les réappliquer, sinon un style obsolète persisterait sur une
-    /// zone qui ne porte plus l'attribut `md*` correspondant après édition.
     static func applyVisualStyle(to storage: NSTextStorage) {
-        guard storage.length > 0 else { return }
-        let fullRange = NSRange(location: 0, length: storage.length)
-        // Reset display attrs avant de réappliquer — sinon stale styling après
-        // édition d'une zone qui avait `mdBold` puis ne l'a plus.
-        storage.beginEditing()
-        storage.removeAttribute(.font, range: fullRange)
-        storage.removeAttribute(.foregroundColor, range: fullRange)
-        storage.removeAttribute(.backgroundColor, range: fullRange)
-        storage.removeAttribute(.underlineStyle, range: fullRange)
-        storage.removeAttribute(.strikethroughStyle, range: fullRange)
-        storage.removeAttribute(.paragraphStyle, range: fullRange)
-        storage.removeAttribute(.obliqueness, range: fullRange)
+        applyVisualStyle(to: storage, affectedRange: nil)
+    }
 
-        storage.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
+    static func applyVisualStyle(to storage: NSTextStorage, affectedRange: NSRange?) {
+        guard storage.length > 0 else { return }
+
+        let renderRange = normalizedRenderRange(affectedRange, in: storage)
+        storage.beginEditing()
+        storage.removeAttribute(.font, range: renderRange)
+        storage.removeAttribute(.foregroundColor, range: renderRange)
+        storage.removeAttribute(.backgroundColor, range: renderRange)
+        storage.removeAttribute(.underlineStyle, range: renderRange)
+        storage.removeAttribute(.strikethroughStyle, range: renderRange)
+        storage.removeAttribute(.paragraphStyle, range: renderRange)
+        storage.removeAttribute(.obliqueness, range: renderRange)
+
+        storage.enumerateAttributes(in: renderRange, options: []) { attrs, range, _ in
             let block = attrs[.mdBlockType] as? BlockType ?? .paragraph
             let listInfo = attrs[.mdListInfo] as? ListInfo
-            let isBold   = (attrs[.mdBold] as? Bool) == true
+            let isBold = (attrs[.mdBold] as? Bool) == true
             let isItalic = (attrs[.mdItalic] as? Bool) == true
-            let isCode   = (attrs[.mdInlineCode] as? Bool) == true
+            let isCode = (attrs[.mdInlineCode] as? Bool) == true
             let isStrike = (attrs[.mdStrikethrough] as? Bool) == true
-            let link     = attrs[.mdLink] as? URL
+            let link = attrs[.mdLink] as? URL
 
-            var font = baseFont(for: block, list: listInfo)
+            var font = baseFont(for: block)
             if isBold {
                 font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
             }
@@ -48,52 +43,44 @@ enum StyleRenderer {
                 font = NSFont.monospacedSystemFont(ofSize: baseFontSize - 0.5, weight: .regular)
             }
             storage.addAttribute(.font, value: font, range: range)
+            storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
 
             if isCode {
-                storage.addAttribute(.backgroundColor,
-                                     value: NSColor.quaternaryLabelColor.withAlphaComponent(0.4),
-                                     range: range)
-                storage.addAttribute(.foregroundColor,
-                                     value: NSColor.secondaryLabelColor,
-                                     range: range)
+                storage.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.quaternaryLabelColor.withAlphaComponent(0.4),
+                    range: range
+                )
+                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
             }
 
             if link != nil {
                 storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
-                storage.addAttribute(.underlineStyle,
-                                     value: NSUnderlineStyle.single.rawValue,
-                                     range: range)
+                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
             }
 
             if isStrike {
-                storage.addAttribute(.strikethroughStyle,
-                                     value: NSUnderlineStyle.single.rawValue,
-                                     range: range)
+                storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
             }
 
             switch block {
             case .h1, .h2, .h3:
-                storage.addAttribute(.foregroundColor,
-                                     value: NSColor.controlAccentColor,
-                                     range: range)
+                storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
             case .blockquote:
-                storage.addAttribute(.foregroundColor,
-                                     value: NSColor.secondaryLabelColor,
-                                     range: range)
+                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
                 storage.addAttribute(.obliqueness, value: 0.15, range: range)
             case .codeBlock:
-                storage.addAttribute(.backgroundColor,
-                                     value: NSColor.quaternaryLabelColor.withAlphaComponent(0.3),
-                                     range: range)
+                storage.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.quaternaryLabelColor.withAlphaComponent(0.3),
+                    range: range
+                )
             case .thematicBreak:
-                storage.addAttribute(.foregroundColor,
-                                     value: NSColor.tertiaryLabelColor,
-                                     range: range)
-            default:
+                storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
+            case .h4, .h5, .h6, .paragraph:
                 break
             }
 
-            // Indentation pour listes (paragraph style).
             if let info = listInfo {
                 let para = NSMutableParagraphStyle()
                 let baseIndent = CGFloat(info.level) * 16 + 16
@@ -106,10 +93,18 @@ enum StyleRenderer {
         storage.endEditing()
     }
 
-    /// Police de base d'un bloc avant application gras/italique/code. Les titres
-    /// décroissent en taille et graisse (22pt bold pour h1 jusqu'à 13.5pt
-    /// semibold pour h4-h6) ; code en monospace ; le reste à `baseFontSize`.
-    private static func baseFont(for block: BlockType, list: ListInfo?) -> NSFont {
+    private static func normalizedRenderRange(_ range: NSRange?, in storage: NSTextStorage) -> NSRange {
+        let fullRange = NSRange(location: 0, length: storage.length)
+        guard let range else { return fullRange }
+
+        let location = min(max(0, range.location), storage.length)
+        let upperBound = min(max(location, range.location + range.length), storage.length)
+        let clamped = NSRange(location: location, length: upperBound - location)
+        let nsText = storage.string as NSString
+        return nsText.lineRange(for: clamped)
+    }
+
+    private static func baseFont(for block: BlockType) -> NSFont {
         switch block {
         case .h1: return NSFont.systemFont(ofSize: 22, weight: .bold)
         case .h2: return NSFont.systemFont(ofSize: 18, weight: .bold)

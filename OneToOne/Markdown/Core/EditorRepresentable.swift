@@ -71,21 +71,30 @@ struct EditorRepresentable: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let editor = scroll.documentView as? EditorTextView else { return }
+        context.coordinator.parent = self
         editor.isEditable = !readOnly
         context.coordinator.features = features
         context.coordinator.debounce = debounce
+        
         let incoming = markdown
+        if context.coordinator.hasPendingLocalWrite {
+            if incoming == context.coordinator.lastKnownMarkdown {
+                context.coordinator.hasPendingLocalWrite = false
+            }
+            return
+        }
+
         if context.coordinator.lastKnownMarkdown != incoming {
-            // External update — re-parse and apply, preserving caret best-effort.
+            context.coordinator.cancelPendingWrite()
             let attr = MarkdownParser.parse(incoming)
             let savedSelection = editor.selectedRange()
             editor.textStorage?.setAttributedString(attr)
+            context.coordinator.lastKnownMarkdown = incoming
             if let storage = editor.textStorage {
                 StyleRenderer.applyVisualStyle(to: storage)
             }
             let clampedLocation = min(savedSelection.location, attr.length)
             editor.setSelectedRange(NSRange(location: clampedLocation, length: 0))
-            context.coordinator.lastKnownMarkdown = incoming
         }
     }
 
@@ -109,6 +118,8 @@ struct EditorRepresentable: NSViewRepresentable {
         var lastKnownMarkdown: String = ""
         var features: Set<MarkdownFeature>
         var debounce: TimeInterval
+        var hasPendingLocalWrite: Bool = false
+        private var pendingStyleRange: NSRange?
         private var debounceTask: Task<Void, Never>?
         /// Garde anti-récursion : `ShortcutDetector.apply` mute le storage,
         /// ce qui re-déclenche `textDidChange`. Sans ce flag on appliquerait
@@ -123,7 +134,9 @@ struct EditorRepresentable: NSViewRepresentable {
 
         func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange,
                       replacementString: String?) -> Bool {
-            true
+            let replacementLength = (replacementString ?? "").utf16.count
+            pendingStyleRange = NSRange(location: range.location, length: max(range.length, replacementLength))
+            return true
         }
 
         /// Réagit à chaque frappe : applique les raccourcis markdown puis
@@ -133,22 +146,42 @@ struct EditorRepresentable: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = textView, let storage = tv.textStorage else { return }
             if isApplyingShortcut { return }
-            // Apply shortcuts after the change took effect.
+
             let cursor = tv.selectedRange().location
             if cursor > 0 {
                 let inserted = (storage.string as NSString)
                     .substring(with: NSRange(location: cursor - 1, length: 1))
                 isApplyingShortcut = true
-                ShortcutDetector.apply(after: inserted, in: storage,
-                                       cursor: cursor, features: features)
+                ShortcutDetector.apply(after: inserted, in: tv, cursor: cursor, features: features)
                 isApplyingShortcut = false
             }
-            // Ré-applique le styling visuel après chaque mutation pour que
-            // bold/italic/headings/lists apparaissent immédiatement.
+
+            let styleRange = pendingStyleRange ?? NSRange(location: tv.selectedRange().location, length: 0)
+            pendingStyleRange = nil
+            
             isApplyingShortcut = true
-            StyleRenderer.applyVisualStyle(to: storage)
+            StyleRenderer.applyVisualStyle(to: storage, affectedRange: styleRange)
             isApplyingShortcut = false
-            pushMarkdownToBinding(force: false)
+
+            let newMarkdown = MarkdownSerializer.serialize(storage)
+            
+            if newMarkdown == lastKnownMarkdown { return }
+            lastKnownMarkdown = newMarkdown
+            hasPendingLocalWrite = true
+            
+            debounceTask?.cancel()
+            let delay = debounce
+            debounceTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int(delay * 1000)))
+                guard let self else { return }
+                if Task.isCancelled { return }
+                self.parent.markdown = newMarkdown
+            }
+        }
+
+        func cancelPendingWrite() {
+            debounceTask?.cancel()
+            debounceTask = nil
         }
 
         /// Sérialise le storage en markdown et le propage au binding parent.
@@ -160,6 +193,7 @@ struct EditorRepresentable: NSViewRepresentable {
             let md = MarkdownSerializer.serialize(storage)
             if md == lastKnownMarkdown { return }
             lastKnownMarkdown = md
+            hasPendingLocalWrite = true
             if force {
                 parent.markdown = md
                 return
