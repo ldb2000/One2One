@@ -9,6 +9,7 @@ struct MeetingsListView: View {
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query private var projects: [Project]
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var collaborators: [Collaborator]
+    @Query(sort: \MeetingTag.name) private var allTags: [MeetingTag]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var router: QuickLaunchRouter
 
@@ -16,6 +17,10 @@ struct MeetingsListView: View {
     @State private var filterProject: Project?
     @State private var filterKind: MeetingKind? = nil
     @State private var filterCollaborator: Collaborator?
+    @State private var filterTag: MeetingTag?
+    /// Sectionne la liste par thème (une réunion multi-thèmes apparaît dans
+    /// chaque section correspondante).
+    @State private var groupByTag = false
     @State private var bulkImportReport: String?
     @State private var isBulkImporting = false
     @State private var showProjectFilterPicker = false
@@ -55,6 +60,45 @@ struct MeetingsListView: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Thèmes non archivés portés par au moins une réunion — même logique que
+    /// `projectsWithMeetings` : pas de bruit dans le filtre.
+    private var tagsWithMeetings: [MeetingTag] {
+        allTags
+            .filter { !$0.isArchived && !$0.meetings.isEmpty }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Une section de la liste groupée par thème. La dernière section
+    /// (`tag == nil`) regroupe les réunions sans thème.
+    private struct TagSection: Identifiable {
+        let tag: MeetingTag?
+        let meetings: [Meeting]
+        // Pas de `ensuredStableID` ici : il persiste un backfill, à proscrire
+        // pendant l'évaluation d'un `body`.
+        var id: String { tag.map { String(describing: $0.persistentModelID) } ?? "__sans_theme__" }
+        var title: String { tag?.name ?? "Sans thème" }
+    }
+
+    /// Découpe `filteredMeetings` par thème. Une réunion multi-thèmes apparaît
+    /// dans chaque section correspondante.
+    private var tagSections: [TagSection] {
+        let meetings = filteredMeetings
+        var sections: [TagSection] = []
+        for tag in tagsWithMeetings {
+            let inTag = meetings.filter { m in
+                m.tags.contains { $0.persistentModelID == tag.persistentModelID }
+            }
+            if !inTag.isEmpty {
+                sections.append(TagSection(tag: tag, meetings: inTag))
+            }
+        }
+        let untagged = meetings.filter { $0.tags.isEmpty }
+        if !untagged.isEmpty {
+            sections.append(TagSection(tag: nil, meetings: untagged))
+        }
+        return sections
+    }
+
     private var filteredMeetings: [Meeting] {
         var result = meetings
 
@@ -77,6 +121,12 @@ struct MeetingsListView: View {
 
         if let project = filterProject {
             result = result.filter { $0.project?.persistentModelID == project.persistentModelID }
+        }
+
+        if let tag = filterTag {
+            result = result.filter { meeting in
+                meeting.tags.contains { $0.persistentModelID == tag.persistentModelID }
+            }
         }
 
         if !searchText.isEmpty {
@@ -177,11 +227,43 @@ struct MeetingsListView: View {
                     )
                 }
 
-                if filterKind != nil || filterProject != nil || filterCollaborator != nil {
+                Menu {
+                    Button {
+                        filterTag = nil
+                    } label: {
+                        Label("Tous thèmes", systemImage: filterTag == nil ? "checkmark" : "circle")
+                    }
+                    if !tagsWithMeetings.isEmpty {
+                        Divider()
+                        ForEach(tagsWithMeetings) { tag in
+                            Button {
+                                filterTag = tag
+                            } label: {
+                                Label("\(tag.name) (\(tag.meetings.count))",
+                                      systemImage: filterTag?.persistentModelID == tag.persistentModelID
+                                          ? "checkmark" : "tag")
+                            }
+                        }
+                    }
+                    Divider()
+                    Toggle("Grouper par thème", isOn: $groupByTag)
+                } label: {
+                    filterChip(icon: "tag",
+                               text: filterTag?.name ?? "Thème",
+                               isActive: filterTag != nil || groupByTag,
+                               maxWidth: 200)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Filtrer ou grouper par thème de réunion")
+
+                if filterKind != nil || filterProject != nil || filterCollaborator != nil || filterTag != nil {
                     Button {
                         filterKind = nil
                         filterProject = nil
                         filterCollaborator = nil
+                        filterTag = nil
                     } label: {
                         Label("Réinitialiser", systemImage: "xmark.circle.fill")
                             .font(.caption)
@@ -285,14 +367,30 @@ struct MeetingsListView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if groupByTag {
+                List {
+                    ForEach(tagSections) { section in
+                        Section {
+                            ForEach(section.meetings) { meeting in
+                                meetingLink(meeting)
+                            }
+                        } header: {
+                            HStack(spacing: 6) {
+                                if let tag = section.tag {
+                                    Circle()
+                                        .fill(Color(hex: tag.colorHex) ?? .secondary)
+                                        .frame(width: 8, height: 8)
+                                }
+                                Text(section.title)
+                                Text("(\(section.meetings.count))").foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
             } else {
                 List {
                     ForEach(filteredMeetings) { meeting in
-                        NavigationLink {
-                            MeetingView(meeting: meeting)
-                        } label: {
-                            MeetingRowView(meeting: meeting)
-                        }
+                        meetingLink(meeting)
                     }
                     .onDelete(perform: deleteMeetings)
                 }
@@ -309,6 +407,16 @@ struct MeetingsListView: View {
         }
         .searchable(text: $searchText, prompt: "Rechercher (titre, rapport, transcription, notes…)")
         .navigationTitle("Réunions")
+    }
+
+    /// Ligne de réunion navigable — partagée par la liste plate et la liste
+    /// sectionnée par thème.
+    private func meetingLink(_ meeting: Meeting) -> some View {
+        NavigationLink {
+            MeetingView(meeting: meeting)
+        } label: {
+            MeetingRowView(meeting: meeting)
+        }
     }
 
     /// Capsule de filtre : avatar (si fourni) ou icône, libellé, chevron.

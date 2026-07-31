@@ -50,39 +50,29 @@ final class EditorTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: point)
-        if charIndex < (textStorage?.length ?? 0),
-           let info = textStorage?.attribute(.mdListInfo, at: charIndex, effectiveRange: nil) as? ListInfo,
-           info.kind == .task {
-            // Heuristic : clic dans les ~14pt en début de ligne = checkbox.
-            // On localise le début du paragraphe et on vérifie que `point.x`
-            // est dans la marge gauche.
+        if charIndex < (textStorage?.length ?? 0) {
             let nsString = string as NSString
             var lineStart = charIndex
             while lineStart > 0, nsString.character(at: lineStart - 1) != 0x0A {
                 lineStart -= 1
             }
-            if let layout = layoutManager,
-               let container = textContainer {
-                let glyphIdx = layout.glyphIndexForCharacter(at: lineStart)
-                let glyphRect = layout.boundingRect(forGlyphRange: NSRange(location: glyphIdx, length: 1),
-                                                    in: container)
-                let xInTextContainer = point.x - textContainerInset.width
-                if xInTextContainer < glyphRect.minX + 14 {
-                    let newChecked = !(info.checked ?? false)
-                    let updated = ListInfo(kind: .task,
-                                           level: info.level,
-                                           index: info.index,
-                                           checked: newChecked)
-                    let paraEnd = nsString.range(of: "\n",
-                                                  options: [],
-                                                  range: NSRange(location: lineStart,
-                                                                 length: nsString.length - lineStart))
-                    let endOffset = (paraEnd.location == NSNotFound) ? nsString.length : paraEnd.location
-                    let range = NSRange(location: lineStart, length: endOffset - lineStart)
-                    textStorage?.addAttribute(.mdListInfo, value: updated, range: range)
-                    onTaskToggle?(range, newChecked)
-                    editorLog.info("checkbox toggle range=\(range.location)..\(range.location + range.length) checked=\(newChecked)")
-                    return
+            let maxLen = min(nsString.length - lineStart, 6)
+            if maxLen >= 6 {
+                let prefixRange = NSRange(location: lineStart, length: 6)
+                let prefixStr = nsString.substring(with: prefixRange)
+                if prefixStr == "- [ ] " || prefixStr == "- [x] " {
+                    let glyphIdx = layoutManager?.glyphIndexForCharacter(at: lineStart) ?? 0
+                    if let container = textContainer,
+                       let rect = layoutManager?.boundingRect(forGlyphRange: NSRange(location: glyphIdx, length: 5), in: container) {
+                        let xInTextContainer = point.x - textContainerInset.width
+                        if xInTextContainer < rect.maxX + 4 {
+                            let isChecked = prefixStr == "- [x] "
+                            let replacement = isChecked ? "- [ ] " : "- [x] "
+                            textStorage?.replaceCharacters(in: prefixRange, with: replacement)
+                            onTaskToggle?(prefixRange, !isChecked)
+                            return
+                        }
+                    }
                 }
             }
         }

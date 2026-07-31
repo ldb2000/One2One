@@ -13,6 +13,10 @@ struct OverviewDashboard: View {
     @Binding var selectedCollaborator: Collaborator?
     @Binding var showNewTaskDueDate: Bool
     @Binding var newTaskDueDate: Date?
+    @Binding var newTaskAudience: ActionAudience
+    @Binding var newTaskUrgent: Bool
+    @Binding var newTaskImportant: Bool
+    @Binding var newTaskPomodoros: Int
     let onAddTask: () -> Void
     let onDeleteTask: (ActionTask) -> Void
     let onToggleTaskCompletion: (ActionTask) -> Void
@@ -138,6 +142,8 @@ struct OverviewDashboard: View {
                 ActionsPanel(meeting: meeting, settings: settings, allCollaborators: allCollaborators,
                              newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
                              showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
+                             newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
+                             newTaskImportant: $newTaskImportant, newTaskPomodoros: $newTaskPomodoros,
                              onAddTask: onAddTask, onDeleteTask: onDeleteTask,
                              onToggleTaskCompletion: onToggleTaskCompletion, saveContext: saveContext)
                     // Borne la hauteur pour éviter la récursion de layout (ScrollView imbriqués) sur macOS.

@@ -85,6 +85,11 @@ struct MeetingView: View {
     @State private var selectedCollaborator: Collaborator?
     @State private var showNewTaskDueDate = false
     @State private var newTaskDueDate: Date? = nil
+    @State private var newTaskAudience: ActionAudience = .moi
+    @State private var newTaskUrgent = false
+    @State private var newTaskImportant = false
+    @State private var newTaskPomodoros = 0
+    @State private var didSetActionDefaults = false
     @State private var newAdhocName = ""
     @State private var showDetailsSheet = false
     @State private var activeSection: MeetingSection = .overview
@@ -120,6 +125,10 @@ struct MeetingView: View {
     @State private var showDeleteConfirm = false
     @State private var showParticipantsSheet = false
     @State private var isEditingLayout = false
+    /// Thèmes proposés par l'IA (chips « fantômes ») — éphémères, non persistés :
+    /// régénérés à chaque rapport ou à la demande, jamais appliqués d'office.
+    @State private var suggestedTagNames: [String] = []
+    @State private var isSuggestingTags = false
     @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
     /// Identifiable wrapper around the pending selection. Using `.sheet(item:)`
@@ -160,6 +169,14 @@ struct MeetingView: View {
         var id: String { rawValue }
     }
 
+    /// Vrai si l'enregistrement en cours est celui **de cette réunion**.
+    /// `AudioRecorderService` est un singleton observé par toutes les fenêtres :
+    /// tout affichage d'enregistrement (vumètre, chrono, pastille) doit passer
+    /// par ici, sinon il apparaît dans toutes les fenêtres ouvertes.
+    private var isRecordingThisMeeting: Bool {
+        recorder.isRecording(for: meeting.stableID)
+    }
+
     private var settings: AppSettings {
         settingsList.canonicalSettings ?? AppSettings()
     }
@@ -174,6 +191,7 @@ struct MeetingView: View {
                 stt: stt,
                 player: player,
                 captureService: captureService,
+                isRecordingThisMeeting: isRecordingThisMeeting,
                 isGeneratingReport: isGeneratingReport,
                 reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
@@ -181,7 +199,10 @@ struct MeetingView: View {
                 actions: makeMenuActions(),
                 onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
-                onShowSlides: { showSlidesList = true }
+                onShowSlides: { showSlidesList = true },
+                suggestedTagNames: $suggestedTagNames,
+                isSuggestingTags: isSuggestingTags,
+                onRequestTagSuggestions: { Task { await suggestTags() } }
             )
             .confirmationDialog("Supprimer la réunion ?", isPresented: $showDeleteConfirm) {
                 Button("Supprimer", role: .destructive) { deleteMeeting() }
@@ -199,6 +220,7 @@ struct MeetingView: View {
 
             MeetingContextualRecorderBar(
                 recorder: recorder,
+                isRecordingThisMeeting: isRecordingThisMeeting,
                 stt: stt,
                 player: player,
                 captureService: captureService,
@@ -227,7 +249,7 @@ struct MeetingView: View {
                     wavImportError = nil
                 }
             )
-            .animation(.easeInOut(duration: 0.15), value: recorder.isRecording)
+            .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
             .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
@@ -314,6 +336,7 @@ struct MeetingView: View {
             }
         }
         .onAppear {
+            applyActionDraftDefaultsIfNeeded()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
             didAutoStart = true
             Task { await startRecording() }
@@ -326,7 +349,7 @@ struct MeetingView: View {
     private func makeMenuActions() -> MeetingMenuActions {
         MeetingMenuActions(
             meetingTitle: meeting.title,
-            isRecording: recorder.isRecording,
+            isRecording: isRecordingThisMeeting,
             isPaused: recorder.isPaused,
             isTranscribing: stt.isTranscribing,
             isGeneratingReport: isGeneratingReport,
@@ -339,7 +362,7 @@ struct MeetingView: View {
             appendRecording: { Task { await startAppendRecording() } },
             togglePause: { if recorder.isPaused { recorder.resume() } else { recorder.pause() } },
             retranscribe: { if let wav = meeting.wavFileURL { Task { await retranscribe(wavURL: wav) } } },
-            generateReport: { Task { await generateReport() } },
+            generateReport: { Task { await startReportFlow() } },
             toggleCustomPrompt: { showDetailsSheet = true },
             importCalendar: { showCalendarImporter = true },
             importExistingWAV: { fileImportTarget = .wav },
@@ -429,9 +452,9 @@ struct MeetingView: View {
     }
 
     @MainActor
-    private func retranscribe(wavURL: URL) async {
+    private func retranscribe(wavURL: URL, thenGenerateReport: Bool = false) async {
         transcribeError = nil
-        print("[MeetingView] retranscribe: \(wavURL.path)")
+        print("[MeetingView] retranscribe: \(wavURL.path) thenReport=\(thenGenerateReport)")
         // Segments existants supprimés DANS le job, juste avant insertion des
         // nouveaux — pas avant le démarrage du job. Annulation pendant le
         // download des modèles ou le STT préserve donc les anciens segments.
@@ -488,6 +511,11 @@ struct MeetingView: View {
                     self.saveContext()
                 }
                 print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
+                // Enchaîne la génération du rapport « dans la foulée » si demandé
+                // (flux Transcrire + Rapport en un clic).
+                if thenGenerateReport {
+                    Task { @MainActor in await self.generateReport() }
+                }
             } catch is CancellationError {
                 await MainActor.run {
                     self.transcriptionPhase = .idle
@@ -515,6 +543,8 @@ struct MeetingView: View {
                 currentSlides: currentSlides, isEditing: $isEditingLayout,
                 newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
                 showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
+                newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
+                newTaskImportant: $newTaskImportant, newTaskPomodoros: $newTaskPomodoros,
                 onAddTask: addTask,
                 onDeleteTask: { task in context.delete(task); saveContext() },
                 onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
@@ -1283,7 +1313,7 @@ struct MeetingView: View {
         let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
             ? recorder.makeAudioStream() : nil
         do {
-            let url = try await recorder.start(meetingID: meeting.stableID)
+            let url = try await recorder.start(meetingID: meeting.ensuredStableID)
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {
@@ -1325,7 +1355,7 @@ struct MeetingView: View {
         let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
             ? recorder.makeAudioStream() : nil
         do {
-            let url = try await recorder.start(meetingID: meeting.stableID)
+            let url = try await recorder.start(meetingID: meeting.ensuredStableID)
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {
@@ -1657,6 +1687,22 @@ struct MeetingView: View {
 
     // MARK: - Report generation
 
+    /// Point d'entrée du bouton « Rapport ». Si la transcription n'existe pas
+    /// encore mais qu'un audio est disponible, transcrit d'abord puis enchaîne
+    /// le rapport automatiquement (« dans la foulée »). Sinon génère directement.
+    private func startReportFlow() async {
+        guard !isGenerating && !isGeneratingReport, !stt.isTranscribing else {
+            print("[Rapport] flux déjà en cours, abort")
+            return
+        }
+        if meeting.rawTranscript.isEmpty {
+            guard let wav = meeting.wavFileURL else { return }
+            await retranscribe(wavURL: wav, thenGenerateReport: true)
+        } else {
+            await generateReport()
+        }
+    }
+
     private func generateReport() async {
         guard !isGenerating && !isGeneratingReport else {
             print("[Rapport] génération déjà en cours, abort")
@@ -1733,6 +1779,10 @@ struct MeetingView: View {
                     self.activeSection = .report
                 }
 
+                // Suggestion de thèmes post-rapport (non bloquant pour l'UI,
+                // rejouée à chaque génération).
+                Task { @MainActor in await self.suggestTags() }
+
                 // Indexation RAG post-rapport (non bloquant pour l'UI).
                 Task.detached { @MainActor in
                     do {
@@ -1748,6 +1798,33 @@ struct MeetingView: View {
                 throw error
             }
         }
+    }
+
+    /// Demande à l'IA des thèmes pour cette réunion et les expose en chips
+    /// « fantômes ». Non bloquant, silencieux en cas d'échec (liste vide), et
+    /// jamais appliqué automatiquement : l'utilisateur accepte ou ignore.
+    @MainActor
+    private func suggestTags() async {
+        guard !isSuggestingTags else { return }
+        let transcript = meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript
+        let source = MeetingTagSuggester.sourceText(summary: meeting.summary, transcript: transcript)
+        guard !source.isEmpty else { return }
+
+        let existing = ((try? context.fetch(FetchDescriptor<MeetingTag>())) ?? [])
+            .filter { !$0.isArchived }
+            .map(\.name)
+
+        isSuggestingTags = true
+        let names = await MeetingTagSuggester.suggest(
+            summary: source,
+            existingTags: existing,
+            settings: settings
+        )
+        isSuggestingTags = false
+
+        // Un thème déjà posé sur la réunion n'est pas re-proposé.
+        let linked = Set(meeting.tags.map { MeetingTag.normalizedKey($0.name) })
+        suggestedTagNames = names.filter { !linked.contains(MeetingTag.normalizedKey($0)) }
     }
 
     /// Retourne un bloc texte avec les extraits pertinents des réunions précédentes.
@@ -1856,12 +1933,32 @@ struct MeetingView: View {
         )
         t.meeting = meeting
         t.project = meeting.project
-        t.collaborator = selectedCollaborator
+        t.destinataire = newTaskAudience
+        t.collaborator = newTaskAudience == .collaborateur ? selectedCollaborator : nil
+        t.isUrgent = newTaskUrgent
+        t.isImportant = newTaskImportant
+        t.pomodoros = newTaskPomodoros
         context.insert(t)
         newTaskTitle = ""
         newTaskDueDate = nil
         showNewTaskDueDate = false
+        newTaskUrgent = false
+        newTaskImportant = false
+        newTaskPomodoros = 0
         saveContext()
+    }
+
+    /// Défaut malin du destinataire à la 1re apparition : en 1:1, on pré-remplit
+    /// « Collaborateur » avec le partenaire ; sinon « Moi ». Une seule fois.
+    private func applyActionDraftDefaultsIfNeeded() {
+        guard !didSetActionDefaults else { return }
+        didSetActionDefaults = true
+        if meeting.kind == .oneToOne, let partner = meeting.participants.first {
+            newTaskAudience = .collaborateur
+            selectedCollaborator = partner
+        } else {
+            newTaskAudience = .moi
+        }
     }
 
     // MARK: - Utils

@@ -321,9 +321,9 @@ final class MarkdownEditorRegistry {
 
 /// Back-compat wrapper kept for the historical call-sites that pass
 /// `textViewID:`. Under the hood this is the new WYSIWYG
-/// `MarkdownTextEditor`. The `textViewID` argument is now ignored — the
-/// internal NSTextView no longer needs an external identity because focus
-/// is handled by SwiftUI's `.focused()` modifier on the host.
+/// `MarkdownTextEditor`. The `textViewID` argument is forwarded to the shared
+/// editor registry so the legacy `MarkdownToolbar` can target the active
+/// `NSTextView`.
 struct MarkdownEditorView: View {
     @Binding var text: String
     let textViewID: String
@@ -340,19 +340,22 @@ struct MarkdownEditorView: View {
     }
 }
 
-/// Formatting toolbar that inserts markdown syntax into the registered editor.
+/// Formatting toolbar that applies markdown model attributes to the registered editor.
 struct MarkdownToolbar: View {
     let textViewID: String
+    private let headingPrefixes = ["# ", "## ", "### ", "#### ", "##### ", "###### "]
+    private let listPrefixes = ["- [ ] ", "- [x] ", "- ", "* ", "1. "]
+    private let tagPrefixes = ["[ACTION] ", "[RISQUE] ", "[DECISION] ", "[PROJET] "]
 
     var body: some View {
         HStack(spacing: 2) {
-            toolbarButton("bold", icon: "bold", wrap: "**")
-            toolbarButton("italic", icon: "italic", wrap: "_")
+            inlineAttributeButton("bold", icon: "bold", attribute: .mdBold, placeholder: "texte")
+            inlineAttributeButton("italic", icon: "italic", attribute: .mdItalic, placeholder: "texte")
             Divider().frame(height: 14)
-            toolbarButton("h2", icon: "textformat.size.larger", prefix: "## ")
-            toolbarButton("h3", icon: "textformat.size", prefix: "### ")
+            prefixButton("h2", icon: "textformat.size.larger", prefix: "## ", exclusivePrefixes: headingPrefixes)
+            prefixButton("h3", icon: "textformat.size", prefix: "### ", exclusivePrefixes: headingPrefixes)
             Divider().frame(height: 14)
-            toolbarButton("list", icon: "list.bullet", prefix: "- ")
+            prefixButton("list", icon: "list.bullet", prefix: "- ", exclusivePrefixes: listPrefixes)
             Divider().frame(height: 14)
             tagButton("[ACTION] ", color: .blue, label: "Action")
             tagButton("[RISQUE] ", color: .red, label: "Risque")
@@ -380,25 +383,82 @@ struct MarkdownToolbar: View {
         .help("Coller une image du presse-papiers")
     }
 
-    private func toolbarButton(_ id: String, icon: String, wrap: String? = nil, prefix: String? = nil) -> some View {
+    private func inlineAttributeButton(
+        _ id: String,
+        icon: String,
+        attribute: NSAttributedString.Key,
+        placeholder: String
+    ) -> some View {
         Button(action: {
             guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
-            let range = tv.selectedRange()
+            toggleInlineAttribute(attribute, placeholder: placeholder, in: tv)
+        }) {
+            Image(systemName: icon)
+                .font(.caption)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .help(id)
+    }
 
-            if let wrap {
-                let selected = (tv.string as NSString).substring(with: range)
-                // Espace final : déclenche la conversion markdown de l'éditeur
-                // WYSIWYG (ShortcutDetector s'active sur l'espace après `**…**`).
-                let replacement = wrap + (selected.isEmpty ? "texte" : selected) + wrap + " "
-                tv.insertText(replacement, replacementRange: range)
-            } else if let prefix {
-                // Insert at beginning of current line
-                let nsString = tv.string as NSString
-                let lineStart = nsString.lineRange(for: NSRange(location: range.location, length: 0)).location
-                tv.insertText(prefix, replacementRange: NSRange(location: lineStart, length: 0))
+    private func toggleInlineAttribute(
+        _ attribute: NSAttributedString.Key,
+        placeholder: String,
+        in textView: NSTextView
+    ) {
+        guard let storage = textView.textStorage else { return }
+        let selection = textView.selectedRange()
+
+        if selection.length == 0 {
+            let inserted = NSAttributedString(
+                string: placeholder,
+                attributes: [attribute: true]
+            )
+            storage.replaceCharacters(in: selection, with: inserted)
+            let insertedRange = NSRange(location: selection.location, length: placeholder.utf16.count)
+            StyleRenderer.applyVisualStyle(to: storage, affectedRange: insertedRange)
+            textView.didChangeText()
+            textView.setSelectedRange(insertedRange)
+            textView.window?.makeFirstResponder(textView)
+            return
+        }
+
+        var allSelectedTextAlreadyHasAttribute = true
+        storage.enumerateAttribute(attribute, in: selection, options: []) { value, _, stop in
+            if (value as? Bool) != true {
+                allSelectedTextAlreadyHasAttribute = false
+                stop.pointee = true
             }
+        }
 
-            tv.window?.makeFirstResponder(tv)
+        if allSelectedTextAlreadyHasAttribute {
+            storage.removeAttribute(attribute, range: selection)
+        } else {
+            storage.addAttribute(attribute, value: true, range: selection)
+        }
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: selection)
+        textView.didChangeText()
+        textView.setSelectedRange(selection)
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func prefixButton(
+        _ id: String,
+        icon: String,
+        prefix: String,
+        exclusivePrefixes: [String]
+    ) -> some View {
+        Button(action: {
+            guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
+            apply(
+                MarkdownEditingCommands.toggleLinePrefix(
+                    in: tv.string,
+                    range: tv.selectedRange(),
+                    prefix: prefix,
+                    exclusivePrefixes: exclusivePrefixes
+                ),
+                to: tv
+            )
         }) {
             Image(systemName: icon)
                 .font(.caption)
@@ -411,11 +471,15 @@ struct MarkdownToolbar: View {
     private func tagButton(_ tag: String, color: Color, label: String) -> some View {
         Button(action: {
             guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
-            let range = tv.selectedRange()
-            let nsString = tv.string as NSString
-            let lineStart = nsString.lineRange(for: NSRange(location: range.location, length: 0)).location
-            tv.insertText(tag, replacementRange: NSRange(location: lineStart, length: 0))
-            tv.window?.makeFirstResponder(tv)
+            apply(
+                MarkdownEditingCommands.toggleLinePrefix(
+                    in: tv.string,
+                    range: tv.selectedRange(),
+                    prefix: tag,
+                    exclusivePrefixes: tagPrefixes
+                ),
+                to: tv
+            )
         }) {
             Text(label)
                 .font(.caption2.bold())
@@ -427,6 +491,20 @@ struct MarkdownToolbar: View {
         }
         .buttonStyle(.plain)
         .help("Inserer tag \(label)")
+    }
+
+    private func apply(_ result: MarkdownEditResult, to textView: NSTextView) {
+        let parsed = MarkdownParser.parse(result.text)
+        textView.textStorage?.setAttributedString(parsed)
+        if let storage = textView.textStorage {
+            StyleRenderer.applyVisualStyle(to: storage)
+        }
+        textView.didChangeText()
+        let length = parsed.length
+        let location = min(max(0, result.selectedRange.location), length)
+        let end = min(max(location, result.selectedRange.location + result.selectedRange.length), length)
+        textView.setSelectedRange(NSRange(location: location, length: end - location))
+        textView.window?.makeFirstResponder(textView)
     }
 }
 

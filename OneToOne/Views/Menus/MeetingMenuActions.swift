@@ -61,7 +61,7 @@ struct MeetingMenuActions {
         case .startStopRecording: return !isTranscribing && !isGeneratingReport
         case .appendRecording:    return hasWav && !busy
         case .pause:              return isRecording
-        case .generateReport:     return hasTranscript && !busy
+        case .generateReport:     return (hasTranscript || hasPlayableAudio) && !busy
         case .retranscribe:       return hasWav && !isTranscribing
         case .customPrompt:       return true
         case .importCalendar:     return true

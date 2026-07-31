@@ -17,6 +17,8 @@ struct ActionsListView: View {
     @State private var filterEntity: Entity?
     @State private var filterCollaborator: Collaborator?
     @State private var filterDueDate: DueDateFilter = .any
+    @State private var viewMode: ActionsViewMode = .liste
+    @State private var kanbanGrouping: ActionGrouping = .destinataire
 
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
@@ -108,6 +110,25 @@ struct ActionsListView: View {
 
                 Spacer()
 
+                if viewMode == .kanban || viewMode == .sticky {
+                    Picker("", selection: $kanbanGrouping) {
+                        ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .help("Regrouper par…")
+                }
+
+                Picker("", selection: $viewMode) {
+                    ForEach(ActionsViewMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Changer de vue")
+
                 Button(action: addAction) {
                     Label("Nouvelle action", systemImage: "plus")
                 }
@@ -132,6 +153,54 @@ struct ActionsListView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .eisenhower {
+                EisenhowerBoard(tasks: filteredTasks, onToggle: { task in
+                    task.isCompleted.toggle()
+                    task.completedAt = task.isCompleted ? Date() : nil
+                    saveContext()
+                }, fillsAvailableSpace: true)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .kanban {
+                KanbanBoard(
+                    columns: KanbanBoard.columns(for: kanbanGrouping, tasks: filteredTasks),
+                    tasks: filteredTasks,
+                    onToggle: { task in
+                        task.isCompleted.toggle()
+                        task.completedAt = task.isCompleted ? Date() : nil
+                        saveContext()
+                    },
+                    onChanged: saveContext,
+                    fillsAvailableSpace: true
+                )
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .calendar {
+                ScrollView {
+                    CalendarBoard(tasks: filteredTasks, onToggle: { task in
+                        task.isCompleted.toggle()
+                        task.completedAt = task.isCompleted ? Date() : nil
+                        saveContext()
+                    }, fillsAvailableSpace: true)
+                    .padding()
+                }
+            } else if viewMode == .sticky {
+                ScrollView {
+                    StickyBoard(
+                        tasks: filteredTasks,
+                        columns: KanbanBoard.columns(for: kanbanGrouping, tasks: filteredTasks),
+                        allCollaborators: collaborators,
+                        onToggle: { task in
+                            task.isCompleted.toggle()
+                            task.completedAt = task.isCompleted ? Date() : nil
+                            saveContext()
+                        },
+                        onChanged: saveContext,
+                        onDelete: { task in context.delete(task); saveContext() },
+                        fillsAvailableSpace: true
+                    )
+                    .padding()
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {

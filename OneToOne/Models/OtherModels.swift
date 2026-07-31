@@ -220,6 +220,38 @@ final class InterviewAttachment {
     }
 }
 
+/// Destinataire d'une action : à qui/quoi elle se rapporte.
+enum ActionAudience: String, Codable, CaseIterable, Sendable {
+    case collaborateur   // déléguée à un collaborateur (assignee = `collaborator`)
+    case moi             // pour moi
+    case chef            // à remonter à mon manager
+
+    var label: String {
+        switch self {
+        case .collaborateur: return "Collaborateur"
+        case .moi:           return "Moi"
+        case .chef:          return "Chef"
+        }
+    }
+
+    /// Titre de section dans la vue groupée.
+    var sectionTitle: String {
+        switch self {
+        case .collaborateur: return "Déléguées"
+        case .moi:           return "Mes actions"
+        case .chef:          return "À remonter au chef"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .collaborateur: return "person.2.fill"
+        case .moi:           return "person.fill"
+        case .chef:          return "arrow.up.forward.circle.fill"
+        }
+    }
+}
+
 @Model
 final class ActionTask {
     var title: String
@@ -230,6 +262,20 @@ final class ActionTask {
     var dueDate: Date?
     var isCompleted: Bool = false
     var reminderID: String?
+
+    /// Destinataire (Raw + wrapper — contournement enum SwiftData). Défaut : moi.
+    var destinataireRaw: String = ActionAudience.moi.rawValue
+    var destinataire: ActionAudience {
+        get { ActionAudience(rawValue: destinataireRaw) ?? .moi }
+        set { destinataireRaw = newValue.rawValue }
+    }
+    /// Axes Eisenhower (urgent × important).
+    var isUrgent: Bool = false
+    var isImportant: Bool = false
+    /// Charge estimée en pomodoros (1 🍅 = 25 min). 0 = non estimée.
+    var pomodoros: Int = 0
+    /// Ordre manuel (vues Kanban/Timeline ultérieures).
+    var sortOrder: Int = 0
 
     /// True when the task was extracted from a 1:1 manager CR.
     var fromManager: Bool = false
@@ -402,6 +448,11 @@ final class Meeting {
 
     @Relationship(deleteRule: .nullify)
     var participants: [Collaborator] = []
+
+    /// Thèmes libres de la réunion (transverses au projet / type / participants).
+    /// Many-to-many `.nullify` : l'inverse est déclaré sur `MeetingTag.meetings`.
+    @Relationship(deleteRule: .nullify)
+    var tags: [MeetingTag] = []
 
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.meeting)
     var tasks: [ActionTask] = []

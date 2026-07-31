@@ -1,6 +1,29 @@
 import SwiftUI
 import SwiftData
 
+/// Mode d'affichage de la carte Actions (sélecteur de vue).
+enum ActionsViewMode: String, CaseIterable {
+    case liste, kanban, calendar, eisenhower, sticky
+    var label: String {
+        switch self {
+        case .liste: return "Liste"
+        case .kanban: return "Kanban"
+        case .calendar: return "Calendrier"
+        case .eisenhower: return "Eisenhower"
+        case .sticky: return "Post-it"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .liste: return "list.bullet"
+        case .kanban: return "rectangle.split.3x1"
+        case .calendar: return "calendar"
+        case .eisenhower: return "square.grid.2x2"
+        case .sticky: return "note.text"
+        }
+    }
+}
+
 /// Panneau Actions de la sidebar configurable. Wrap le tasksList + formSection
 /// (création + édition des ActionTask de la réunion). Logique identique à
 /// l'ancien MeetingActionsSidebar — refactor pur.
@@ -14,6 +37,10 @@ struct ActionsPanel: View {
     @Binding var selectedCollaborator: Collaborator?
     @Binding var showNewTaskDueDate: Bool
     @Binding var newTaskDueDate: Date?
+    @Binding var newTaskAudience: ActionAudience
+    @Binding var newTaskUrgent: Bool
+    @Binding var newTaskImportant: Bool
+    @Binding var newTaskPomodoros: Int
 
     let onAddTask: () -> Void
     let onDeleteTask: (ActionTask) -> Void
@@ -22,10 +49,27 @@ struct ActionsPanel: View {
 
     @Environment(\.modelContext) private var context
     @State private var showingAddCollaboratorSheet: Bool = false
+    @State private var viewMode: ActionsViewMode = .liste
+    @State private var kanbanGrouping: ActionGrouping = .destinataire
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            tasksList
+            Picker("", selection: $viewMode) {
+                ForEach(ActionsViewMode.allCases, id: \.self) { mode in
+                    Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding([.horizontal, .top], 10)
+
+            switch viewMode {
+            case .liste:      tasksList
+            case .kanban:     kanbanView
+            case .calendar:   calendarView
+            case .eisenhower: eisenhowerView
+            case .sticky:     stickyView
+            }
             formSection
         }
     }
@@ -52,11 +96,37 @@ struct ActionsPanel: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                 }
-                ForEach(meeting.tasks) { task in
-                    taskRow(task)
+                ForEach(ActionAudience.allCases, id: \.self) { audience in
+                    let group = sortedGroup(meeting.tasks.filter { $0.destinataire == audience })
+                    if !group.isEmpty {
+                        HStack(spacing: 5) {
+                            Image(systemName: audience.systemImage).font(.caption2)
+                            Text(audience.sectionTitle).tracking(1.0)
+                            Spacer()
+                            let total = group.reduce(0) { $0 + $1.pomodoros }
+                            if total > 0 { Text(chargeLabel(total)) }
+                        }
+                        .font(MeetingTheme.sectionLabel)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4).padding(.top, 4)
+                        ForEach(group) { task in
+                            taskRow(task)
+                        }
+                    }
                 }
             }
             .padding(10)
+        }
+    }
+
+    /// Tri d'un groupe : non terminées d'abord, puis par échéance croissante
+    /// (sans échéance en dernier), puis ordre manuel.
+    private func sortedGroup(_ tasks: [ActionTask]) -> [ActionTask] {
+        tasks.sorted { a, b in
+            if a.isCompleted != b.isCompleted { return !a.isCompleted }
+            let da = a.dueDate ?? .distantFuture, db = b.dueDate ?? .distantFuture
+            if da != db { return da < db }
+            return a.sortOrder < b.sortOrder
         }
     }
 
@@ -100,8 +170,35 @@ struct ActionsPanel: View {
                     .strikethrough(task.isCompleted)
                     .frame(height: 22)
 
+                priorityDot(task)
+
                 Spacer()
                 Menu {
+                    Section("Destinataire") {
+                        ForEach(ActionAudience.allCases, id: \.self) { audience in
+                            Button {
+                                task.destinataire = audience
+                                if audience != .collaborateur { task.collaborator = nil }
+                                saveContext()
+                            } label: {
+                                if task.destinataire == audience {
+                                    Label(audience.label, systemImage: "checkmark")
+                                } else {
+                                    Label(audience.label, systemImage: audience.systemImage)
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Toggle(isOn: Binding(
+                        get: { task.isUrgent },
+                        set: { task.isUrgent = $0; saveContext() }
+                    )) { Label("Urgent", systemImage: "exclamationmark") }
+                    Toggle(isOn: Binding(
+                        get: { task.isImportant },
+                        set: { task.isImportant = $0; saveContext() }
+                    )) { Label("Important", systemImage: "star") }
+                    Divider()
                     Button(role: .destructive) { onDeleteTask(task) } label: {
                         Label("Supprimer", systemImage: "trash")
                     }
@@ -136,6 +233,8 @@ struct ActionsPanel: View {
                 rowAssigneeMenu(task)
                 Text("·").foregroundColor(.secondary)
                 rowDueDateMenu(task)
+                Text("·").foregroundColor(.secondary)
+                rowChargeMenu(task)
                 Spacer()
             }
             .padding(.leading, 30)
@@ -147,33 +246,100 @@ struct ActionsPanel: View {
         )
     }
 
+    // MARK: - Vues Kanban / Eisenhower
+
+    private var kanbanView: some View {
+        VStack(spacing: 6) {
+            Picker("", selection: $kanbanGrouping) {
+                ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
+            }
+            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10)
+            ScrollView {
+                KanbanBoard(
+                    columns: KanbanBoard.columns(for: kanbanGrouping, tasks: meeting.tasks),
+                    tasks: meeting.tasks,
+                    onToggle: onToggleTaskCompletion,
+                    onChanged: saveContext
+                )
+                .padding(10)
+            }
+        }
+    }
+
+    private var calendarView: some View {
+        ScrollView {
+            CalendarBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion)
+                .padding(10)
+        }
+    }
+
+    private var eisenhowerView: some View {
+        ScrollView {
+            EisenhowerBoard(tasks: meeting.tasks, onToggle: onToggleTaskCompletion)
+                .padding(10)
+        }
+    }
+
+    private var stickyView: some View {
+        VStack(spacing: 6) {
+            Picker("", selection: $kanbanGrouping) {
+                ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
+            }
+            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 10)
+            ScrollView {
+                StickyBoard(
+                    tasks: meeting.tasks,
+                    columns: KanbanBoard.columns(for: kanbanGrouping, tasks: meeting.tasks),
+                    allCollaborators: allCollaborators,
+                    onToggle: onToggleTaskCompletion,
+                    onChanged: saveContext,
+                    onDelete: onDeleteTask
+                )
+                .padding(10)
+            }
+        }
+    }
+
+
+    // MARK: - Priority
+
+    /// Pastille de priorité selon le quadrant urgent×important (rien si aucun).
+    @ViewBuilder
+    private func priorityDot(_ task: ActionTask) -> some View {
+        if task.isUrgent || task.isImportant {
+            Circle()
+                .fill(EisenhowerBoard.quadrantColor(urgent: task.isUrgent, important: task.isImportant))
+                .frame(width: 8, height: 8)
+        }
+    }
+
     // MARK: - Form section
 
     private var formSection: some View {
-        VStack(spacing: 8) {
-            EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle)
-                .frame(height: 24)
+        VStack(spacing: 6) {
             HStack(spacing: 8) {
-                assigneeMenu
-                Toggle(isOn: $showNewTaskDueDate) {
-                    Label("Échéance", systemImage: "calendar").font(.caption)
+                EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle)
+                    .frame(height: 24)
+                Button(action: onAddTask) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(newTaskTitle.isEmpty ? .secondary : MeetingTheme.accentOrange)
                 }
-                .toggleStyle(.checkbox)
-                if showNewTaskDueDate {
-                    DatePicker("", selection: Binding(
-                        get: { newTaskDueDate ?? Date() },
-                        set: { newTaskDueDate = $0 }
-                    ), displayedComponents: .date).labelsHidden()
-                }
+                .buttonStyle(.plain)
+                .disabled(newTaskTitle.isEmpty)
+                .help("Ajouter l'action")
             }
-            Button(action: onAddTask) {
-                Label("Ajouter l'action", systemImage: "plus").frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                destinataireMenu
+                if newTaskAudience == .collaborateur { assigneeMenu }
+                iconToggle("Urgent", systemImage: "exclamationmark", isOn: $newTaskUrgent, color: .blue)
+                iconToggle("Important", systemImage: "star.fill", isOn: $newTaskImportant, color: .orange)
+                dueDateChip
+                chargeChip
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(MeetingTheme.accentOrange)
-            .disabled(newTaskTitle.isEmpty)
         }
-        .padding(14)
+        .padding(10)
         .background(MeetingTheme.canvasCream)
         .sheet(isPresented: $showingAddCollaboratorSheet) {
             AddCollaboratorSheet(
@@ -193,6 +359,81 @@ struct ActionsPanel: View {
                 }
             )
         }
+    }
+
+    // MARK: - Compact form controls
+
+    private var destinataireMenu: some View {
+        Menu {
+            ForEach(ActionAudience.allCases, id: \.self) { a in
+                Button {
+                    newTaskAudience = a
+                    if a != .collaborateur { selectedCollaborator = nil }
+                } label: {
+                    if newTaskAudience == a { Label(a.label, systemImage: "checkmark") }
+                    else { Label(a.label, systemImage: a.systemImage) }
+                }
+            }
+        } label: {
+            Label(newTaskAudience.label, systemImage: newTaskAudience.systemImage)
+                .font(.caption).labelStyle(.titleAndIcon)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Destinataire")
+    }
+
+    private func iconToggle(_ title: String, systemImage: String,
+                            isOn: Binding<Bool>, color: Color) -> some View {
+        Button { isOn.wrappedValue.toggle() } label: {
+            Image(systemName: systemImage)
+                .font(.caption)
+                .foregroundColor(isOn.wrappedValue ? .white : .secondary)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(isOn.wrappedValue ? color : Color.secondary.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    private var dueDateChip: some View {
+        Menu {
+            Button("Aucune") { newTaskDueDate = nil; showNewTaskDueDate = false }
+            Button("Aujourd'hui") { newTaskDueDate = Date(); showNewTaskDueDate = true }
+            Button("Demain") {
+                newTaskDueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())
+                showNewTaskDueDate = true
+            }
+            Button("Dans 1 semaine") {
+                newTaskDueDate = Calendar.current.date(byAdding: .day, value: 7, to: Date())
+                showNewTaskDueDate = true
+            }
+        } label: {
+            Image(systemName: "calendar")
+                .font(.caption)
+                .foregroundColor(showNewTaskDueDate ? .white : .secondary)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(showNewTaskDueDate ? MeetingTheme.accentOrange : Color.secondary.opacity(0.12)))
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Échéance")
+    }
+
+    private var chargeChip: some View {
+        Menu {
+            ForEach([0, 1, 2, 3, 4, 6, 8], id: \.self) { n in
+                Button(n == 0 ? "Aucune" : chargeLabel(n)) { newTaskPomodoros = n }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: "timer").font(.caption)
+                if newTaskPomodoros > 0 { Text("\(newTaskPomodoros)").font(.caption2) }
+            }
+            .foregroundColor(newTaskPomodoros > 0 ? .white : .secondary)
+            .frame(height: 24).padding(.horizontal, 7)
+            .background(Capsule().fill(newTaskPomodoros > 0 ? MeetingTheme.accentOrange : Color.secondary.opacity(0.12)))
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Charge (pomodoros)")
     }
 
     // MARK: - Assignee menu
@@ -366,6 +607,45 @@ struct ActionsPanel: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+    }
+
+    /// Menu de charge (pomodoros) par action.
+    @ViewBuilder
+    private func rowChargeMenu(_ task: ActionTask) -> some View {
+        Menu {
+            ForEach([0, 1, 2, 3, 4, 6, 8], id: \.self) { n in
+                Button {
+                    task.pomodoros = n
+                    saveContext()
+                } label: {
+                    let text = n == 0 ? "Aucune" : chargeLabel(n)
+                    if task.pomodoros == n { Label(text, systemImage: "checkmark") } else { Text(text) }
+                }
+            }
+        } label: {
+            Label(
+                task.pomodoros > 0 ? "\(task.pomodoros) 🍅" : "Charge",
+                systemImage: "timer"
+            )
+            .font(.caption)
+            .foregroundColor(task.pomodoros > 0 ? .primary : .secondary)
+            .labelStyle(.titleAndIcon)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// "N 🍅 · ~Xh Ym" — charge en pomodoros (25 min chacun).
+    private func chargeLabel(_ pomodoros: Int) -> String {
+        let mins = pomodoros * 25
+        let time: String
+        if mins >= 60 {
+            let h = mins / 60, m = mins % 60
+            time = m == 0 ? "\(h)h" : "\(h)h\(m)"
+        } else {
+            time = "\(mins) min"
+        }
+        return "\(pomodoros) 🍅 · \(time)"
     }
 
     // MARK: - Utilities

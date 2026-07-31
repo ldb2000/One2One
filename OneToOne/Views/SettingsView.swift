@@ -757,6 +757,11 @@ struct SettingsView: View {
                         .padding(8)
                 }
 
+                GroupBox("Thèmes de réunion") {
+                    TagManagementView()
+                        .padding(8)
+                }
+
                 GroupBox("Entités") {
                     VStack(alignment: .leading, spacing: 10) {
                         if entities.isEmpty {
