@@ -4,8 +4,14 @@ import XCTest
 final class MarkdownRoundTripTests: XCTestCase {
 
     /// For each fixture, parse the markdown then serialize it; the output
-    /// must equal the input (modulo accepted normalisations documented in
-    /// the spec — none required for these fixtures).
+    /// must equal the input. Normalisations do exist elsewhere in this
+    /// module — an image's alt text loses emphasis markers, and an
+    /// `MarkdownEscaping.inlineSpecials` character in it gains a backslash —
+    /// but `fixtures` avoids triggering them (see the per-fixture comments
+    /// below) since an identity check can't express "equal modulo a known
+    /// transform". Those two normalisations are instead asserted directly,
+    /// with their exact output and its stability on a second pass, in
+    /// `test_imageAltNormalizations`.
     private let fixtures: [String] = [
         "Hello world",
         "## Title",
@@ -66,5 +72,25 @@ final class MarkdownRoundTripTests: XCTestCase {
             let back = MarkdownSerializer.serialize(parsed)
             XCTAssertEqual(back, md, "Round-trip mismatch for: \(md.debugDescription)")
         }
+    }
+
+    /// Deux normalisations connues, volontairement exclues de `fixtures` :
+    /// - l'emphase dans le texte alternatif d'une image est aplatie —
+    ///   `image.plainText` descend dans les enfants sans réémettre leurs
+    ///   marqueurs, donc `**gras**` devient simplement `gras` ;
+    /// - un caractère de `MarkdownEscaping.inlineSpecials` dans l'alt ressort
+    ///   échappé (`+` → `\+`).
+    /// Dans les deux cas, la forme obtenue après une passe doit rester
+    /// stable à la suivante (pas de dérive supplémentaire au reparse).
+    func test_imageAltNormalizations() {
+        let boldAlt = MarkdownSerializer.serialize(MarkdownParser.parse("![**gras**](x)"))
+        XCTAssertEqual(boldAlt, "![gras](x)")
+        let boldAltStable = MarkdownSerializer.serialize(MarkdownParser.parse(boldAlt))
+        XCTAssertEqual(boldAltStable, boldAlt, "La normalisation doit être stable dès la 2e passe")
+
+        let plusAlt = MarkdownSerializer.serialize(MarkdownParser.parse("![R+2](x)"))
+        XCTAssertEqual(plusAlt, "![R\\+2](x)")
+        let plusAltStable = MarkdownSerializer.serialize(MarkdownParser.parse(plusAlt))
+        XCTAssertEqual(plusAltStable, plusAlt, "La normalisation doit être stable dès la 2e passe")
     }
 }

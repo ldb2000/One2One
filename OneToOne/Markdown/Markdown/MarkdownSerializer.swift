@@ -163,22 +163,29 @@ enum MarkdownSerializer {
     // MARK: - Inline
 
     /// Emits the inline markup for a range. Inline code wins exclusively (its
-    /// content is emitted verbatim between backticks). Otherwise emphasis
-    /// markers are layered from the outside in — bold, then italic, then
-    /// strikethrough — so `pre` accumulates left-to-right and `post` is built
-    /// in mirror order; a link, if present, wraps the body inside that
-    /// emphasis. The body itself is either the run's text run through
-    /// `MarkdownEscaping.escapeInline`, or — when the run carries
-    /// `mdImageURL` — the result of `emitImageAwareText`, so that an image
-    /// wrapped in bold/italic/strikethrough/a link round-trips with its
-    /// wrapping intact instead of the image markup replacing it outright.
+    /// content is emitted verbatim between backticks) — the `U+FFFC`
+    /// placeholder characters are stripped from it first, since a code span
+    /// (backticks = literal text) has no representation for an image and a
+    /// run can carry both `mdInlineCode` and `mdImageURL` at once (the parser
+    /// never attaches `mdInlineCode` to an `InlineCode` node's children — see
+    /// `MarkdownParser`'s `InlineCode` case — so this only happens through a
+    /// layout built by hand or by `NSTextView` typingAttributes, same as
+    /// below). Otherwise emphasis markers are layered from the outside in —
+    /// bold, then italic, then strikethrough — so `pre` accumulates
+    /// left-to-right and `post` is built in mirror order; a link, if present,
+    /// wraps the body inside that emphasis. The body itself is either the
+    /// run's text run through `MarkdownEscaping.escapeInline`, or — when the
+    /// run carries `mdImageURL` — the result of
+    /// `expandingImagePlaceholders(in:url:alt:)`, so that an image wrapped in
+    /// bold/italic/strikethrough/a link round-trips with its wrapping intact
+    /// instead of the image markup replacing it outright.
     private static func emitInline(source: NSAttributedString, range: NSRange) -> String {
         var out = ""
         source.enumerateAttributes(in: range, options: []) { attrs, run, _ in
             let raw = (source.string as NSString).substring(with: run)
             if (attrs[.mdInlineCode] as? Bool) == true {
                 out.append("`")
-                out.append(raw)
+                out.append(raw.filter { $0 != "\u{FFFC}" })
                 out.append("`")
                 return
             }
@@ -191,7 +198,7 @@ enum MarkdownSerializer {
             let body: String
             if let url = attrs[.mdImageURL] as? URL {
                 let alt = (attrs[.mdImageAlt] as? String) ?? ""
-                body = emitImageAwareText(raw, url: url, alt: alt)
+                body = expandingImagePlaceholders(in: raw, url: url, alt: alt)
             } else {
                 body = MarkdownEscaping.escapeInline(raw)
             }
@@ -201,7 +208,7 @@ enum MarkdownSerializer {
                 out.append("[")
                 out.append(body)
                 out.append("](")
-                out.append(MarkdownEscaping.escapeURL(url.absoluteString))
+                out.append(MarkdownEscaping.escapeURL(url))
                 out.append(")")
                 out.append(post)
             } else {
@@ -219,8 +226,8 @@ enum MarkdownSerializer {
     /// les deux : dans un `NSTextView`, du texte tapé juste après une image
     /// hérite des `typingAttributes` du caractère précédent, donc de
     /// `mdImageURL`, sans être lui-même une image.
-    private static func emitImageAwareText(_ raw: String, url: URL, alt: String) -> String {
-        let imageMarkup = "![\(MarkdownEscaping.escapeInline(alt))](\(MarkdownEscaping.escapeURL(url.absoluteString)))"
+    private static func expandingImagePlaceholders(in raw: String, url: URL, alt: String) -> String {
+        let imageMarkup = "![\(MarkdownEscaping.escapeInline(alt))](\(MarkdownEscaping.escapeURL(url)))"
         var out = ""
         var textBuffer = ""
         for character in raw {

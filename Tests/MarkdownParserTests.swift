@@ -48,4 +48,15 @@ final class MarkdownParserTests: XCTestCase {
         XCTAssertEqual(second?.kind, .task)
         XCTAssertEqual(second?.checked, true)
     }
+
+    /// `![a]()` : swift-markdown traite la destination vide comme absente
+    /// (`image.source == nil`), donc le garde d'`emitInlineNode` échoue et
+    /// seul le texte alternatif est émis, sans attribut `mdImageURL`. Ne peut
+    /// pas entrer dans `MarkdownRoundTripTests.fixtures` : il n'y a pas
+    /// d'identité à vérifier, l'URL étant délibérément absente du résultat.
+    func test_emptyImageDestinationFallsBackToPlainText() throws {
+        let attr = MarkdownParser.parse("![a]()")
+        XCTAssertEqual(attr.string, "a")
+        XCTAssertNil(attr.attribute(.mdImageURL, at: 0, effectiveRange: nil))
+    }
 }

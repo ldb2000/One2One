@@ -50,4 +50,55 @@ final class MarkdownSerializerTests: XCTestCase {
                        range: NSRange(location: 0, length: 2))
         XCTAssertEqual(MarkdownSerializer.serialize(m), "![a](file:///x.png)X")
     }
+
+    /// `(` est un caractère d'URL valide que `URL.absoluteString` laisse
+    /// littéral, y compris déséquilibré — un nom de fichier réel peut en
+    /// produire un. Sans l'encodage manuel dans `escapeURL`, ce `(` littéral
+    /// casserait la syntaxe `](…)` au reparse.
+    func test_imageURLWithUnbalancedParenthesisIsEncoded() {
+        let m = NSAttributedString(string: "\u{FFFC}",
+                                    attributes: [.mdBlockType: BlockType.paragraph,
+                                                 .mdImageURL: URL(string: "file:///Users/x/a(b.png")!,
+                                                 .mdImageAlt: "a"])
+        XCTAssertEqual(MarkdownSerializer.serialize(m), "![a](file:///Users/x/a%28b.png)")
+    }
+
+    /// Un run peut porter à la fois `mdInlineCode` et `mdImageURL` — même
+    /// dérive de `typingAttributes` que le test ci-dessus, mais héritée par
+    /// du texte tapé à l'intérieur d'un span de code. Le `U+FFFC` doit être
+    /// retiré avant émission plutôt que persisté tel quel entre les
+    /// backticks.
+    func test_inlineCodeAttributeStripsImagePlaceholder() {
+        let m = NSMutableAttributedString(string: "a\u{FFFC}b",
+                                           attributes: [.mdBlockType: BlockType.paragraph])
+        m.addAttribute(.mdInlineCode, value: true, range: NSRange(location: 0, length: 3))
+        m.addAttribute(.mdImageURL, value: URL(string: "file:///x.png")!,
+                       range: NSRange(location: 0, length: 3))
+        m.addAttribute(.mdImageAlt, value: "a", range: NSRange(location: 0, length: 3))
+        XCTAssertEqual(MarkdownSerializer.serialize(m), "`ab`")
+    }
+
+    /// Deux caractères « object replacement » dans un même run : chacun émet
+    /// indépendamment son propre markup d'image, sans fuite de l'un vers
+    /// l'autre.
+    func test_expandingImagePlaceholders_twoAdjacentImages() {
+        let m = NSMutableAttributedString(string: "\u{FFFC}\u{FFFC}",
+                                           attributes: [.mdBlockType: BlockType.paragraph])
+        m.addAttribute(.mdImageURL, value: URL(string: "file:///x.png")!,
+                       range: NSRange(location: 0, length: 2))
+        m.addAttribute(.mdImageAlt, value: "a", range: NSRange(location: 0, length: 2))
+        XCTAssertEqual(MarkdownSerializer.serialize(m),
+                       "![a](file:///x.png)![a](file:///x.png)")
+    }
+
+    /// Le caractère « object replacement » au milieu d'un run : le texte
+    /// avant et après doit survivre de part et d'autre du markup de l'image.
+    func test_expandingImagePlaceholders_placeholderInMiddleOfText() {
+        let m = NSMutableAttributedString(string: "A\u{FFFC}B",
+                                           attributes: [.mdBlockType: BlockType.paragraph])
+        m.addAttribute(.mdImageURL, value: URL(string: "file:///x.png")!,
+                       range: NSRange(location: 0, length: 3))
+        m.addAttribute(.mdImageAlt, value: "a", range: NSRange(location: 0, length: 3))
+        XCTAssertEqual(MarkdownSerializer.serialize(m), "A![a](file:///x.png)B")
+    }
 }
