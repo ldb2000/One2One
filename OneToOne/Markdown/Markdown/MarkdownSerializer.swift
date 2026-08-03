@@ -60,12 +60,47 @@ enum MarkdownSerializer {
         guard block == .codeBlock, effective.length > 0 else { return nil }
 
         let language = source.attribute(.mdCodeLanguage, at: cursor, effectiveRange: nil) as? String ?? ""
-        let body = ns.substring(with: effective)
+        // Un Retour tapé en fin de bloc hérite les attributs de frappe du run
+        // précédent, donc son `\n` peut se retrouver inclus dans `effective`.
+        // On ne retire que les `\n` de fin : ceux du début ont déjà été
+        // retirés par le parser, et les retirer ici n'aurait pas de sens.
+        let body = trimmingTrailingNewlines(ns.substring(with: effective))
+        let fence = String(repeating: "`", count: fenceLength(for: body))
         var next = effective.location + effective.length
         if next < source.length, ns.character(at: next) == 0x0A {
             next += 1
         }
-        return ("```\(language)\n\(body)\n```", next)
+        return ("\(fence)\(language)\n\(body)\n\(fence)", next)
+    }
+
+    /// Longueur de fence à utiliser pour envelopper `body` : au moins 3
+    /// backticks, et toujours strictement supérieure à la plus longue suite
+    /// de backticks présente dans le corps — sinon une fence interne se
+    /// refermerait prématurément et le contenu serait perdu au reparse.
+    private static func fenceLength(for body: String) -> Int {
+        var longestRun = 0
+        var currentRun = 0
+        for character in body {
+            if character == "`" {
+                currentRun += 1
+                longestRun = max(longestRun, currentRun)
+            } else {
+                currentRun = 0
+            }
+        }
+        return max(3, longestRun + 1)
+    }
+
+    /// Retire les `\n` de fin de `body` (uniquement ceux de fin, pas ceux de
+    /// début) : un bloc de code dont le run d'attributs englobe son saut de
+    /// ligne final donnerait sinon une ligne vide parasite avant la fence
+    /// fermante.
+    private static func trimmingTrailingNewlines(_ body: String) -> String {
+        var result = body
+        while result.hasSuffix("\n") {
+            result.removeLast()
+        }
+        return result
     }
 
     // MARK: - Paragraph
@@ -73,8 +108,9 @@ enum MarkdownSerializer {
     /// Emits one paragraph's markdown. A `ListInfo` attribute wins over the
     /// block type and produces a list-item prefix; otherwise the `BlockType`
     /// selects the syntax: `h1`-`h6` → `#`…`######`, `blockquote` → `>`,
-    /// `codeBlock` → fenced ``` block, `thematicBreak` → `---`, `paragraph` →
-    /// inline text as-is.
+    /// `thematicBreak` → `---`, `paragraph` → inline text as-is. `codeBlock`
+    /// is handled upstream by `fencedCodeBlock` and is unreachable here in
+    /// practice — see the case below.
     private static func emitParagraph(source: NSAttributedString, range: NSRange) -> String {
         let blockType = source.attribute(.mdBlockType, at: range.location, effectiveRange: nil)
             as? BlockType ?? .paragraph
@@ -95,9 +131,11 @@ enum MarkdownSerializer {
         case .h6: return "###### " + inline
         case .blockquote: return "> " + inline
         case .codeBlock:
-            // Traité en amont par `fencedCodeBlock`, qui émet le bloc entier.
-            // Ce cas n'est atteignable que si un run `.codeBlock` se retrouve
-            // isolé au milieu d'un paragraphe : on émet alors le texte brut.
+            // Inatteignable en pratique : `fencedCodeBlock` teste déjà
+            // `.mdBlockType` à `range.location` — toujours un début de ligne,
+            // la même position que celle-ci — avant que `emitParagraph` ne
+            // soit appelé. `inline` n'est qu'un repli défensif si cet
+            // invariant venait à être violé.
             return inline
         case .thematicBreak:
             return "---"

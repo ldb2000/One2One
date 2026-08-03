@@ -27,7 +27,16 @@ final class MarkdownRoundTripTests: XCTestCase {
         "```swift\nprint(1)\n```",
         "```swift\nlet a = 1\nlet b = 2\nprint(a + b)\n```",
         "```\nsans langage\nsur deux lignes\n```",
-        "texte avant\n```json\n{\n  \"a\": 1\n}\n```\ntexte après"
+        "texte avant\n```json\n{\n  \"a\": 1\n}\n```\ntexte après",
+        // Blocs adjacents : seul cas qui exerce le saut du `\n` séparateur
+        // dans `MarkdownSerializer.fencedCodeBlock`.
+        "```swift\na\n```\n```json\nb\n```",
+        // Ligne vide à l'intérieur du corps — cassé avant le correctif.
+        "```\na\n\nb\n```",
+        // Corps contenant lui-même une fence de 3 backticks : nécessite une
+        // fence englobante plus longue (4) pour ne pas se refermer
+        // prématurément et perdre du contenu au reparse.
+        "````\n```\nx\n```\n````"
     ]
 
     func test_allFixturesRoundTrip() {
