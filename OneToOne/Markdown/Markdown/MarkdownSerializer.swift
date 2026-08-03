@@ -166,21 +166,16 @@ enum MarkdownSerializer {
     /// content is emitted verbatim between backticks). Otherwise emphasis
     /// markers are layered from the outside in — bold, then italic, then
     /// strikethrough — so `pre` accumulates left-to-right and `post` is built
-    /// in mirror order; a link, if present, wraps the escaped text inside that
-    /// emphasis. Non-code text is run through `MarkdownEscaping.escapeInline`.
+    /// in mirror order; a link, if present, wraps the body inside that
+    /// emphasis. The body itself is either the run's text run through
+    /// `MarkdownEscaping.escapeInline`, or — when the run carries
+    /// `mdImageURL` — the result of `emitImageAwareText`, so that an image
+    /// wrapped in bold/italic/strikethrough/a link round-trips with its
+    /// wrapping intact instead of the image markup replacing it outright.
     private static func emitInline(source: NSAttributedString, range: NSRange) -> String {
         var out = ""
         source.enumerateAttributes(in: range, options: []) { attrs, run, _ in
             let raw = (source.string as NSString).substring(with: run)
-            if let url = attrs[.mdImageURL] as? URL {
-                let alt = (attrs[.mdImageAlt] as? String) ?? ""
-                out.append("![")
-                out.append(MarkdownEscaping.escapeInline(alt))
-                out.append("](")
-                out.append(MarkdownEscaping.escapeURL(url.absoluteString))
-                out.append(")")
-                return
-            }
             if (attrs[.mdInlineCode] as? Bool) == true {
                 out.append("`")
                 out.append(raw)
@@ -193,8 +188,15 @@ enum MarkdownSerializer {
             if (attrs[.mdItalic] as? Bool) == true { pre += "_"; post = "_" + post }
             if (attrs[.mdStrikethrough] as? Bool) == true { pre += "~~"; post = "~~" + post }
 
+            let body: String
+            if let url = attrs[.mdImageURL] as? URL {
+                let alt = (attrs[.mdImageAlt] as? String) ?? ""
+                body = emitImageAwareText(raw, url: url, alt: alt)
+            } else {
+                body = MarkdownEscaping.escapeInline(raw)
+            }
+
             if let url = attrs[.mdLink] as? URL {
-                let body = MarkdownEscaping.escapeInline(raw)
                 out.append(pre)
                 out.append("[")
                 out.append(body)
@@ -204,9 +206,36 @@ enum MarkdownSerializer {
                 out.append(post)
             } else {
                 out.append(pre)
-                out.append(MarkdownEscaping.escapeInline(raw))
+                out.append(body)
                 out.append(post)
             }
+        }
+        return out
+    }
+
+    /// Émet le texte d'un run portant `mdImageURL`/`mdImageAlt` : chaque
+    /// caractère « object replacement » (`U+FFFC`) devient `![alt](url)`,
+    /// le reste passe par l'échappement inline normal. Un run peut mélanger
+    /// les deux : dans un `NSTextView`, du texte tapé juste après une image
+    /// hérite des `typingAttributes` du caractère précédent, donc de
+    /// `mdImageURL`, sans être lui-même une image.
+    private static func emitImageAwareText(_ raw: String, url: URL, alt: String) -> String {
+        let imageMarkup = "![\(MarkdownEscaping.escapeInline(alt))](\(MarkdownEscaping.escapeURL(url.absoluteString)))"
+        var out = ""
+        var textBuffer = ""
+        for character in raw {
+            if character == "\u{FFFC}" {
+                if !textBuffer.isEmpty {
+                    out.append(MarkdownEscaping.escapeInline(textBuffer))
+                    textBuffer = ""
+                }
+                out.append(imageMarkup)
+            } else {
+                textBuffer.append(character)
+            }
+        }
+        if !textBuffer.isEmpty {
+            out.append(MarkdownEscaping.escapeInline(textBuffer))
         }
         return out
     }

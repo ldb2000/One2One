@@ -47,7 +47,17 @@ final class MarkdownRoundTripTests: XCTestCase {
         // sur l'échappement plutôt que sur le bug visé.
         "![Plan du R2](file:///Users/x/img_ab12.png)",
         "Avant ![schéma](file:///Users/x/s.png) après",
-        "![](file:///Users/x/sansalt.png)"
+        "![](file:///Users/x/sansalt.png)",
+        // URL déjà percent-encodée en entrée : une entrée littérale accentuée
+        // ou espacée ne peut pas round-tripper textuellement, `URL(string:)`
+        // la normalise en une forme déjà percent-encodée dès le premier parse
+        // — c'est cette forme normalisée qui doit ensuite rester stable.
+        "![a](file:///Users/x/sch%C3%A9ma.png)",
+        "![a](file:///Users/x/mon%20image.png)",
+        // Image enveloppée par du gras ou par un lien : le run porte alors
+        // à la fois `mdImageURL` et `mdBold`/`mdLink`.
+        "**![a](file:///x.png)**",
+        "[![a](file:///x.png)](https://example.com)"
     ]
 
     func test_allFixturesRoundTrip() {

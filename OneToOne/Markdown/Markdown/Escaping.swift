@@ -25,9 +25,15 @@ enum MarkdownEscaping {
         return out
     }
 
-    /// Escapes a URL for use inside `[label](url)`. Spaces and `)` need
-    /// percent-encoding to avoid breaking the link syntax.
+    /// Escapes a URL for use inside `[label](url)`. `URL.absoluteString` is
+    /// already percent-encoded per RFC 3986 — re-running it through
+    /// `addingPercentEncoding` would percent-encode the `%` signs themselves,
+    /// stacking one extra layer of encoding at every round-trip. The only
+    /// remaining risk for the markdown syntax is `(`/`)`, which are valid
+    /// unescaped URL characters but would break `](…)`; those two are encoded
+    /// by hand instead.
     static func escapeURL(_ url: String) -> String {
-        url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url
+        url.replacingOccurrences(of: "(", with: "%28")
+           .replacingOccurrences(of: ")", with: "%29")
     }
 }
