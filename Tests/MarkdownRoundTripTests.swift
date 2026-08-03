@@ -39,7 +39,15 @@ final class MarkdownRoundTripTests: XCTestCase {
         // Corps contenant lui-même une fence de 3 backticks : nécessite une
         // fence englobante plus longue (4) pour ne pas se refermer
         // prématurément et perdre du contenu au reparse.
-        "````\n```\nx\n```\n````"
+        "````\n```\nx\n```\n````",
+        // Images — l'URL était perdue faute de cas `Image` dans le parser.
+        // Les textes alternatifs évitent les caractères de
+        // `MarkdownEscaping.inlineSpecials` (`+`, `-`, `_`, `#`, `!`…) : ils
+        // ressortiraient échappés (`R+2` → `R\+2`) et feraient échouer le test
+        // sur l'échappement plutôt que sur le bug visé.
+        "![Plan du R2](file:///Users/x/img_ab12.png)",
+        "Avant ![schéma](file:///Users/x/s.png) après",
+        "![](file:///Users/x/sansalt.png)"
     ]
 
     func test_allFixturesRoundTrip() {
