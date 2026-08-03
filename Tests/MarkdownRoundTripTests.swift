@@ -28,8 +28,11 @@ final class MarkdownRoundTripTests: XCTestCase {
         "```swift\nlet a = 1\nlet b = 2\nprint(a + b)\n```",
         "```\nsans langage\nsur deux lignes\n```",
         "texte avant\n```json\n{\n  \"a\": 1\n}\n```\ntexte après",
-        // Blocs adjacents : seul cas qui exerce le saut du `\n` séparateur
-        // dans `MarkdownSerializer.fencedCodeBlock`.
+        // Adjacence stricte, sans texte intercalaire. Comme la fixture
+        // « texte avant / texte après » ci-dessus, elle exerce le saut du `\n`
+        // séparateur dans `MarkdownSerializer.fencedCodeBlock` : supprimer cet
+        // incrément fait échouer les deux, avec une ligne vide parasite après
+        // la fence fermante.
         "```swift\na\n```\n```json\nb\n```",
         // Ligne vide à l'intérieur du corps — cassé avant le correctif.
         "```\na\n\nb\n```",
