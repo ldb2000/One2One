@@ -18,7 +18,7 @@ enum MediaStore {
     static func saveClipboardImage() -> URL? {
         let pb = NSPasteboard.general
 
-        // Try PNG first, then TIFF
+        // Essaie d'abord le PNG, puis le TIFF
         var imageData: Data?
         if let png = pb.data(forType: .png) {
             imageData = png
@@ -30,7 +30,7 @@ enum MediaStore {
 
         guard let data = imageData else { return nil }
 
-        // Compress if > 2MB
+        // Compresse si > 2 Mo
         var finalData = data
         if finalData.count > 2_000_000 {
             if let bitmapRep = NSBitmapImageRep(data: data),
