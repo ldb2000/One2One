@@ -1,65 +1,6 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Image Paste Service
-
-enum ImagePasteService {
-    static var imagesDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("OneToOne/images", isDirectory: true)
-    }
-
-    static var clipboardHasImage: Bool {
-        let pb = NSPasteboard.general
-        return pb.canReadItem(withDataConformingToTypes: [NSPasteboard.PasteboardType.png.rawValue,
-                                                          NSPasteboard.PasteboardType.tiff.rawValue])
-    }
-
-    static func saveClipboardImage() -> URL? {
-        let pb = NSPasteboard.general
-
-        // Try PNG first, then TIFF
-        var imageData: Data?
-        if let png = pb.data(forType: .png) {
-            imageData = png
-        } else if let tiff = pb.data(forType: .tiff),
-                  let bitmapRep = NSBitmapImageRep(data: tiff),
-                  let png = bitmapRep.representation(using: .png, properties: [:]) {
-            imageData = png
-        }
-
-        guard let data = imageData else { return nil }
-
-        // Compress if > 2MB
-        var finalData = data
-        if finalData.count > 2_000_000 {
-            if let bitmapRep = NSBitmapImageRep(data: data),
-               let jpeg = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
-                finalData = jpeg
-            }
-        }
-
-        let isJpeg = finalData.count != data.count
-        let ext = isJpeg ? "jpg" : "png"
-        let fileName = "img_\(UUID().uuidString).\(ext)"
-        let dir = imagesDirectory
-
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let fileURL = dir.appendingPathComponent(fileName)
-            try finalData.write(to: fileURL)
-            return fileURL
-        } catch {
-            print("[ImagePasteService] Failed to save image: \(error)")
-            return nil
-        }
-    }
-
-    static func markdownReference(for imageURL: URL, alt: String = "image") -> String {
-        "![\(alt)](\(imageURL.absoluteString))"
-    }
-}
-
 // MARK: - Pastable Markdown NSTextView
 
 /// NSTextView subclass that intercepts Cmd+V to handle image paste from clipboard.
@@ -67,9 +8,9 @@ class PastableMarkdownTextView: NSTextView {
     /// Si le presse-papiers contient une image, l'enregistre sur disque et
     /// insère sa référence Markdown ; sinon délègue au collage standard.
     override func paste(_ sender: Any?) {
-        if ImagePasteService.clipboardHasImage {
-            if let imageURL = ImagePasteService.saveClipboardImage() {
-                let ref = ImagePasteService.markdownReference(for: imageURL)
+        if MediaStore.clipboardHasImage {
+            if let imageURL = MediaStore.saveClipboardImage() {
+                let ref = MediaStore.markdownReference(for: imageURL)
                 let insertion = "\n\(ref)\n"
                 insertText(insertion, replacementRange: selectedRange())
             }
@@ -369,8 +310,8 @@ struct MarkdownToolbar: View {
     private var pasteImageButton: some View {
         Button(action: {
             guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
-            guard let imageURL = ImagePasteService.saveClipboardImage() else { return }
-            let ref = ImagePasteService.markdownReference(for: imageURL)
+            guard let imageURL = MediaStore.saveClipboardImage() else { return }
+            let ref = MediaStore.markdownReference(for: imageURL)
             let insertion = "\n\(ref)\n"
             tv.insertText(insertion, replacementRange: tv.selectedRange())
             tv.window?.makeFirstResponder(tv)
