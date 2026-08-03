@@ -186,16 +186,14 @@ enum MarkdownParser {
             case let image as Markdown.Image:
                 // Une image devient un unique caractère « object replacement »
                 // porteur de sa destination : le texte reste sérialisable même
-                // si le fichier est absent ou illisible.
+                // si le fichier est absent ou illisible. Voir `ImagePlaceholder`
+                // pour le point de construction partagé avec le collage.
                 guard let destination = image.source,
                       let url = URL(string: destination) else {
                     out.append(NSAttributedString(string: image.plainText))
                     return
                 }
-                out.append(NSAttributedString(
-                    string: "\u{FFFC}",
-                    attributes: [.mdImageURL: url, .mdImageAlt: image.plainText]
-                ))
+                out.append(ImagePlaceholder.attributedString(for: url, alt: image.plainText))
             case let link as Markdown.Link:
                 let start = out.length
                 emitInline(link.children, into: out)
