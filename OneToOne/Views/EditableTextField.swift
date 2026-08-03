@@ -1,25 +1,6 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Pastable Markdown NSTextView
-
-/// NSTextView subclass that intercepts Cmd+V to handle image paste from clipboard.
-class PastableMarkdownTextView: NSTextView {
-    /// Si le presse-papiers contient une image, l'enregistre sur disque et
-    /// insère sa référence Markdown ; sinon délègue au collage standard.
-    override func paste(_ sender: Any?) {
-        if MediaStore.clipboardHasImage {
-            if let imageURL = MediaStore.saveClipboardImage() {
-                let ref = MediaStore.markdownReference(for: imageURL)
-                let insertion = "\n\(ref)\n"
-                insertText(insertion, replacementRange: selectedRange())
-            }
-        } else {
-            super.paste(sender)
-        }
-    }
-}
-
 // MARK: - Warm Background
 
 /// Shared warm gradient background matching the chatbot style.
