@@ -22,6 +22,7 @@ enum StyleRenderer {
         storage.removeAttribute(.strikethroughStyle, range: renderRange)
         storage.removeAttribute(.paragraphStyle, range: renderRange)
         storage.removeAttribute(.obliqueness, range: renderRange)
+        storage.removeAttribute(.attachment, range: renderRange)
 
         storage.enumerateAttributes(in: renderRange, options: []) { attrs, range, _ in
             let block = attrs[.mdBlockType] as? BlockType ?? .paragraph
@@ -87,6 +88,34 @@ enum StyleRenderer {
                 para.headIndent = baseIndent
                 para.firstLineHeadIndent = baseIndent - 12
                 storage.addAttribute(.paragraphStyle, value: para, range: range)
+            }
+
+            // `mdImageURL` marque un run, pas forcément un seul caractère :
+            // dans `NSTextView`, du texte tapé juste après une image hérite
+            // de l'attribut via les `typingAttributes` du caractère
+            // précédent, sans être lui-même une image (même défaut que
+            // documenté et testé côté sérialisation, voir
+            // `MarkdownSerializer.expandingImagePlaceholders`). On ne pose
+            // donc l'attachment / la couleur d'échec que sur les caractères
+            // `U+FFFC` du run ; le reste garde le style normal posé ci-dessus
+            // (police, gras, paragraphStyle…).
+            if let imageURL = attrs[.mdImageURL] as? URL {
+                let nsText = storage.string as NSString
+                var remaining = range
+                while remaining.length > 0 {
+                    let placeholder = nsText.range(of: "\u{FFFC}", options: [], range: remaining)
+                    guard placeholder.location != NSNotFound else { break }
+                    if let attachment = ImageAttachmentFactory.attachment(for: imageURL) {
+                        storage.addAttribute(.attachment, value: attachment, range: placeholder)
+                    } else {
+                        storage.addAttribute(.foregroundColor, value: NSColor.systemRed, range: placeholder)
+                    }
+                    let nextLocation = placeholder.location + placeholder.length
+                    remaining = NSRange(
+                        location: nextLocation,
+                        length: remaining.location + remaining.length - nextLocation
+                    )
+                }
             }
         }
 
