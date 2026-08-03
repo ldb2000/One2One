@@ -12,6 +12,11 @@ enum ImageAttachmentFactory {
     /// Hauteur du cadre affiché quand la taille de l'image est inexploitable.
     private static let placeholderHeight: CGFloat = 120
 
+    /// `NSCache` est documenté thread-safe par Apple : appeler `attachment(for:)`
+    /// et `invalidate()` depuis plusieurs threads ne pose donc pas de problème
+    /// réel. Le passage du package en mode langage Swift 6 (concurrence
+    /// stricte) demandera néanmoins une annotation explicite ici, car
+    /// `NSCache` ne conforme pas à `Sendable`.
     private static let cache = NSCache<NSURL, NSTextAttachment>()
 
     /// Renvoie l'attachment correspondant à `url`, ou `nil` si le fichier est
