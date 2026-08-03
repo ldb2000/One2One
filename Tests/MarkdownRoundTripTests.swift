@@ -18,7 +18,16 @@ final class MarkdownRoundTripTests: XCTestCase {
         "[link](https://example.com)",
         "hello `code` inline",
         // Note: serializer normalises *italic* → _italic_
-        "Mix _italic_ and **bold** here"
+        "Mix _italic_ and **bold** here",
+        // Blocs fencés — non couverts jusqu'ici.
+        // Pas de ligne vide entre les blocs : `MarkdownParser.appendNewline`
+        // n'en émet qu'une seule après chaque bloc, donc `\n\n` en entrée
+        // ressortirait en `\n` et ferait échouer le test pour une raison
+        // étrangère à ce qu'on cherche à prouver.
+        "```swift\nprint(1)\n```",
+        "```swift\nlet a = 1\nlet b = 2\nprint(a + b)\n```",
+        "```\nsans langage\nsur deux lignes\n```",
+        "texte avant\n```json\n{\n  \"a\": 1\n}\n```\ntexte après"
     ]
 
     func test_allFixturesRoundTrip() {
