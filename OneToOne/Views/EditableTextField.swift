@@ -311,9 +311,17 @@ struct MarkdownToolbar: View {
         Button(action: {
             guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
             guard let imageURL = MediaStore.saveClipboardImage() else { return }
-            let ref = MediaStore.markdownReference(for: imageURL)
-            let insertion = "\n\(ref)\n"
-            tv.insertText(insertion, replacementRange: tv.selectedRange())
+            if let editor = tv as? EditorTextView {
+                // Passe par le placeholder attribué (même construction que
+                // `EditorTextView.paste(_:)`) : insérer le texte markdown
+                // littéral ici causerait la même corruption par échappement
+                // que celle corrigée dans `paste(_:)` (voir son doc-comment).
+                editor.insertImagePlaceholder(for: imageURL)
+            } else {
+                let ref = MediaStore.markdownReference(for: imageURL)
+                let insertion = "\n\(ref)\n"
+                tv.insertText(insertion, replacementRange: tv.selectedRange())
+            }
             tv.window?.makeFirstResponder(tv)
         }) {
             Image(systemName: "photo.on.rectangle.angled")
