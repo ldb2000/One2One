@@ -172,6 +172,15 @@ enum MarkdownSerializer {
         var out = ""
         source.enumerateAttributes(in: range, options: []) { attrs, run, _ in
             let raw = (source.string as NSString).substring(with: run)
+            if let url = attrs[.mdImageURL] as? URL {
+                let alt = (attrs[.mdImageAlt] as? String) ?? ""
+                out.append("![")
+                out.append(MarkdownEscaping.escapeInline(alt))
+                out.append("](")
+                out.append(MarkdownEscaping.escapeURL(url.absoluteString))
+                out.append(")")
+                return
+            }
             if (attrs[.mdInlineCode] as? Bool) == true {
                 out.append("`")
                 out.append(raw)

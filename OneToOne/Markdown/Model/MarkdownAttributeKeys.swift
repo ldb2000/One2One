@@ -18,6 +18,11 @@ public extension NSAttributedString.Key {
     /// language hint after the opening ``` fence (e.g. "swift", "json"). Empty
     /// or absent means an unlabelled fence.
     static let mdCodeLanguage  = NSAttributedString.Key("mdCodeLanguage")
+    /// Value: `URL` — destination d'une image inline. Portée par l'unique
+    /// caractère `U+FFFC` qui représente l'image dans le texte.
+    static let mdImageURL      = NSAttributedString.Key("mdImageURL")
+    /// Value: `String` — texte alternatif de l'image, réémis entre crochets.
+    static let mdImageAlt      = NSAttributedString.Key("mdImageAlt")
 }
 
 /// Block-level kind applied to a whole paragraph range.
