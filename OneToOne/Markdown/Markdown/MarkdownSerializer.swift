@@ -6,32 +6,66 @@ import AppKit
 /// produced by this serializer parses back to the same model state.
 enum MarkdownSerializer {
 
-    /// Splits the attributed string on newlines and emits one markdown line per
-    /// paragraph. A single trailing empty line is dropped so the output has no
-    /// spurious blank line at the end (it would otherwise round-trip to an extra
-    /// empty paragraph).
+    /// Émet une ligne markdown par paragraphe, sauf pour les blocs fencés qui
+    /// sont émis d'un seul tenant. Le parser stocke le corps d'un bloc de code
+    /// comme un unique run d'attributs contenant des `\n` ; le découper ligne à
+    /// ligne produirait une paire de fences par ligne.
+    /// Une éventuelle ligne vide finale est supprimée : elle reviendrait sinon
+    /// sous forme de paragraphe vide supplémentaire.
     static func serialize(_ source: NSAttributedString) -> String {
         guard source.length > 0 else { return "" }
         var lines: [String] = []
         let ns = source.string as NSString
-        var paragraphStart = 0
-        while paragraphStart < source.length {
-            var paragraphEnd = paragraphStart
+        var cursor = 0
+
+        while cursor < source.length {
+            if let fence = fencedCodeBlock(in: source, at: cursor, ns: ns) {
+                lines.append(fence.markdown)
+                cursor = fence.nextCursor
+                continue
+            }
+
+            var paragraphEnd = cursor
             while paragraphEnd < source.length, ns.character(at: paragraphEnd) != 0x0A {
                 paragraphEnd += 1
             }
-            if paragraphEnd > paragraphStart {
-                let range = NSRange(location: paragraphStart, length: paragraphEnd - paragraphStart)
+            if paragraphEnd > cursor {
+                let range = NSRange(location: cursor, length: paragraphEnd - cursor)
                 lines.append(emitParagraph(source: source, range: range))
             } else {
                 lines.append("")
             }
-            paragraphStart = paragraphEnd + 1
+            cursor = paragraphEnd + 1
         }
+
         if let last = lines.last, last.isEmpty {
             lines.removeLast()
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Si un bloc de code commence à `cursor`, renvoie son markdown complet et
+    /// la position juste après le bloc — saut de ligne de séparation compris,
+    /// celui que `MarkdownParser.appendNewline` ajoute après chaque bloc.
+    /// Renvoie `nil` quand `cursor` n'est pas sur un bloc de code.
+    private static func fencedCodeBlock(in source: NSAttributedString,
+                                        at cursor: Int,
+                                        ns: NSString) -> (markdown: String, nextCursor: Int)? {
+        var effective = NSRange(location: NSNotFound, length: 0)
+        let searchRange = NSRange(location: cursor, length: source.length - cursor)
+        let block = source.attribute(.mdBlockType,
+                                     at: cursor,
+                                     longestEffectiveRange: &effective,
+                                     in: searchRange) as? BlockType
+        guard block == .codeBlock, effective.length > 0 else { return nil }
+
+        let language = source.attribute(.mdCodeLanguage, at: cursor, effectiveRange: nil) as? String ?? ""
+        let body = ns.substring(with: effective)
+        var next = effective.location + effective.length
+        if next < source.length, ns.character(at: next) == 0x0A {
+            next += 1
+        }
+        return ("```\(language)\n\(body)\n```", next)
     }
 
     // MARK: - Paragraph
@@ -61,9 +95,10 @@ enum MarkdownSerializer {
         case .h6: return "###### " + inline
         case .blockquote: return "> " + inline
         case .codeBlock:
-            let lang = (source.attribute(.mdCodeLanguage, at: range.location, effectiveRange: nil) as? String) ?? ""
-            let body = (source.string as NSString).substring(with: range)
-            return "```\(lang)\n\(body)\n```"
+            // Traité en amont par `fencedCodeBlock`, qui émet le bloc entier.
+            // Ce cas n'est atteignable que si un run `.codeBlock` se retrouve
+            // isolé au milieu d'un paragraphe : on émet alors le texte brut.
+            return inline
         case .thematicBreak:
             return "---"
         case .paragraph:
