@@ -40,6 +40,46 @@ final class EditorTextView: NSTextView {
         textContainerInset = NSSize(width: 6, height: 6)
     }
 
+    // MARK: - Collage
+
+    /// Si le presse-papiers contient une image, l'enregistre sur disque et
+    /// insère le placeholder d'image affiché par l'éditeur ; sinon délègue au
+    /// collage standard.
+    ///
+    /// Le placeholder inséré est la même représentation que celle produite par
+    /// `MarkdownParser` pour une image (`Markdown.Image` → un unique caractère
+    /// « object replacement » `U+FFFC` porteur de `.mdImageURL`/`.mdImageAlt`),
+    /// et non le texte `![alt](url)` littéral : sans ces attributs,
+    /// `MarkdownSerializer` traiterait ce texte comme de la saisie ordinaire
+    /// et échapperait ses caractères spéciaux (`!`, `[`, `]`, `(`, `)`, `_` —
+    /// voir `MarkdownEscaping.escapeInline`) dès le `textDidChange` déclenché
+    /// par cette insertion, corrompant la référence de façon permanente. Avec
+    /// le placeholder attribué, ce même `textDidChange` fait au contraire
+    /// apparaître l'image immédiatement : `StyleRenderer.applyVisualStyle`
+    /// repère `.mdImageURL` sur la plage insérée et y attache le
+    /// `NSTextAttachment` réel, sans attendre de frappe supplémentaire.
+    override func paste(_ sender: Any?) {
+        guard MediaStore.clipboardHasImage,
+              let imageURL = MediaStore.saveClipboardImage() else {
+            super.paste(sender)
+            return
+        }
+        insertText(Self.imagePlaceholder(for: imageURL), replacementRange: selectedRange())
+    }
+
+    /// Construit le placeholder à insérer pour référencer `imageURL` — voir
+    /// le doc-comment de `paste(_:)`. Isolé en fonction `static` pour être
+    /// exercé par les tests indépendamment de `NSPasteboard.general`.
+    static func imagePlaceholder(for imageURL: URL, alt: String = "image") -> NSAttributedString {
+        let insertion = NSMutableAttributedString(string: "\n")
+        insertion.append(NSAttributedString(string: "\u{FFFC}", attributes: [
+            .mdImageURL: imageURL,
+            .mdImageAlt: alt
+        ]))
+        insertion.append(NSAttributedString(string: "\n"))
+        return insertion
+    }
+
     // MARK: - Click handling for task checkboxes
 
     /// Intercepte le clic pour détecter s'il vise la checkbox d'une tâche.
