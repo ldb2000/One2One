@@ -23,9 +23,6 @@ import AppKit
 /// l'item, jamais par-dessus.
 final class MarkdownLayoutManager: NSLayoutManager {
 
-    /// Espace, en points, laissé entre le marqueur et le début du texte.
-    private static let markerTrailingGap: CGFloat = 4
-
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
@@ -44,7 +41,11 @@ final class MarkdownLayoutManager: NSLayoutManager {
         enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] lineRect, _, _, lineGlyphRange, _ in
             guard let self else { return }
             let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
-            guard charRange.location <= ns.length else { return }
+            // Strict : `storage.attribute(at:)` exige `location < length`.
+            // À l'égalité (fragment de ligne vide en toute fin de texte,
+            // ex. juste après un `\n` final), lire l'attribut lèverait
+            // `NSRangeException`.
+            guard charRange.location < ns.length else { return }
             let isParagraphStart = charRange.location == 0
                 || ns.character(at: charRange.location - 1) == 0x0A
             guard isParagraphStart else { return }
@@ -63,19 +64,21 @@ final class MarkdownLayoutManager: NSLayoutManager {
         lineFragmentRect: NSRect,
         origin: NSPoint
     ) {
-        let font = storage.attribute(.font, at: location, effectiveRange: nil) as? NSFont
-            ?? NSFont.systemFont(ofSize: StyleRenderer.baseFontSize)
-        let color = storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
-            ?? NSColor.labelColor
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        // Police et couleur fixes (`ListMarkerLayout.markerFont`/`markerColor`)
+        // — pas celles du premier caractère de l'item : un item en gras/lien/
+        // code inline ne doit pas changer l'apparence de son marqueur.
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: ListMarkerLayout.markerFont,
+            .foregroundColor: ListMarkerLayout.markerColor
+        ]
 
         let markerText = ListMarkerLayout.markerText(for: info) as NSString
         let markerSize = markerText.size(withAttributes: attributes)
 
         let paragraphStyle = storage.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
-        let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info.level)
+        let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info)
 
-        let markerX = origin.x + textIndent - Self.markerTrailingGap - markerSize.width
+        let markerX = origin.x + textIndent - ListMarkerLayout.markerTrailingGap - markerSize.width
         let markerY = origin.y + lineFragmentRect.minY + (lineFragmentRect.height - markerSize.height) / 2
         markerText.draw(at: NSPoint(x: markerX, y: markerY), withAttributes: attributes)
     }

@@ -13,8 +13,20 @@ enum ListMarkerLayout {
     /// par ce chantier.
     static let indentPerLevel: CGFloat = 16
 
-    /// Indentation du texte d'un item de liste à `level` donné — la même
-    /// valeur pour la première ligne et les lignes de repli.
+    /// Espace, en points, laissé entre le marqueur et le début du texte.
+    static let markerTrailingGap: CGFloat = 4
+
+    /// Police et couleur fixes du marqueur — indépendantes du style du
+    /// *texte* de l'item. `MarkdownLayoutManager` lisait auparavant `.font`/
+    /// `.foregroundColor` au premier caractère de l'item, donc un item en
+    /// gras/lien/code inline dessinait sa case/puce en gras/bleu/monospace
+    /// grisé (mesuré). Un marqueur n'est pas de l'inline stylé, c'est un
+    /// repère structurel : une seule apparence, quel que soit le contenu.
+    static let markerFont = NSFont.systemFont(ofSize: StyleRenderer.baseFontSize)
+    static let markerColor = NSColor.labelColor
+
+    /// Indentation du texte d'un item de liste — la même valeur pour la
+    /// première ligne et les lignes de repli.
     ///
     /// Avant ce chantier, `firstLineHeadIndent` valait `headIndent - 12` :
     /// un écart qui ne réservait de la place à *rien* tant qu'aucun marqueur
@@ -26,11 +38,29 @@ enum ListMarkerLayout {
     /// donc à gauche de `firstLineHeadIndent` : le préserver à 4 n'aurait
     /// laissé aucune place. Les deux valeurs sont donc désormais égales, et
     /// `MarkdownLayoutManager` dessine le marqueur dans la marge ainsi
-    /// libérée, sans changer la progression par niveau (16, 32, 48…),
-    /// c'est-à-dire sans changer l'indentation visible du **texte** d'un
-    /// item, seulement la position d'un marqueur qui n'existait pas avant.
-    static func textIndent(for level: Int) -> CGFloat {
-        CGFloat(max(0, level)) * indentPerLevel + indentPerLevel
+    /// libérée.
+    ///
+    /// Cette marge (`indentPerLevel`, 16pt) suffit à une puce ou une case à
+    /// cocher, mais pas à un item numéroté à deux ou trois chiffres : mesuré
+    /// à la police du marqueur, `"10."` fait ~17,3pt et `"123."` ~25,1pt, au-
+    /// delà des 12pt utilisables (16 moins `markerTrailingGap`) — le
+    /// marqueur se retrouverait rogné sur son bord gauche. La colonne
+    /// réservée au marqueur s'élargit donc au besoin
+    /// (`max(indentPerLevel, largeur du marqueur + gouttière)`) ; la
+    /// progression *entre* niveaux (16pt) reste inchangée, seule la colonne
+    /// du niveau le plus profond (celui qui porte effectivement `info`)
+    /// s'adapte. Contrepartie acceptée : deux items d'un même niveau dont
+    /// les marqueurs ont des largeurs différentes (ex. `"9."` puis `"10."`)
+    /// peuvent démarrer leur texte à des abscisses légèrement différentes —
+    /// préférable à un marqueur tronqué, et non visuellement vérifiable
+    /// depuis ce chantier de toute façon.
+    static func textIndent(for info: ListInfo) -> CGFloat {
+        let level = CGFloat(max(0, info.level))
+        let markerWidth = (markerText(for: info) as NSString)
+            .size(withAttributes: [.font: markerFont])
+            .width
+        let markerColumn = max(indentPerLevel, markerWidth + markerTrailingGap)
+        return level * indentPerLevel + markerColumn
     }
 
     /// Texte du marqueur affiché pour `info`. `index` retombe sur `1` par

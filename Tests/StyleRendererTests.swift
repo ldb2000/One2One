@@ -388,6 +388,157 @@ final class StyleRendererTests: XCTestCase {
         }
     }
 
+    /// La marge de niveau 0 (`ListMarkerLayout.indentPerLevel`, 16pt, dont
+    /// `markerTrailingGap` = 4 de gouttière, soit 12pt utilisables) ne suffit
+    /// pas à un marqueur numéroté à deux ou trois chiffres — mesuré à la
+    /// police du marqueur : `"10."` fait ~17,3pt, `"123."` ~25,1pt, tous deux
+    /// au-delà des 12pt. `textIndent(for:)` doit donc élargir la colonne
+    /// réservée pour ces cas, sous peine de dessiner le marqueur à une
+    /// abscisse négative — rogné contre le bord gauche du conteneur.
+    func test_multiDigitOrderedMarker_getsAnIndentWideEnoughToAvoidBeingClipped() {
+        for index in [10, 123] {
+            let info = ListInfo(kind: .ordered, index: index)
+            let indent = ListMarkerLayout.textIndent(for: info)
+            let markerWidth = (ListMarkerLayout.markerText(for: info) as NSString)
+                .size(withAttributes: [.font: ListMarkerLayout.markerFont])
+                .width
+            let markerX = indent - ListMarkerLayout.markerTrailingGap - markerWidth
+
+            XCTAssertGreaterThanOrEqual(
+                markerX, 0,
+                "l'item ordonné n°\(index) déborderait à gauche du conteneur (rogné) : indent=\(indent), largeur=\(markerWidth)"
+            )
+        }
+    }
+
+    /// Le marqueur d'un item à trois chiffres doit rester visible dans la
+    /// marge réservée (pas de vérification pixel-perfect de son intégrité,
+    /// simplement que quelque chose s'y peint bien, comme pour les autres
+    /// marqueurs) — complète le test géométrique ci-dessus par une preuve de
+    /// rendu réel, sur le modèle de
+    /// `test_listMarkers_bulletOrderedCheckedUnchecked_areActuallyPaintedInTheReservedMargin`.
+    func test_threeDigitOrderedMarker_isActuallyPaintedInItsWidenedMargin() throws {
+        let info = ListInfo(kind: .ordered, index: 123)
+        let storage = NSTextStorage(string: "item")
+        storage.addAttribute(.mdListInfo, value: info, range: NSRange(location: 0, length: storage.length))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let paragraphStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
+
+        XCTAssertGreaterThan(
+            nonWhitePixelCount(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent))),
+            0,
+            "le marqueur « 123. » doit être peint dans sa marge élargie"
+        )
+    }
+
+    /// Le marqueur doit avoir une apparence fixe (police/couleur), pas
+    /// hériter du style *inline* du texte de l'item — mesuré avant
+    /// correctif : `MarkdownLayoutManager` lisait `.font`/`.foregroundColor`
+    /// au premier caractère de l'item, donc un item en gras, en lien ou en
+    /// code inline dessinait sa case/puce respectivement en gras, en bleu ou
+    /// en monospace grisé.
+    ///
+    /// Ne compare *pas* les bitmaps de la marge pixel à pixel : le code
+    /// inline utilise une police monospace de taille différente
+    /// (`StyleRenderer`), qui change légitimement la hauteur de ligne — le
+    /// marqueur, vertically recentré dans cette hauteur, se décale donc de
+    /// quelques pixels sans que sa couleur ni sa police n'aient changé
+    /// (mesuré : une comparaison pixel à pixel naïve faisait ici échouer le
+    /// cas code inline sur un pur décalage vertical, aucune teinte). Ce test
+    /// vise spécifiquement la couleur et l'intensité de l'encre, pas sa
+    /// position.
+    func test_markerAppearance_isFixed_notInheritedFromTheItemsInlineTextStyle() throws {
+        // Marqueur numéroté, pas une case à cocher : mesuré séparément (voir
+        // le commit), le glyphe ☐ ne change pas visuellement de poids une
+        // fois « embold » via `NSFontManager` dans cet environnement (aucune
+        // variante grasse dédiée pour ce symbole ; largeur identique avant/
+        // après conversion). Un chiffre, lui, s'élargit bien en gras (mesuré :
+        // "3." fait 11,41pt en normal contre 12,56pt en gras) — nécessaire
+        // pour que la vérification de couverture d'encre (3) puisse
+        // réellement attraper une régression sur l'item en gras.
+        func markerColumnPixels(styling: (NSTextStorage) -> Void) throws -> [[CGFloat]] {
+            let storage = NSTextStorage(string: "texte")
+            storage.addAttribute(
+                .mdListInfo, value: ListInfo(kind: .ordered, index: 3),
+                range: NSRange(location: 0, length: storage.length)
+            )
+            styling(storage)
+            StyleRenderer.applyVisualStyle(to: storage)
+
+            let paragraphStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+            let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
+            return pixelSnapshot(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent)))
+        }
+
+        let plain = try markerColumnPixels { _ in }
+        let variants: [(String, [[CGFloat]])] = [
+            ("gras", try markerColumnPixels { storage in
+                storage.addAttribute(.mdBold, value: true, range: NSRange(location: 0, length: storage.length))
+            }),
+            ("lien", try markerColumnPixels { storage in
+                storage.addAttribute(
+                    .mdLink, value: URL(string: "https://example.com")!,
+                    range: NSRange(location: 0, length: storage.length)
+                )
+            }),
+            ("code inline", try markerColumnPixels { storage in
+                storage.addAttribute(.mdInlineCode, value: true, range: NSRange(location: 0, length: storage.length))
+            }),
+        ]
+        let plainCoverage = plain.filter { $0[0] < 0.98 }.count
+
+        for (label, pixels) in variants {
+            // 1) Aucune teinte : `linkColor` est bleu (R ≠ B) contrairement
+            // au gris neutre `labelColor` (R ≈ G ≈ B, quel que soit le taux
+            // d'anti-crénelage) — un marqueur qui hérite la couleur de lien
+            // se détecte donc sans dépendre de sa position exacte.
+            let tinted = pixels.filter { abs($0[0] - $0[1]) > 0.02 || abs($0[1] - $0[2]) > 0.02 }
+            XCTAssertTrue(
+                tinted.isEmpty,
+                "item en \(label) : le marqueur ne doit porter aucune teinte, trouvé \(tinted.prefix(3))"
+            )
+
+            // 2) Encre de même intensité : le pixel le plus sombre (le plus
+            // couvert par l'encre, donc le moins sensible à un sous-décalage
+            // de position) doit être la même couleur que dans le cas
+            // témoin — `secondaryLabelColor` (code inline) est un gris plus
+            // clair que `labelColor`, ce qui se verrait ici même sans teinte.
+            let darkest = pixels.map { $0[0] }.min() ?? 1
+            let plainDarkest = plain.map { $0[0] }.min() ?? 1
+            XCTAssertEqual(
+                darkest, plainDarkest, accuracy: 0.05,
+                "item en \(label) : l'encre du marqueur ne doit pas changer d'intensité"
+            )
+
+            // 3) Couverture d'encre comparable : un marqueur en gras (police
+            // différente, traits plus épais) couvrirait sensiblement plus de
+            // pixels que le témoin — la seule des quatre vérifications
+            // capable d'attraper une police différente à couleur inchangée.
+            // Tolérance 10% : mesuré, un item en gras avec l'ancien bug (police
+            // héritée) couvre ~21% de pixels en plus que le témoin — cette
+            // marge laisse passer le bruit d'anti-crénelage normal tout en
+            // attrapant cet écart.
+            let coverage = pixels.filter { $0[0] < 0.98 }.count
+            XCTAssertEqual(
+                Double(coverage), Double(plainCoverage), accuracy: Double(plainCoverage) * 0.1 + 1,
+                "item en \(label) : la couverture d'encre du marqueur ne doit pas changer notablement (police différente ?)"
+            )
+
+            // 4) Fond intact : le halo de fond posé sur le *texte* du code
+            // inline (`StyleRenderer`, `.backgroundColor`) ne doit pas
+            // déborder dans la marge du marqueur — sinon le pixel le plus
+            // clair de la marge ne serait plus blanc.
+            let lightest = pixels.map { $0[0] }.max() ?? 0
+            let plainLightest = plain.map { $0[0] }.max() ?? 0
+            XCTAssertEqual(
+                lightest, plainLightest, accuracy: 0.02,
+                "item en \(label) : le fond de la marge ne doit pas être teinté"
+            )
+        }
+    }
+
     /// L'indentation par niveau (`headIndent`) garde la même progression que
     /// l'ancien `StyleRenderer` (16pt par niveau) : ce chantier ajoute un
     /// marqueur, il ne change pas la profondeur d'imbrication visible d'un
@@ -483,6 +634,22 @@ final class StyleRendererTests: XCTestCase {
             }
         }
         return count
+    }
+
+    /// Composantes RGBA de chaque pixel de `bitmap` dans `xRange` (toutes
+    /// lignes confondues), dans un ordre stable — comparable directement par
+    /// `XCTAssertEqual` entre deux rendus, pour prouver qu'une zone donnée
+    /// est peinte à l'identique indépendamment d'un facteur qui ne devrait
+    /// pas l'influencer (`test_markerAppearance_isFixed_...`).
+    private func pixelSnapshot(_ bitmap: NSBitmapImageRep, xRange: Range<Int>) -> [[CGFloat]] {
+        var snapshot: [[CGFloat]] = []
+        for y in 0..<bitmap.pixelsHigh {
+            for x in xRange where x >= 0 && x < bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                snapshot.append([color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent])
+            }
+        }
+        return snapshot
     }
 
     // MARK: - Fixtures

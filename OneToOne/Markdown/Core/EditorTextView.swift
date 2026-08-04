@@ -140,14 +140,16 @@ final class EditorTextView: NSTextView {
     /// La zone cliquable est restreinte à la marge où `MarkdownLayoutManager`
     /// dessine le marqueur — à gauche de `paragraphStyle.firstLineHeadIndent`,
     /// sur la hauteur du fragment de ligne — pour ne pas intercepter un clic
-    /// destiné à positionner le curseur dans le texte de l'item.
+    /// destiné à positionner le curseur dans le texte de l'item. Ne fait rien
+    /// en lecture seule (`isEditable == false`) : basculer une case reste une
+    /// édition.
     ///
     /// Internal (pas `private`) pour être exercée directement par les tests
     /// sans reconstruire un `NSEvent`/`NSWindow`, sur le modèle de
     /// `insertImagePlaceholder`.
     @discardableResult
     func toggleTaskMarker(at point: NSPoint) -> Bool {
-        guard let storage = textStorage, storage.length > 0, let layoutManager else { return false }
+        guard isEditable, let storage = textStorage, storage.length > 0, let layoutManager else { return false }
 
         let charIndex = characterIndexForInsertion(at: point)
         let safeIndex = min(charIndex, storage.length - 1)
@@ -159,11 +161,21 @@ final class EditorTextView: NSTextView {
             lineStart -= 1
         }
 
-        var effectiveRange = NSRange(location: 0, length: 0)
-        guard let info = storage.attribute(
-            .mdListInfo, at: lineStart, longestEffectiveRange: &effectiveRange,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? ListInfo, info.kind == .task else {
+        // Plage du *paragraphe cliqué* uniquement — jamais
+        // `longestEffectiveRange` : `ListInfo` est `Hashable`, donc
+        // `NSAttributedString` fusionne les runs adjacents de valeur égale.
+        // Mesuré : une checklist neuve à trois items décochés ne porte qu'un
+        // unique run `.mdListInfo` couvrant les trois lignes ; y lire
+        // `longestEffectiveRange` à la 2e ligne renvoyait la plage des
+        // *trois*, et écrire dessus cochait les trois d'un seul clic.
+        // `NSString.lineRange(for:)` inclut le `\n` terminal, exactement
+        // comme `MarkdownParser.emitList` pose `.mdListInfo` sur la plage
+        // d'un item (contenu + retour à la ligne) : c'est donc la plage d'un
+        // seul item, quel que soit l'état de ses voisins.
+        let range = ns.lineRange(for: NSRange(location: lineStart, length: 0))
+
+        guard let info = storage.attribute(.mdListInfo, at: lineStart, effectiveRange: nil) as? ListInfo,
+              info.kind == .task else {
             return false
         }
 
@@ -172,7 +184,7 @@ final class EditorTextView: NSTextView {
             y: point.y - textContainerInset.height
         )
         let paragraphStyle = storage.attribute(.paragraphStyle, at: lineStart, effectiveRange: nil) as? NSParagraphStyle
-        let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info.level)
+        let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info)
         guard containerPoint.x < textIndent else { return false }
 
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: lineStart)
@@ -182,9 +194,38 @@ final class EditorTextView: NSTextView {
         }
 
         let toggled = ListInfo(kind: info.kind, level: info.level, index: info.index, checked: !(info.checked ?? false))
-        storage.addAttribute(.mdListInfo, value: toggled, range: effectiveRange)
-        StyleRenderer.applyVisualStyle(to: storage, affectedRange: effectiveRange)
-        onTaskToggle?(effectiveRange, toggled.checked ?? true)
+        applyTaskToggle(range: range, from: info, to: toggled)
         return true
+    }
+
+    /// Bascule effectivement `.mdListInfo` sur `range`, de `oldInfo` vers
+    /// `newInfo` : mute l'attribut, restyle, notifie `onTaskToggle`, et
+    /// enregistre l'inverse auprès de `undoManager`.
+    ///
+    /// N'utilise pas `shouldChangeText(in:replacementString:)`/
+    /// `didChangeText()` : ce chemin redéclencherait tout
+    /// `Coordinator.textDidChange` (raccourcis markdown, sérialisation,
+    /// poussée *débouncée* vers le binding), qui ferait double emploi avec la
+    /// poussée *immédiate* que fait déjà `onTaskToggle` — et la débouncée,
+    /// planifiée après coup, absorberait l'avantage recherché (persistance
+    /// immédiate d'un clic de case à cocher, cf. doc d'`onTaskToggle` dans
+    /// `EditorRepresentable`).
+    ///
+    /// `applyTaskToggle` réenregistre son propre inverse à chaque exécution —
+    /// bascule initiale, annulation ou rétablissement — ce qui fait
+    /// fonctionner ⌘Z et ⇧⌘Z symétriquement sans code dédié à chacun. Sans
+    /// cet enregistrement, une bascule mutait `textStorage` sans passer par
+    /// aucun mécanisme d'undo : ⌘Z n'avait alors aucun effet sur elle et
+    /// annulait à la place la dernière édition de texte réelle, sans rapport
+    /// (vérifié dans une fenêtre réelle : frapper du texte, basculer une
+    /// case, ⌘Z annulait la frappe et laissait la case cochée).
+    private func applyTaskToggle(range: NSRange, from oldInfo: ListInfo, to newInfo: ListInfo) {
+        guard let storage = textStorage, range.location + range.length <= storage.length else { return }
+        storage.addAttribute(.mdListInfo, value: newInfo, range: range)
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: range)
+        onTaskToggle?(range, newInfo.checked ?? true)
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.applyTaskToggle(range: range, from: newInfo, to: oldInfo)
+        }
     }
 }

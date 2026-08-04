@@ -90,7 +90,7 @@ enum StyleRenderer {
                 // marqueur dans la marge ainsi libérée, à gauche de cette
                 // position — voir `ListMarkerLayout.textIndent(for:)`.
                 let para = NSMutableParagraphStyle()
-                let indent = ListMarkerLayout.textIndent(for: info.level)
+                let indent = ListMarkerLayout.textIndent(for: info)
                 para.headIndent = indent
                 para.firstLineHeadIndent = indent
                 storage.addAttribute(.paragraphStyle, value: para, range: range)
