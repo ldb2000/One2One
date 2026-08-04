@@ -14,13 +14,22 @@ enum MarkdownSerializer {
     /// sous forme de paragraphe vide supplémentaire.
     ///
     /// Une ligne vide est insérée entre deux lignes consécutives quand son
-    /// absence changerait la relecture CommonMark — matrice des 49 paires
-    /// ordonnées de 7 types de blocs mesurée par un test temporaire (tâche 1
-    /// du plan `docs/superpowers/plans/2026-08-04-menu-slash.md`, depuis
-    /// supprimé) : seules 5 paires sont à risque, cf. `needsBlankLine`. Les 44
-    /// autres — dont paragraphe→bloc de code, sur lequel une fixture
-    /// existante s'appuie — doivent rester collées : une ligne vide uniforme
-    /// entre tout bloc les casserait sans nécessité.
+    /// absence changerait la relecture CommonMark. Mesuré par un test
+    /// temporaire (tâche 1 du plan
+    /// `docs/superpowers/plans/2026-08-04-menu-slash.md`, depuis supprimé) sur
+    /// les 49 paires ordonnées de 7 types échantillonnés (paragraphe, h1, h2,
+    /// citation, séparateur `---`, bloc de code fencé avec langage, item de
+    /// liste à puces) : 6 paires à risque au total, cf. `needsBlankLine` — les
+    /// 5 initiales plus la 6e ajoutée après revue (item de liste ordonnée
+    /// d'ordinal ≠ 1, absente de cet échantillon qui ne testait que
+    /// l'ordinal 1). Une revue indépendante a étendu la mesure à 225 paires
+    /// (15 types : + h3-h6, bloc de code sans langage, les 4 sortes d'item —
+    /// puce, tâche, ordonné à 1, ordonné ≠ 1) et vérifié que la généralisation
+    /// « le `kind` de liste n'importe pas, sauf l'ordinal d'un item ordonné »
+    /// tient sur cet échantillon élargi, ainsi que l'idempotence de la règle
+    /// sur 245 cas. Les paires sûres — dont paragraphe→bloc de code, sur
+    /// laquelle une fixture existante s'appuie — doivent rester collées : une
+    /// ligne vide uniforme entre tout bloc les casserait sans nécessité.
     static func serialize(_ source: NSAttributedString) -> String {
         guard source.length > 0 else { return "" }
         var lines: [Line] = []
@@ -66,7 +75,7 @@ enum MarkdownSerializer {
 
     /// Une ligne de sortie et le type de frontière qu'elle expose à son début
     /// — juste assez de résolution pour `needsBlankLine`, pas plus : les
-    /// titres (h1-h6) et les blocs de code ne participent à aucune des 5
+    /// titres (h1-h6) et les blocs de code ne participent à aucune des 6
     /// paires à risque, `.other` leur suffit à tous.
     private struct Line {
         let markdown: String
@@ -77,7 +86,17 @@ enum MarkdownSerializer {
         case plainParagraph
         case blockquote
         case thematicBreak
-        case listItem
+        /// `startsAtOne` distingue le seul cas où le `kind` d'un item importe
+        /// pour `needsBlankLine` : un item ordonné dont l'ordinal n'est pas 1
+        /// n'interrompt pas un paragraphe en CommonMark (règle de la spec,
+        /// pour qu'un nombre en tête d'une ligne de texte hard-wrappé ne
+        /// démarre pas une liste involontaire) — puce et tâche interrompent
+        /// toujours, quel que soit leur marqueur, donc `startsAtOne: true`
+        /// pour ces deux. Mesuré : `"AONE\n2. BTWO"` fusionne en un seul
+        /// paragraphe où même le « 2. » littéral perd son sens de liste,
+        /// alors que `"AONE\n1. BTWO"` et `"AONE\n- [ ] BTWO"` restent deux
+        /// blocs distincts.
+        case listItem(startsAtOne: Bool)
         case other
     }
 
@@ -85,31 +104,29 @@ enum MarkdownSerializer {
     /// attributs déjà posés par `MarkdownParser` — aucun état nouveau. Un
     /// `.mdListInfo` présent l'emporte (item de liste, quel que soit son
     /// `kind` : puce, ordonné ou tâche) ; sinon le `.mdBlockType` distingue
-    /// les trois cas qui participent à une paire à risque. Lire l'attribut à
-    /// `location` (début de ligne) et non ailleurs importe : sur la paire
-    /// item de liste→séparateur, le `\n` qui suit l'item porte lui aussi
-    /// `.mdListInfo` (posé par `MarkdownParser.emitList` sur toute la plage de
-    /// l'item, retour à la ligne inclus) — le lire au milieu classerait à tort
-    /// le bloc suivant comme faisant partie de la liste.
+    /// les trois cas qui participent à une paire à risque, avec le même repli
+    /// vers `.paragraph` que `emitParagraph`/`StyleRenderer` quand l'attribut
+    /// est absent — une ligne sans `.mdBlockType` *est* un paragraphe, ce
+    /// n'est pas un état neutre à part : `StyleRenderer` ne pose jamais cet
+    /// attribut, il ne fait que le lire, donc le texte fraîchement tapé dans
+    /// une note n'en porte aucun avant un premier passage par
+    /// `MarkdownParser`. Un défaut vers `.other` désactiverait la protection
+    /// sur ce chemin — mesuré : une citation convertie puis suivie d'une
+    /// ligne tapée sans style (`"Cite\nTape"`, `.mdBlockType` posé seulement
+    /// sur "Cite") fusionne les deux en une seule citation faute de ligne
+    /// vide, exactement le scénario que ce plan corrige (convertir une ligne
+    /// en citation, puis écrire dessous).
     ///
-    /// Un `.mdBlockType` absent tombe dans `.other` (pas de ligne vide), sans
-    /// défaut implicite vers `.paragraph` — contrairement à `emitParagraph`
-    /// ou `StyleRenderer`, où ce défaut est neutre (repli d'affichage). Ici il
-    /// ne l'est pas : la matrice a été mesurée sur la sortie de
-    /// `MarkdownParser`, qui pose toujours `.mdBlockType` explicitement.
-    /// `EditorTextViewPasteTests` construit du storage à la main (texte tapé
-    /// avant tout restylage, cf. son commentaire sur `ShortcutDetector`) sans
-    /// cet attribut ; y défauter vers `.plainParagraph` insérerait une ligne
-    /// vide parasite entre du texte inline et une image collée juste après,
-    /// sur la seule foi d'une absence d'attribut plutôt que d'une paire
-    /// mesurée comme à risque.
+    /// Lire l'attribut à `location` (début de ligne) et non ailleurs importe :
+    /// sur la paire item de liste→séparateur, le `\n` qui suit l'item porte
+    /// lui aussi `.mdListInfo` (posé par `MarkdownParser.emitList` sur toute
+    /// la plage de l'item, retour à la ligne inclus) — le lire au milieu
+    /// classerait à tort le bloc suivant comme faisant partie de la liste.
     private static func boundaryKind(source: NSAttributedString, at location: Int) -> BoundaryKind {
-        if source.attribute(.mdListInfo, at: location, effectiveRange: nil) is ListInfo {
-            return .listItem
+        if let info = source.attribute(.mdListInfo, at: location, effectiveRange: nil) as? ListInfo {
+            return .listItem(startsAtOne: startsAtOne(for: info))
         }
-        guard let blockType = source.attribute(.mdBlockType, at: location, effectiveRange: nil) as? BlockType else {
-            return .other
-        }
+        let blockType = source.attribute(.mdBlockType, at: location, effectiveRange: nil) as? BlockType ?? .paragraph
         switch blockType {
         case .paragraph: return .plainParagraph
         case .blockquote: return .blockquote
@@ -118,7 +135,16 @@ enum MarkdownSerializer {
         }
     }
 
-    /// Les 5 paires mesurées où l'absence de ligne vide change la relecture
+    /// Cf. `BoundaryKind.listItem` : seul un item ordonné d'ordinal ≠ 1
+    /// échoue à interrompre un paragraphe.
+    private static func startsAtOne(for info: ListInfo) -> Bool {
+        switch info.kind {
+        case .bullet, .task: return true
+        case .ordered: return (info.index ?? 1) == 1
+        }
+    }
+
+    /// Les 6 paires mesurées où l'absence de ligne vide change la relecture
     /// CommonMark :
     /// - paragraphe→paragraphe : fusionnent en un seul paragraphe (soft break) ;
     /// - paragraphe→séparateur : le paragraphe devient un titre H2 Setext, le
@@ -126,7 +152,12 @@ enum MarkdownSerializer {
     /// - citation→paragraphe et citation→citation : continuation paresseuse de
     ///   blockquote, absorbés/fusionnés ;
     /// - item de liste→paragraphe : même continuation paresseuse, le
-    ///   paragraphe est absorbé dans l'item.
+    ///   paragraphe est absorbé dans l'item — quel que soit l'ordinal de
+    ///   l'item, mesuré sur un item ordonné d'ordinal 2 ;
+    /// - paragraphe→item de liste ordonnée d'ordinal ≠ 1 : l'item n'interrompt
+    ///   pas le paragraphe, son marqueur redevient du texte littéral et
+    ///   `ListInfo` est perdu au reparse — pas une simple fusion de texte
+    ///   comme les autres, une perte de structure.
     /// Toute autre paire est sûre sans ligne vide — notamment item de
     /// liste→item de liste, volontairement absent d'ici : deux items restent
     /// distincts même collés, et une ligne vide entre eux romprait leur
@@ -137,7 +168,8 @@ enum MarkdownSerializer {
         case (.plainParagraph, .thematicBreak): return true
         case (.blockquote, .plainParagraph): return true
         case (.blockquote, .blockquote): return true
-        case (.listItem, .plainParagraph): return true
+        case (.listItem(_), .plainParagraph): return true
+        case (.plainParagraph, .listItem(startsAtOne: false)): return true
         default: return false
         }
     }

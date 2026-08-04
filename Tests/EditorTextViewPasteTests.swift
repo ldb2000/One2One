@@ -114,7 +114,17 @@ final class EditorTextViewPasteTests: XCTestCase {
             serialized.contains(imageURL.absoluteString),
             "l'URL de l'image ne doit pas disparaître après du code inline : \(serialized.debugDescription)"
         )
-        XCTAssertEqual(serialized, "`code`\n![image](\(imageURL.absoluteString))")
+        // Ligne vide requise, pas un simple `\n` : `imagePlaceholder` entoure
+        // volontairement le caractère `U+FFFC` de deux `\n` pour le placer
+        // sur sa propre ligne (`test_imagePlaceholder_isAloneOnItsOwnLine`).
+        // Avec un seul `\n`, le texte redevient round-trippable seulement en
+        // apparence — mesuré : `MarkdownParser.parse("`code`\n![image](…)")`
+        // relit "code" et l'image dans le MÊME paragraphe (soft break), image
+        // remontée sur la ligne de code. L'ancienne attente à un seul `\n`
+        // ne testait que la sortie immédiate de `serialize`, jamais son
+        // reparse — cf. tâche 1 (correctif) du plan menu-slash, revue du
+        // 2026-08-04.
+        XCTAssertEqual(serialized, "`code`\n\n![image](\(imageURL.absoluteString))")
     }
 
     /// Même mesure pour le gras : sans nettoyage, l'image collée juste après
@@ -133,7 +143,9 @@ final class EditorTextViewPasteTests: XCTestCase {
         editor.insertImagePlaceholder(for: imageURL)
 
         let serialized = MarkdownSerializer.serialize(editor.textStorage!)
-        XCTAssertEqual(serialized, "**bold**\n![image](\(imageURL.absoluteString))")
+        // Ligne vide requise — même raison que
+        // `test_pasteAfterInlineCode_imageURLSurvivesSerialization` ci-dessus.
+        XCTAssertEqual(serialized, "**bold**\n\n![image](\(imageURL.absoluteString))")
     }
 
     // MARK: - Contre-preuve : texte brut littéral

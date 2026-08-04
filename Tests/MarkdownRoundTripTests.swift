@@ -68,6 +68,12 @@ final class MarkdownRoundTripTests: XCTestCase {
         // du plan menu-slash, depuis supprimé) : ces 5 paires, sans ligne
         // vide, se relisent différemment en CommonMark (fusion ou changement
         // de type). La ligne vide est la forme qui doit survivre au round-trip.
+        // Une 6e paire (paragraphe → item de liste ordonnée d'ordinal != 1)
+        // existe aussi, mais ne peut pas s'exprimer comme une simple chaîne
+        // ici : le parser renumérote toujours une liste ordonnée à partir de
+        // 1 en entrée, donc "Texte\n\n2. b" reparserait en item d'ordinal 1,
+        // pas 2 — voir `test_orderedListItemAfterParagraph_survivesWithBlankLine`
+        // ci-dessous, au niveau du storage.
         "Avant\n\nAprès",
         "Avant\n\n---",
         "> Avant\n\nAprès",
@@ -81,6 +87,33 @@ final class MarkdownRoundTripTests: XCTestCase {
             let back = MarkdownSerializer.serialize(parsed)
             XCTAssertEqual(back, md, "Round-trip mismatch for: \(md.debugDescription)")
         }
+    }
+
+    /// 6e paire à risque, testée au niveau du storage plutôt que par une
+    /// chaîne d'aller-retour (cf. commentaire sur `fixtures` ci-dessus) : un
+    /// item de liste ordonnée dont l'ordinal n'est pas 1 n'interrompt pas un
+    /// paragraphe en CommonMark — son marqueur redevient du texte littéral et
+    /// `ListInfo` est perdu au reparse. Atteignable par un geste existant :
+    /// `MarkdownBlockCommands.setBlockType(.paragraph, at:)` sur le premier
+    /// item d'une liste ordonnée « 1. a / 2. b » laisse « b » avec un
+    /// `ListInfo` d'ordinal 2, juste après un paragraphe nu.
+    func test_orderedListItemAfterParagraph_survivesWithBlankLine() {
+        let storage = NSMutableAttributedString(string: "Texte\nb")
+        storage.addAttribute(.mdBlockType, value: BlockType.paragraph, range: NSRange(location: 0, length: 5))
+        storage.addAttribute(.mdListInfo,
+                              value: ListInfo(kind: .ordered, level: 0, index: 2, checked: nil),
+                              range: NSRange(location: 6, length: 1))
+
+        let serialized = MarkdownSerializer.serialize(storage)
+        XCTAssertEqual(serialized, "Texte\n\n2. b")
+
+        // Le reparse doit garder "b" comme item de liste ordonnée — pas comme
+        // texte fusionné dans le paragraphe précédent (le parser renumérote
+        // à partir de 1, donc on vérifie le `kind`, pas l'ordinal exact).
+        let reparsed = MarkdownParser.parse(serialized)
+        let bLocation = (reparsed.string as NSString).range(of: "b").location
+        let listInfoAtB = reparsed.attribute(.mdListInfo, at: bLocation, effectiveRange: nil) as? ListInfo
+        XCTAssertEqual(listInfoAtB?.kind, .ordered, "\"b\" doit rester un item de liste ordonnée au reparse")
     }
 
     /// Deux normalisations connues, volontairement exclues de `fixtures` :
