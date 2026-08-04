@@ -119,40 +119,72 @@ final class EditorTextView: NSTextView {
 
     // MARK: - Click handling for task checkboxes
 
-    /// Intercepte le clic pour détecter s'il vise la checkbox d'une tâche.
-    /// Heuristique : on remonte au début de la ligne, on calcule le rect du
-    /// premier glyphe, et si l'abscisse du clic tombe dans les ~14pt de marge
-    /// gauche on bascule l'état coché et on prévient le coordinator via
-    /// `onTaskToggle`. Sinon on délègue au comportement standard de `NSTextView`.
+    /// Intercepte le clic pour détecter s'il vise la case à cocher d'un item
+    /// de tâche. Délègue au comportement standard de `NSTextView` si ce
+    /// n'est pas le cas.
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let charIndex = characterIndexForInsertion(at: point)
-        if charIndex < (textStorage?.length ?? 0) {
-            let nsString = string as NSString
-            var lineStart = charIndex
-            while lineStart > 0, nsString.character(at: lineStart - 1) != 0x0A {
-                lineStart -= 1
-            }
-            let maxLen = min(nsString.length - lineStart, 6)
-            if maxLen >= 6 {
-                let prefixRange = NSRange(location: lineStart, length: 6)
-                let prefixStr = nsString.substring(with: prefixRange)
-                if prefixStr == "- [ ] " || prefixStr == "- [x] " {
-                    let glyphIdx = layoutManager?.glyphIndexForCharacter(at: lineStart) ?? 0
-                    if let container = textContainer,
-                       let rect = layoutManager?.boundingRect(forGlyphRange: NSRange(location: glyphIdx, length: 5), in: container) {
-                        let xInTextContainer = point.x - textContainerInset.width
-                        if xInTextContainer < rect.maxX + 4 {
-                            let isChecked = prefixStr == "- [x] "
-                            let replacement = isChecked ? "- [ ] " : "- [x] "
-                            textStorage?.replaceCharacters(in: prefixRange, with: replacement)
-                            onTaskToggle?(prefixRange, !isChecked)
-                            return
-                        }
-                    }
-                }
-            }
-        }
+        if toggleTaskMarker(at: point) { return }
         super.mouseDown(with: event)
+    }
+
+    /// Bascule l'état d'une case à cocher si `point` (coordonnées de la vue,
+    /// mêmes que celles de `mouseDown`) tombe sur son marqueur, et renvoie si
+    /// c'était le cas. Lit `.mdListInfo` à la ligne cliquée plutôt que de
+    /// comparer des caractères littéraux : le storage ne contient jamais
+    /// `"- [ ] "`/`"- [x] "`, seulement le texte affichable (voir
+    /// `MarkdownParser`) — comparer ces préfixes, comme le faisait l'ancienne
+    /// version de cette méthode, ne pouvait donc jamais matcher sur un
+    /// véritable item de tâche.
+    ///
+    /// La zone cliquable est restreinte à la marge où `MarkdownLayoutManager`
+    /// dessine le marqueur — à gauche de `paragraphStyle.firstLineHeadIndent`,
+    /// sur la hauteur du fragment de ligne — pour ne pas intercepter un clic
+    /// destiné à positionner le curseur dans le texte de l'item.
+    ///
+    /// Internal (pas `private`) pour être exercée directement par les tests
+    /// sans reconstruire un `NSEvent`/`NSWindow`, sur le modèle de
+    /// `insertImagePlaceholder`.
+    @discardableResult
+    func toggleTaskMarker(at point: NSPoint) -> Bool {
+        guard let storage = textStorage, storage.length > 0, let layoutManager else { return false }
+
+        let charIndex = characterIndexForInsertion(at: point)
+        let safeIndex = min(charIndex, storage.length - 1)
+        guard safeIndex >= 0 else { return false }
+
+        let ns = storage.string as NSString
+        var lineStart = safeIndex
+        while lineStart > 0, ns.character(at: lineStart - 1) != 0x0A {
+            lineStart -= 1
+        }
+
+        var effectiveRange = NSRange(location: 0, length: 0)
+        guard let info = storage.attribute(
+            .mdListInfo, at: lineStart, longestEffectiveRange: &effectiveRange,
+            in: NSRange(location: 0, length: storage.length)
+        ) as? ListInfo, info.kind == .task else {
+            return false
+        }
+
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+        let paragraphStyle = storage.attribute(.paragraphStyle, at: lineStart, effectiveRange: nil) as? NSParagraphStyle
+        let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info.level)
+        guard containerPoint.x < textIndent else { return false }
+
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: lineStart)
+        let lineFragmentRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        guard containerPoint.y >= lineFragmentRect.minY, containerPoint.y <= lineFragmentRect.maxY else {
+            return false
+        }
+
+        let toggled = ListInfo(kind: info.kind, level: info.level, index: info.index, checked: !(info.checked ?? false))
+        storage.addAttribute(.mdListInfo, value: toggled, range: effectiveRange)
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: effectiveRange)
+        onTaskToggle?(effectiveRange, toggled.checked ?? true)
+        return true
     }
 }

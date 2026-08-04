@@ -83,10 +83,16 @@ enum StyleRenderer {
             }
 
             if let info = listInfo {
+                // `firstLineHeadIndent` == `headIndent` : le texte de l'item
+                // (seul contenu de la ligne, le storage ne porte aucun
+                // marqueur) démarre au même endroit sur sa première ligne et
+                // sur ses lignes de repli. `MarkdownLayoutManager` dessine le
+                // marqueur dans la marge ainsi libérée, à gauche de cette
+                // position — voir `ListMarkerLayout.textIndent(for:)`.
                 let para = NSMutableParagraphStyle()
-                let baseIndent = CGFloat(info.level) * 16 + 16
-                para.headIndent = baseIndent
-                para.firstLineHeadIndent = baseIndent - 12
+                let indent = ListMarkerLayout.textIndent(for: info.level)
+                para.headIndent = indent
+                para.firstLineHeadIndent = indent
                 storage.addAttribute(.paragraphStyle, value: para, range: range)
             }
 

@@ -335,6 +335,156 @@ final class StyleRendererTests: XCTestCase {
         return NSFontManager.shared.traits(of: font).contains(.boldFontMask)
     }
 
+    // MARK: - List markers (task 2 du plan menu-slash)
+
+    /// Puce, item numéroté, case cochée et case décochée doivent produire un
+    /// texte de marqueur non-vide et distinct les uns des autres — sinon deux
+    /// types d'item seraient visuellement indiscernables.
+    func test_listMarkerText_bulletOrderedCheckedUnchecked_areAllDistinctAndNonEmpty() {
+        let cases: [ListInfo] = [
+            ListInfo(kind: .bullet),
+            ListInfo(kind: .ordered, index: 3),
+            ListInfo(kind: .task, checked: true),
+            ListInfo(kind: .task, checked: false),
+        ]
+        let markers = cases.map { ListMarkerLayout.markerText(for: $0) }
+
+        for marker in markers {
+            XCTAssertFalse(marker.isEmpty, "un marqueur vide ne serait pas visible")
+        }
+        XCTAssertEqual(Set(markers).count, markers.count, "les quatre marqueurs doivent être distincts : \(markers)")
+    }
+
+    /// Le marqueur n'est pas qu'un attribut logique : il doit réellement se
+    /// peindre. Monte chaque cas dans la même pile TextKit 1 que
+    /// `EditorRepresentable` (storage → `MarkdownLayoutManager` → container),
+    /// dessine hors écran et vérifie que la marge réservée par
+    /// `applyVisualStyle` (à gauche de `firstLineHeadIndent`) contient des
+    /// pixels non-blancs.
+    func test_listMarkers_bulletOrderedCheckedUnchecked_areActuallyPaintedInTheReservedMargin() throws {
+        let cases: [(String, ListInfo)] = [
+            ("puce", ListInfo(kind: .bullet)),
+            ("numéro", ListInfo(kind: .ordered, index: 3)),
+            ("case cochée", ListInfo(kind: .task, checked: true)),
+            ("case décochée", ListInfo(kind: .task, checked: false)),
+        ]
+
+        for (label, info) in cases {
+            let storage = NSTextStorage(string: "item")
+            storage.addAttribute(.mdListInfo, value: info, range: NSRange(location: 0, length: storage.length))
+            StyleRenderer.applyVisualStyle(to: storage)
+
+            let paragraphStyle = try XCTUnwrap(
+                storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle,
+                "\(label) : un item de liste doit recevoir un paragraphStyle"
+            )
+            let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
+
+            XCTAssertGreaterThan(
+                nonWhitePixelCount(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent))),
+                0,
+                "\(label) : le marqueur doit être peint dans la marge réservée, pas seulement porté par un attribut"
+            )
+        }
+    }
+
+    /// L'indentation par niveau (`headIndent`) garde la même progression que
+    /// l'ancien `StyleRenderer` (16pt par niveau) : ce chantier ajoute un
+    /// marqueur, il ne change pas la profondeur d'imbrication visible d'un
+    /// item de liste.
+    func test_listInfo_headIndent_keepsThePreExisting16ptPerLevelProgression() {
+        let storage = NSMutableAttributedString(string: "top\nnested")
+        storage.addAttribute(.mdListInfo, value: ListInfo(kind: .bullet, level: 0), range: NSRange(location: 0, length: 3))
+        storage.addAttribute(.mdListInfo, value: ListInfo(kind: .bullet, level: 1), range: NSRange(location: 4, length: 6))
+        let textStorage = NSTextStorage(attributedString: storage)
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        let topStyle = textStorage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        let nestedStyle = textStorage.attribute(.paragraphStyle, at: 4, effectiveRange: nil) as? NSParagraphStyle
+
+        XCTAssertEqual(topStyle?.headIndent, 16)
+        XCTAssertEqual(nestedStyle?.headIndent, 32)
+        // Première ligne et lignes de repli s'alignent désormais au même
+        // endroit — voir la doc de `ListMarkerLayout.textIndent(for:)` : le
+        // marqueur se dessine à gauche de cette position commune.
+        XCTAssertEqual(topStyle?.firstLineHeadIndent, topStyle?.headIndent)
+        XCTAssertEqual(nestedStyle?.firstLineHeadIndent, nestedStyle?.headIndent)
+    }
+
+    /// Le test le plus important : le marqueur dessiné par
+    /// `MarkdownLayoutManager` n'est qu'un effet visuel, jamais du texte. Un
+    /// aller-retour parse → applyVisualStyle → serialize doit redonner
+    /// exactement le markdown d'origine, et aucun des glyphes de marqueur ne
+    /// doit apparaître dans le storage.
+    func test_listMarkerVisualStyle_doesNotLeakIntoSerializedMarkdown() {
+        let markdown = "- puce\n1. premier\n2. second\n- [ ] à faire\n- [x] fait"
+        let parsed = MarkdownParser.parse(markdown)
+        let textStorage = NSTextStorage(attributedString: parsed)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertEqual(MarkdownSerializer.serialize(textStorage), markdown)
+        for marker in ["•", "☑", "☐"] {
+            XCTAssertFalse(
+                textStorage.string.contains(marker),
+                "le glyphe de marqueur « \(marker) » ne doit jamais entrer dans le storage"
+            )
+        }
+    }
+
+    // MARK: - List marker rendering fixtures
+
+    /// Monte `storage` dans la même pile TextKit 1 qu'`EditorRepresentable`
+    /// (storage → `MarkdownLayoutManager` → container) et la peint hors écran
+    /// dans un bitmap RGBA, pour vérifier qu'un marqueur est réellement
+    /// dessiné — pas seulement porté par un attribut de paragraphe.
+    private func renderToOffscreenBitmap(storage: NSTextStorage, width: Int, height: Int) throws -> NSBitmapImageRep {
+        let layoutManager = MarkdownLayoutManager()
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(containerSize: NSSize(width: CGFloat(width), height: CGFloat(height)))
+        layoutManager.addTextContainer(container)
+        layoutManager.ensureLayout(for: container)
+
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)).fill()
+        let glyphRange = layoutManager.glyphRange(for: container)
+        layoutManager.drawBackground(forGlyphRange: glyphRange, at: .zero)
+        layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+        NSGraphicsContext.current?.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap
+    }
+
+    /// Compte les pixels non-blancs de `bitmap` dans `xRange` (toutes
+    /// lignes confondues).
+    private func nonWhitePixelCount(_ bitmap: NSBitmapImageRep, xRange: Range<Int>) -> Int {
+        var count = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in xRange where x >= 0 && x < bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                let isWhite = color.redComponent > 0.98 && color.greenComponent > 0.98 && color.blueComponent > 0.98
+                if !isWhite { count += 1 }
+            }
+        }
+        return count
+    }
+
     // MARK: - Fixtures
 
     /// Construit les octets d'un petit PNG valide directement via

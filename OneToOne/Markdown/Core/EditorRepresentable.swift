@@ -32,7 +32,11 @@ struct EditorRepresentable: NSViewRepresentable {
         scroll.drawsBackground = false
 
         let textStorage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
+        // `MarkdownLayoutManager` dessine les marqueurs de liste (puce,
+        // numéro, case à cocher) au-dessus du rendu standard — voir sa
+        // documentation pour la raison (TextKit 1 ne les dessine pas
+        // automatiquement).
+        let layoutManager = MarkdownLayoutManager()
         textStorage.addLayoutManager(layoutManager)
         let huge: CGFloat = 1_000_000
         let container = NSTextContainer(
