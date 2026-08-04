@@ -10,13 +10,16 @@ import AppKit
 /// marge sur cette même pile storage→layoutManager→container montée à la
 /// main) et confirmé par la documentation de la plateforme —
 /// `NSTextList.includesTextListMarkers` ("When YES, TextKit includes text
-/// list marker in the contents. It is NO by default.") n'existe que depuis
-/// macOS 26, hors du déploiement macOS 15 de cette app, et est de toute
-/// façon en lecture seule (pas un réglage activable ici). `NSTextList`
-/// n'apporte donc rien pour le dessin, et rien non plus pour représenter les
-/// deux états d'une case à cocher (`markerFormat` n'est pas paramétré par un
-/// booléen coché/décoché) : cette classe dessine donc directement, à partir
-/// de `.mdListInfo` lu sur le storage.
+/// list marker in the contents. It is NO by default.") est une propriété
+/// **de classe** (pas d'instance, illisible sur un `NSTextList` particulier),
+/// en lecture seule (pas un réglage activable depuis ce code), et mesurée
+/// à `false` sur macOS 26.5 — la machine de développement de cette app,
+/// dont le déploiement (macOS 15) est de toute façon antérieur à
+/// l'introduction de cette propriété (macOS 26). `NSTextList` n'apporte donc
+/// rien pour le dessin, et rien non plus pour représenter les deux états
+/// d'une case à cocher (`markerFormat` n'est pas paramétré par un booléen
+/// coché/décoché) : cette classe dessine donc directement, à partir de
+/// `.mdListInfo` lu sur le storage.
 ///
 /// Le marqueur est peint dans la marge que `StyleRenderer.applyVisualStyle`
 /// réserve via `ListMarkerLayout.textIndent(for:)` — à gauche du texte de

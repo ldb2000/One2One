@@ -360,7 +360,7 @@ final class StyleRendererTests: XCTestCase {
     /// `EditorRepresentable` (storage → `MarkdownLayoutManager` → container),
     /// dessine hors écran et vérifie que la marge réservée par
     /// `applyVisualStyle` (à gauche de `firstLineHeadIndent`) contient des
-    /// pixels non-blancs.
+    /// pixels qui diffèrent du fond réellement peint.
     func test_listMarkers_bulletOrderedCheckedUnchecked_areActuallyPaintedInTheReservedMargin() throws {
         let cases: [(String, ListInfo)] = [
             ("puce", ListInfo(kind: .bullet)),
@@ -381,7 +381,7 @@ final class StyleRendererTests: XCTestCase {
             let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
 
             XCTAssertGreaterThan(
-                nonWhitePixelCount(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent))),
+                nonBackgroundPixelCount(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent))),
                 0,
                 "\(label) : le marqueur doit être peint dans la marge réservée, pas seulement porté par un attribut"
             )
@@ -427,7 +427,7 @@ final class StyleRendererTests: XCTestCase {
         let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
 
         XCTAssertGreaterThan(
-            nonWhitePixelCount(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent))),
+            nonBackgroundPixelCount(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent))),
             0,
             "le marqueur « 123. » doit être peint dans sa marge élargie"
         )
@@ -458,7 +458,7 @@ final class StyleRendererTests: XCTestCase {
         // "3." fait 11,41pt en normal contre 12,56pt en gras) — nécessaire
         // pour que la vérification de couverture d'encre (3) puisse
         // réellement attraper une régression sur l'item en gras.
-        func markerColumnPixels(styling: (NSTextStorage) -> Void) throws -> [[CGFloat]] {
+        func markerColumnPixels(styling: (NSTextStorage) -> Void) throws -> (pixels: [[CGFloat]], background: CGFloat) {
             let storage = NSTextStorage(string: "texte")
             storage.addAttribute(
                 .mdListInfo, value: ListInfo(kind: .ordered, index: 3),
@@ -469,25 +469,40 @@ final class StyleRendererTests: XCTestCase {
 
             let paragraphStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
             let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
-            return pixelSnapshot(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent)))
+            let pixels = pixelSnapshot(bitmap, xRange: 0..<max(1, Int(paragraphStyle.firstLineHeadIndent)))
+            return (pixels, backgroundLightness(of: bitmap))
         }
 
-        let plain = try markerColumnPixels { _ in }
+        let (plain, background) = try markerColumnPixels { _ in }
         let variants: [(String, [[CGFloat]])] = [
             ("gras", try markerColumnPixels { storage in
                 storage.addAttribute(.mdBold, value: true, range: NSRange(location: 0, length: storage.length))
-            }),
+            }.pixels),
             ("lien", try markerColumnPixels { storage in
                 storage.addAttribute(
                     .mdLink, value: URL(string: "https://example.com")!,
                     range: NSRange(location: 0, length: storage.length)
                 )
-            }),
+            }.pixels),
             ("code inline", try markerColumnPixels { storage in
                 storage.addAttribute(.mdInlineCode, value: true, range: NSRange(location: 0, length: storage.length))
-            }),
+            }.pixels),
         ]
-        let plainCoverage = plain.filter { $0[0] < 0.98 }.count
+        // Le pixel le plus couvert par l'encre (voir 2, `darkest`) est un
+        // meilleur témoin que la couverture (3) pour ce garde-fou : la
+        // couverture peut légitimement être basse (marqueur fin), alors que
+        // « aucun pixel ne s'écarte du fond » signifie sans ambiguïté un
+        // bitmap vierge — exactement le symptôme mesuré en apparence sombre
+        // avant que `renderToOffscreenBitmap` force `.aqua` : les quatre
+        // bitmaps de ce test étaient uniformément blancs (`labelColor`
+        // résolu en blanc peint sur fond blanc), donc `tinted` vide,
+        // `darkest`/`lightest` égaux à 1 partout et `coverage` égal à 0 des
+        // deux côtés — ce test passait sans plus rien vérifier.
+        let plainCoverage = plain.filter { abs($0[0] - background) > 0.02 }.count
+        XCTAssertGreaterThan(
+            plainCoverage, 0,
+            "prémisse : le témoin doit avoir une couverture d'encre non nulle, sinon ce test ne prouve rien"
+        )
 
         for (label, pixels) in variants {
             // 1) Aucune teinte : `linkColor` est bleu (R ≠ B) contrairement
@@ -520,7 +535,7 @@ final class StyleRendererTests: XCTestCase {
             // héritée) couvre ~21% de pixels en plus que le témoin — cette
             // marge laisse passer le bruit d'anti-crénelage normal tout en
             // attrapant cet écart.
-            let coverage = pixels.filter { $0[0] < 0.98 }.count
+            let coverage = pixels.filter { abs($0[0] - background) > 0.02 }.count
             XCTAssertEqual(
                 Double(coverage), Double(plainCoverage), accuracy: Double(plainCoverage) * 0.1 + 1,
                 "item en \(label) : la couverture d'encre du marqueur ne doit pas changer notablement (police différente ?)"
@@ -589,6 +604,24 @@ final class StyleRendererTests: XCTestCase {
     /// (storage → `MarkdownLayoutManager` → container) et la peint hors écran
     /// dans un bitmap RGBA, pour vérifier qu'un marqueur est réellement
     /// dessiné — pas seulement porté par un attribut de paragraphe.
+    ///
+    /// Le remplissage de fond et les deux appels de dessin sont enveloppés
+    /// dans `NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance`,
+    /// pour rendre ce test indépendant de l'apparence système courante.
+    /// `ListMarkerLayout.markerColor` (`NSColor.labelColor`) est une couleur
+    /// **dynamique** : en apparence sombre elle se résout en blanc quasi-pur
+    /// (`R=1 G=1 B=1 A≈0.85`), peint sur le fond blanc que cette fonction
+    /// remplit elle-même — le marqueur devient alors invisible, non pas
+    /// absent. Mesuré : les tests pixel de ce fichier passaient à 19h02/19h49
+    /// (apparence claire) et échouaient après 22h17, sur une machine dont
+    /// `AppleInterfaceStyleSwitchesAutomatically` est activé — un test dont
+    /// le résultat dépend de l'heure du jour n'en est pas un. La tentative
+    /// `-AppleInterfaceStyle Light` en domaine argument n'override PAS
+    /// l'apparence AppKit (vérifié) ; seul `performAsCurrentDrawingAppearance`
+    /// fonctionne ici. Ne fige *pas* `ListMarkerLayout.markerColor` en une
+    /// couleur non dynamique à la place : `labelColor` est le bon choix
+    /// produit (l'app doit suivre l'apparence système), c'est au test de
+    /// s'en affranchir, pas l'inverse.
     private func renderToOffscreenBitmap(storage: NSTextStorage, width: Int, height: Int) throws -> NSBitmapImageRep {
         let layoutManager = MarkdownLayoutManager()
         storage.addLayoutManager(layoutManager)
@@ -612,25 +645,43 @@ final class StyleRendererTests: XCTestCase {
         let context = NSGraphicsContext(bitmapImageRep: bitmap)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
-        NSColor.white.setFill()
-        NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)).fill()
-        let glyphRange = layoutManager.glyphRange(for: container)
-        layoutManager.drawBackground(forGlyphRange: glyphRange, at: .zero)
-        layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+            NSColor.white.setFill()
+            NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)).fill()
+            let glyphRange = layoutManager.glyphRange(for: container)
+            layoutManager.drawBackground(forGlyphRange: glyphRange, at: .zero)
+            layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+        }
         NSGraphicsContext.current?.flushGraphics()
         NSGraphicsContext.restoreGraphicsState()
         return bitmap
     }
 
-    /// Compte les pixels non-blancs de `bitmap` dans `xRange` (toutes
-    /// lignes confondues).
-    private func nonWhitePixelCount(_ bitmap: NSBitmapImageRep, xRange: Range<Int>) -> Int {
+    /// Composante rouge du fond réellement peint dans `bitmap`, échantillonnée
+    /// à un pixel garanti hors de toute zone de texte (coin inférieur droit,
+    /// à l'écart de la marge testée et de tout glyphe). Les marqueurs et le
+    /// texte de test sont tous des teintes de gris (`labelColor` et
+    /// consorts, voir `ListMarkerLayout`) : un seul canal suffit à
+    /// représenter la clarté d'un pixel. Jamais une constante « blanc »
+    /// supposée — voir la doc de `renderToOffscreenBitmap`.
+    private func backgroundLightness(of bitmap: NSBitmapImageRep) -> CGFloat {
+        bitmap.colorAt(x: bitmap.pixelsWide - 1, y: bitmap.pixelsHigh - 1)?.redComponent ?? 1
+    }
+
+    /// Compte les pixels de `bitmap` dans `xRange` (toutes lignes confondues)
+    /// dont la clarté diffère de celle du fond réellement peint (mesurée par
+    /// `backgroundLightness(of:)`) — remplace un ancien critère « non blanc »
+    /// qui supposait un fond blanc constant. Cette hypothèse tient une fois
+    /// l'apparence forcée en `.aqua` (voir `renderToOffscreenBitmap`), mais
+    /// mesurer contre le fond réel plutôt que contre une constante évite de
+    /// réintroduire la même dépendance implicite ailleurs.
+    private func nonBackgroundPixelCount(_ bitmap: NSBitmapImageRep, xRange: Range<Int>) -> Int {
+        let background = backgroundLightness(of: bitmap)
         var count = 0
         for y in 0..<bitmap.pixelsHigh {
             for x in xRange where x >= 0 && x < bitmap.pixelsWide {
                 guard let color = bitmap.colorAt(x: x, y: y) else { continue }
-                let isWhite = color.redComponent > 0.98 && color.greenComponent > 0.98 && color.blueComponent > 0.98
-                if !isWhite { count += 1 }
+                if abs(color.redComponent - background) > 0.02 { count += 1 }
             }
         }
         return count
