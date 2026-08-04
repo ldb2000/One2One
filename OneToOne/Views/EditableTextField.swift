@@ -265,8 +265,6 @@ struct MarkdownEditorView: View {
 /// Formatting toolbar that applies markdown model attributes to the registered editor.
 struct MarkdownToolbar: View {
     let textViewID: String
-    private let headingPrefixes = ["# ", "## ", "### ", "#### ", "##### ", "###### "]
-    private let listPrefixes = ["- [ ] ", "- [x] ", "- ", "* ", "1. "]
     private let tagPrefixes = ["[ACTION] ", "[RISQUE] ", "[DECISION] ", "[PROJET] "]
 
     var body: some View {
@@ -274,10 +272,10 @@ struct MarkdownToolbar: View {
             inlineAttributeButton("bold", icon: "bold", attribute: .mdBold, placeholder: "texte")
             inlineAttributeButton("italic", icon: "italic", attribute: .mdItalic, placeholder: "texte")
             Divider().frame(height: 14)
-            prefixButton("h2", icon: "textformat.size.larger", prefix: "## ", exclusivePrefixes: headingPrefixes)
-            prefixButton("h3", icon: "textformat.size", prefix: "### ", exclusivePrefixes: headingPrefixes)
+            blockTypeButton("h2", icon: "textformat.size.larger", type: .h2)
+            blockTypeButton("h3", icon: "textformat.size", type: .h3)
             Divider().frame(height: 14)
-            prefixButton("list", icon: "list.bullet", prefix: "- ", exclusivePrefixes: listPrefixes)
+            listKindButton("list", icon: "list.bullet", kind: .bullet)
             Divider().frame(height: 14)
             tagButton("[ACTION] ", color: .blue, label: "Action")
             tagButton("[RISQUE] ", color: .red, label: "Risque")
@@ -372,23 +370,16 @@ struct MarkdownToolbar: View {
         textView.window?.makeFirstResponder(textView)
     }
 
-    private func prefixButton(
+    private func blockTypeButton(
         _ id: String,
         icon: String,
-        prefix: String,
-        exclusivePrefixes: [String]
+        type: MarkdownBlockCommands.LineBlockType
     ) -> some View {
         Button(action: {
             guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
-            apply(
-                MarkdownEditingCommands.toggleLinePrefix(
-                    in: tv.string,
-                    range: tv.selectedRange(),
-                    prefix: prefix,
-                    exclusivePrefixes: exclusivePrefixes
-                ),
-                to: tv
-            )
+            applyBlockCommand(in: tv) { storage, location in
+                MarkdownBlockCommands.setBlockType(type, in: storage, at: location)
+            }
         }) {
             Image(systemName: icon)
                 .font(.caption)
@@ -396,6 +387,44 @@ struct MarkdownToolbar: View {
         }
         .buttonStyle(.plain)
         .help(id)
+    }
+
+    private func listKindButton(
+        _ id: String,
+        icon: String,
+        kind: ListInfo.Kind
+    ) -> some View {
+        Button(action: {
+            guard let tv = MarkdownEditorRegistry.shared.textView(for: textViewID) else { return }
+            applyBlockCommand(in: tv) { storage, location in
+                MarkdownBlockCommands.setListKind(kind, in: storage, at: location)
+            }
+        }) {
+            Image(systemName: icon)
+                .font(.caption)
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .help(id)
+    }
+
+    /// Applique une commande de bloc (mutation d'attributs sur la ligne du
+    /// curseur) puis restyle et notifie — même séquence que
+    /// `toggleInlineAttribute` pour gras/italique. La sélection est restaurée
+    /// telle quelle : contrairement à `apply(_:to:)`, ces commandes ne
+    /// changent jamais la longueur du texte, donc aucun clamp n'est requis.
+    private func applyBlockCommand(
+        in textView: NSTextView,
+        _ command: (NSTextStorage, Int) -> Void
+    ) {
+        guard let storage = textView.textStorage else { return }
+        let selection = textView.selectedRange()
+        command(storage, selection.location)
+        let lineRange = MarkdownBlockCommands.lineRange(in: storage, at: selection.location)
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: lineRange)
+        textView.didChangeText()
+        textView.setSelectedRange(selection)
+        textView.window?.makeFirstResponder(textView)
     }
 
     private func tagButton(_ tag: String, color: Color, label: String) -> some View {
