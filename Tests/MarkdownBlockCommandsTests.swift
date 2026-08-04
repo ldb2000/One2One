@@ -109,4 +109,75 @@ final class MarkdownBlockCommandsTests: XCTestCase {
         MarkdownBlockCommands.setBlockType(.h2, in: s, at: secondLineStart)
         XCTAssertEqual(serialized(s), "Première\n## Deuxième")
     }
+
+    // MARK: - Revue du 2026-08-04 : garde bloc de code, gardes anti-crash, finitions
+
+    func test_setBlockType_onCodeBlockLine_isNoOp() {
+        let s = storage("```\nune\ndeux\ntrois\n```")
+        let middleLineStart = (s.string as NSString).range(of: "deux").location
+        MarkdownBlockCommands.setBlockType(.h2, in: s, at: middleLineStart)
+        XCTAssertEqual(serialized(s), "```\nune\ndeux\ntrois\n```",
+                       "Scinder un bloc de code par une conversion ligne à ligne n'est jamais voulu.")
+    }
+
+    func test_setListKind_onCodeBlockLine_isNoOp() {
+        let s = storage("```\nune\ndeux\ntrois\n```")
+        let middleLineStart = (s.string as NSString).range(of: "deux").location
+        MarkdownBlockCommands.setListKind(.bullet, in: s, at: middleLineStart)
+        XCTAssertEqual(serialized(s), "```\nune\ndeux\ntrois\n```")
+    }
+
+    func test_setBlockType_emptyStorage_doesNothingAndDoesNotCrash() {
+        let s = NSTextStorage(attributedString: MarkdownParser.parse(""))
+        MarkdownBlockCommands.setBlockType(.h2, in: s, at: 0)
+        XCTAssertEqual(serialized(s), "")
+    }
+
+    func test_setListKind_caretOnFinalEmptyLine_doesNothingAndDoesNotCrash() {
+        // "A\n" avec le curseur à l'emplacement 2 (juste après le `\n`) :
+        // une ligne finale vide, cas typique après un Retour en fin de note.
+        let s = NSTextStorage(string: "A\n")
+        s.addAttribute(.mdBlockType, value: BlockType.paragraph, range: NSRange(location: 0, length: 1))
+        MarkdownBlockCommands.setListKind(.bullet, in: s, at: 2)
+        XCTAssertEqual(s.string, "A\n")
+    }
+
+    func test_setBlockType_withExistingListAndSameType_stripsListButKeepsType() {
+        // "- ## Titre" parse en une ligne portant à la fois .mdBlockType = .h2
+        // et .mdListInfo = bullet. Sans `!hasList`, le premier clic sur le
+        // bouton titre remettrait `target` à `.paragraph` (current == type)
+        // et supprimerait le titre en même temps que la liste.
+        let s = storage("- ## Titre")
+        MarkdownBlockCommands.setBlockType(.h2, in: s, at: 0)
+        XCTAssertEqual(serialized(s), "## Titre",
+                       "Le premier clic retire la liste et garde le titre.")
+    }
+
+    func test_setBlockType_removesOrphanedCodeLanguage() {
+        // `.mdCodeLanguage` posé à la main pour simuler une fuite via les
+        // `typingAttributes` de `NSTextView` (même mécanisme documenté pour
+        // `mdImageURL` dans `StyleRenderer`/`MarkdownSerializer`) : la ligne
+        // n'est pas un bloc de code (`.mdBlockType = .paragraph`), donc la
+        // garde du point 2 ne s'applique pas et ne peut pas servir de filet.
+        let s = NSTextStorage(string: "Texte")
+        s.addAttribute(.mdBlockType, value: BlockType.paragraph, range: NSRange(location: 0, length: 5))
+        s.addAttribute(.mdCodeLanguage, value: "swift", range: NSRange(location: 0, length: 5))
+        MarkdownBlockCommands.setBlockType(.h2, in: s, at: 0)
+        XCTAssertNil(s.attribute(.mdCodeLanguage, at: 0, effectiveRange: nil),
+                     "mdCodeLanguage ne doit pas survivre à un changement de type de bloc.")
+    }
+
+    func test_setListKind_removesOrphanedCodeLanguage() {
+        let s = NSTextStorage(string: "Texte")
+        s.addAttribute(.mdBlockType, value: BlockType.paragraph, range: NSRange(location: 0, length: 5))
+        s.addAttribute(.mdCodeLanguage, value: "swift", range: NSRange(location: 0, length: 5))
+        MarkdownBlockCommands.setListKind(.bullet, in: s, at: 0)
+        XCTAssertNil(s.attribute(.mdCodeLanguage, at: 0, effectiveRange: nil))
+    }
+
+    func test_setListKind_ordered_producesNumberedItem() {
+        let s = storage("Un point")
+        MarkdownBlockCommands.setListKind(.ordered, in: s, at: 0)
+        XCTAssertEqual(serialized(s), "1. Un point")
+    }
 }
