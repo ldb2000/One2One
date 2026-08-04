@@ -12,15 +12,24 @@ enum MarkdownSerializer {
     /// ligne produirait une paire de fences par ligne.
     /// Une éventuelle ligne vide finale est supprimée : elle reviendrait sinon
     /// sous forme de paragraphe vide supplémentaire.
+    ///
+    /// Une ligne vide est insérée entre deux lignes consécutives quand son
+    /// absence changerait la relecture CommonMark — matrice des 49 paires
+    /// ordonnées de 7 types de blocs mesurée par un test temporaire (tâche 1
+    /// du plan `docs/superpowers/plans/2026-08-04-menu-slash.md`, depuis
+    /// supprimé) : seules 5 paires sont à risque, cf. `needsBlankLine`. Les 44
+    /// autres — dont paragraphe→bloc de code, sur lequel une fixture
+    /// existante s'appuie — doivent rester collées : une ligne vide uniforme
+    /// entre tout bloc les casserait sans nécessité.
     static func serialize(_ source: NSAttributedString) -> String {
         guard source.length > 0 else { return "" }
-        var lines: [String] = []
+        var lines: [Line] = []
         let ns = source.string as NSString
         var cursor = 0
 
         while cursor < source.length {
             if let fence = fencedCodeBlock(in: source, at: cursor, ns: ns) {
-                lines.append(fence.markdown)
+                lines.append(Line(markdown: fence.markdown, boundary: .other))
                 cursor = fence.nextCursor
                 continue
             }
@@ -31,17 +40,106 @@ enum MarkdownSerializer {
             }
             if paragraphEnd > cursor {
                 let range = NSRange(location: cursor, length: paragraphEnd - cursor)
-                lines.append(emitParagraph(source: source, range: range))
+                lines.append(Line(markdown: emitParagraph(source: source, range: range),
+                                   boundary: boundaryKind(source: source, at: range.location)))
             } else {
-                lines.append("")
+                lines.append(Line(markdown: "", boundary: .other))
             }
             cursor = paragraphEnd + 1
         }
 
-        if let last = lines.last, last.isEmpty {
+        if let last = lines.last, last.markdown.isEmpty {
             lines.removeLast()
         }
-        return lines.joined(separator: "\n")
+
+        var out: [String] = []
+        for (index, line) in lines.enumerated() {
+            if index > 0, needsBlankLine(before: lines[index - 1].boundary, after: line.boundary) {
+                out.append("")
+            }
+            out.append(line.markdown)
+        }
+        return out.joined(separator: "\n")
+    }
+
+    // MARK: - Block boundaries
+
+    /// Une ligne de sortie et le type de frontière qu'elle expose à son début
+    /// — juste assez de résolution pour `needsBlankLine`, pas plus : les
+    /// titres (h1-h6) et les blocs de code ne participent à aucune des 5
+    /// paires à risque, `.other` leur suffit à tous.
+    private struct Line {
+        let markdown: String
+        let boundary: BoundaryKind
+    }
+
+    private enum BoundaryKind {
+        case plainParagraph
+        case blockquote
+        case thematicBreak
+        case listItem
+        case other
+    }
+
+    /// Classe la frontière du bloc qui commence à `location`, à partir des
+    /// attributs déjà posés par `MarkdownParser` — aucun état nouveau. Un
+    /// `.mdListInfo` présent l'emporte (item de liste, quel que soit son
+    /// `kind` : puce, ordonné ou tâche) ; sinon le `.mdBlockType` distingue
+    /// les trois cas qui participent à une paire à risque. Lire l'attribut à
+    /// `location` (début de ligne) et non ailleurs importe : sur la paire
+    /// item de liste→séparateur, le `\n` qui suit l'item porte lui aussi
+    /// `.mdListInfo` (posé par `MarkdownParser.emitList` sur toute la plage de
+    /// l'item, retour à la ligne inclus) — le lire au milieu classerait à tort
+    /// le bloc suivant comme faisant partie de la liste.
+    ///
+    /// Un `.mdBlockType` absent tombe dans `.other` (pas de ligne vide), sans
+    /// défaut implicite vers `.paragraph` — contrairement à `emitParagraph`
+    /// ou `StyleRenderer`, où ce défaut est neutre (repli d'affichage). Ici il
+    /// ne l'est pas : la matrice a été mesurée sur la sortie de
+    /// `MarkdownParser`, qui pose toujours `.mdBlockType` explicitement.
+    /// `EditorTextViewPasteTests` construit du storage à la main (texte tapé
+    /// avant tout restylage, cf. son commentaire sur `ShortcutDetector`) sans
+    /// cet attribut ; y défauter vers `.plainParagraph` insérerait une ligne
+    /// vide parasite entre du texte inline et une image collée juste après,
+    /// sur la seule foi d'une absence d'attribut plutôt que d'une paire
+    /// mesurée comme à risque.
+    private static func boundaryKind(source: NSAttributedString, at location: Int) -> BoundaryKind {
+        if source.attribute(.mdListInfo, at: location, effectiveRange: nil) is ListInfo {
+            return .listItem
+        }
+        guard let blockType = source.attribute(.mdBlockType, at: location, effectiveRange: nil) as? BlockType else {
+            return .other
+        }
+        switch blockType {
+        case .paragraph: return .plainParagraph
+        case .blockquote: return .blockquote
+        case .thematicBreak: return .thematicBreak
+        default: return .other
+        }
+    }
+
+    /// Les 5 paires mesurées où l'absence de ligne vide change la relecture
+    /// CommonMark :
+    /// - paragraphe→paragraphe : fusionnent en un seul paragraphe (soft break) ;
+    /// - paragraphe→séparateur : le paragraphe devient un titre H2 Setext, le
+    ///   séparateur est avalé — le pire cas, un changement de type de bloc ;
+    /// - citation→paragraphe et citation→citation : continuation paresseuse de
+    ///   blockquote, absorbés/fusionnés ;
+    /// - item de liste→paragraphe : même continuation paresseuse, le
+    ///   paragraphe est absorbé dans l'item.
+    /// Toute autre paire est sûre sans ligne vide — notamment item de
+    /// liste→item de liste, volontairement absent d'ici : deux items restent
+    /// distincts même collés, et une ligne vide entre eux romprait leur
+    /// appartenance à une même liste visuelle sans que rien ne l'exige.
+    private static func needsBlankLine(before: BoundaryKind, after: BoundaryKind) -> Bool {
+        switch (before, after) {
+        case (.plainParagraph, .plainParagraph): return true
+        case (.plainParagraph, .thematicBreak): return true
+        case (.blockquote, .plainParagraph): return true
+        case (.blockquote, .blockquote): return true
+        case (.listItem, .plainParagraph): return true
+        default: return false
+        }
     }
 
     /// Si un bloc de code commence à `cursor`, renvoie son markdown complet et

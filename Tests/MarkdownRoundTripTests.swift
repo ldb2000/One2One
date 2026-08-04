@@ -63,7 +63,16 @@ final class MarkdownRoundTripTests: XCTestCase {
         // Image enveloppée par du gras ou par un lien : le run porte alors
         // à la fois `mdImageURL` et `mdBold`/`mdLink`.
         "**![a](file:///x.png)**",
-        "[![a](file:///x.png)](https://example.com)"
+        "[![a](file:///x.png)](https://example.com)",
+        // Frontières de bloc — matrice mesurée par un test temporaire (tâche 1
+        // du plan menu-slash, depuis supprimé) : ces 5 paires, sans ligne
+        // vide, se relisent différemment en CommonMark (fusion ou changement
+        // de type). La ligne vide est la forme qui doit survivre au round-trip.
+        "Avant\n\nAprès",
+        "Avant\n\n---",
+        "> Avant\n\nAprès",
+        "> Avant\n\n> Après",
+        "- Avant\n\nAprès"
     ]
 
     func test_allFixturesRoundTrip() {
