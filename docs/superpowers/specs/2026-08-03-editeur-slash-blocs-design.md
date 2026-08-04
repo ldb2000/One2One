@@ -52,6 +52,11 @@ reprenons, à la source.
 | Moteur mermaid | `mermaid.min.js` embarqué + `WKWebView` | app autonome, hors ligne |
 | Conversion `.drawio` | CLI draw.io Desktop si présent | 0 Mo ajouté, dégradation propre si absent |
 
+> **Note du 2026-08-04 — cette section décrit un bug depuis corrigé.** Le cas
+> `Markdown.Image` a été ajouté par le commit `05ac0e4` ; il se trouve
+> désormais à `MarkdownParser.swift:186-196`. La section est conservée pour la
+> trace du raisonnement.
+
 ## Bug existant corrigé au passage
 
 `OneToOne/Markdown/Markdown/MarkdownParser.swift:203` — le visiteur inline traite
@@ -166,9 +171,41 @@ non-activant (le focus reste dans le texte), positionné sous le curseur via
 | ⌫ avant le `/` | ferme |
 | clic ailleurs | ferme |
 
-À l'insertion, le texte `/requête` est effacé puis la commande appelle
-`MarkdownEditingCommands` — les mêmes fonctions que la barre d'outils. Aucune
-logique d'édition dupliquée.
+À l'insertion, le texte `/requête` est effacé puis la commande applique le
+changement de bloc.
+
+> **Correction du 2026-08-04 — cette section disait le contraire.** Elle
+> prévoyait d'appeler `MarkdownEditingCommands`, « les mêmes fonctions que la
+> barre d'outils ». Une enquête sur le code a établi que ce chemin est
+> destructeur et qu'il ne faut pas l'emprunter.
+>
+> `MarkdownEditingCommands` manipule des marqueurs markdown **littéraux**
+> (`## `, `- `), mais ses deux appelants lui passent `tv.string`, c'est-à-dire
+> le texte **d'affichage**, qui n'en contient aucun — le storage de l'éditeur
+> ne porte que des attributs. Le résultat est ensuite reparsé intégralement.
+> Mesures d'exécution :
+>
+> | Action | Entrée | Résultat |
+> |---|---|---|
+> | bouton h2 | `Voici du **gras** et un [lien](https://ex.com)` | `## Voici du gras et un lien` — gras et lien détruits |
+> | bouton liste | `Avant ![alt](file:///tmp/a.png) après` | `- Avant ￼ après` — URL perdue, fichier orphelin |
+> | bouton h2 ×2 | `## Titre` | `## Titre` — jamais réversible |
+>
+> Le second cas est exactement la corruption d'image que cette branche a
+> écartée dans `EditorTextView.paste`, réintroduite par une autre porte.
+>
+> Le bon mécanisme est de muter les attributs du `NSTextStorage`
+> (`.mdBlockType`, `.mdListInfo`) sur la plage de la ligne, puis d'appeler
+> `StyleRenderer.applyVisualStyle` et `didChangeText()`. Vérifié : le `.mdBold`
+> d'une ligne survit et `serialize` produit bien `## Voici du **gras** ici`.
+> C'est déjà le mécanisme des boutons gras/italique (`toggleInlineAttribute`),
+> qui eux ne perdent rien.
+>
+> L'intention « un seul chemin d'édition » reste valable, mais dans l'autre
+> sens : écrire une couche `MarkdownBlockCommands` opérant par attributs, y
+> brancher le menu `/` **et** la barre d'outils, puis retirer
+> `toggleLinePrefix` et `wrapSelection` (cette dernière n'a aucun appelant en
+> production).
 
 ### Catalogue
 
