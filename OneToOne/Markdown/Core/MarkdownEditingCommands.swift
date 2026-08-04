@@ -5,45 +5,18 @@ struct MarkdownEditResult: Equatable {
     var selectedRange: NSRange
 }
 
+/// Manipule des marqueurs markdown **littéraux** dans du texte brut. Cette API
+/// opérait autrefois aussi sur les types de bloc (titres, listes) via le
+/// même `toggleLinePrefix`, en la faisant passer le texte d'affichage —
+/// sans marqueurs — d'un `NSTextView` à une fonction qui en attend, puis en
+/// reparsant tout le résultat. Ce chemin détruisait le gras, les liens et
+/// les images de la ligne convertie ; il a été remplacé par
+/// `MarkdownBlockCommands`, qui mute les attributs du storage.
+///
+/// Seul appelant restant : `MarkdownToolbar.tagButton`
+/// (`EditableTextField.swift`), pour les préfixes de **texte** comme
+/// `[ACTION] ` — de vrais marqueurs littéraux, pas des types de bloc.
 enum MarkdownEditingCommands {
-    static func wrapSelection(
-        in text: String,
-        range: NSRange,
-        marker: String,
-        placeholder: String
-    ) -> MarkdownEditResult {
-        let ns = text as NSString
-        let safeRange = clamped(range, length: ns.length)
-
-        if safeRange.length > 0,
-           safeRange.location >= marker.utf16.count,
-           safeRange.location + safeRange.length + marker.utf16.count <= ns.length {
-            let beforeRange = NSRange(location: safeRange.location - marker.utf16.count, length: marker.utf16.count)
-            let afterRange = NSRange(location: safeRange.location + safeRange.length, length: marker.utf16.count)
-            if ns.substring(with: beforeRange) == marker,
-               ns.substring(with: afterRange) == marker {
-                let mutable = NSMutableString(string: text)
-                mutable.deleteCharacters(in: afterRange)
-                mutable.deleteCharacters(in: beforeRange)
-                let selection = NSRange(
-                    location: safeRange.location - marker.utf16.count,
-                    length: safeRange.length
-                )
-                return MarkdownEditResult(text: mutable as String, selectedRange: selection)
-            }
-        }
-
-        let selected = safeRange.length == 0 ? placeholder : ns.substring(with: safeRange)
-        let replacement = marker + selected + marker
-        let mutable = NSMutableString(string: text)
-        mutable.replaceCharacters(in: safeRange, with: replacement)
-        let selection = NSRange(
-            location: safeRange.location + marker.utf16.count,
-            length: selected.utf16.count
-        )
-        return MarkdownEditResult(text: mutable as String, selectedRange: selection)
-    }
-
     static func toggleLinePrefix(
         in text: String,
         range: NSRange,
