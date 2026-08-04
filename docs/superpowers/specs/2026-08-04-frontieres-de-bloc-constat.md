@@ -28,6 +28,7 @@ Un sous-agent a testé les 25 combinaisons de blocs adjacents et rapporte que
 | paragraphe | séparateur `---` | le paragraphe devient un **titre H2 Setext** — le type du bloc change, pas seulement la frontière |
 | citation | paragraphe | le paragraphe est absorbé dans la citation (continuation paresseuse de blockquote) |
 | citation | citation | deux citations fusionnent en une seule |
+| item de liste | paragraphe nu | le paragraphe est absorbé dans l'item (même continuation paresseuse que citation → paragraphe) |
 
 Toutes les autres paires seraient déjà sûres : titre ↔ n'importe quoi, séparateur
 sauf après un paragraphe, citation → titre/séparateur/code, et bloc de code dans
