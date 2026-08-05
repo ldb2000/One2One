@@ -71,7 +71,8 @@ struct EditorRepresentable: NSViewRepresentable {
             cancelPendingWrite: { [weak coord = context.coordinator] in
                 coord?.cancelPendingWrite()
             },
-            presentImagePicker: SlashController.presentImageOpenPanel
+            presentImagePicker: SlashController.presentImageOpenPanel,
+            presentDatePicker: SlashController.presentDateAlertPicker
         )
         // Expose l'éditeur à une éventuelle MarkdownToolbar via le registre partagé.
         if !editorID.isEmpty {

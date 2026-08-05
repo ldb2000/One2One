@@ -213,7 +213,8 @@ final class SlashControllerTests: XCTestCase {
             features: .full,
             panel: SlashPanel(),
             cancelPendingWrite: { cancelCount += 1 },
-            presentImagePicker: { $0(nil) }
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(nil) }
         )
 
         type("Hello ", into: editor, controller: controller) // 6 frappes, menu jamais ouvert
@@ -377,7 +378,8 @@ final class SlashControllerTests: XCTestCase {
             presentImagePicker: { completion in
                 pickerWasInvoked = true
                 completion(imageURL)
-            }
+            },
+            presentDatePicker: { $0(nil) }
         )
 
         type("/image", into: editor, controller: controller)
@@ -394,13 +396,199 @@ final class SlashControllerTests: XCTestCase {
             features: .full,
             panel: SlashPanel(),
             cancelPendingWrite: {},
-            presentImagePicker: { completion in completion(nil) }
+            presentImagePicker: { completion in completion(nil) },
+            presentDatePicker: { $0(nil) }
         )
 
         type("/image", into: editor, controller: controller)
         applySelectedCommand(.image, controller: controller)
 
         XCTAssertEqual(editor.textStorage?.string, "", "annulation du sélecteur : rien ne doit être inséré")
+    }
+
+    // MARK: - Application : date
+
+    func test_applyingDate_opensPickerAndInsertsChosenDate() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        var pickerWasInvoked = false
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { completion in
+                pickerWasInvoked = true
+                completion(Self.fixedTestDate)
+            }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        XCTAssertTrue(pickerWasInvoked)
+        // Calculé via le même formateur que la production
+        // (`SlashController.dateInsertionFormatter`) plutôt qu'une chaîne
+        // recopiée à la main : un test qui dupliquerait la configuration du
+        // formateur pourrait diverger silencieusement (fuseau horaire,
+        // locale) sans jamais détecter une régression du formateur réel.
+        let expected = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
+        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), expected)
+        XCTAssertFalse(controller.isOpen)
+    }
+
+    func test_applyingDate_pickerCancelled_insertsNothing() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { completion in completion(nil) }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        XCTAssertEqual(editor.textStorage?.string, "", "annulation du sélecteur : rien ne doit être inséré")
+    }
+
+    /// Format retenu contre `MarkdownEscaping.inlineSpecials` : round-trip
+    /// exact (sérialiser, reparser, resérialiser donne la même chaîne) et
+    /// aucun antislash d'échappement dans le résultat — la preuve directe que
+    /// le format choisi (`dateStyle = .long`, locale `fr_FR`, ex. « 25
+    /// décembre 2025 ») ne contient aucun caractère qu'`escapeInline`
+    /// échapperait.
+    func test_applyingDate_roundTripsWithoutEscaping() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(Self.fixedTestDate) }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertFalse(serialized.contains("\\"), "le format de date choisi ne doit nécessiter aucun antislash d'échappement : \(serialized.debugDescription)")
+
+        let reparsed = MarkdownParser.parse(serialized)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized, "la date insérée doit survivre à l'aller-retour markdown")
+    }
+
+    /// Preuve directe et indépendante de `MarkdownEscaping.inlineSpecials` :
+    /// contrairement aux deux tests précédents (qui inspectent le résultat
+    /// *sérialisé*, donc déjà passé par `escapeInline`), celui-ci lit le
+    /// texte brut tel qu'inséré dans le storage et le compare à la liste
+    /// **recopiée à la main** des caractères risqués — pas à
+    /// `SlashController.dateInsertionFormatter` lui-même, pour ne pas être
+    /// aveugle à une régression du formateur qui choisirait un format
+    /// toujours round-trippable (aucun antislash requis) mais construit sur
+    /// un caractère risqué qui n'a simplement pas besoin d'échappement en
+    /// position isolée (aucun cas de ce genre dans la liste actuelle, mais
+    /// rien ne garantit qu'un futur format candidat s'en tienne à cette
+    /// propriété).
+    func test_applyingDate_insertedTextContainsNoInlineSpecialCharacter() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(Self.fixedTestDate) }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        // Copie volontairement littérale de `MarkdownEscaping.inlineSpecials`
+        // (`private`, donc non réutilisable ici) — la charte du test décrite
+        // ci-dessus dépend de cette indépendance.
+        let riskyCharacters: Set<Character> = [
+            "\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", "!"
+        ]
+        let insertedText = editor.textStorage!.string
+        XCTAssertFalse(insertedText.isEmpty, "prémisse du test : la date doit avoir été insérée")
+        for character in insertedText {
+            XCTAssertFalse(
+                riskyCharacters.contains(character),
+                "le format de date choisi contient '\(character)', qu'MarkdownEscaping.inlineSpecials échapperait : \(insertedText.debugDescription)"
+            )
+        }
+    }
+
+    // MARK: - Piège 6 : le texte inséré n'hérite pas des attributs de frappe
+
+    /// Reproduit le bug de la doc de tête de fichier pour l'entrée « Date » :
+    /// insérer juste après du code inline hériterait de `.mdInlineCode` sur
+    /// la date insérée (`typingAttributes` fusionnés par
+    /// `insertText(_:replacementRange:)`) sans `stripRiskyTypingAttributes`.
+    func test_applyingDate_afterInlineCode_insertedTextDoesNotInheritInlineCode() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "code", attributes: [.mdInlineCode: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(Self.fixedTestDate) }
+        )
+
+        type(" /date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        let expectedDateText = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
+        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "`code`\(expectedDateText)")
+
+        let insertedRange = (editor.textStorage!.string as NSString).range(of: expectedDateText)
+        XCTAssertNotEqual(insertedRange.location, NSNotFound)
+        XCTAssertNil(
+            editor.textStorage!.attribute(.mdInlineCode, at: insertedRange.location, effectiveRange: nil),
+            "la date insérée ne doit pas hériter de .mdInlineCode du code inline qui précède"
+        )
+    }
+
+    /// Même mesure pour le gras : sans `stripRiskyTypingAttributes`, la date
+    /// insérée juste après du texte en gras hériterait de `.mdBold` et se
+    /// retrouverait emballée en `**...**` sans que l'utilisateur l'ait
+    /// demandé.
+    func test_applyingDate_afterBold_insertedTextDoesNotInheritBold() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "bold", attributes: [.mdBold: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(Self.fixedTestDate) }
+        )
+
+        type(" /date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        let expectedDateText = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
+        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "**bold**\(expectedDateText)")
+
+        let insertedRange = (editor.textStorage!.string as NSString).range(of: expectedDateText)
+        XCTAssertNotEqual(insertedRange.location, NSNotFound)
+        XCTAssertNil(
+            editor.textStorage!.attribute(.mdBold, at: insertedRange.location, effectiveRange: nil),
+            "la date insérée ne doit pas hériter de .mdBold du texte en gras qui précède"
+        )
     }
 
     // MARK: - Navigation clavier (↑ ↓ changent l'entrée que ⏎ applique)
@@ -579,15 +767,17 @@ final class SlashControllerTests: XCTestCase {
 
     /// `SlashController` prêt à l'emploi pour `editor`, avec des fermetures
     /// injectées inertes (`cancelPendingWrite` ne fait rien — hors de portée
-    /// des tests qui n'en ont pas besoin ; `presentImagePicker` répond
-    /// immédiatement `nil`, comme un utilisateur qui annule).
+    /// des tests qui n'en ont pas besoin ; `presentImagePicker` et
+    /// `presentDatePicker` répondent immédiatement `nil`, comme un
+    /// utilisateur qui annule).
     private func makeController(for editor: EditorTextView) -> SlashController {
         SlashController(
             textView: editor,
             features: .full,
             panel: SlashPanel(),
             cancelPendingWrite: {},
-            presentImagePicker: { $0(nil) }
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(nil) }
         )
     }
 
@@ -626,6 +816,22 @@ final class SlashControllerTests: XCTestCase {
     private func applySelectedCommand(_ key: SlashCommand.Key, controller: SlashController) {
         _ = key // valeur documentaire : quelle entrée le test attend voir appliquée.
         _ = controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:)))
+    }
+
+    /// Date fixe utilisée par les tests de l'entrée « Date » : midi (évite
+    /// tout effet de bord DST/minuit) le 25 décembre 2025, construite via
+    /// `Calendar.current` — le même calendrier/fuseau par défaut que
+    /// `SlashController.dateInsertionFormatter` (qui ne fixe pas `timeZone`
+    /// explicitement). N'importe quelle date conviendrait : les tests
+    /// calculent la chaîne attendue via `dateInsertionFormatter` lui-même,
+    /// jamais recopiée à la main.
+    private static var fixedTestDate: Date {
+        var components = DateComponents()
+        components.year = 2025
+        components.month = 12
+        components.day = 25
+        components.hour = 12
+        return Calendar.current.date(from: components)!
     }
 
     /// Repris de `Tests/EditorTextViewPasteTests.swift`.

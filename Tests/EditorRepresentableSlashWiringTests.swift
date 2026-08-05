@@ -163,7 +163,8 @@ final class EditorRepresentableSlashWiringTests: XCTestCase {
             features: .full,
             panel: SlashPanel(),
             cancelPendingWrite: { [weak coordinator] in coordinator?.cancelPendingWrite() },
-            presentImagePicker: { $0(nil) }
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(nil) }
         )
         coordinator.slashController = controller
 
@@ -216,7 +217,8 @@ final class EditorRepresentableSlashWiringTests: XCTestCase {
             features: .full,
             panel: SlashPanel(),
             cancelPendingWrite: { [weak coordinator] in coordinator?.cancelPendingWrite() },
-            presentImagePicker: { $0(nil) }
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { $0(nil) }
         )
         coordinator.slashController = controller
         return (editor, coordinator, controller)

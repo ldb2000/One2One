@@ -8,9 +8,10 @@ import Foundation
 /// tableaux.
 enum SlashCatalog {
 
-    /// Toutes les entrées, dans l'ordre déclaré (celui du tableau du plan) :
-    /// « Blocs de base » puis « Média ». `SlashCatalog.grouped` ne trie pas
-    /// davantage — c'est cet ordre qui apparaît dans le panneau.
+    /// Toutes les entrées, dans l'ordre déclaré (celui du tableau du plan,
+    /// étendu par la commande `/date`) : « Blocs de base » puis « Média »
+    /// puis « Insertions ». `SlashCatalog.grouped` ne trie pas davantage —
+    /// c'est cet ordre qui apparaît dans le panneau.
     static let all: [SlashCommand] = [
         SlashCommand(
             key: .text,
@@ -110,6 +111,16 @@ enum SlashCatalog {
             shortcut: nil,
             group: .media,
             action: .insertImage,
+            requiredFeature: nil
+        ),
+        SlashCommand(
+            key: .date,
+            label: "Date",
+            keywords: ["date", "jour", "calendrier"],
+            aliases: ["today", "aujourd'hui"],
+            shortcut: nil,
+            group: .insertions,
+            action: .insertDate,
             requiredFeature: nil
         ),
     ]

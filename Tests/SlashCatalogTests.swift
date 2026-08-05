@@ -21,6 +21,19 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(command.matches("puce"))
     }
 
+    func test_matches_date_onLabel() {
+        XCTAssertTrue(command(.date).matches("date"))
+    }
+
+    /// "jour" n'apparaît pas dans le libellé « Date », seulement dans ses
+    /// mots-clés déclarés — même forme de preuve que `test_matches_onKeyword`
+    /// pour ne pas confondre un match sur le libellé avec un vrai match sur
+    /// les mots-clés.
+    func test_matches_date_onKeyword() {
+        XCTAssertTrue(command(.date).matches("jour"))
+        XCTAssertTrue(command(.date).matches("calendrier"))
+    }
+
     func test_matches_onAlias() {
         let command = command(.thematicBreak)
         XCTAssertTrue(command.matches("hr"))
@@ -66,7 +79,14 @@ final class SlashCatalogTests: XCTestCase {
 
     func test_grouped_declaredOrder() {
         let groups = SlashCatalog.grouped(matching: "", features: .full)
-        XCTAssertEqual(groups.map(\.group), [.basicBlocks, .media])
+        XCTAssertEqual(groups.map(\.group), [.basicBlocks, .media, .insertions])
+    }
+
+    func test_grouped_dateQuery_onlyInsertionsGroupSurvives() {
+        // "date" ne désigne que l'entrée Date (groupe "Insertions") ; ni
+        // "Blocs de base" ni "Média" ne doivent apparaître.
+        let groups = SlashCatalog.grouped(matching: "date", features: .full)
+        XCTAssertEqual(groups.map(\.group), [.insertions])
     }
 
     func test_grouped_omitsEmptyGroups() {
@@ -116,11 +136,12 @@ final class SlashCatalogTests: XCTestCase {
     }
 
     func test_available_emptyFeatureSet_stillShowsUnconditionalEntries() {
-        // "Texte" et "Image" ne sont conditionnées par aucun MarkdownFeature.
+        // "Texte", "Image" et "Date" ne sont conditionnées par aucun MarkdownFeature.
         let visible = SlashCatalog.available(for: [])
         let keys = Set(visible.map(\.key))
         XCTAssertTrue(keys.contains(.text))
         XCTAssertTrue(keys.contains(.image))
+        XCTAssertTrue(keys.contains(.date))
     }
 
     // MARK: - Helpers

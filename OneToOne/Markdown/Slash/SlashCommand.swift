@@ -18,6 +18,7 @@ struct SlashCommand: Identifiable, Equatable {
         case blockquote
         case thematicBreak
         case image
+        case date
     }
 
     /// Groupe d'affichage. L'ordre des cas est l'ordre d'affichage dans le
@@ -26,12 +27,18 @@ struct SlashCommand: Identifiable, Equatable {
     enum Group: String, CaseIterable, Equatable {
         case basicBlocks
         case media
+        /// Insertions ponctuelles de texte qui ne sont ni un bloc de base ni
+        /// un média — aujourd'hui seulement « Date ». Groupe séparé plutôt
+        /// que rattaché à `.media` : une date n'est pas un média, et
+        /// `.media`/« Média » reste fidèle à son seul contenu actuel (Image).
+        case insertions
 
         /// En-tête affiché au-dessus des entrées du groupe.
         var title: String {
             switch self {
             case .basicBlocks: return "Blocs de base"
             case .media: return "Média"
+            case .insertions: return "Insertions"
             }
         }
     }
@@ -49,12 +56,17 @@ struct SlashCommand: Identifiable, Equatable {
     /// cette insertion. `.insertImage` n'est pas davantage une conversion —
     /// c'est une action asynchrone (ouvrir un sélecteur de fichier, puis
     /// appeler `EditorTextView.insertImagePlaceholder`) que `SlashController`
-    /// pilotera ; modélisée ici sans être implémentée.
+    /// pilotera ; modélisée ici sans être implémentée. `.insertDate` suit le
+    /// même principe qu'`.insertImage` (action asynchrone : ouvrir un
+    /// sélecteur, puis insérer le résultat au point du curseur) mais insère
+    /// du **texte brut** — la date choisie, formatée — plutôt qu'un
+    /// placeholder attribué ; voir `SlashController.insertDate`.
     enum Action: Equatable {
         case convertBlock(MarkdownBlockCommands.LineBlockType)
         case convertList(ListInfo.Kind)
         case insertThematicBreak
         case insertImage
+        case insertDate
     }
 
     let key: Key
@@ -73,9 +85,11 @@ struct SlashCommand: Identifiable, Equatable {
     /// Fonctionnalité requise pour que l'entrée soit proposée. `nil` signifie
     /// qu'aucun `MarkdownFeature` ne la conditionne : c'est le cas pour
     /// « Texte » (le paragraphe est l'état de base, pas une fonctionnalité
-    /// optionnelle) et pour « Image » (`MarkdownFeature` ne modélise que la
+    /// optionnelle), pour « Image » (`MarkdownFeature` ne modélise que la
     /// syntaxe markdown ; le collage d'image existant — `EditorTextView.paste`
-    /// — n'est déjà conditionné par aucune fonctionnalité).
+    /// — n'est déjà conditionné par aucune fonctionnalité) et pour « Date »
+    /// (même raisonnement qu'« Image » : la date insérée est du texte brut,
+    /// aucune syntaxe markdown ne l'accompagne — rien à conditionner).
     let requiredFeature: MarkdownFeature?
 
     var id: Key { key }

@@ -65,6 +65,13 @@ final class SlashController {
     /// par défaut (`presentImageOpenPanel`) ouvre un vrai `NSOpenPanel`.
     private let presentImagePicker: (@escaping (URL?) -> Void) -> Void
 
+    /// Ouvre le sélecteur de date pour l'entrée « Date » et renvoie la date
+    /// choisie (`nil` si annulé). Même rôle que `presentImagePicker`, même
+    /// raison d'être injectable : point d'injection pour les tests — la
+    /// valeur par défaut (`presentDateAlertPicker`) ouvre un vrai panneau
+    /// modal (`NSAlert` + `NSDatePicker`).
+    private let presentDatePicker: (@escaping (Date?) -> Void) -> Void
+
     // MARK: - État
 
     /// Vrai entre l'ouverture du menu et sa fermeture (application, Échap,
@@ -79,25 +86,28 @@ final class SlashController {
     private var flatCommands: [SlashCommand] = []
     private var selectedIndex: Int = 0
 
-    /// `panel` et `presentImagePicker` n'ont volontairement pas de valeur par
-    /// défaut : un défaut faisant appel à un initialiseur/une méthode
-    /// `@MainActor` depuis une position de paramètre par défaut échoue à la
-    /// compilation en mode Swift 6 (isolation d'acteur d'une expression de
-    /// défaut non résolue au contexte de l'appelant) — mesuré. L'appelant
-    /// (tâche 6, ou un test) passe explicitement `SlashPanel()` et
-    /// `SlashController.presentImageOpenPanel`.
+    /// `panel`, `presentImagePicker` et `presentDatePicker` n'ont
+    /// volontairement pas de valeur par défaut : un défaut faisant appel à un
+    /// initialiseur/une méthode `@MainActor` depuis une position de paramètre
+    /// par défaut échoue à la compilation en mode Swift 6 (isolation d'acteur
+    /// d'une expression de défaut non résolue au contexte de l'appelant) —
+    /// mesuré. L'appelant (tâche 6, ou un test) passe explicitement
+    /// `SlashPanel()`, `SlashController.presentImageOpenPanel` et
+    /// `SlashController.presentDateAlertPicker`.
     init(
         textView: EditorTextView,
         features: Set<MarkdownFeature>,
         panel: SlashPanel,
         cancelPendingWrite: @escaping () -> Void,
-        presentImagePicker: @escaping (@escaping (URL?) -> Void) -> Void
+        presentImagePicker: @escaping (@escaping (URL?) -> Void) -> Void,
+        presentDatePicker: @escaping (@escaping (Date?) -> Void) -> Void
     ) {
         self.textView = textView
         self.features = features
         self.panel = panel
         self.cancelPendingWrite = cancelPendingWrite
         self.presentImagePicker = presentImagePicker
+        self.presentDatePicker = presentDatePicker
         panel.onSelect = { [weak self] command in self?.apply(command) }
     }
 
@@ -352,6 +362,11 @@ final class SlashController {
                 guard let self, let textView, let url else { return }
                 self.insertImage(url, at: applyLocation, in: textView)
             }
+        case .insertDate:
+            presentDatePicker { [weak self, weak textView] date in
+                guard let self, let textView, let date else { return }
+                self.insertDate(date, at: applyLocation, in: textView)
+            }
         }
     }
 
@@ -427,6 +442,46 @@ final class SlashController {
         textView.insertImagePlaceholder(for: url)
     }
 
+    /// Insère `date` comme **texte brut**, au format français long
+    /// (`dateInsertionFormatter` — ex. `"5 août 2026"`) : pas de syntaxe
+    /// markdown à générer (pas de placeholder attribué comme pour l'image),
+    /// donc pas de risque d'échappement à la sérialisation — vérifié :
+    /// `dateStyle = .long` en `fr_FR` ne produit que lettres, chiffres et
+    /// espaces, aucun des caractères d'`MarkdownEscaping.inlineSpecials`
+    /// (`\`, `` ` ``, `*`, `_`, `{`, `}`, `[`, `]`, `(`, `)`, `#`, `+`, `-`,
+    /// `!`) — ni un format `jj/mm/aaaa` (`/` n'y figure pas non plus) ni un
+    /// format `aaaa-mm-jj` (qui, lui, contiendrait `-` et se retrouverait
+    /// échappé en `aaaa\-mm\-jj`) n'a été retenu pour cette raison sur le
+    /// second, et pour la lisibilité côté « libellés et contenus en
+    /// français » (convention du projet) sur le premier.
+    ///
+    /// `stripRiskyTypingAttributes` (piège 6, même parade que pour le
+    /// séparateur) avant l'insertion : sans ça, une date insérée juste après
+    /// du code inline ou du gras hériterait de `.mdInlineCode`/`.mdBold` via
+    /// `insertText(_:replacementRange:)`, qui fusionne les `typingAttributes`
+    /// courants dans le texte simple qu'on lui passe.
+    private func insertDate(_ date: Date, at location: Int, in textView: EditorTextView) {
+        stripRiskyTypingAttributes(in: textView)
+        let text = Self.dateInsertionFormatter.string(from: date)
+        let safeLocation = min(location, textView.textStorage?.length ?? 0)
+        textView.insertText(text, replacementRange: NSRange(location: safeLocation, length: 0))
+    }
+
+    /// Format d'insertion de l'entrée « Date » — voir `insertDate` pour la
+    /// justification du choix (`dateStyle = .long`, locale `fr_FR`) contre
+    /// `MarkdownEscaping.inlineSpecials`. Internal (pas `private`) : les
+    /// tests s'y réfèrent directement pour calculer le texte attendu plutôt
+    /// que de dupliquer sa configuration (et risquer une divergence
+    /// silencieuse, ex. de fuseau horaire, entre le format testé et le
+    /// format réellement inséré).
+    static let dateInsertionFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        formatter.locale = Locale(identifier: "fr_FR")
+        return formatter
+    }()
+
     /// Ouvre un vrai sélecteur de fichier (implémentation par défaut de
     /// `presentImagePicker`). `runModal()` plutôt qu'un `.begin` asynchrone :
     /// même style que le seul autre usage de `NSOpenPanel` du projet
@@ -439,6 +494,33 @@ final class SlashController {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         completion(panel.runModal() == .OK ? panel.url : nil)
+    }
+
+    /// Ouvre un vrai sélecteur de date (implémentation par défaut de
+    /// `presentDatePicker`) : un `NSAlert` dont la vue accessoire est un
+    /// `NSDatePicker` — pattern courant pour un contrôle modal ponctuel côté
+    /// AppKit qui n'a pas besoin de sa propre fenêtre dédiée (contrairement à
+    /// `OneToOneQuickPickerWindow`, un panneau flottant réutilisé à chaque
+    /// déclenchement d'un raccourci global, ce qui n'est pas le cas ici).
+    /// `.clockAndCalendar` avec `.yearMonthDay` : sélection au clic, pas de
+    /// saisie textuelle à valider. Date par défaut : aujourd'hui
+    /// (`NSDatePicker.dateValue` vaut déjà la date courante à la création).
+    /// `runModal()` bloquant — même style que `presentImageOpenPanel`.
+    /// Annuler (bouton « Annuler », ou Échap qui équivaut au bouton par
+    /// défaut d'`NSAlert`) ne renvoie rien.
+    static func presentDateAlertPicker(_ completion: @escaping (Date?) -> Void) {
+        let datePicker = NSDatePicker()
+        datePicker.datePickerStyle = .clockAndCalendar
+        datePicker.datePickerElements = .yearMonthDay
+        datePicker.frame = NSRect(x: 0, y: 0, width: 200, height: 170)
+
+        let alert = NSAlert()
+        alert.messageText = "Insérer une date"
+        alert.accessoryView = datePicker
+        alert.addButton(withTitle: "Insérer")
+        alert.addButton(withTitle: "Annuler")
+
+        completion(alert.runModal() == .alertFirstButtonReturn ? datePicker.dateValue : nil)
     }
 
     // MARK: - Attributs de frappe hérités (piège 6)

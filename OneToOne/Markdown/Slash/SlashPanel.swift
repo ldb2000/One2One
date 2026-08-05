@@ -294,6 +294,7 @@ private extension SlashCommand.Key {
         case .blockquote: return "text.quote"
         case .thematicBreak: return "minus"
         case .image: return "photo"
+        case .date: return "calendar"
         }
     }
 }
