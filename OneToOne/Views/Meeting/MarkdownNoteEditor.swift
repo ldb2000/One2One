@@ -4,11 +4,14 @@ import SwiftUI
 /// (`MarkdownTextEditor` → `EditorRepresentable`, `NSTextView`/TextKit 1) :
 /// stylage live en frappe (titres, gras, listes), marqueurs de liste dessinés,
 /// cases à cocher cliquables, menu `/` pour les conversions de bloc, images
-/// inline collées. Deux modes commutables :
-/// - **Aperçu** (défaut) : `.markdownReadOnly(true)` — lecture seule, rendu stylé.
-/// - **Édition** : `.markdownReadOnly(false)` — saisie avec stylage live.
+/// inline collées.
 ///
-/// Défaut = Aperçu, sauf note vide → démarre en Édition (évite l'écran blanc).
+/// **Un seul mode.** L'ancien sélecteur Aperçu/Édition venait du moteur tiers,
+/// qui séparait un rendu en lecture seule d'une saisie en texte source. Le
+/// module stylise en frappe : le rendu *est* la saisie, les deux modes
+/// affichaient donc la même chose et seule l'éditabilité changeait. Le
+/// sélecteur a été retiré ; les cases à cocher redeviennent cliquables en
+/// permanence, ce que le mode Aperçu empêchait.
 ///
 /// Remplace l'éditeur tiers **MarkdownEngine** (nodes-app/swift-markdown-engine,
 /// `NativeTextViewWrapper`) précédemment utilisé ici. Les deux moteurs lisent
@@ -33,31 +36,9 @@ struct MarkdownNoteEditor: View {
     /// du `documentId` de l'ancien moteur).
     let editorID: String
 
-    @State private var isEditing: Bool
-
-    init(text: Binding<String>, editorID: String) {
-        self._text = text
-        self.editorID = editorID
-        self._isEditing = State(initialValue: text.wrappedValue.isEmpty)
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Picker("", selection: $isEditing) {
-                    Text("Aperçu").tag(false)
-                    Text("Édition").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                Spacer()
-            }
-
-            MarkdownTextEditor(text: $text)
-                .markdownFeatures(.prep)
-                .markdownReadOnly(!isEditing)
-                .markdownEditorID(editorID)
-        }
+        MarkdownTextEditor(text: $text)
+            .markdownFeatures(.prep)
+            .markdownEditorID(editorID)
     }
 }
