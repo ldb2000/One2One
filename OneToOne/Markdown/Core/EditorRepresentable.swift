@@ -60,6 +60,19 @@ struct EditorRepresentable: NSViewRepresentable {
         }
         scroll.documentView = editor
         context.coordinator.textView = editor
+        // Contrôleur du menu « / » (tâche 6) : construit juste après
+        // l'`EditorTextView`, avec l'annulation du debounce en cours branchée
+        // sur `cancelPendingWrite` du même `Coordinator` — voir l'en-tête de
+        // `SlashController` pour le câblage attendu.
+        context.coordinator.slashController = SlashController(
+            textView: editor,
+            features: features,
+            panel: SlashPanel(),
+            cancelPendingWrite: { [weak coord = context.coordinator] in
+                coord?.cancelPendingWrite()
+            },
+            presentImagePicker: SlashController.presentImageOpenPanel
+        )
         // Expose l'éditeur à une éventuelle MarkdownToolbar via le registre partagé.
         if !editorID.isEmpty {
             MarkdownEditorRegistry.shared.register(editor, id: editorID)
@@ -71,6 +84,8 @@ struct EditorRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
         let id = coordinator.parent.editorID
         if !id.isEmpty { MarkdownEditorRegistry.shared.unregister(id: id) }
+        coordinator.slashController?.teardown()
+        coordinator.slashController = nil
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -79,6 +94,7 @@ struct EditorRepresentable: NSViewRepresentable {
         editor.isEditable = !readOnly
         context.coordinator.features = features
         context.coordinator.debounce = debounce
+        context.coordinator.slashController?.updateFeatures(features)
         
         let incoming = markdown
         if context.coordinator.hasPendingLocalWrite {
@@ -123,6 +139,11 @@ struct EditorRepresentable: NSViewRepresentable {
         var features: Set<MarkdownFeature>
         var debounce: TimeInterval
         var hasPendingLocalWrite: Bool = false
+        /// Menu « / » (tâche 6). Construit dans `makeNSView`, démonté dans
+        /// `dismantleNSView`. `nil` seulement pour un `Coordinator` créé à la
+        /// main sans passer par `makeNSView` (ex. certains tests plus anciens
+        /// qui n'exercent pas le menu).
+        var slashController: SlashController?
         private var pendingStyleRange: NSRange?
         private var debounceTask: Task<Void, Never>?
         /// Garde anti-récursion : `ShortcutDetector.apply` mute le storage,
@@ -143,11 +164,33 @@ struct EditorRepresentable: NSViewRepresentable {
             return true
         }
 
+        /// Délègue au menu « / » (tâche 6) la navigation clavier (↑ ↓ ⏎ Tab
+        /// Échap) pendant qu'il est ouvert, ainsi que le correctif du Retour
+        /// après un titre (piège 4) quand il ne l'est pas. `handle` renvoie
+        /// `true` si la commande a été consommée — l'appelant (`NSTextView`)
+        /// n'exécute alors pas son comportement par défaut.
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            slashController?.handle(commandSelector: commandSelector) ?? false
+        }
+
+        /// Ferme le menu « / » (tâche 6) si le curseur sort de la plage de la
+        /// requête (clic ailleurs, flèche gauche/droite) — voir
+        /// `SlashController.selectionDidChange`.
+        func textViewDidChangeSelection(_ notification: Notification) {
+            slashController?.selectionDidChange()
+        }
+
         /// Réagit à chaque frappe : applique les raccourcis markdown puis
         /// ré-applique le style visuel, le tout sous `isApplyingShortcut` pour
         /// ignorer les `textDidChange` ré-émis par ces mutations (anti-boucle),
         /// avant de pousser le markdown vers le binding (débouncé).
         func textDidChange(_ notification: Notification) {
+            // Le menu « / » (tâche 6) absorbe la frappe s'il vient de
+            // s'ouvrir, de filtrer ou de se fermer : ni `ShortcutDetector`, ni
+            // la sérialisation, ni le (re)programmation du debounce ne
+            // doivent alors s'exécuter — voir l'en-tête de `SlashController`.
+            if slashController?.textDidChange() == true { return }
+
             guard let tv = textView, let storage = tv.textStorage else { return }
             if isApplyingShortcut { return }
 
