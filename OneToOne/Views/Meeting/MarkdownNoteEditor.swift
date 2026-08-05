@@ -46,7 +46,7 @@ struct MarkdownNoteEditor: View {
 
     var body: some View {
         MarkdownTextEditor(text: $text)
-            .markdownFeatures(.prep)
+            .markdownFeatures(.full)
             .markdownEditorID(editorID)
             .markdownMentions(
                 search: { CollaboratorMentionSource.search($0, in: mentionableCollaborators) },

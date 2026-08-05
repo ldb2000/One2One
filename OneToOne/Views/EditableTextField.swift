@@ -265,7 +265,7 @@ struct MarkdownEditorView: View {
 
     var body: some View {
         MarkdownTextEditor(text: $text)
-            .markdownFeatures(.prep)
+            .markdownFeatures(.full)
             .markdownEditorID(textViewID)
             .markdownMentions(
                 search: { CollaboratorMentionSource.search($0, in: mentionableCollaborators) },
