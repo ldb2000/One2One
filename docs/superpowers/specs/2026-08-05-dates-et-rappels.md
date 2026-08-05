@@ -3,6 +3,36 @@
 Date : 2026-08-05
 Branche : `feat/editeur-slash-blocs`
 
+> ## ⚠️ Annotation du 2026-08-06 — le découpage a été exécuté **à l'envers**
+>
+> Vérifié par lecture du code (`SlashController.insertDate`,
+> `SlashDatePickerPresenter`, `DateReminder`, commit `e2ed854`) :
+>
+> | Étape de la spec | État réel |
+> |---|---|
+> | 1 — format de lien + parsing + aller-retour | **non faite** |
+> | 2 — rendu distinct (fond, couleur) | **non faite** |
+> | 3 — icône dessinée | non faite |
+> | 4 — popover : calendrier, heure | **faite** (`NSPopover` + SwiftUI : champ texte éditable, `DatePicker` graphique, bascule « Inclure l'heure », éditeur d'heure) |
+> | 5 — rappel affiché dans le popover, non déclenché | **faite** (`DateReminder`, 5 choix, menu « Rappel ») |
+> | 6 — rappels planifiés | non faite |
+>
+> Les étapes 4 et 5 ont été livrées **avant** les étapes 1 et 2, ce que la spec
+> présentait pourtant comme un ordre de dépendance. Conséquence mesurable :
+> `SlashController.insertDate` insère toujours du **texte brut**
+> (`"5 août 2026"`, `"6 août 2026 13:08"`) et **jette `selection.reminder`** — son
+> propre doc-comment le dit. Le popover fait donc choisir à l'utilisateur un rappel
+> qui n'est ni écrit, ni stocké, ni déclenché : il disparaît à la validation.
+>
+> C'est exactement l'avertissement que ce document formulait — « un rappel qui ne se
+> déclenche pas est pire qu'un rappel absent » — sauf que le cas réel est pire encore,
+> puisque le rappel n'est même pas conservé.
+>
+> **Deux issues, à trancher** : (a) exécuter l'étape 1 (le lien
+> `onetoone://date/…?reminder=P1D`) pour que la donnée survive ; (b) retirer le menu
+> « Rappel » du popover tant que (a) n'est pas fait, pour ne pas mentir à
+> l'utilisateur. Le reste de ce document reste valide tel quel.
+
 ## Point de départ
 
 `/date` existe et insère du **texte brut** (`5 août 2026`) via une `NSAlert`

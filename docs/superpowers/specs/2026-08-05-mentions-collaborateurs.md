@@ -3,6 +3,32 @@
 Date : 2026-08-05
 Branche : `feat/editeur-slash-blocs`
 
+> ## ✅ Annotation du 2026-08-06 — livré aux étapes 1 à 4, l'étape 5 reste ouverte
+>
+> Vérifié par lecture du code (`OneToOne/Markdown/Mention/`, commit `b7f3c59`) :
+>
+> - **Étapes 1 à 4 livrées.** `MentionCandidate`, `MentionCatalog.rows` (avec
+>   l'entrée « Créer … » supprimée sur correspondance exacte, point que la spec
+>   laissait ouvert), `MentionPanel`, `MentionController` (déclenchement, clavier,
+>   insertion, annulation du debounce, purge des `typingAttributes`), branchement
+>   dans `EditorRepresentable` via `markdownMentions(search:create:)` et
+>   `CollaboratorMentionSource`. 51 tests (`MentionCatalogTests` 13,
+>   `MentionControllerTests` 38).
+> - **Format confirmé** : `[@Nom](onetoone://collaborator/<uuid>)`, `MentionCatalog.
+>   mentionURL(for:)` / `collaboratorID(from:)`. Le schéma `onetoone` **existe bien**
+>   (`MickeyIntegration.callbackScheme`) — la question ouverte de la spec est tranchée.
+> - **Étape 5 non livrée** : aucun rendu distinct. `StyleRenderer` ne lit jamais le
+>   schéma de l'URL — toute valeur de `.mdLink` reçoit le même
+>   `linkColor` + soulignement. Une mention est visuellement un lien ordinaire.
+>
+> **Trou non prévu par la spec, à traiter** : le lien de mention **ne mène nulle
+> part**. `EditorTextView.mouseDown` ne traite que la bascule des cases à cocher ;
+> aucun `clickedOnLink`, aucun attribut `.link` natif n'est posé. Et
+> `MickeyIntegration.handleCallback` refuse tout hôte autre que `session-done`
+> (`guard url.host == Self.callbackHost`). Cliquer une mention n'ouvre donc pas la
+> fiche du collaborateur — c'est la raison n°3 du choix du format, restée sans suite.
+> Voir [`2026-08-06-editeur-appflowy-cap.md`](2026-08-06-editeur-appflowy-cap.md).
+
 ## Objectif
 
 Taper `@` dans une note ouvre une liste déroulante des collaborateurs connus.

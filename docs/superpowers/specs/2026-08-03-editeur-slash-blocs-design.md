@@ -3,6 +3,33 @@
 Date : 2026-08-03
 Branche : `feat/editeur-slash-blocs`
 
+> ## ⚠️ Annotation du 2026-08-06 — état réel, trois sections devenues fausses
+>
+> Ce document reste la spec d'origine et garde la trace du raisonnement. Il est
+> **partiellement périmé**. La spec qui fait foi désormais est
+> [`2026-08-06-editeur-appflowy-cap.md`](2026-08-06-editeur-appflowy-cap.md).
+>
+> **Livré** (vérifié par lecture du code sur `feat/editeur-slash-blocs`) :
+> menu `/` (12 entrées, `OneToOne/Markdown/Slash/`), images inline
+> (`ImageAttachmentFactory`, `ImagePlaceholder`), `MediaStore` (ex-`ImagePasteService`),
+> `MarkdownBlockCommands` opérant par attributs, marqueurs de liste et filet de
+> citation dessinés par `MarkdownLayoutManager`, tableaux GFM en vraie grille
+> `NSTextTable`, mentions `@`, sélecteur de date en popover.
+>
+> **Non livré, et devenu faux dans le texte ci-dessous** :
+>
+> | Section | Ce qu'elle annonce | État réel |
+> |---|---|---|
+> | Objectif 2, « Moteur mermaid », « Rendu asynchrone et cache », « Édition d'un bloc » | mermaid rendu dans l'éditeur, `Blocks/MermaidRenderer`, `RenderCache`, `mermaid.min.js` embarqué | **rien de tout cela n'existe.** `OneToOne/Markdown/Blocks/` ne contient qu'`ImageAttachmentFactory.swift`. Aucun fichier du projet ne mentionne mermaid hors le commentaire « hors périmètre » de `SlashCatalog.swift`. Mis hors périmètre par décision utilisateur du 2026-08-04 |
+> | Objectif 4, « Images et draw.io » | `DrawIOImporter`, CLI draw.io | **n'existe pas.** Même décision du 2026-08-04 |
+> | Objectif 5, « Unification des chemins markdown » | `MarkdownText.swift` consomme `MarkdownParser` | **non fait.** `OneToOne/Views/MarkdownText.swift` fait toujours 198 lignes et garde son analyseur ligne-à-ligne écrit à la main (`hasPrefix("```")`, `hasPrefix("> ")`…). L'étape 1 du découpage, annoncée « en premier », n'a jamais été exécutée |
+> | Tableau « Catalogue » | « Bloc de code ` ``` ` » dans Blocs de base ; groupes « Média » (mermaid, draw.io) et « IA » | le catalogue réel n'a **pas** de bloc de code, pas de mermaid, pas de draw.io, pas d'IA. Il a en revanche **Tableau** et **Date**, absents de ce tableau |
+> | « Non-objectifs » | « Mentions `@collaborateur` … tableaux » hors périmètre | les deux **sont livrés** depuis (commits `fc2234a`, `b7f3c59`) |
+>
+> **Toujours vrai et structurant** : le markdown reste seule source de vérité ;
+> TextKit 1 conservé ; `NSTextAttachmentViewProvider` exigerait TextKit 2 ;
+> aucun code AppFlowy n'est repris (AGPL-3.0).
+
 ## Contexte
 
 L'éditeur `OneToOne/Markdown/` (issu de `2026-05-22-wysiwyg-markdown.md`, complété
