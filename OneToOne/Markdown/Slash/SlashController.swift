@@ -65,12 +65,26 @@ final class SlashController {
     /// par défaut (`presentImageOpenPanel`) ouvre un vrai `NSOpenPanel`.
     private let presentImagePicker: (@escaping (URL?) -> Void) -> Void
 
-    /// Ouvre le sélecteur de date pour l'entrée « Date » et renvoie la date
-    /// choisie (`nil` si annulé). Même rôle que `presentImagePicker`, même
-    /// raison d'être injectable : point d'injection pour les tests — la
-    /// valeur par défaut (`presentDateAlertPicker`) ouvre un vrai panneau
-    /// modal (`NSAlert` + `NSDatePicker`).
-    private let presentDatePicker: (@escaping (Date?) -> Void) -> Void
+    /// Ouvre le sélecteur de date pour l'entrée « Date » et renvoie la
+    /// sélection choisie via `completion` — **`nil` signifie annulation** :
+    /// rien n'a été validé, l'appelant ne doit ni insérer de texte ni muter
+    /// le storage. Reçoit la vue à ancrer (`EditorTextView`) et le rectangle
+    /// écran de l'emplacement d'insertion (`dateAnchorRect`, même technique
+    /// que `reposition()` pour `SlashPanel`) : le popover par défaut en a
+    /// besoin pour s'afficher près du texte plutôt qu'au centre de l'écran.
+    /// Même raison d'être injectable que `presentImagePicker` : point
+    /// d'injection pour les tests — la valeur par défaut
+    /// (`presentDatePickerPopover`) ouvre un vrai `NSPopover`
+    /// (`SlashDatePickerPresenter`), qui remplace l'ancienne `NSAlert` +
+    /// `NSDatePicker` modale (`presentDateAlertPicker`, supprimée — son
+    /// commentaire affirmait à tort que `NSDatePicker.dateValue` valait déjà
+    /// la date du jour à la création ; en réalité il vaut la date de
+    /// référence d'AppKit, le 1ᵉʳ janvier 2001, tant qu'on ne l'affecte pas
+    /// explicitement, d'où le calendrier s'ouvrant sur 2001 constaté par
+    /// l'utilisateur. `SlashDatePickerPresenter` ne dépend plus de
+    /// `NSDatePicker` du tout : son état SwiftUI est explicitement
+    /// initialisé à `Date()` — voir `SlashDatePickerPresenter.present`).
+    private let presentDatePicker: (EditorTextView, NSRect, @escaping (SlashDateSelection?) -> Void) -> Void
 
     // MARK: - État
 
@@ -93,14 +107,14 @@ final class SlashController {
     /// d'une expression de défaut non résolue au contexte de l'appelant) —
     /// mesuré. L'appelant (tâche 6, ou un test) passe explicitement
     /// `SlashPanel()`, `SlashController.presentImageOpenPanel` et
-    /// `SlashController.presentDateAlertPicker`.
+    /// `SlashController.presentDatePickerPopover`.
     init(
         textView: EditorTextView,
         features: Set<MarkdownFeature>,
         panel: SlashPanel,
         cancelPendingWrite: @escaping () -> Void,
         presentImagePicker: @escaping (@escaping (URL?) -> Void) -> Void,
-        presentDatePicker: @escaping (@escaping (Date?) -> Void) -> Void
+        presentDatePicker: @escaping (EditorTextView, NSRect, @escaping (SlashDateSelection?) -> Void) -> Void
     ) {
         self.textView = textView
         self.features = features
@@ -363,9 +377,10 @@ final class SlashController {
                 self.insertImage(url, at: applyLocation, in: textView)
             }
         case .insertDate:
-            presentDatePicker { [weak self, weak textView] date in
-                guard let self, let textView, let date else { return }
-                self.insertDate(date, at: applyLocation, in: textView)
+            let anchor = dateAnchorRect(in: textView, at: applyLocation)
+            presentDatePicker(textView, anchor) { [weak self, weak textView] selection in
+                guard let self, let textView, let selection else { return }
+                self.insertDate(selection, at: applyLocation, in: textView)
             }
         }
     }
@@ -442,38 +457,53 @@ final class SlashController {
         textView.insertImagePlaceholder(for: url)
     }
 
-    /// Insère `date` comme **texte brut**, au format français long
-    /// (`dateInsertionFormatter` — ex. `"5 août 2026"`) : pas de syntaxe
-    /// markdown à générer (pas de placeholder attribué comme pour l'image),
-    /// donc pas de risque d'échappement à la sérialisation — vérifié :
-    /// `dateStyle = .long` en `fr_FR` ne produit que lettres, chiffres et
-    /// espaces, aucun des caractères d'`MarkdownEscaping.inlineSpecials`
-    /// (`\`, `` ` ``, `*`, `_`, `{`, `}`, `[`, `]`, `(`, `)`, `#`, `+`, `-`,
-    /// `!`) — ni un format `jj/mm/aaaa` (`/` n'y figure pas non plus) ni un
-    /// format `aaaa-mm-jj` (qui, lui, contiendrait `-` et se retrouverait
-    /// échappé en `aaaa\-mm\-jj`) n'a été retenu pour cette raison sur le
-    /// second, et pour la lisibilité côté « libellés et contenus en
-    /// français » (convention du projet) sur le premier.
+    /// Insère la date/heure de `selection` comme **texte brut**, au format
+    /// français long (`dateInsertionFormatter` — ex. `"5 août 2026"`), suivi
+    /// de l'heure (`timeInsertionFormatter` — ex. `"13:08"`) séparée par une
+    /// espace si `selection.includesTime` est vrai (ex. `"6 août 2026
+    /// 13:08"`) : pas de syntaxe markdown à générer (pas de placeholder
+    /// attribué comme pour l'image), donc pas de risque d'échappement à la
+    /// sérialisation — vérifié pour les deux formateurs : `dateStyle = .long`
+    /// en `fr_FR` ne produit que lettres, chiffres et espaces, et
+    /// `dateFormat = "HH:mm"` ne produit que chiffres et `:` ; aucun de ces
+    /// caractères ne figure dans `MarkdownEscaping.inlineSpecials` (`\`,
+    /// `` ` ``, `*`, `_`, `{`, `}`, `[`, `]`, `(`, `)`, `#`, `+`, `-`, `!`) —
+    /// ni un format `jj/mm/aaaa` (`/` n'y figure pas non plus) ni un format
+    /// `aaaa-mm-jj` (qui, lui, contiendrait `-` et se retrouverait échappé en
+    /// `aaaa\-mm\-jj`) n'a été retenu pour cette raison sur le second, et
+    /// pour la lisibilité côté « libellés et contenus en français »
+    /// (convention du projet) sur le premier.
+    ///
+    /// `selection.reminder` n'est **pas** utilisé ici : cette méthode ne
+    /// produit que le texte inséré (hors périmètre de cette tâche : la
+    /// représentation du rappel dans le texte — chantier 1 de la spec — et
+    /// sa planification effective — chantier 3). Le rappel choisi est
+    /// disponible sur `selection` pour un futur appelant, simplement ignoré
+    /// ici.
     ///
     /// `stripRiskyTypingAttributes` (piège 6, même parade que pour le
     /// séparateur) avant l'insertion : sans ça, une date insérée juste après
     /// du code inline ou du gras hériterait de `.mdInlineCode`/`.mdBold` via
     /// `insertText(_:replacementRange:)`, qui fusionne les `typingAttributes`
     /// courants dans le texte simple qu'on lui passe.
-    private func insertDate(_ date: Date, at location: Int, in textView: EditorTextView) {
+    private func insertDate(_ selection: SlashDateSelection, at location: Int, in textView: EditorTextView) {
         stripRiskyTypingAttributes(in: textView)
-        let text = Self.dateInsertionFormatter.string(from: date)
+        var text = Self.dateInsertionFormatter.string(from: selection.date)
+        if selection.includesTime {
+            text += " " + Self.timeInsertionFormatter.string(from: selection.date)
+        }
         let safeLocation = min(location, textView.textStorage?.length ?? 0)
         textView.insertText(text, replacementRange: NSRange(location: safeLocation, length: 0))
     }
 
-    /// Format d'insertion de l'entrée « Date » — voir `insertDate` pour la
-    /// justification du choix (`dateStyle = .long`, locale `fr_FR`) contre
-    /// `MarkdownEscaping.inlineSpecials`. Internal (pas `private`) : les
-    /// tests s'y réfèrent directement pour calculer le texte attendu plutôt
-    /// que de dupliquer sa configuration (et risquer une divergence
-    /// silencieuse, ex. de fuseau horaire, entre le format testé et le
-    /// format réellement inséré).
+    /// Format de la partie date de l'entrée « Date » — voir `insertDate`
+    /// pour la justification du choix (`dateStyle = .long`, locale `fr_FR`)
+    /// contre `MarkdownEscaping.inlineSpecials`. Internal (pas `private`) :
+    /// les tests et `SlashDatePickerContent` (aperçu affiché dans le
+    /// popover) s'y réfèrent directement plutôt que de dupliquer sa
+    /// configuration (et risquer une divergence silencieuse, ex. de fuseau
+    /// horaire, entre le format affiché/testé et le format réellement
+    /// inséré).
     static let dateInsertionFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .long
@@ -481,6 +511,40 @@ final class SlashController {
         formatter.locale = Locale(identifier: "fr_FR")
         return formatter
     }()
+
+    /// Format de la partie heure, ajoutée après `dateInsertionFormatter` par
+    /// `insertDate` quand « Inclure l'heure » est activé. `dateFormat =
+    /// "HH:mm"` explicite plutôt que `timeStyle` : garantit le séparateur
+    /// (`:`, absent d'`MarkdownEscaping.inlineSpecials`) indépendamment de la
+    /// locale, là où `timeStyle` pourrait un jour produire une espace
+    /// insécable ou la lettre `h` selon la locale/version d'OS — vérifié pour
+    /// `fr_FR`/macOS actuel (`"13:08"` dans les deux cas), mais `dateFormat`
+    /// explicite retire toute dépendance à ce comportement système. Internal
+    /// pour la même raison que `dateInsertionFormatter`.
+    static let timeInsertionFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.locale = Locale(identifier: "fr_FR")
+        return formatter
+    }()
+
+    /// Rectangle écran à l'emplacement d'insertion (`location`) — sert
+    /// d'ancrage au popover du sélecteur de date (`presentDatePicker`).
+    /// Même API que `reposition()` (le repositionnement de `SlashPanel`) :
+    /// `firstRect(forCharacterRange:actualRange:)`, vérifiée sur cette pile
+    /// TextKit 1. `.zero` si la vue n'a pas encore de fenêtre — même garde
+    /// que `reposition()`, pour la même raison (comportement non garanti
+    /// sans fenêtre ; sans conséquence en pratique, l'entrée « Date » n'est
+    /// accessible qu'une fois l'éditeur affiché à l'écran).
+    private func dateAnchorRect(in textView: EditorTextView, at location: Int) -> NSRect {
+        guard textView.window != nil else { return .zero }
+        var actualRange = NSRange(location: 0, length: 0)
+        let safeLocation = min(location, textView.textStorage?.length ?? 0)
+        return textView.firstRect(
+            forCharacterRange: NSRange(location: safeLocation, length: 0),
+            actualRange: &actualRange
+        )
+    }
 
     /// Ouvre un vrai sélecteur de fichier (implémentation par défaut de
     /// `presentImagePicker`). `runModal()` plutôt qu'un `.begin` asynchrone :
@@ -496,31 +560,20 @@ final class SlashController {
         completion(panel.runModal() == .OK ? panel.url : nil)
     }
 
-    /// Ouvre un vrai sélecteur de date (implémentation par défaut de
-    /// `presentDatePicker`) : un `NSAlert` dont la vue accessoire est un
-    /// `NSDatePicker` — pattern courant pour un contrôle modal ponctuel côté
-    /// AppKit qui n'a pas besoin de sa propre fenêtre dédiée (contrairement à
-    /// `OneToOneQuickPickerWindow`, un panneau flottant réutilisé à chaque
-    /// déclenchement d'un raccourci global, ce qui n'est pas le cas ici).
-    /// `.clockAndCalendar` avec `.yearMonthDay` : sélection au clic, pas de
-    /// saisie textuelle à valider. Date par défaut : aujourd'hui
-    /// (`NSDatePicker.dateValue` vaut déjà la date courante à la création).
-    /// `runModal()` bloquant — même style que `presentImageOpenPanel`.
-    /// Annuler (bouton « Annuler », ou Échap qui équivaut au bouton par
-    /// défaut d'`NSAlert`) ne renvoie rien.
-    static func presentDateAlertPicker(_ completion: @escaping (Date?) -> Void) {
-        let datePicker = NSDatePicker()
-        datePicker.datePickerStyle = .clockAndCalendar
-        datePicker.datePickerElements = .yearMonthDay
-        datePicker.frame = NSRect(x: 0, y: 0, width: 200, height: 170)
-
-        let alert = NSAlert()
-        alert.messageText = "Insérer une date"
-        alert.accessoryView = datePicker
-        alert.addButton(withTitle: "Insérer")
-        alert.addButton(withTitle: "Annuler")
-
-        completion(alert.runModal() == .alertFirstButtonReturn ? datePicker.dateValue : nil)
+    /// Ouvre le vrai sélecteur de date (implémentation par défaut de
+    /// `presentDatePicker`) : un popover (`SlashDatePickerPresenter`, voir sa
+    /// doc pour le choix d'`NSPopover` plutôt que le modèle non-activant de
+    /// `SlashPanel`) ancré près de `screenRect`, initialisé sur la date du
+    /// jour — jamais la date de référence d'AppKit (1ᵉʳ janvier 2001), qui
+    /// était le bug de l'ancienne `NSAlert`/`NSDatePicker` (voir la doc de la
+    /// propriété `presentDatePicker` pour le détail du bug).
+    @MainActor
+    static func presentDatePickerPopover(
+        _ anchorView: EditorTextView,
+        _ screenRect: NSRect,
+        _ completion: @escaping (SlashDateSelection?) -> Void
+    ) {
+        SlashDatePickerPresenter.shared.present(near: screenRect, in: anchorView, initialDate: Date(), completion: completion)
     }
 
     // MARK: - Attributs de frappe hérités (piège 6)

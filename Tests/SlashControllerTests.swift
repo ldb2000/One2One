@@ -214,7 +214,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: { cancelCount += 1 },
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { $0(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) }
         )
 
         type("Hello ", into: editor, controller: controller) // 6 frappes, menu jamais ouvert
@@ -379,7 +379,7 @@ final class SlashControllerTests: XCTestCase {
                 pickerWasInvoked = true
                 completion(imageURL)
             },
-            presentDatePicker: { $0(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) }
         )
 
         type("/image", into: editor, controller: controller)
@@ -397,7 +397,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { completion in completion(nil) },
-            presentDatePicker: { $0(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) }
         )
 
         type("/image", into: editor, controller: controller)
@@ -417,9 +417,9 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { completion in
+            presentDatePicker: { _, _, completion in
                 pickerWasInvoked = true
-                completion(Self.fixedTestDate)
+                completion(Self.fixedTestSelection)
             }
         )
 
@@ -445,7 +445,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -468,7 +468,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { $0(Self.fixedTestDate) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -479,6 +479,90 @@ final class SlashControllerTests: XCTestCase {
 
         let reparsed = MarkdownParser.parse(serialized)
         XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized, "la date insérée doit survivre à l'aller-retour markdown")
+    }
+
+    /// `includesTime: false` (le cas par défaut de `fixedTestSelection`) ne
+    /// doit ajouter aucune heure au texte inséré — sans ce test, un bug qui
+    /// ajouterait toujours l'heure (ignorant `includesTime`) ne serait
+    /// détecté par aucun test existant : les tests « sans heure » vérifient
+    /// le texte exact via `dateInsertionFormatter`, mais aucun ne vérifiait
+    /// explicitement l'absence du séparateur `":"` propre à l'heure.
+    func test_applyingDate_withoutTime_insertsNoTimeSuffix() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        XCTAssertFalse(editor.textStorage!.string.contains(":"), "includesTime: false ne doit pas ajouter d'heure au texte inséré")
+    }
+
+    /// `includesTime: true` : le texte inséré doit porter la date **et**
+    /// l'heure (`SlashController.timeInsertionFormatter`, séparateur `":"`,
+    /// absent d'`MarkdownEscaping.inlineSpecials`), sans échappement, et doit
+    /// survivre à l'aller-retour markdown — même charte que
+    /// `test_applyingDate_roundTripsWithoutEscaping`, étendue au format avec
+    /// heure demandé par la tâche (« 6 août 2026 13:08 »).
+    func test_applyingDate_withTime_insertsDateAndTime_withoutEscaping_andRoundTrips() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in
+                completion(SlashDateSelection(date: Self.fixedTestDate, includesTime: true, reminder: .none))
+            }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        let expectedDate = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
+        let expectedTime = SlashController.timeInsertionFormatter.string(from: Self.fixedTestDate)
+        XCTAssertEqual(editor.textStorage?.string, "\(expectedDate) \(expectedTime)")
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertFalse(serialized.contains("\\"), "le format avec heure ne doit nécessiter aucun antislash d'échappement : \(serialized.debugDescription)")
+
+        let reparsed = MarkdownParser.parse(serialized)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized, "la date+heure insérée doit survivre à l'aller-retour markdown")
+    }
+
+    /// `SlashController.dateAnchorRect` (ancrage du popover) doit renvoyer
+    /// `.zero` plutôt que d'appeler `firstRect(forCharacterRange:actualRange:)`
+    /// quand l'éditeur n'a pas de fenêtre — même garde que `reposition()`
+    /// pour `SlashPanel`. Capture le rectangle reçu par le stub
+    /// `presentDatePicker` pour le vérifier sans accéder à la méthode privée
+    /// directement.
+    func test_applyingDate_anchorRectIsZero_whenEditorHasNoWindow() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        XCTAssertNil(editor.window, "prémisse du test : pas de fenêtre attachée dans ce montage")
+        var capturedRect: NSRect?
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, rect, completion in
+                capturedRect = rect
+                completion(nil)
+            }
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        XCTAssertEqual(capturedRect, .zero)
     }
 
     /// Preuve directe et indépendante de `MarkdownEscaping.inlineSpecials` :
@@ -501,7 +585,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { $0(Self.fixedTestDate) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -541,7 +625,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { $0(Self.fixedTestDate) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
         )
 
         type(" /date", into: editor, controller: controller)
@@ -574,7 +658,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { $0(Self.fixedTestDate) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
         )
 
         type(" /date", into: editor, controller: controller)
@@ -777,7 +861,7 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { $0(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) }
         )
     }
 
@@ -832,6 +916,15 @@ final class SlashControllerTests: XCTestCase {
         components.day = 25
         components.hour = 12
         return Calendar.current.date(from: components)!
+    }
+
+    /// `SlashDateSelection` construite sur `fixedTestDate`, sans heure et
+    /// sans rappel — la sélection renvoyée par la plupart des stubs
+    /// `presentDatePicker` de ce fichier, qui ne testent que le chemin
+    /// « date seule ». Les tests spécifiques à l'heure/au rappel construisent
+    /// leur propre `SlashDateSelection` plutôt que d'étendre celle-ci.
+    private static var fixedTestSelection: SlashDateSelection {
+        SlashDateSelection(date: fixedTestDate, includesTime: false, reminder: .none)
     }
 
     /// Repris de `Tests/EditorTextViewPasteTests.swift`.
