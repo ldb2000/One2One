@@ -47,6 +47,11 @@ enum MarkdownSerializer {
                 cursor = raw.nextCursor
                 continue
             }
+            if let table = tableBlock(in: source, at: cursor, ns: ns) {
+                lines.append(Line(markdown: table.markdown, boundary: .table))
+                cursor = table.nextCursor
+                continue
+            }
 
             var paragraphEnd = cursor
             while paragraphEnd < source.length, ns.character(at: paragraphEnd) != 0x0A {
@@ -102,6 +107,11 @@ enum MarkdownSerializer {
         /// alors que `"AONE\n1. BTWO"` et `"AONE\n- [ ] BTWO"` restent deux
         /// blocs distincts.
         case listItem(startsAtOne: Bool)
+        /// Une grille `NSTextTable` (`.mdTableCell`), voir `tableBlock(in:at:
+        /// ns:)`. Distinct de `.other` depuis la mesure sur les notes
+        /// réelles (`live/meeting_158.md`) qui a révélé deux paires à risque
+        /// symétriques aux six déjà connues — voir `needsBlankLine`.
+        case table
         case other
     }
 
@@ -149,8 +159,8 @@ enum MarkdownSerializer {
         }
     }
 
-    /// Les 6 paires mesurées où l'absence de ligne vide change la relecture
-    /// CommonMark :
+    /// Les 6 paires mesurées (avant tableaux) où l'absence de ligne vide
+    /// change la relecture CommonMark :
     /// - paragraphe→paragraphe : fusionnent en un seul paragraphe (soft break) ;
     /// - paragraphe→séparateur : le paragraphe devient un titre H2 Setext, le
     ///   séparateur est avalé — le pire cas, un changement de type de bloc ;
@@ -163,10 +173,33 @@ enum MarkdownSerializer {
     ///   pas le paragraphe, son marqueur redevient du texte littéral et
     ///   `ListInfo` est perdu au reparse — pas une simple fusion de texte
     ///   comme les autres, une perte de structure.
+    ///
+    /// Deux paires supplémentaires, symétriques à ces six, mesurées sur les
+    /// notes réelles (`live/meeting_158.md`, 4 tableaux) une fois les
+    /// tableaux devenus des blocs réels plutôt qu'un passthrough opaque —
+    /// invisibles avant ce chantier, `.rawBlock` masquait ces deux
+    /// absorptions (le texte littéral restait identique en apparence, que
+    /// la ligne suivante soit une vraie ligne du tableau ou un paragraphe
+    /// avalé par lui) :
+    /// - tableau→paragraphe : un paragraphe qui suit un tableau sans ligne
+    ///   vide est absorbé comme rangée de données supplémentaire du tableau
+    ///   (GFM ne borne un tableau qu'à la première ligne qui n'a pas cette
+    ///   forme — un paragraphe uniligne la remplit toujours). Mesuré sur
+    ///   4 occurrences dans `meeting_158` : chaque paragraphe suivant
+    ///   directement un tableau (ligne vide déjà retirée par une passe
+    ///   précédente) devenait une rangée fantôme à la repasse suivante.
+    /// - item de liste→tableau : même continuation paresseuse que
+    ///   item de liste→paragraphe, le tableau n'est alors jamais reconnu
+    ///   comme un `Table` — tout son contenu redevient texte littéral de
+    ///   l'item. Mesuré sur `live/meeting_157.md`.
     /// Toute autre paire est sûre sans ligne vide — notamment item de
     /// liste→item de liste, volontairement absent d'ici : deux items restent
     /// distincts même collés, et une ligne vide entre eux romprait leur
-    /// appartenance à une même liste visuelle sans que rien ne l'exige.
+    /// appartenance à une même liste visuelle sans que rien ne l'exige ; de
+    /// même paragraphe→tableau (un tableau GFM interrompt un paragraphe sans
+    /// ambiguïté, cf. `MarkdownParser.correctedRange`) et tableau→tableau
+    /// (deux tableaux collés fusionnent délibérément en un seul, cf. la
+    /// fixture dédiée dans `MarkdownRoundTripTests`).
     private static func needsBlankLine(before: BoundaryKind, after: BoundaryKind) -> Bool {
         switch (before, after) {
         case (.plainParagraph, .plainParagraph): return true
@@ -175,6 +208,8 @@ enum MarkdownSerializer {
         case (.blockquote, .blockquote): return true
         case (.listItem(_), .plainParagraph): return true
         case (.plainParagraph, .listItem(startsAtOne: false)): return true
+        case (.table, .plainParagraph): return true
+        case (.listItem(_), .table): return true
         default: return false
         }
     }
@@ -208,14 +243,16 @@ enum MarkdownSerializer {
         return ("\(fence)\(language)\n\(body)\n\(fence)", next)
     }
 
-    /// Si un bloc « brut » (tableau GFM, bloc HTML — `.mdBlockType ==
-    /// .rawBlock`) commence à `cursor`, renvoie son markdown littéral tel
-    /// quel et la position juste après. Même stratégie que
-    /// `fencedCodeBlock` : `longestEffectiveRange` regroupe tout le run
-    /// malgré les `\n` internes qu'un balayage ligne à ligne couperait.
-    /// Contrairement à un bloc de code, aucun fence n'enveloppe le texte :
-    /// le run porte déjà le markdown source exact (posé par
-    /// `MarkdownParser.emitRawBlock`), à réémettre sans transformation.
+    /// Si un bloc « brut » (bloc HTML — `.mdBlockType == .rawBlock`) commence
+    /// à `cursor`, renvoie son markdown littéral tel quel et la position
+    /// juste après. Même stratégie que `fencedCodeBlock` :
+    /// `longestEffectiveRange` regroupe tout le run malgré les `\n` internes
+    /// qu'un balayage ligne à ligne couperait. Contrairement à un bloc de
+    /// code, aucun fence n'enveloppe le texte : le run porte déjà le
+    /// markdown source exact (posé par `MarkdownParser.emitRawBlock`), à
+    /// réémettre sans transformation. Les tableaux GFM ne passent plus par
+    /// ici depuis que `MarkdownParser.emitTable` les modélise en cellules —
+    /// voir `tableBlock(in:at:ns:)`.
     private static func rawBlock(in source: NSAttributedString,
                                  at cursor: Int,
                                  ns: NSString) -> (markdown: String, nextCursor: Int)? {
@@ -233,6 +270,72 @@ enum MarkdownSerializer {
             next += 1
         }
         return (body, next)
+    }
+
+    /// Si une cellule de tableau (`.mdTableCell`) commence à `cursor`,
+    /// consomme toutes les cellules **contiguës** qui partagent le même
+    /// `tableID` (une par ligne, dans l'ordre d'émission de
+    /// `MarkdownParser.emitTableRow` : rangée d'en-tête puis rangées de
+    /// corps, colonnes dans l'ordre), reconstruit les lignes `| … |` — y
+    /// compris la ligne de séparateur d'alignement, absente du storage
+    /// (elle n'existe qu'en sortie GFM, jamais comme cellule) — et renvoie
+    /// le markdown assemblé plus la position juste après la dernière
+    /// cellule. `nil` si `cursor` n'est pas au début d'une cellule.
+    ///
+    /// Regroupe par `(row, column)` plutôt que de supposer un ordre de
+    /// lecture strict : robuste si une édition future modifie l'ordre des
+    /// runs sans changer les valeurs de `row`/`column` elles-mêmes.
+    private static func tableBlock(in source: NSAttributedString,
+                                   at cursor: Int,
+                                   ns: NSString) -> (markdown: String, nextCursor: Int)? {
+        guard cursor < source.length,
+              let firstInfo = source.attribute(.mdTableCell, at: cursor, effectiveRange: nil) as? TableCellInfo
+        else { return nil }
+
+        var cellsByRow: [Int: [Int: String]] = [:]
+        var alignments: [Int: TableCellInfo.Alignment?] = [:]
+        var maxRow = 0
+        var columnCount = firstInfo.columnCount
+        var cur = cursor
+
+        while cur < source.length,
+              let info = source.attribute(.mdTableCell, at: cur, effectiveRange: nil) as? TableCellInfo,
+              info.tableID == firstInfo.tableID {
+            var lineEnd = cur
+            while lineEnd < source.length, ns.character(at: lineEnd) != 0x0A {
+                lineEnd += 1
+            }
+            let cellRange = NSRange(location: cur, length: lineEnd - cur)
+            cellsByRow[info.row, default: [:]][info.column] =
+                emitInline(source: source, range: cellRange, escapingPipes: true)
+            alignments[info.column] = info.alignment
+            maxRow = max(maxRow, info.row)
+            columnCount = max(columnCount, info.columnCount)
+            cur = lineEnd < source.length ? lineEnd + 1 : lineEnd
+        }
+
+        func rowLine(_ row: Int) -> String {
+            let cells = (0..<columnCount).map { cellsByRow[row]?[$0] ?? "" }
+            return "| " + cells.joined(separator: " | ") + " |"
+        }
+        func alignmentMarker(_ alignment: TableCellInfo.Alignment?) -> String {
+            switch alignment {
+            case .none: return "---"
+            case .left: return ":---"
+            case .center: return ":---:"
+            case .right: return "---:"
+            }
+        }
+
+        var lines: [String] = [rowLine(0)]
+        lines.append("| " + (0..<columnCount).map { alignmentMarker(alignments[$0] ?? nil) }.joined(separator: " | ") + " |")
+        if maxRow >= 1 {
+            for row in 1...maxRow {
+                lines.append(rowLine(row))
+            }
+        }
+
+        return (lines.joined(separator: "\n"), cur)
     }
 
     /// Longueur de fence à utiliser pour envelopper `body` : au moins 3
@@ -341,7 +444,18 @@ enum MarkdownSerializer {
     /// `expandingImagePlaceholders(in:url:alt:)`, so that an image wrapped in
     /// bold/italic/strikethrough/a link round-trips with its wrapping intact
     /// instead of the image markup replacing it outright.
-    private static func emitInline(source: NSAttributedString, range: NSRange) -> String {
+    ///
+    /// `escapingPipes`, quand `true` (cellule de tableau — voir
+    /// `tableBlock(in:at:ns:)`), échappe en plus tout `|` littéral du texte
+    /// brut en `\|` : un `|` non échappé y serait relu comme une frontière de
+    /// colonne GFM, coupant la cellule en deux au reparse. Volontairement
+    /// **pas** ajouté à `MarkdownEscaping.inlineSpecials` (partagé par tous
+    /// les blocs) : en dehors d'un tableau, `|` n'a aucun sens spécial en
+    /// CommonMark, l'échapper y ajouterait un `\` inutile et changerait la
+    /// sortie de fixtures existantes sans rien corriger. N'affecte que la
+    /// branche texte brut ci-dessous, pas le code inline (échappement inerte
+    /// dans un span de code, GFM le protège déjà) ni l'URL d'un lien.
+    private static func emitInline(source: NSAttributedString, range: NSRange, escapingPipes: Bool = false) -> String {
         var out = ""
         source.enumerateAttributes(in: range, options: []) { attrs, run, _ in
             let raw = (source.string as NSString).substring(with: run)
@@ -362,7 +476,8 @@ enum MarkdownSerializer {
                 let alt = (attrs[.mdImageAlt] as? String) ?? ""
                 body = expandingImagePlaceholders(in: raw, url: url, alt: alt)
             } else {
-                body = MarkdownEscaping.escapeInline(raw)
+                let escaped = MarkdownEscaping.escapeInline(raw)
+                body = escapingPipes ? escaped.replacingOccurrences(of: "|", with: "\\|") : escaped
             }
 
             if let url = attrs[.mdLink] as? URL {

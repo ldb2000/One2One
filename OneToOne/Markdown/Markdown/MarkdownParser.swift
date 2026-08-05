@@ -61,7 +61,7 @@ enum MarkdownParser {
             case is ThematicBreak:
                 emitThematicBreak(into: out)
             case let table as Table:
-                emitRawBlock(table, into: out)
+                emitTable(table, into: out)
             case let html as HTMLBlock:
                 emitRawBlock(html, into: out)
             default:
@@ -181,8 +181,69 @@ enum MarkdownParser {
             appendNewline(out)
         }
 
-        /// Émet un bloc dont ce module ne modélise pas la structure (tableau
-        /// GFM, bloc HTML) comme un run unique portant son **markdown source
+        /// Émet un tableau GFM comme une grille de paragraphes-cellules,
+        /// chacun porteur d'un `.mdTableCell` (`TableCellInfo`) — pas comme
+        /// un passthrough littéral (`emitRawBlock`, toujours utilisé pour les
+        /// blocs HTML). `StyleRenderer` construit un vrai
+        /// `NSTextTable`/`NSTextTableBlock` par cellule à partir de cet
+        /// attribut ; `MarkdownSerializer` le relit pour reconstruire les
+        /// lignes `| … |`. `table.head` est la rangée d'en-tête (row 0),
+        /// `table.body.rows` les rangées de corps (row 1…) — `swift-markdown`
+        /// garantit que chaque rangée a exactement `maxColumnCount` cellules
+        /// (complétées de cellules vides si besoin), donc `columnCount` est
+        /// fiable sans revalider chaque rangée.
+        ///
+        /// `columnAlignments` peut être plus court que `maxColumnCount`
+        /// (colonnes en excès sans alignement déclaré) : `alignment(for:)`
+        /// se replie sur `nil` (pas de `:` au round-trip) au-delà de sa
+        /// longueur, plutôt que planter sur un accès hors bornes.
+        mutating func emitTable(_ table: Table, into out: NSMutableAttributedString) {
+            let columnCount = table.maxColumnCount
+            guard columnCount > 0 else { return }
+            let tableID = UUID()
+            let columnAlignments = table.columnAlignments
+            func alignment(for column: Int) -> TableCellInfo.Alignment? {
+                guard column < columnAlignments.count else { return nil }
+                switch columnAlignments[column] {
+                case .left: return .left
+                case .center: return .center
+                case .right: return .right
+                case .none: return nil
+                }
+            }
+
+            emitTableRow(table.head.cells, tableID: tableID, row: 0,
+                        columnCount: columnCount, alignment: alignment, into: out)
+            for (index, row) in table.body.rows.enumerated() {
+                emitTableRow(row.cells, tableID: tableID, row: index + 1,
+                            columnCount: columnCount, alignment: alignment, into: out)
+            }
+        }
+
+        /// Émet une rangée : chaque cellule devient un paragraphe (contenu
+        /// inline + `\n`), avec `.mdTableCell` posé sur **toute** la plage y
+        /// compris ce `\n` — une cellule vide (`emitInline` ne produit alors
+        /// aucun caractère) doit quand même porter l'attribut sur quelque
+        /// chose, et le `\n` terminal est le seul caractère disponible.
+        /// `MarkdownSerializer.tableBlock` s'appuie sur cette inclusion pour
+        /// retrouver une colonne vide (fixture requise).
+        func emitTableRow(_ cells: some Sequence<Table.Cell>, tableID: UUID, row: Int,
+                          columnCount: Int, alignment: (Int) -> TableCellInfo.Alignment?,
+                          into out: NSMutableAttributedString) {
+            for (column, cell) in cells.enumerated() {
+                guard column < columnCount else { break }
+                let start = out.length
+                emitInline(cell.children, into: out)
+                appendNewline(out)
+                let end = out.length
+                let info = TableCellInfo(tableID: tableID, row: row, column: column,
+                                         columnCount: columnCount, alignment: alignment(column))
+                out.addAttribute(.mdTableCell, value: info, range: NSRange(location: start, length: end - start))
+            }
+        }
+
+        /// Émet un bloc dont ce module ne modélise pas la structure (bloc
+        /// HTML) comme un run unique portant son **markdown source
         /// littéral** — même mécanisme de passthrough que `emitCodeBlock`
         /// pour les blocs fencés. Le contenu survit ainsi même si rien ne
         /// sait l'interpréter ; `MarkdownSerializer.rawBlock(in:at:ns:)` le

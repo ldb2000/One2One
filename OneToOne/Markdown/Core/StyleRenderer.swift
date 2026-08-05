@@ -24,9 +24,23 @@ enum StyleRenderer {
         storage.removeAttribute(.obliqueness, range: renderRange)
         storage.removeAttribute(.attachment, range: renderRange)
 
+        // Une `NSTextTable` doit être **partagée** par toutes les cellules
+        // d'un même tableau pour que la grille s'aligne (colonnes cohérentes
+        // entre rangées) — `NSTextTable` calcule la géométrie des colonnes
+        // sur l'instance, pas par cellule. Ce dictionnaire, local à cet appel
+        // et peuplé au fil de `enumerateAttributes` ci-dessous, garantit que
+        // toute cellule rencontrée dans le `renderRange` courant réutilise la
+        // même instance que ses voisines déjà vues dans ce même appel — voir
+        // `normalizedRenderRange`, qui étend `renderRange` à la totalité d'un
+        // tableau dès qu'une seule de ses cellules est touchée, pour que
+        // « toutes les cellules déjà vues » couvre bien tout le tableau et
+        // pas seulement une ligne.
+        var tableInstances: [UUID: NSTextTable] = [:]
+
         storage.enumerateAttributes(in: renderRange, options: []) { attrs, range, _ in
             let block = attrs[.mdBlockType] as? BlockType ?? .paragraph
             let listInfo = attrs[.mdListInfo] as? ListInfo
+            let tableCell = attrs[.mdTableCell] as? TableCellInfo
             let isBold = (attrs[.mdBold] as? Bool) == true
             let isItalic = (attrs[.mdItalic] as? Bool) == true
             let isCode = (attrs[.mdInlineCode] as? Bool) == true
@@ -34,7 +48,11 @@ enum StyleRenderer {
             let link = attrs[.mdLink] as? URL
 
             var font = baseFont(for: block)
-            if isBold {
+            // La rangée d'en-tête (row 0) d'un tableau est toujours en gras
+            // — visuel uniquement : ne pose pas `.mdBold`, qui ferait
+            // réémettre `**...**` à la sérialisation et changerait le
+            // contenu markdown d'une cellule d'en-tête qui n'en portait pas.
+            if isBold || tableCell?.row == 0 {
                 font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
             }
             if isItalic {
@@ -68,11 +86,12 @@ enum StyleRenderer {
             case .h1, .h2, .h3:
                 storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
             case .codeBlock, .rawBlock:
-                // `.rawBlock` (tableau GFM, bloc HTML passthrough) partage le
-                // rendu du bloc de code : texte brut monospace, cf. la
-                // contrainte de conception du plan parser-pertes-de-données
-                // — un tableau affiché en texte brut est acceptable, un
-                // tableau effacé ne l'est pas.
+                // `.rawBlock` (bloc HTML passthrough — les tableaux GFM ont
+                // leur propre rendu en grille, voir `tableCell` plus bas)
+                // partage le rendu du bloc de code : texte brut monospace,
+                // cf. la contrainte de conception du plan
+                // parser-pertes-de-données — un bloc HTML affiché en texte
+                // brut est acceptable, un bloc HTML effacé ne l'est pas.
                 storage.addAttribute(
                     .backgroundColor,
                     value: NSColor.quaternaryLabelColor.withAlphaComponent(0.3),
@@ -108,6 +127,45 @@ enum StyleRenderer {
                 let indent = BlockquoteRuleLayout.textIndent
                 para.headIndent = indent
                 para.firstLineHeadIndent = indent
+                storage.addAttribute(.paragraphStyle, value: para, range: range)
+            } else if let cellInfo = tableCell {
+                // Grille réelle : `NSTextTableBlock` par cellule, posé sur un
+                // `NSTextTable` **partagé** (via `tableInstances`, voir plus
+                // haut) entre toutes les cellules de la même `tableID`
+                // rencontrées dans cet appel — indispensable pour que les
+                // colonnes s'alignent entre rangées. Mesuré hors écran avant
+                // ce chantier (`Tests/NSTextTableProbeTests.swift`, sonde de
+                // l'étape zéro) : `NSTextTable`/`NSTextTableBlock` peint
+                // effectivement des bordures sur cette même pile TextKit 1
+                // (`NSTextStorage` → `MarkdownLayoutManager` →
+                // `NSTextContainer`), contrairement à `NSTextList` (aucun
+                // marqueur peint, d'où `MarkdownLayoutManager` qui dessine
+                // les puces à la main) — pas besoin ici d'un dessin manuel
+                // équivalent, `NSLayoutManager.drawBackground(forGlyphRange:
+                // at:)` (hérité, non redéfini par `MarkdownLayoutManager`)
+                // peint déjà fond et bordures de bloc.
+                let table = tableInstances[cellInfo.tableID] ?? {
+                    let newTable = NSTextTable()
+                    newTable.numberOfColumns = cellInfo.columnCount
+                    tableInstances[cellInfo.tableID] = newTable
+                    return newTable
+                }()
+                let cellBlock = NSTextTableBlock(
+                    table: table,
+                    startingRow: cellInfo.row,
+                    rowSpan: 1,
+                    startingColumn: cellInfo.column,
+                    columnSpan: 1
+                )
+                cellBlock.setBorderColor(TableLayout.borderColor)
+                cellBlock.setWidth(TableLayout.borderWidth, type: .absoluteValueType, for: .border)
+                cellBlock.setWidth(TableLayout.cellPadding, type: .absoluteValueType, for: .padding)
+                if cellInfo.row == 0 {
+                    cellBlock.backgroundColor = TableLayout.headerBackgroundColor
+                }
+                let para = NSMutableParagraphStyle()
+                para.textBlocks = [cellBlock]
+                para.alignment = TableLayout.textAlignment(for: cellInfo.alignment)
                 storage.addAttribute(.paragraphStyle, value: para, range: range)
             }
 
@@ -151,7 +209,50 @@ enum StyleRenderer {
         let upperBound = min(max(location, range.location + range.length), storage.length)
         let clamped = NSRange(location: location, length: upperBound - location)
         let nsText = storage.string as NSString
-        return nsText.lineRange(for: clamped)
+        return expandedForTable(nsText.lineRange(for: clamped), in: storage)
+    }
+
+    /// Si `lineRange` touche une cellule de tableau (`.mdTableCell`), étend
+    /// le résultat à la totalité de **ce** tableau (toutes les lignes qui
+    /// partagent le même `tableID`, avant et après). Nécessaire parce
+    /// qu'`NSTextTable` exige la même instance partagée entre toutes ses
+    /// cellules pour que la grille s'aligne (voir le commentaire sur
+    /// `tableInstances` dans `applyVisualStyle`) : un rafraîchissement
+    /// partiel qui ne reconstruirait qu'une seule ligne créerait, pour
+    /// cette ligne, une nouvelle `NSTextTable` déconnectée de celles déjà
+    /// posées sur les lignes voisines (non retouchées par cet appel-là),
+    /// disloquant visuellement le tableau à la frappe suivante. Un tableau
+    /// des notes réelles ne dépasse pas quelques rangées (cf. vérification
+    /// sur `~/Documents/OneToOne-sauvegarde-notes-2026-08-05/`) : le coût
+    /// d'un ré-étalement systématique du tableau entier à chaque frappe dans
+    /// une de ses cellules reste négligeable.
+    private static func expandedForTable(_ lineRange: NSRange, in storage: NSTextStorage) -> NSRange {
+        guard lineRange.location < storage.length,
+              let id = (storage.attribute(.mdTableCell, at: lineRange.location, effectiveRange: nil) as? TableCellInfo)?.tableID
+        else { return lineRange }
+
+        let nsText = storage.string as NSString
+        var start = lineRange.location
+        var end = lineRange.location + lineRange.length
+
+        func tableID(at location: Int) -> UUID? {
+            guard location < storage.length else { return nil }
+            return (storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo)?.tableID
+        }
+
+        while start > 0 {
+            let previousLine = nsText.lineRange(for: NSRange(location: start - 1, length: 0))
+            guard tableID(at: previousLine.location) == id else { break }
+            start = previousLine.location
+        }
+
+        while end < storage.length {
+            let nextLine = nsText.lineRange(for: NSRange(location: end, length: 0))
+            guard tableID(at: nextLine.location) == id else { break }
+            end = nextLine.location + nextLine.length
+        }
+
+        return NSRange(location: start, length: end - start)
     }
 
     private static func baseFont(for block: BlockType) -> NSFont {

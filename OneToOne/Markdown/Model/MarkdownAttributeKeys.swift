@@ -23,6 +23,18 @@ public extension NSAttributedString.Key {
     static let mdImageURL      = NSAttributedString.Key("mdImageURL")
     /// Value: `String` — texte alternatif de l'image, réémis entre crochets.
     static let mdImageAlt      = NSAttributedString.Key("mdImageAlt")
+    /// Value: `TableCellInfo`. Marque un paragraphe comme une cellule d'un
+    /// tableau GFM — posé sur **tout** le texte de la cellule, retour à la
+    /// ligne terminal inclus (contrairement à `mdBlockType`, qui exclut ce
+    /// `\n` : une cellule vide n'a alors aucun autre caractère pour porter
+    /// l'attribut). Volontairement séparé de `mdBlockType` plutôt que d'y
+    /// ajouter un cas `.tableCell` : `BlockType` est un `enum` non-Codable-
+    /// par-défaut avec des `switch` exhaustifs dans `OneToOne/Markdown/Slash/`
+    /// (zone hors périmètre de cette tâche), qu'un nouveau cas casserait à la
+    /// compilation. Voir `MarkdownParser.emitTable` / `MarkdownSerializer`
+    /// (fonction `tableBlock`) / `StyleRenderer` (construction de
+    /// `NSTextTable`/`NSTextTableBlock`).
+    static let mdTableCell     = NSAttributedString.Key("mdTableCell")
 }
 
 /// Block-level kind applied to a whole paragraph range.
@@ -63,5 +75,44 @@ public struct ListInfo: Codable, Hashable {
         self.level = level
         self.index = index
         self.checked = checked
+    }
+}
+
+/// Metadata attached to a table-cell paragraph (`.mdTableCell`). One value
+/// per cell — `row`/`column` are 0-based and absolute within the table
+/// (`row == 0` is the GFM header row, `row >= 1` is a body row), matching
+/// directly `NSTextTableBlock(startingRow:startingColumn:)` — see
+/// `StyleRenderer`. `tableID` groups every cell of the same logical table:
+/// consecutive cell paragraphs sharing it are one table, read back that way
+/// by `MarkdownSerializer`.
+public struct TableCellInfo: Codable, Hashable {
+    /// Alignement GFM d'une colonne. Distinct de `NSTextAlignment` : porte
+    /// aussi l'absence d'alignement explicite (`nil` sur la propriété
+    /// `alignment` ci-dessous, réémis en séparateur `---` sans `:`), que
+    /// `NSTextAlignment` ne sait pas représenter (son `.natural` n'est pas
+    /// «pas de colonne prononcée dans le GFM source», c'est un réglage
+    /// d'affichage) — cf. `MarkdownSerializer.alignmentMarker`.
+    public enum Alignment: String, Codable, Hashable {
+        case left, center, right
+    }
+
+    public let tableID: UUID
+    public let row: Int
+    public let column: Int
+    /// Nombre de colonnes de la table entière — constant sur toutes les
+    /// cellules d'une même `tableID`, dupliqué sur chacune pour que
+    /// `StyleRenderer` puisse construire `NSTextTable.numberOfColumns` sans
+    /// avoir à consulter une autre cellule.
+    public let columnCount: Int
+    /// `nil` = pas de `:` dans le séparateur GFM de cette colonne (alignement
+    /// par défaut du moteur de rendu, pas nécessairement gauche).
+    public let alignment: Alignment?
+
+    public init(tableID: UUID, row: Int, column: Int, columnCount: Int, alignment: Alignment?) {
+        self.tableID = tableID
+        self.row = row
+        self.column = column
+        self.columnCount = columnCount
+        self.alignment = alignment
     }
 }
