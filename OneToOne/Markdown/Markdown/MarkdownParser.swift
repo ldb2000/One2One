@@ -11,6 +11,27 @@ enum MarkdownParser {
     /// Parse `source` et renvoie le texte attribué affichable. Le `\n` final
     /// ajouté après le dernier bloc est retiré ; une source vide donne une
     /// chaîne vide marquée `.paragraph`.
+    ///
+    /// Exception à ce retrait : quand ce `\n` final est le **seul** caractère
+    /// d'une cellule de tableau vide (`.mdTableCell`, cf. `emitTableRow` —
+    /// une cellule vide n'a que son `\n` terminal pour porter l'attribut).
+    /// Le retirer supprimerait alors la cellule tout entière (plus aucun
+    /// caractère ne porte plus `.mdTableCell` pour elle), perdue au reparse —
+    /// défaut mesuré (tâche « commande Tableau du menu `/` ») sur un tableau
+    /// dont la dernière cellule (rangée et colonne les plus hautes) est vide
+    /// *et* termine le document : `MarkdownRoundTripTests` documentait déjà
+    /// ce cas en l'évitant délibérément dans ses fixtures plutôt qu'en le
+    /// couvrant. `SlashController.insertTable` en fait un cas courant (toutes
+    /// les cellules du squelette inséré sont vides), d'où ce correctif du
+    /// défaut plutôt qu'un contournement côté insertion. `longestEffectiveRange`
+    /// borne exactement cette cellule (chaque cellule porte une `TableCellInfo`
+    /// distincte — `row`/`column` uniques — posée en un seul appel
+    /// `addAttribute`, jamais fusionnée avec sa voisine) : une plage de
+    /// longueur 1 signifie zéro caractère de contenu avant ce `\n`, donc une
+    /// cellule vide. Une cellule non vide (plage > 1) n'est pas concernée :
+    /// retirer son dernier `\n` laisse ses caractères de contenu porter
+    /// `.mdTableCell` sans changement de comportement — c'est le cas déjà
+    /// couvert par les fixtures existantes, non modifié ici.
     static func parse(_ source: String) -> NSAttributedString {
         let document = Document(parsing: source, options: [.parseBlockDirectives])
         let out = NSMutableAttributedString()
@@ -22,7 +43,15 @@ enum MarkdownParser {
         // Strip trailing newline added after the last block
         let str = out.string as NSString
         if str.hasSuffix("\n") {
-            out.deleteCharacters(in: NSRange(location: out.length - 1, length: 1))
+            let lastIndex = out.length - 1
+            var cellRange = NSRange(location: NSNotFound, length: 0)
+            let cellInfo = out.attribute(.mdTableCell, at: lastIndex,
+                                         longestEffectiveRange: &cellRange,
+                                         in: NSRange(location: 0, length: out.length))
+            let wouldEraseEmptyTableCell = cellInfo != nil && cellRange.length == 1
+            if !wouldEraseEmptyTableCell {
+                out.deleteCharacters(in: NSRange(location: lastIndex, length: 1))
+            }
         }
         return out
     }

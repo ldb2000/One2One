@@ -371,6 +371,8 @@ final class SlashController {
             applyListConversion(kind, at: applyLocation, in: textView)
         case .insertThematicBreak:
             insertThematicBreak(at: applyLocation, in: textView)
+        case .insertTable:
+            insertTable(at: applyLocation, in: textView)
         case .insertImage:
             presentImagePicker { [weak self, weak textView] url in
                 guard let self, let textView, let url else { return }
@@ -445,6 +447,94 @@ final class SlashController {
         insertion.append(NSAttributedString(string: "\n"))
         let safeLocation = min(location, textView.textStorage?.length ?? 0)
         textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+    }
+
+    /// Insère un tableau GFM de 3 colonnes — la rangée d'en-tête (row 0,
+    /// toujours en gras au rendu, cf. `StyleRenderer`) puis 2 rangées de
+    /// corps, toutes les cellules vides — comme nouveau bloc au point du
+    /// curseur, sans convertir la ligne courante : même stratégie
+    /// qu'`insertThematicBreak`, le modèle le plus proche — un tableau
+    /// n'a pas d'équivalent `MarkdownBlockCommands.LineBlockType` (voir la
+    /// doc de `SlashCommand.Action.insertTable`), donc ce n'est pas une
+    /// conversion.
+    ///
+    /// Squelette retenu : 3 colonnes × 2 lignes de corps plus l'en-tête,
+    /// cellules vides, alignement `nil` sur toutes les colonnes (round-trip
+    /// en `---` sans `:`) — exactement le squelette du plan. Une seule ligne
+    /// de corps aurait aussi bien illustré la grille, mais deux montrent la
+    /// continuité verticale entre rangées (le trait de bordure partagé,
+    /// cf. `MarkdownTableRenderingTests.
+    /// test_table_hasAContinuousVerticalBorderAtTheColumnBoundary`) dès
+    /// l'insertion, sans que l'utilisateur ait à ajouter une rangée pour le
+    /// constater.
+    ///
+    /// Représentation : un `\n` nu (termine la ligne du curseur, comme le
+    /// `\n` initial d'`insertThematicBreak`) — **sauf** si le curseur est
+    /// déjà en tout début de ligne (position 0 du document, ou juste après
+    /// un `\n` existant) : ce `\n` nu n'aurait alors rien à terminer, et en
+    /// ajouter un quand même produirait une ligne vide superflue en tête du
+    /// tableau sérialisé (mesuré : `/tableau` tapé sur un document vierge
+    /// sérialise en `"\n| … |\n…"`, un `\n` de tête qui ne survit pas à un
+    /// aller-retour — `Document(parsing:)` ne matérialise aucun nœud pour une
+    /// ligne vide, donc le reparse le fait disparaître ; stable seulement à
+    /// la 2ᵉ passe plutôt qu'à la 1ʳᵉ). Puis une cellule par colonne × rangée
+    /// (3×3 = 9), chacune un simple `\n` porteur de `.mdTableCell`
+    /// (`TableCellInfo`) — même forme que `MarkdownParser.emitTableRow` pour
+    /// une cellule vide (`emitInline` ne produit alors aucun caractère, seul
+    /// le `\n` terminal porte l'attribut, cf. sa doc). Aucun `\n` nu
+    /// supplémentaire après la dernière cellule : elle porte déjà le sien,
+    /// qui joue le rôle de séparateur de bloc — exactement comme
+    /// `MarkdownParser.emitTable` lui-même, qui n'ajoute aucun
+    /// `appendNewline` après la dernière rangée (contrairement à
+    /// `emitBlock`/`emitCodeBlock`/`emitThematicBreak`, qui en ajoutent un
+    /// explicitement) : c'est la dernière cellule qui termine le bloc dans
+    /// les deux cas, round-trip garanti par construction —
+    /// `MarkdownSerializer.tableBlock` retrouve la même frontière.
+    private func insertTable(at location: Int, in textView: EditorTextView) {
+        stripRiskyTypingAttributes(in: textView)
+
+        let tableID = UUID()
+        let columnCount = 3
+        let rowCount = 3 // rangée d'en-tête (0) + 2 rangées de corps (1, 2)
+
+        let safeLocation = min(location, textView.textStorage?.length ?? 0)
+        let alreadyAtLineStart: Bool = {
+            guard safeLocation > 0, let ns = textView.textStorage?.string as NSString? else { return true }
+            return ns.character(at: safeLocation - 1) == 0x0A /* "\n" */
+        }()
+
+        let insertion = NSMutableAttributedString(string: alreadyAtLineStart ? "" : "\n")
+        var firstCellInfo: TableCellInfo?
+        for row in 0..<rowCount {
+            for column in 0..<columnCount {
+                let info = TableCellInfo(tableID: tableID, row: row, column: column,
+                                         columnCount: columnCount, alignment: nil)
+                if firstCellInfo == nil { firstCellInfo = info }
+                insertion.append(NSAttributedString(string: "\n", attributes: [.mdTableCell: info]))
+            }
+        }
+
+        textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+
+        // Curseur dans la première cellule (row 0, column 0), juste avant son
+        // `\n` (juste après le `\n` nu initial quand il a été inséré) : la
+        // prochaine frappe s'y insère, poussant ce `\n` sans y toucher.
+        guard let info = firstCellInfo, let storage = textView.textStorage else { return }
+        let firstCellCursor = min(safeLocation + (alreadyAtLineStart ? 0 : 1), storage.length)
+        textView.setSelectedRange(NSRange(location: firstCellCursor, length: 0))
+        // `setSelectedRange` recalcule `typingAttributes` d'après le
+        // caractère voisin de la nouvelle position — pas garanti porter
+        // `.mdTableCell` (même incertitude que celle qui justifie
+        // `primeTypingAttributes` après une mutation directe de storage,
+        // voir sa doc). On nettoie donc à nouveau les clés à risque, au cas
+        // où ce recalcul en aurait réintroduit une, puis on repose
+        // explicitement `.mdTableCell` : sans lui, la première frappe de
+        // l'utilisateur ne porterait pas cet attribut et
+        // `MarkdownSerializer.tableBlock` ne reconnaîtrait plus la cellule
+        // (elle vérifie `.mdTableCell` au tout début de la ligne, voir sa
+        // doc) — mesuré, voir le rapport de tâche.
+        stripRiskyTypingAttributes(in: textView)
+        textView.typingAttributes[.mdTableCell] = info
     }
 
     private func insertImage(_ url: URL, at location: Int, in textView: EditorTextView) {

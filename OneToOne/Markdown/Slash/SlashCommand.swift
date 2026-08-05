@@ -19,6 +19,7 @@ struct SlashCommand: Identifiable, Equatable {
         case thematicBreak
         case image
         case date
+        case table
     }
 
     /// Groupe d'affichage. L'ordre des cas est l'ordre d'affichage dans le
@@ -60,13 +61,20 @@ struct SlashCommand: Identifiable, Equatable {
     /// même principe qu'`.insertImage` (action asynchrone : ouvrir un
     /// sélecteur, puis insérer le résultat au point du curseur) mais insère
     /// du **texte brut** — la date choisie, formatée — plutôt qu'un
-    /// placeholder attribué ; voir `SlashController.insertDate`.
+    /// placeholder attribué ; voir `SlashController.insertDate`. `.insertTable`
+    /// est, comme `.insertThematicBreak`, une insertion synchrone d'un bloc
+    /// entier plutôt qu'une conversion : un tableau n'a pas d'équivalent
+    /// `MarkdownBlockCommands.LineBlockType` (`setBlockType` ne sait muter
+    /// qu'une ligne existante en un type qui tient sur une seule ligne —
+    /// un tableau, lui, est une grille de plusieurs paragraphes-cellules).
+    /// Voir `SlashController.insertTable`.
     enum Action: Equatable {
         case convertBlock(MarkdownBlockCommands.LineBlockType)
         case convertList(ListInfo.Kind)
         case insertThematicBreak
         case insertImage
         case insertDate
+        case insertTable
     }
 
     let key: Key
@@ -89,7 +97,13 @@ struct SlashCommand: Identifiable, Equatable {
     /// syntaxe markdown ; le collage d'image existant — `EditorTextView.paste`
     /// — n'est déjà conditionné par aucune fonctionnalité) et pour « Date »
     /// (même raisonnement qu'« Image » : la date insérée est du texte brut,
-    /// aucune syntaxe markdown ne l'accompagne — rien à conditionner).
+    /// aucune syntaxe markdown ne l'accompagne — rien à conditionner). Même
+    /// cas pour « Tableau » : `MarkdownFeature` ne compte aucun cas `.table`
+    /// (le rendu en grille — `MarkdownParser`/`MarkdownSerializer`/
+    /// `StyleRenderer`, commit `fc2234a` — traite déjà tout tableau GFM
+    /// inconditionnellement, sans jamais consulter de jeu de fonctionnalités)
+    /// ; ajouter un tel cas pour gater uniquement cette entrée du menu
+    /// dépasserait le périmètre de cette tâche (catalogue + insertion).
     let requiredFeature: MarkdownFeature?
 
     var id: Key { key }

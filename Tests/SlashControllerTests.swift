@@ -360,6 +360,197 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertEqual(MarkdownSerializer.serialize(reparsed), MarkdownSerializer.serialize(editor.textStorage!))
     }
 
+    // MARK: - Application : tableau (insertion, pas conversion)
+
+    /// Vérifie directement le squelette inséré sur le storage réel : 3
+    /// colonnes × 3 rangées (en-tête incluse) = 9 cellules `.mdTableCell`,
+    /// toutes de la même `tableID` (un seul tableau logique), toutes sans
+    /// alignement (round-trip en `---` sans `:`).
+    func test_applyingTable_insertsThreeByThreeSkeleton_allCellsEmpty() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/tableau", into: editor, controller: controller)
+
+        applySelectedCommand(.table, controller: controller)
+
+        let storage = editor.textStorage!
+        var cells: [String: TableCellInfo] = [:]
+        var tableIDs: Set<UUID> = []
+        storage.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            guard let info = value as? TableCellInfo else { return }
+            cells["\(info.row),\(info.column)"] = info
+            tableIDs.insert(info.tableID)
+        }
+        XCTAssertEqual(tableIDs.count, 1, "un seul tableau logique")
+        XCTAssertEqual(cells.count, 9, "3 colonnes × 3 rangées (en-tête incluse) doit donner 9 cellules")
+        for row in 0...2 {
+            for column in 0...2 {
+                let info = cells["\(row),\(column)"]
+                XCTAssertNotNil(info, "cellule (\(row), \(column)) manquante")
+                XCTAssertEqual(info?.columnCount, 3)
+                XCTAssertNil(info?.alignment, "aucune colonne n'a d'alignement explicite dans le squelette")
+            }
+        }
+    }
+
+    /// Aller-retour texte complet : le storage sérialisé, puis reparsé par
+    /// `MarkdownParser.parse` comme au rechargement d'une note, doit encore
+    /// donner un tableau à 9 cellules — pas seulement rester stable dans le
+    /// storage vivant (déjà couvert ci-dessus). Le tableau inséré ici est en
+    /// toute fin de document (cas le plus courant : `/tableau` tapé en
+    /// dernière ligne) — mesuré exprès plutôt que supposé : `MarkdownParser.
+    /// parse` retire toujours le dernier `\n` de fin de document, et une
+    /// dernière cellule vide n'a que ce `\n` pour porter `.mdTableCell`
+    /// (`MarkdownRoundTripTests` documente ce défaut connu du parser pour une
+    /// cellule vide qui termine *à la fois* sa rangée et le document — ce
+    /// test vérifie que le tableau inséré ici ne tombe pas dans ce cas).
+    func test_applyingTable_atEndOfDocument_survivesSerializeThenFullReparse() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/tableau", into: editor, controller: controller)
+        applySelectedCommand(.table, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        let reparsed = MarkdownParser.parse(serialized)
+
+        var cells: Set<String> = []
+        reparsed.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: reparsed.length)) { value, _, _ in
+            guard let info = value as? TableCellInfo else { return }
+            cells.insert("\(info.row),\(info.column)")
+        }
+        XCTAssertEqual(cells.count, 9,
+                       "les 9 cellules doivent survivre à un aller-retour texte complet, y compris en toute fin de document : \(serialized.debugDescription)")
+
+        // Stable dès la 2e passe.
+        let secondPass = MarkdownSerializer.serialize(reparsed)
+        XCTAssertEqual(secondPass, serialized)
+    }
+
+    /// Inséré après un paragraphe existant : le paragraphe ne doit pas être
+    /// absorbé comme rangée de données supplémentaire du tableau (piège 2 du
+    /// plan, mesuré sur `meeting_158`/`meeting_157` — voir
+    /// `MarkdownSerializer.needsBlankLine`).
+    func test_applyingTable_insertedAfterParagraph_paragraphNotAbsorbed() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Avant /tableau", into: editor, controller: controller)
+
+        applySelectedCommand(.table, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        let reparsed = MarkdownParser.parse(serialized)
+
+        let avantLocation = (reparsed.string as NSString).range(of: "Avant").location
+        XCTAssertNotEqual(avantLocation, NSNotFound)
+        XCTAssertNil(reparsed.attribute(.mdTableCell, at: avantLocation, effectiveRange: nil),
+                     "« Avant » ne doit pas être devenu une cellule du tableau")
+        let blockType = reparsed.attribute(.mdBlockType, at: avantLocation, effectiveRange: nil) as? BlockType
+        XCTAssertEqual(blockType, .paragraph, "« Avant » doit rester un paragraphe distinct : \(serialized.debugDescription)")
+
+        var cells: Set<String> = []
+        reparsed.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: reparsed.length)) { value, _, _ in
+            guard let info = value as? TableCellInfo else { return }
+            cells.insert("\(info.row),\(info.column)")
+        }
+        XCTAssertEqual(cells.count, 9, "le tableau doit garder ses 9 cellules malgré le paragraphe qui le précède")
+    }
+
+    /// Le curseur atterrit dans la première cellule (rangée 0, colonne 0) :
+    /// la frappe qui suit immédiatement l'insertion doit remplir cette
+    /// cellule précise, pas un autre endroit du tableau ni du texte hors
+    /// tableau.
+    func test_applyingTable_cursorLandsInFirstCell_typedCharacterFillsHeaderFirstColumn() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/tableau", into: editor, controller: controller)
+
+        applySelectedCommand(.table, controller: controller)
+
+        // Position exacte, pas seulement « une entrée quelque part porte la
+        // bonne valeur » : le document démarrait vide, donc le curseur doit
+        // se retrouver exactement à la position 0 — celle du `\n` de la
+        // première cellule — pas ailleurs (ex. après la dernière cellule,
+        // où `insertText` laisserait le curseur par défaut).
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0),
+                       "le curseur doit atterrir juste avant le \\n de la cellule (0, 0), pas ailleurs dans le tableau inséré")
+
+        editor.insertText("A", replacementRange: editor.selectedRange())
+        XCTAssertEqual(editor.textStorage?.string.first, "A",
+                       "« A » doit être devenu le tout premier caractère du document (poussé avant le \\n de la cellule (0, 0))")
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        let reparsed = MarkdownParser.parse(serialized)
+        let aLocation = (reparsed.string as NSString).range(of: "A").location
+        XCTAssertNotEqual(aLocation, NSNotFound)
+        let info = reparsed.attribute(.mdTableCell, at: aLocation, effectiveRange: nil) as? TableCellInfo
+        XCTAssertEqual(info?.row, 0)
+        XCTAssertEqual(info?.column, 0,
+                       "la frappe suivant l'insertion doit atterrir dans la première cellule (rangée 0, colonne 0) : \(serialized.debugDescription)")
+    }
+
+    /// Preuve directe, sans passer par une frappe supplémentaire : juste
+    /// après l'insertion, `typingAttributes` doit déjà porter `.mdTableCell`
+    /// pour la cellule (0, 0), et la sélection doit être un curseur vide à
+    /// la position exacte de cette cellule (0, sur un document qui démarrait
+    /// vide) — pas seulement « quelque part, une sélection de longueur 0 ».
+    func test_applyingTable_typingAttributesCarryFirstCellInfo_beforeAnyKeystroke() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/tableau", into: editor, controller: controller)
+
+        applySelectedCommand(.table, controller: controller)
+
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0))
+        let info = editor.typingAttributes[.mdTableCell] as? TableCellInfo
+        XCTAssertEqual(info?.row, 0)
+        XCTAssertEqual(info?.column, 0)
+    }
+
+    // MARK: - Piège 6 (tableau) : le texte inséré n'hérite pas des attributs de frappe
+
+    /// Même mesure que pour l'entrée « Date » (voir plus bas) : sans
+    /// `stripRiskyTypingAttributes`, le tableau inséré juste après du code
+    /// inline hériterait de `.mdInlineCode` sur tout son contenu inséré (le
+    /// `\n` nu initial et les 9 cellules), via `insertText(_:replacementRange:)`
+    /// qui fusionne les `typingAttributes` courants.
+    func test_applyingTable_afterInlineCode_insertedContentDoesNotInheritInlineCode() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "code", attributes: [.mdInlineCode: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = makeController(for: editor)
+
+        type(" /tableau", into: editor, controller: controller)
+        applySelectedCommand(.table, controller: controller)
+
+        let storage = editor.textStorage!
+        XCTAssertGreaterThan(storage.length, 4, "prémisse du test : le tableau doit avoir été inséré après « code »")
+        for location in 4..<storage.length {
+            XCTAssertNil(
+                storage.attribute(.mdInlineCode, at: location, effectiveRange: nil),
+                "position \(location) du tableau inséré hérite à tort de .mdInlineCode du code inline qui précède"
+            )
+        }
+    }
+
+    /// Même mesure pour le gras.
+    func test_applyingTable_afterBold_insertedContentDoesNotInheritBold() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "bold", attributes: [.mdBold: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = makeController(for: editor)
+
+        type(" /tableau", into: editor, controller: controller)
+        applySelectedCommand(.table, controller: controller)
+
+        let storage = editor.textStorage!
+        XCTAssertGreaterThan(storage.length, 4, "prémisse du test : le tableau doit avoir été inséré après « bold »")
+        for location in 4..<storage.length {
+            XCTAssertNil(
+                storage.attribute(.mdBold, at: location, effectiveRange: nil),
+                "position \(location) du tableau inséré hérite à tort de .mdBold du texte en gras qui précède"
+            )
+        }
+    }
+
     // MARK: - Application : image
 
     func test_applyingImage_opensPickerAndInsertsPlaceholderOnChosenURL() throws {

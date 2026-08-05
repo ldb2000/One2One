@@ -39,6 +39,15 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(command.matches("hr"))
     }
 
+    /// « Tableau » doit se trouver via son libellé (« tableau »), un
+    /// mot-clé (« grille », absent du libellé) et son alias (« table »).
+    func test_matches_table_onLabelKeywordAndAlias() {
+        let command = command(.table)
+        XCTAssertTrue(command.matches("tableau"))
+        XCTAssertTrue(command.matches("grille"))
+        XCTAssertTrue(command.matches("table"))
+    }
+
     func test_matches_noMatch_returnsFalse() {
         let command = command(.blockquote)
         XCTAssertFalse(command.matches("zzz introuvable"))
@@ -136,12 +145,23 @@ final class SlashCatalogTests: XCTestCase {
     }
 
     func test_available_emptyFeatureSet_stillShowsUnconditionalEntries() {
-        // "Texte", "Image" et "Date" ne sont conditionnées par aucun MarkdownFeature.
+        // "Texte", "Image", "Date" et "Tableau" ne sont conditionnées par
+        // aucun MarkdownFeature (`MarkdownFeature` ne compte aucun cas
+        // `.table`, cf. la doc de `SlashCommand.requiredFeature`).
         let visible = SlashCatalog.available(for: [])
         let keys = Set(visible.map(\.key))
         XCTAssertTrue(keys.contains(.text))
         XCTAssertTrue(keys.contains(.image))
         XCTAssertTrue(keys.contains(.date))
+        XCTAssertTrue(keys.contains(.table))
+    }
+
+    /// « Tableau » appartient au groupe « Blocs de base », comme le
+    /// séparateur (même nature : une insertion de bloc entier, pas une
+    /// conversion) — pas à « Insertions » (réservé aux insertions
+    /// ponctuelles de texte, ex. Date) ni à « Média ».
+    func test_table_belongsToBasicBlocksGroup() {
+        XCTAssertEqual(command(.table).group, .basicBlocks)
     }
 
     // MARK: - Helpers

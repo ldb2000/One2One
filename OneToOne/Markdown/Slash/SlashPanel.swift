@@ -295,6 +295,7 @@ private extension SlashCommand.Key {
         case .thematicBreak: return "minus"
         case .image: return "photo"
         case .date: return "calendar"
+        case .table: return "tablecells"
         }
     }
 }

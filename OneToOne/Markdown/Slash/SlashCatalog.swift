@@ -4,14 +4,17 @@ import Foundation
 /// `MarkdownFeature`, et leur groupement pour l'affichage.
 ///
 /// Hors périmètre (décision utilisateur du 2026-08-04, voir le plan) : les
-/// entrées IA, mermaid, draw.io, le bloc de code, les mentions `@`, les
-/// tableaux.
+/// entrées IA, mermaid, draw.io, le bloc de code, les mentions `@`. Les
+/// tableaux, initialement hors périmètre de cette même décision, en sont
+/// sortis le 2026-08-05 une fois leur rendu en grille livré (commit
+/// `fc2234a`) : `.table` ci-dessous comble l'absence de commande pour en
+/// insérer un.
 enum SlashCatalog {
 
     /// Toutes les entrées, dans l'ordre déclaré (celui du tableau du plan,
-    /// étendu par la commande `/date`) : « Blocs de base » puis « Média »
-    /// puis « Insertions ». `SlashCatalog.grouped` ne trie pas davantage —
-    /// c'est cet ordre qui apparaît dans le panneau.
+    /// étendu par les commandes `/date` puis `/tableau`) : « Blocs de base »
+    /// puis « Média » puis « Insertions ». `SlashCatalog.grouped` ne trie pas
+    /// davantage — c'est cet ordre qui apparaît dans le panneau.
     static let all: [SlashCommand] = [
         SlashCommand(
             key: .text,
@@ -102,6 +105,16 @@ enum SlashCatalog {
             group: .basicBlocks,
             action: .insertThematicBreak,
             requiredFeature: .thematicBreak
+        ),
+        SlashCommand(
+            key: .table,
+            label: "Tableau",
+            keywords: ["tableau", "table", "grille"],
+            aliases: ["table"],
+            shortcut: nil,
+            group: .basicBlocks,
+            action: .insertTable,
+            requiredFeature: nil
         ),
         SlashCommand(
             key: .image,
