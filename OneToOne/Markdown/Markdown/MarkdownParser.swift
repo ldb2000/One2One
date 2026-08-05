@@ -205,13 +205,66 @@ enum MarkdownParser {
             appendNewline(out)
         }
 
-        /// Extrait la sous-chaîne de `source` couverte par `markup.range`.
-        /// `SourceLocation.column` compte des **octets UTF-8** depuis le
-        /// début de sa ligne (pas des `Character`) — d'où l'indexation via
-        /// `source.utf8` plutôt que directement sur `source`, pour rester
-        /// correct sur du texte accentué.
-        func literalSource(for markup: Markup) -> String? {
+        /// Corrige un bug mesuré de `swift-markdown` (0.8.0) : quand un
+        /// `Table` GFM interrompt un `Paragraph` sans ligne vide entre les
+        /// deux, `cmark-gfm` doit d'abord tenter de lire les deux premières
+        /// lignes du tableau (en-tête + séparateur) comme la continuation du
+        /// paragraphe avant de se raviser — et son calcul de plage source
+        /// garde la trace de cette hésitation : `Paragraph.range` devient
+        /// `nil`, et `Table.range.lowerBound.line` reste bloqué sur la ligne
+        /// de départ du paragraphe interrompu au lieu de celle du tableau
+        /// (mesuré : `"Avant\n| A | B |\n|---|---|\n| 1 | 2 |"` donne
+        /// `1:1..<4:10` au lieu de `2:1..<4:10`). Sans correction,
+        /// `literalSource(for:)` découpe alors `source` sur cette plage
+        /// trop large et recopie le texte du paragraphe interrompu dans le
+        /// bloc brut.
+        ///
+        /// Mesuré sur neuf variantes (tableau seul, à zéro ligne de corps,
+        /// dans une citation, dans un item de liste, précédé d'un titre —
+        /// sûr —, de plusieurs blocs, de texte accentué…) : seule la
+        /// `.line` de `.lowerBound` est corrompue. Sa `.column` reste
+        /// fiable — dérivée de l'indentation réelle de la ligne (le préfixe
+        /// `> `/`  ` d'une citation ou d'un item), pas de la ligne erronée —
+        /// et `.upperBound` aussi (dérivé des lignes de corps, jamais
+        /// concernées par cette confusion). Une rangée de tableau GFM
+        /// n'occupe jamais plus d'une ligne source (syntaxe purement
+        /// linéaire, sans retour à la ligne interne à une cellule) : le
+        /// nombre de lignes qu'occupe un `Table` est donc purement
+        /// structurel — 2 (en-tête + séparateur) plus le nombre de rangées
+        /// de corps — ce qui permet de recalculer la ligne de départ réelle
+        /// à partir de la ligne de fin (fiable) sans dépendre du détail du
+        /// bug ni de `Paragraph.range` (`nil` dans le cas corrompu).
+        ///
+        /// Sans corruption, cette correction est un no-op : la ligne
+        /// recalculée égale déjà celle rapportée (vérifié sur les fixtures
+        /// de `MarkdownRoundTripTests`, dont les tableaux/blocs HTML déjà
+        /// collés à un titre, un séparateur ou un bloc de code sans ligne
+        /// vide). Ne s'applique qu'aux `Table` : les blocs HTML n'ont pas ce
+        /// défaut (`HTMLBlock.range` mesuré correct dans les mêmes
+        /// scénarios, cmark n'ayant besoin d'aucun aller-retour pour les
+        /// reconnaître) et n'ont pas de structure « rangée = une ligne »
+        /// pour la recalculer de toute façon.
+        func correctedRange(for markup: Markup) -> SourceRange? {
             guard let range = markup.range else { return nil }
+            guard let table = markup as? Table else { return range }
+            let rowCount = 2 + table.body.childCount
+            let correctedLine = range.upperBound.line - rowCount + 1
+            guard correctedLine >= 1, correctedLine <= range.upperBound.line,
+                  correctedLine != range.lowerBound.line else { return range }
+            let correctedLowerBound = SourceLocation(line: correctedLine,
+                                                     column: range.lowerBound.column,
+                                                     source: range.lowerBound.source)
+            return correctedLowerBound..<range.upperBound
+        }
+
+        /// Extrait la sous-chaîne de `source` couverte par la plage —
+        /// corrigée via `correctedRange(for:)` — du nœud. `SourceLocation.
+        /// column` compte des **octets UTF-8** depuis le début de sa ligne
+        /// (pas des `Character`) — d'où l'indexation via `source.utf8`
+        /// plutôt que directement sur `source`, pour rester correct sur du
+        /// texte accentué.
+        func literalSource(for markup: Markup) -> String? {
+            guard let range = correctedRange(for: markup) else { return nil }
             var lineStarts: [String.Index] = [source.startIndex]
             var idx = source.startIndex
             while idx < source.endIndex {

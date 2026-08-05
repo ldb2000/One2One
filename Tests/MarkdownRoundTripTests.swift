@@ -195,11 +195,11 @@ final class MarkdownRoundTripTests: XCTestCase {
         XCTAssertEqual(plusAltStable, plusAlt, "La normalisation doit être stable dès la 2e passe")
     }
 
-    // MARK: - Défaut connu, non corrigé — tableau qui interrompt un paragraphe
+    // MARK: - Tableau qui interrompt un paragraphe (corrigé)
 
-    /// **Défaut mesuré, non corrigé par 07bff42** : un tableau GFM qui suit
-    /// directement un paragraphe, sans ligne vide, fait dupliquer le texte
-    /// du paragraphe dans le corps brut du tableau.
+    /// **Défaut corrigé** : un tableau GFM qui suit directement un
+    /// paragraphe, sans ligne vide, faisait dupliquer le texte du paragraphe
+    /// dans le corps brut du tableau.
     ///
     /// Cause : côté `swift-markdown`, quand un `Table` « interrompt » un
     /// `Paragraph` (le paragraphe s'arrête, le tableau démarre, sans ligne
@@ -209,55 +209,54 @@ final class MarkdownRoundTripTests: XCTestCase {
     /// directement sur l'arbre `Document` : pour
     /// `"Avant\n| A | B |\n|---|---|\n| 1 | 2 |"`, `Table.range` vaut
     /// `1:1..<4:10` (devrait commencer en ligne 2). `MarkdownParser.
-    /// literalSource(for:)` découpe alors `source` sur cette plage erronée
-    /// et embarque « Avant » une seconde fois dans le run `.rawBlock`, en
+    /// literalSource(for:)` découpait alors `source` sur cette plage erronée
+    /// et embarquait « Avant » une seconde fois dans le run `.rawBlock`, en
     /// plus du run `.paragraph` qui le porte déjà correctement.
     ///
-    /// Ce n'est pas un bug de ce module au sens strict (le passthrough fait
-    /// ce qu'il annonce : réémettre tel quel ce que `markup.range` désigne),
-    /// mais une hypothèse implicite du plan — que `markup.range` est fiable
-    /// — qui ne tient pas dans ce cas précis. Non détecté par la mesure sur
-    /// les 119 notes réelles de 07bff42 (mesure de caractères *perdus*, pas
-    /// *dupliqués*), mais **confirmé présent sur une vraie note** lors de la
-    /// vérification qui a suivi ce commit : `liveNotes` pk=158 — le débrief
-    /// « Restitution Hogan » cité dans 07bff42 lui-même comme le cas le plus
-    /// lourd (10 926 caractères) — a un paragraphe suivi d'une ligne vide
-    /// puis d'un tableau ; un second aller-retour dessus reproduit
-    /// exactement cette duplication (cf.
-    /// `test_KNOWN_DEFECT_blankLineBeforeTable_lostThenCorruptsOnSecondPass`
-    /// juste en dessous). Une seule occurrence sur les 119 notes actuelles,
-    /// mais sur la note la plus citée du correctif.
+    /// Corrigé par `MarkdownParser.Visitor.correctedRange(for:)` : la ligne
+    /// de départ d'un `Table` est recalculée à partir de sa ligne de fin
+    /// (fiable) et du nombre structurel de lignes qu'une table occupe
+    /// (2 + nombre de rangées de corps), sans dépendre de `Paragraph.range`.
     ///
-    /// `XCTExpectFailure` : si ce test se met à réussir sans qu'on y ait
-    /// touché, c'est que le comportement de `swift-markdown` ou de ce module
-    /// a changé — retirer le marqueur et comprendre pourquoi plutôt que de
-    /// le laisser filer en silence.
-    func test_KNOWN_DEFECT_tableInterruptingParagraph_duplicatesText() {
-        XCTExpectFailure("Table.range de swift-markdown remonte jusqu'au paragraphe interrompu — voir commentaire ci-dessus") {
-            let md = "Avant\n| A | B |\n|---|---|\n| 1 | 2 |"
-            let back = MarkdownSerializer.serialize(MarkdownParser.parse(md))
-            XCTAssertEqual(back, md, "« Avant » ne doit apparaître qu'une fois")
-        }
+    /// Confirmé présent sur une vraie note lors de la vérification qui a
+    /// suivi 07bff42 : `liveNotes` pk=158 — le débrief « Restitution Hogan »
+    /// cité dans 07bff42 comme le cas le plus lourd (10 926 caractères) — a
+    /// un paragraphe suivi d'une ligne vide puis d'un tableau ; un second
+    /// aller-retour dessus reproduisait exactement cette duplication (cf.
+    /// `test_blankLineBeforeTable_survivesSecondPass` juste en dessous).
+    func test_tableInterruptingParagraph_doesNotDuplicateText() {
+        let md = "Avant\n| A | B |\n|---|---|\n| 1 | 2 |"
+        let firstPass = MarkdownSerializer.serialize(MarkdownParser.parse(md))
+        XCTAssertEqual(firstPass, md, "« Avant » ne doit apparaître qu'une fois")
+
+        let secondPass = MarkdownSerializer.serialize(MarkdownParser.parse(firstPass))
+        XCTAssertEqual(secondPass, firstPass, "Idempotent dès le premier aller-retour")
+
+        let thirdPass = MarkdownSerializer.serialize(MarkdownParser.parse(secondPass))
+        XCTAssertEqual(thirdPass, secondPass, "Le troisième passage doit rester identique au deuxième (idempotence)")
     }
 
     /// Corollaire du défaut ci-dessus, sur une entrée **bien formée** cette
     /// fois : une note d'origine avec une ligne vide propre entre le
     /// paragraphe et le tableau. Rien ne se perd au premier aller-retour —
-    /// mais la ligne vide protectrice disparaît (`needsBlankLine` ne traite
+    /// la ligne vide protectrice disparaît bien (`needsBlankLine` ne traite
     /// pas `(plainParagraph, rawBlock)` comme une paire à risque, `.rawBlock`
-    /// se comportant comme `.other`), ce qui expose le second aller-retour
-    /// au défaut de duplication ci-dessus. Une note avec un tableau bien
-    /// séparé de son paragraphe précédent se corrompt donc dès la deuxième
-    /// édition, pas la première.
-    func test_KNOWN_DEFECT_blankLineBeforeTable_lostThenCorruptsOnSecondPass() {
+    /// se comportant comme `.other` — volontairement laissé ainsi, cf.
+    /// `correctedRange(for:)` : cette perte de mise en forme n'entraîne plus
+    /// de perte de texte une fois le bug de plage corrigé, donc rien à
+    /// protéger ici). Le second aller-retour, qui retombe dans le même cas
+    /// que `test_tableInterruptingParagraph_doesNotDuplicateText`, reste
+    /// désormais stable au lieu de dupliquer « Texte ».
+    func test_blankLineBeforeTable_survivesSecondPass() {
         let md = "Texte\n\n| A | B |\n|---|---|\n| 1 | 2 |"
         let firstPass = MarkdownSerializer.serialize(MarkdownParser.parse(md))
         XCTAssertEqual(firstPass, "Texte\n| A | B |\n|---|---|\n| 1 | 2 |",
                        "La ligne vide protectrice disparaît dès le premier aller-retour")
 
-        XCTExpectFailure("le second passage retombe dans test_KNOWN_DEFECT_tableInterruptingParagraph_duplicatesText") {
-            let secondPass = MarkdownSerializer.serialize(MarkdownParser.parse(firstPass))
-            XCTAssertEqual(secondPass, firstPass, "« Texte » ne doit pas être dupliqué au second passage")
-        }
+        let secondPass = MarkdownSerializer.serialize(MarkdownParser.parse(firstPass))
+        XCTAssertEqual(secondPass, firstPass, "« Texte » ne doit pas être dupliqué au second passage")
+
+        let thirdPass = MarkdownSerializer.serialize(MarkdownParser.parse(secondPass))
+        XCTAssertEqual(thirdPass, secondPass, "Le troisième passage doit rester identique au deuxième (idempotence)")
     }
 }
