@@ -89,7 +89,55 @@ final class MarkdownRoundTripTests: XCTestCase {
         // État des cases à cocher imbriquées — défaut B du plan, le plus
         // grave : `b` non cochée ressortait cochée, l'état du parent
         // écrasant celui de l'enfant.
-        "- [x] a\n  - [ ] b\n- [x] c"
+        "- [x] a\n  - [ ] b\n- [x] c",
+        // Tableaux GFM et blocs HTML — commit 07bff42, passthrough sur
+        // `markup.range` (cf. `MarkdownParser.emitRawBlock`/`literalSource`) :
+        // un run unique portant le markdown source littéral, réémis tel quel
+        // par `MarkdownSerializer.rawBlock(in:at:ns:)`.
+        "| A | B |\n|---|---|\n| 1 | 2 |",
+        // Alignement de colonnes : seule la préservation de `markup.range`
+        // fait passer ce cas — `Markup.format()` (l'autre option du plan)
+        // réduit `|:---|---:|` à `|-|-|` (mesuré directement sur `Table`,
+        // voir le rapport de vérification), ce qui aurait fait échouer cette
+        // fixture si le passthrough s'appuyait sur `format()`.
+        "| A | B |\n|:---|---:|\n| 1 | 2 |",
+        "<div>bloc</div>",
+        "<div>\nbloc\nsur trois\nlignes\n</div>",
+        // Contient un `-` (`MarkdownEscaping.inlineSpecials`) : si le
+        // passthrough du bloc HTML était désactivé, ce texte tomberait dans
+        // le chemin générique d'échappement inline et ressortirait
+        // `ligne\-avec\-tirets` — cette fixture le détecterait, contrairement
+        // aux deux ci-dessus dont le contenu ne contient aucun caractère
+        // spécial.
+        "<div>\nligne-avec-tirets\n</div>",
+        // Tableau collé (sans ligne vide) à un voisin qui n'est pas un
+        // paragraphe nu : titre, séparateur, bloc de code. Dans ces trois
+        // cas, le tableau n'« interrompt » aucun paragraphe et
+        // `Table.range` reste correct. Volontairement absent d'ici : un
+        // tableau collé à un paragraphe (avant *ou* après une ligne vide) —
+        // mesuré cassé, voir les deux tests `test_KNOWN_DEFECT_*` plus bas.
+        "# Titre\n| A | B |\n|---|---|\n| 1 | 2 |",
+        "```\ncode\n```\n| A | B |\n|---|---|\n| 1 | 2 |",
+        "---\n| A | B |\n|---|---|\n| 1 | 2 |",
+        // Bloc HTML précédé ou suivi d'un paragraphe, sans ligne vide : sûr
+        // dans les deux sens, contrairement au tableau. `HTMLBlock.range`
+        // reste correct même quand le bloc interrompt directement un
+        // paragraphe (mesuré : `Paragraph.range` et `HTMLBlock.range`
+        // corrects tous les deux, alors que pour un `Table` dans la même
+        // position `Paragraph.range` devient `nil` et `Table.range`
+        // remonte jusqu'au paragraphe précédent — voir le rapport).
+        "Avant\n<div>\nbloc\n</div>",
+        "<div>\nbloc\n</div>\nAprès",
+        // Une ligne de texte nu qui suit un tableau sans ligne vide n'ouvre
+        // pas un nouveau bloc : GFM l'absorbe comme une rangée de données
+        // supplémentaire (une cellule, le reste vide) — un seul bloc du
+        // point de vue de CommonMark, donc rien à séparer et rien à casser.
+        "| A | B |\n|---|---|\n| 1 | 2 |\nAprès",
+        // Deux tableaux collés sans ligne vide : la seconde ligne
+        // `|---|---|` n'est pas relue comme un nouvel en-tête, seulement
+        // comme une rangée de plus — un seul bloc `.rawBlock`, que
+        // `longestEffectiveRange` doit regrouper malgré les `\n` internes.
+        "| A |\n|---|\n| 1 |\n| C |\n|---|\n| 2 |"
     ]
 
     func test_allFixturesRoundTrip() {
@@ -145,5 +193,71 @@ final class MarkdownRoundTripTests: XCTestCase {
         XCTAssertEqual(plusAlt, "![R\\+2](x)")
         let plusAltStable = MarkdownSerializer.serialize(MarkdownParser.parse(plusAlt))
         XCTAssertEqual(plusAltStable, plusAlt, "La normalisation doit être stable dès la 2e passe")
+    }
+
+    // MARK: - Défaut connu, non corrigé — tableau qui interrompt un paragraphe
+
+    /// **Défaut mesuré, non corrigé par 07bff42** : un tableau GFM qui suit
+    /// directement un paragraphe, sans ligne vide, fait dupliquer le texte
+    /// du paragraphe dans le corps brut du tableau.
+    ///
+    /// Cause : côté `swift-markdown`, quand un `Table` « interrompt » un
+    /// `Paragraph` (le paragraphe s'arrête, le tableau démarre, sans ligne
+    /// vide entre les deux), `Paragraph.range` devient `nil` et
+    /// `Table.range` remonte à tort jusqu'au **début de la ligne du
+    /// paragraphe** plutôt qu'à la première ligne propre du tableau — mesuré
+    /// directement sur l'arbre `Document` : pour
+    /// `"Avant\n| A | B |\n|---|---|\n| 1 | 2 |"`, `Table.range` vaut
+    /// `1:1..<4:10` (devrait commencer en ligne 2). `MarkdownParser.
+    /// literalSource(for:)` découpe alors `source` sur cette plage erronée
+    /// et embarque « Avant » une seconde fois dans le run `.rawBlock`, en
+    /// plus du run `.paragraph` qui le porte déjà correctement.
+    ///
+    /// Ce n'est pas un bug de ce module au sens strict (le passthrough fait
+    /// ce qu'il annonce : réémettre tel quel ce que `markup.range` désigne),
+    /// mais une hypothèse implicite du plan — que `markup.range` est fiable
+    /// — qui ne tient pas dans ce cas précis. Non détecté par la mesure sur
+    /// les 119 notes réelles de 07bff42 (mesure de caractères *perdus*, pas
+    /// *dupliqués*), mais **confirmé présent sur une vraie note** lors de la
+    /// vérification qui a suivi ce commit : `liveNotes` pk=158 — le débrief
+    /// « Restitution Hogan » cité dans 07bff42 lui-même comme le cas le plus
+    /// lourd (10 926 caractères) — a un paragraphe suivi d'une ligne vide
+    /// puis d'un tableau ; un second aller-retour dessus reproduit
+    /// exactement cette duplication (cf.
+    /// `test_KNOWN_DEFECT_blankLineBeforeTable_lostThenCorruptsOnSecondPass`
+    /// juste en dessous). Une seule occurrence sur les 119 notes actuelles,
+    /// mais sur la note la plus citée du correctif.
+    ///
+    /// `XCTExpectFailure` : si ce test se met à réussir sans qu'on y ait
+    /// touché, c'est que le comportement de `swift-markdown` ou de ce module
+    /// a changé — retirer le marqueur et comprendre pourquoi plutôt que de
+    /// le laisser filer en silence.
+    func test_KNOWN_DEFECT_tableInterruptingParagraph_duplicatesText() {
+        XCTExpectFailure("Table.range de swift-markdown remonte jusqu'au paragraphe interrompu — voir commentaire ci-dessus") {
+            let md = "Avant\n| A | B |\n|---|---|\n| 1 | 2 |"
+            let back = MarkdownSerializer.serialize(MarkdownParser.parse(md))
+            XCTAssertEqual(back, md, "« Avant » ne doit apparaître qu'une fois")
+        }
+    }
+
+    /// Corollaire du défaut ci-dessus, sur une entrée **bien formée** cette
+    /// fois : une note d'origine avec une ligne vide propre entre le
+    /// paragraphe et le tableau. Rien ne se perd au premier aller-retour —
+    /// mais la ligne vide protectrice disparaît (`needsBlankLine` ne traite
+    /// pas `(plainParagraph, rawBlock)` comme une paire à risque, `.rawBlock`
+    /// se comportant comme `.other`), ce qui expose le second aller-retour
+    /// au défaut de duplication ci-dessus. Une note avec un tableau bien
+    /// séparé de son paragraphe précédent se corrompt donc dès la deuxième
+    /// édition, pas la première.
+    func test_KNOWN_DEFECT_blankLineBeforeTable_lostThenCorruptsOnSecondPass() {
+        let md = "Texte\n\n| A | B |\n|---|---|\n| 1 | 2 |"
+        let firstPass = MarkdownSerializer.serialize(MarkdownParser.parse(md))
+        XCTAssertEqual(firstPass, "Texte\n| A | B |\n|---|---|\n| 1 | 2 |",
+                       "La ligne vide protectrice disparaît dès le premier aller-retour")
+
+        XCTExpectFailure("le second passage retombe dans test_KNOWN_DEFECT_tableInterruptingParagraph_duplicatesText") {
+            let secondPass = MarkdownSerializer.serialize(MarkdownParser.parse(firstPass))
+            XCTAssertEqual(secondPass, firstPass, "« Texte » ne doit pas être dupliqué au second passage")
+        }
     }
 }
