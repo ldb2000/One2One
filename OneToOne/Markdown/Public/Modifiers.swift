@@ -40,4 +40,33 @@ public extension MarkdownTextEditor {
         copy.editorID = id
         return copy
     }
+
+    /// Active les mentions `@` de collaborateurs (voir
+    /// `docs/superpowers/specs/2026-08-05-mentions-collaborateurs.md`).
+    ///
+    /// - `search` reçoit le texte tapé après `@` (peut contenir des espaces —
+    ///   ex. « Marie Dup ») et doit renvoyer les candidats déjà filtrés
+    ///   (nom, insensible casse/accents), triés (épinglés d'abord, puis
+    ///   alphabétique) et purgés des collaborateurs archivés — cette closure
+    ///   est le point où la requête part vers SwiftData, que ce module ne
+    ///   connaît pas.
+    /// - `create`, optionnelle, reçoit le nom tapé quand l'utilisateur valide
+    ///   l'entrée « Créer "…" » (affichée uniquement en l'absence de
+    ///   correspondance exacte, voir `MentionCatalog.rows`) et doit créer et
+    ///   renvoyer le collaborateur correspondant, ou `nil` pour refuser — rien
+    ///   n'est alors inséré. Omise (`nil`, le défaut), l'entrée « Créer … »
+    ///   n'est jamais proposée : sélectionner la seule entrée disponible
+    ///   n'aurait aucun effet, donc `MentionCatalog.rows` continue à
+    ///   l'afficher mais rien ne se passe si l'utilisateur la choisit —
+    ///   préférer omettre `search` plutôt que `create` seul si les mentions
+    ///   ne doivent pas être proposées du tout.
+    func markdownMentions(
+        search: @escaping (String) -> [MentionCandidate],
+        create: ((String) -> MentionCandidate?)? = nil
+    ) -> Self {
+        var copy = self
+        copy.mentionSearch = search
+        copy.mentionCreate = create
+        return copy
+    }
 }

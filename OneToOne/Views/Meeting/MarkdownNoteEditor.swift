@@ -1,10 +1,12 @@
 import SwiftUI
+import SwiftData
 
 /// Éditeur de notes markdown basé sur le module natif `OneToOne/Markdown/`
 /// (`MarkdownTextEditor` → `EditorRepresentable`, `NSTextView`/TextKit 1) :
 /// stylage live en frappe (titres, gras, listes), marqueurs de liste dessinés,
 /// cases à cocher cliquables, menu `/` pour les conversions de bloc, images
-/// inline collées.
+/// inline collées, mentions `@` de collaborateurs
+/// (`CollaboratorMentionSource`, `docs/superpowers/specs/2026-08-05-mentions-collaborateurs.md`).
 ///
 /// **Un seul mode.** L'ancien sélecteur Aperçu/Édition venait du moteur tiers,
 /// qui séparait un rendu en lecture seule d'une saisie en texte source. Le
@@ -36,9 +38,19 @@ struct MarkdownNoteEditor: View {
     /// du `documentId` de l'ancien moteur).
     let editorID: String
 
+    @Environment(\.modelContext) private var context
+    /// Source des mentions `@` — voir `CollaboratorMentionSource`. Les
+    /// archivés sont exclus par le prédicat de ce `@Query`, pas par
+    /// `CollaboratorMentionSource.search` (qui les recevrait sinon).
+    @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var mentionableCollaborators: [Collaborator]
+
     var body: some View {
         MarkdownTextEditor(text: $text)
             .markdownFeatures(.prep)
             .markdownEditorID(editorID)
+            .markdownMentions(
+                search: { CollaboratorMentionSource.search($0, in: mentionableCollaborators) },
+                create: { CollaboratorMentionSource.create($0, in: context) }
+            )
     }
 }

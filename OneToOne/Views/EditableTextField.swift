@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import SwiftData
 
 // MARK: - Warm Background
 
@@ -255,10 +256,21 @@ struct MarkdownEditorView: View {
         self.textViewID = textViewID
     }
 
+    @Environment(\.modelContext) private var context
+    /// Mentions `@` — voir `CollaboratorMentionSource` (même source que
+    /// `MarkdownNoteEditor`, pour que « + Ajouter… », le `/` du nouveau
+    /// moteur et les mentions se comportent pareil partout où l'on édite du
+    /// texte de collaborateur).
+    @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var mentionableCollaborators: [Collaborator]
+
     var body: some View {
         MarkdownTextEditor(text: $text)
             .markdownFeatures(.prep)
             .markdownEditorID(textViewID)
+            .markdownMentions(
+                search: { CollaboratorMentionSource.search($0, in: mentionableCollaborators) },
+                create: { CollaboratorMentionSource.create($0, in: context) }
+            )
     }
 }
 

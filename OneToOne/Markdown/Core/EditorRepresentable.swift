@@ -14,6 +14,11 @@ struct EditorRepresentable: NSViewRepresentable {
     /// Identifiant d'enregistrement dans `MarkdownEditorRegistry` (vide = pas
     /// d'enregistrement). Permet à une `MarkdownToolbar` de piloter cet éditeur.
     var editorID: String = ""
+    /// Closures des mentions `@` (voir `MarkdownTextEditor.markdownMentions(search:create:)`).
+    /// `mentionSearch == nil` désactive entièrement la fonctionnalité :
+    /// `makeNSView` ne construit alors aucun `MentionController`.
+    var mentionSearch: ((String) -> [MentionCandidate])? = nil
+    var mentionCreate: ((String) -> MentionCandidate?)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -74,6 +79,25 @@ struct EditorRepresentable: NSViewRepresentable {
             presentImagePicker: SlashController.presentImageOpenPanel,
             presentDatePicker: SlashController.presentDatePickerPopover
         )
+        // Contrôleur du menu « @ » : seulement si l'appelant a fourni une
+        // closure de recherche (`markdownMentions(search:create:)`) — voir la
+        // doc de `mentionSearch`. `createCollaborator` retombe sur une
+        // closure qui refuse systématiquement (`nil`) si l'appelant n'a pas
+        // fourni `create` : l'entrée « Créer … » reste alors affichée
+        // (décision pure de `MentionCatalog.rows`, indépendante de cette
+        // closure) mais n'insère rien si choisie, comme documenté par
+        // `markdownMentions`.
+        if let search = mentionSearch {
+            context.coordinator.mentionController = MentionController(
+                textView: editor,
+                panel: MentionPanel(),
+                cancelPendingWrite: { [weak coord = context.coordinator] in
+                    coord?.cancelPendingWrite()
+                },
+                searchCollaborators: search,
+                createCollaborator: mentionCreate ?? { _ in nil }
+            )
+        }
         // Expose l'éditeur à une éventuelle MarkdownToolbar via le registre partagé.
         if !editorID.isEmpty {
             MarkdownEditorRegistry.shared.register(editor, id: editorID)
@@ -87,6 +111,8 @@ struct EditorRepresentable: NSViewRepresentable {
         if !id.isEmpty { MarkdownEditorRegistry.shared.unregister(id: id) }
         coordinator.slashController?.teardown()
         coordinator.slashController = nil
+        coordinator.mentionController?.teardown()
+        coordinator.mentionController = nil
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -96,7 +122,17 @@ struct EditorRepresentable: NSViewRepresentable {
         context.coordinator.features = features
         context.coordinator.debounce = debounce
         context.coordinator.slashController?.updateFeatures(features)
-        
+        // Rafraîchit les closures de recherche/création à chaque rendu — voir
+        // la doc de `MentionController.updateHandlers` : nécessaire, pas
+        // seulement défensif, tant que l'appelant capture un `@Query`/
+        // `ModelContext` dans une closure reconstruite à chaque `body`.
+        if let search = mentionSearch {
+            context.coordinator.mentionController?.updateHandlers(
+                searchCollaborators: search,
+                createCollaborator: mentionCreate ?? { _ in nil }
+            )
+        }
+
         let incoming = markdown
         if context.coordinator.hasPendingLocalWrite {
             if incoming == context.coordinator.lastKnownMarkdown {
@@ -145,6 +181,9 @@ struct EditorRepresentable: NSViewRepresentable {
         /// main sans passer par `makeNSView` (ex. certains tests plus anciens
         /// qui n'exercent pas le menu).
         var slashController: SlashController?
+        /// Menu « @ » des mentions de collaborateurs. `nil` si l'appelant n'a
+        /// pas fourni `markdownMentions(search:...)` — voir `mentionSearch`.
+        var mentionController: MentionController?
         private var pendingStyleRange: NSRange?
         private var debounceTask: Task<Void, Never>?
         /// Garde anti-récursion : `ShortcutDetector.apply` mute le storage,
@@ -165,20 +204,34 @@ struct EditorRepresentable: NSViewRepresentable {
             return true
         }
 
-        /// Délègue au menu « / » (tâche 6) la navigation clavier (↑ ↓ ⏎ Tab
-        /// Échap) pendant qu'il est ouvert, ainsi que le correctif du Retour
-        /// après un titre (piège 4) quand il ne l'est pas. `handle` renvoie
-        /// `true` si la commande a été consommée — l'appelant (`NSTextView`)
-        /// n'exécute alors pas son comportement par défaut.
+        /// Délègue la navigation clavier (↑ ↓ ⏎ Tab Échap) au menu ouvert —
+        /// « @ » en priorité s'il l'est (mentions de collaborateurs), sinon
+        /// « / » (tâche 6), qui porte aussi le correctif du Retour après un
+        /// titre (piège 4) quand aucun des deux menus n'est ouvert. Les deux
+        /// menus ne peuvent pas être ouverts simultanément : chacun ne
+        /// s'ouvre que sur son propre caractère déclencheur, et
+        /// `Coordinator.textDidChange` court-circuite dès qu'un des deux
+        /// absorbe la frappe (voir plus bas) — cet ordre est donc surtout une
+        /// question de priorité de lecture, pas un vrai arbitrage entre deux
+        /// états concurrents. `handle` renvoie `true` si la commande a été
+        /// consommée — l'appelant (`NSTextView`) n'exécute alors pas son
+        /// comportement par défaut.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            slashController?.handle(commandSelector: commandSelector) ?? false
+            if mentionController?.isOpen == true {
+                return mentionController?.handle(commandSelector: commandSelector) ?? false
+            }
+            return slashController?.handle(commandSelector: commandSelector) ?? false
         }
 
-        /// Ferme le menu « / » (tâche 6) si le curseur sort de la plage de la
-        /// requête (clic ailleurs, flèche gauche/droite) — voir
-        /// `SlashController.selectionDidChange`.
+        /// Ferme le menu « / » et/ou « @ » si le curseur sort de la plage de
+        /// leur requête respective (clic ailleurs, flèche gauche/droite) —
+        /// voir `SlashController.selectionDidChange`/`MentionController.
+        /// selectionDidChange`. Les deux appels sont sans risque même si un
+        /// seul des deux menus (au plus) est effectivement ouvert : chacun
+        /// vérifie son propre `isOpen` en interne et ne fait rien sinon.
         func textViewDidChangeSelection(_ notification: Notification) {
             slashController?.selectionDidChange()
+            mentionController?.selectionDidChange()
         }
 
         /// Réagit à chaque frappe : applique les raccourcis markdown puis
@@ -191,6 +244,12 @@ struct EditorRepresentable: NSViewRepresentable {
             // la sérialisation, ni le (re)programmation du debounce ne
             // doivent alors s'exécuter — voir l'en-tête de `SlashController`.
             if slashController?.textDidChange() == true { return }
+            // Même court-circuit pour le menu « @ » des mentions — voir
+            // `MentionController.textDidChange()`. Appelé seulement si le
+            // menu « / » n'a pas déjà absorbé la frappe : les deux ne
+            // s'ouvrent jamais sur le même caractère, donc cet ordre ne fait
+            // jamais manquer une frappe destinée à « @ ».
+            if mentionController?.textDidChange() == true { return }
 
             guard let tv = textView, let storage = tv.textStorage else { return }
             if isApplyingShortcut { return }
