@@ -912,6 +912,41 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "# Un")
     }
 
+    /// Le panneau (`SlashPanel`) plafonne désormais sa hauteur à
+    /// `SlashPanelMetrics.maxVisibleRows` lignes et fait défiler le reste
+    /// dans un `ScrollView` (voir `SlashPanel.swift`) — mais c'est du rendu
+    /// SwiftUI, non pilotable par les tests de ce projet (aucune dépendance
+    /// ne permet de conduire une vue SwiftUI ici, voir la doc de tête de ce
+    /// fichier et `Tests/SlashPanelPositioningTests.swift`) : le défilement
+    /// visuel lui-même — `ScrollViewReader.scrollTo` déclenché par
+    /// `.onChange(of: state.selectedIndex)` dans `SlashPanelContent` —
+    /// **n'est pas couvert**.
+    ///
+    /// Ce qui *est* testable, et vérifié ici : `SlashController` fait bien
+    /// progresser `selectedIndex` (et donc l'entrée qu'⏎ applique) au-delà du
+    /// nombre de lignes visibles sans défilement — condition nécessaire pour
+    /// que le défilement visuel ait quelque chose de correct à amener en vue.
+    /// Catalogue complet non filtré (`/` seul, `.full` : 12 entrées) ;
+    /// `maxVisibleRows + 1` pressions de flèche bas mènent à l'index 9
+    /// (« Tableau »), au-delà des 8 premières lignes visibles sans défiler.
+    func test_arrowDown_beyondVisibleRowCap_stillAdvancesSelection_toEntryPastTheFold() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/", into: editor, controller: controller)
+
+        for _ in 0...SlashPanelMetrics.maxVisibleRows {
+            XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.moveDown(_:))))
+        }
+        XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:))))
+
+        let storage = editor.textStorage!
+        var cellCount = 0
+        storage.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            if value != nil { cellCount += 1 }
+        }
+        XCTAssertEqual(cellCount, 9,
+                       "l'entrée appliquée doit être « Tableau » (index 9, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
+    }
+
     // MARK: - Piège 3 : pas de raccourci inline parasite au moment d'appliquer
 
     /// Mesure directe du piège annoncé : un `` ` `` non refermé plus tôt dans

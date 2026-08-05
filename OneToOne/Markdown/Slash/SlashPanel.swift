@@ -105,7 +105,9 @@ final class SlashPanel: NSPanel {
     /// de mise à jour de SwiftUI vis-à-vis de `@Published`, qui n'est pas
     /// garanti synchrone avec cette mutation — un calcul par constantes reste
     /// prévisible même si moins pixel-parfait. Non vérifié visuellement, voir
-    /// le rapport de tâche.
+    /// le rapport de tâche. Plafonnée à `SlashPanelMetrics.maxHeight` (voir sa
+    /// doc) : au-delà, `SlashPanelContent` fait défiler son contenu dans un
+    /// `ScrollView` plutôt que de continuer à agrandir la fenêtre.
     private func applySize() {
         let size = SlashPanelMetrics.idealSize(for: state.groups)
         setContentSize(size)
@@ -181,7 +183,7 @@ private final class SlashPanelState: ObservableObject {
 /// Groupe affichable : enveloppe locale de `(group:, commands:)` pour donner
 /// un identifiant stable à `ForEach` — `SlashCommand.Group` n'est
 /// qu'`Equatable`, pas `Hashable` (catalogue de la tâche 3, non modifié ici).
-private struct DisplayGroup: Identifiable {
+private struct DisplayGroup: Identifiable, Equatable {
     let group: SlashCommand.Group
     let commands: [SlashCommand]
     var id: String { group.rawValue }
@@ -203,6 +205,23 @@ private struct SlashPanelContent: View {
         return result
     }
 
+    /// Identifiant (`SlashCommand.Key`, unique dans tout `SlashCatalog.all` —
+    /// pas seulement au sein d'un groupe) de l'entrée actuellement
+    /// sélectionnée dans la liste aplatie. Sert d'ancre à
+    /// `ScrollViewProxy.scrollTo` pour amener la sélection en vue quand la
+    /// navigation clavier (`SlashController.moveSelection`) la fait sortir de
+    /// la zone visible du panneau plafonné (`SlashPanelMetrics.maxHeight`).
+    private var selectedCommandID: SlashCommand.Key? {
+        var index = 0
+        for group in state.groups {
+            for command in group.commands {
+                if index == state.selectedIndex { return command.id }
+                index += 1
+            }
+        }
+        return nil
+    }
+
     var body: some View {
         Group {
             if state.groups.isEmpty {
@@ -212,17 +231,40 @@ private struct SlashPanelContent: View {
                     .frame(height: SlashPanelMetrics.emptyHeight, alignment: .leading)
                     .padding(.horizontal, 10)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(state.groups) { group in
-                        SlashPanelGroupHeader(title: group.group.title)
-                        ForEach(Array(group.commands.enumerated()), id: \.element.id) { offsetInGroup, command in
-                            let globalIndex = (flatOffsets[group.id] ?? 0) + offsetInGroup
-                            SlashPanelRow(command: command, isSelected: globalIndex == state.selectedIndex)
-                                .onTapGesture { state.onCommandSelected?(command) }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(state.groups) { group in
+                                SlashPanelGroupHeader(title: group.group.title)
+                                ForEach(Array(group.commands.enumerated()), id: \.element.id) { offsetInGroup, command in
+                                    let globalIndex = (flatOffsets[group.id] ?? 0) + offsetInGroup
+                                    SlashPanelRow(command: command, isSelected: globalIndex == state.selectedIndex)
+                                        .id(command.id)
+                                        .onTapGesture { state.onCommandSelected?(command) }
+                                }
+                            }
                         }
+                        .padding(.vertical, SlashPanelMetrics.verticalInset)
+                    }
+                    // Fait défiler l'entrée sélectionnée en vue à chaque
+                    // changement de sélection (flèches haut/bas, via
+                    // `SlashController.moveSelection`) ou de contenu filtré
+                    // (nouvelle frappe dans la requête, qui réinitialise aussi
+                    // `selectedIndex` à 0 côté `SlashController.updateFilter`
+                    // — d'où le second `onChange` : ramène le défilement en
+                    // haut même quand l'index numérique lui-même ne change
+                    // pas). `anchor` par défaut (`nil`) : défilement minimal
+                    // suffisant pour rendre la ligne entièrement visible, que
+                    // la sélection sorte par le bas ou par le haut.
+                    .onChange(of: state.selectedIndex) { _, _ in
+                        guard let id = selectedCommandID else { return }
+                        proxy.scrollTo(id)
+                    }
+                    .onChange(of: state.groups) { _, _ in
+                        guard let id = selectedCommandID else { return }
+                        proxy.scrollTo(id)
                     }
                 }
-                .padding(.vertical, SlashPanelMetrics.verticalInset)
             }
         }
         .frame(width: SlashPanelMetrics.width)
@@ -312,18 +354,67 @@ enum SlashPanelMetrics {
     static let verticalInset: CGFloat = 6
     static let emptyHeight: CGFloat = 40
 
+    /// Nombre de lignes pleines visibles avant que le panneau ne plafonne et
+    /// devienne défilant (voir `SlashPanelSizing.height`, et le `ScrollView`
+    /// de `SlashPanelContent`). Mesuré, pas deviné : le catalogue actuel
+    /// (`SlashCatalog.all`, 12 entrées en 3 groupes) fait déjà 390pt sans
+    /// plafond (12 lignes + 3 en-têtes + marge verticale — `verticalInset * 2
+    /// + 3 * headerHeight + 12 * rowHeight`) — largement au-delà des 8 lignes
+    /// retenues ici, donc ce plafond s'exerce déjà sur le catalogue
+    /// d'aujourd'hui, pas seulement en anticipation d'un futur catalogue plus
+    /// large. 8 lignes reste par ailleurs une fraction confortable de la
+    /// hauteur d'écran disponible : sur cette machine de développement,
+    /// `NSScreen.main?.visibleFrame.height` mesure 1021pt (MacBook Pro, barre
+    /// de menu et encoche déjà déduites) ; même le plus petit écran
+    /// raisonnablement pris en charge aujourd'hui (~800pt de hauteur visible)
+    /// laisse encore plus de trois fois `maxHeight` (ci-dessous) de marge, y
+    /// compris quand le panneau bascule au-dessus du curseur faute de place
+    /// en dessous (`SlashPanelPositioning.origin`).
+    static let maxVisibleRows: Int = 8
+
+    /// Plafond de hauteur du panneau — voir `maxVisibleRows` pour la
+    /// justification du nombre de lignes. Calculé à partir de
+    /// `rowHeight`/`verticalInset` plutôt que codé en dur, pour rester
+    /// cohérent si l'un des deux change.
+    static let maxHeight: CGFloat = verticalInset * 2 + CGFloat(maxVisibleRows) * rowHeight
+
     /// Taille idéale du panneau pour un contenu donné. `groups` est
     /// `[DisplayGroup]` mais ce type est privé au fichier — l'appelant
-    /// (interne, `SlashPanel.applySize`) passe l'état déjà projeté.
+    /// (interne, `SlashPanel.applySize`) passe l'état déjà projeté. Délègue
+    /// le calcul de hauteur à `SlashPanelSizing.height`, qui ne prend que des
+    /// `Int` et reste donc testable depuis la cible de test malgré la
+    /// visibilité `fileprivate` de `DisplayGroup` — voir sa doc.
     fileprivate static func idealSize(for groups: [DisplayGroup]) -> NSSize {
         guard !groups.isEmpty else {
             return NSSize(width: width, height: emptyHeight)
         }
         let rowCount = groups.reduce(0) { $0 + $1.commands.count }
-        let headerCount = groups.count
-        let height = verticalInset * 2
-            + CGFloat(headerCount) * headerHeight
-            + CGFloat(rowCount) * rowHeight
+        let height = SlashPanelSizing.height(groupCount: groups.count, rowCount: rowCount)
         return NSSize(width: width, height: height)
+    }
+}
+
+// MARK: - Hauteur (fonction pure, testable)
+
+/// Calcule la hauteur idéale du panneau pour un contenu donné, plafonnée à
+/// `SlashPanelMetrics.maxHeight`. Extraite de `SlashPanelMetrics.idealSize`
+/// pour rester testable indépendamment de `[DisplayGroup]` (type privé au
+/// fichier) : même stratégie que `SlashPanelPositioning.origin` (voir sa
+/// doc) — une fonction pure prenant des types simples, `internal` pour que
+/// `Tests/SlashPanelSizingTests.swift` l'exerce directement, sans dépendre du
+/// rendu SwiftUI (non pilotable dans ce projet — voir
+/// `Tests/SlashPanelPositioningTests.swift`).
+enum SlashPanelSizing {
+
+    /// `groupCount` : nombre d'en-têtes affichés (un par groupe non vide de
+    /// `SlashCatalog.grouped`). `rowCount` : nombre total d'entrées, tous
+    /// groupes confondus. Le cas « aucun résultat » (0 groupe) n'est pas
+    /// modélisé ici : `SlashPanelMetrics.idealSize` le court-circuite avant
+    /// d'atteindre cette fonction (hauteur fixe `emptyHeight`).
+    static func height(groupCount: Int, rowCount: Int) -> CGFloat {
+        let natural = SlashPanelMetrics.verticalInset * 2
+            + CGFloat(groupCount) * SlashPanelMetrics.headerHeight
+            + CGFloat(rowCount) * SlashPanelMetrics.rowHeight
+        return min(natural, SlashPanelMetrics.maxHeight)
     }
 }
