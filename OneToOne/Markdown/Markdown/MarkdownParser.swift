@@ -119,7 +119,6 @@ enum MarkdownParser {
             }
             for item in items {
                 guard let listItem = item as? ListItem else { continue }
-                let start = out.length
                 let isTask = listItem.checkbox != nil
                 let checked = listItem.checkbox.map { $0 == .checked }
                 let index = ordered ? orderedCounters.last : nil
@@ -131,11 +130,36 @@ enum MarkdownParser {
                 } else {
                     info = ListInfo(kind: .bullet, level: listNesting - 1, index: nil, checked: nil)
                 }
-                for child in listItem.children { emit(child, into: out) }
-                let end = out.length
-                if start < end {
+                // `info` ne doit couvrir que le contenu propre de cet item
+                // (son/ses paragraphe(s)), pas les sous-listes imbriquées :
+                // celles-ci sont des enfants de `listItem` au même titre que
+                // le paragraphe, émises par le même appel `emit` ci-dessous,
+                // et posent déjà leur propre `.mdListInfo` par leur propre
+                // appel récursif à `emitList`. Poser `info` sur [start, end)
+                // après avoir tout émis — comme avant ce correctif —
+                // écraserait cet attribut déjà correct sur toute la
+                // profondeur de la sous-liste (défaut mesuré : niveau
+                // toujours 0, état `checked` du parent recopié sur l'enfant).
+                // On applique donc `info` par tronçon, borné à chaque
+                // séquence d'enfants qui ne sont pas eux-mêmes une liste, et
+                // on saute par-dessus les sous-listes sans étendre le
+                // tronçon.
+                var ownStart: Int? = out.length
+                for child in listItem.children {
+                    if child is UnorderedList || child is OrderedList {
+                        if let ownStart, ownStart < out.length {
+                            out.addAttribute(.mdListInfo, value: info,
+                                             range: NSRange(location: ownStart, length: out.length - ownStart))
+                        }
+                        emit(child, into: out)
+                        ownStart = out.length
+                    } else {
+                        emit(child, into: out)
+                    }
+                }
+                if let ownStart, ownStart < out.length {
                     out.addAttribute(.mdListInfo, value: info,
-                                     range: NSRange(location: start, length: end - start))
+                                     range: NSRange(location: ownStart, length: out.length - ownStart))
                 }
                 if ordered, let c = orderedCounters.last {
                     orderedCounters[orderedCounters.count - 1] = c + 1
