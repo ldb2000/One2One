@@ -513,7 +513,7 @@ final class SlashController {
     private static func isHeading(_ type: BlockType) -> Bool {
         switch type {
         case .h1, .h2, .h3, .h4, .h5, .h6: return true
-        case .paragraph, .blockquote, .codeBlock, .thematicBreak: return false
+        case .paragraph, .blockquote, .codeBlock, .thematicBreak, .rawBlock: return false
         }
     }
 }

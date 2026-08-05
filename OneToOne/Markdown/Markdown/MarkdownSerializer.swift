@@ -42,6 +42,11 @@ enum MarkdownSerializer {
                 cursor = fence.nextCursor
                 continue
             }
+            if let raw = rawBlock(in: source, at: cursor, ns: ns) {
+                lines.append(Line(markdown: raw.markdown, boundary: .other))
+                cursor = raw.nextCursor
+                continue
+            }
 
             var paragraphEnd = cursor
             while paragraphEnd < source.length, ns.character(at: paragraphEnd) != 0x0A {
@@ -203,6 +208,33 @@ enum MarkdownSerializer {
         return ("\(fence)\(language)\n\(body)\n\(fence)", next)
     }
 
+    /// Si un bloc « brut » (tableau GFM, bloc HTML — `.mdBlockType ==
+    /// .rawBlock`) commence à `cursor`, renvoie son markdown littéral tel
+    /// quel et la position juste après. Même stratégie que
+    /// `fencedCodeBlock` : `longestEffectiveRange` regroupe tout le run
+    /// malgré les `\n` internes qu'un balayage ligne à ligne couperait.
+    /// Contrairement à un bloc de code, aucun fence n'enveloppe le texte :
+    /// le run porte déjà le markdown source exact (posé par
+    /// `MarkdownParser.emitRawBlock`), à réémettre sans transformation.
+    private static func rawBlock(in source: NSAttributedString,
+                                 at cursor: Int,
+                                 ns: NSString) -> (markdown: String, nextCursor: Int)? {
+        var effective = NSRange(location: NSNotFound, length: 0)
+        let searchRange = NSRange(location: cursor, length: source.length - cursor)
+        let block = source.attribute(.mdBlockType,
+                                     at: cursor,
+                                     longestEffectiveRange: &effective,
+                                     in: searchRange) as? BlockType
+        guard block == .rawBlock, effective.length > 0 else { return nil }
+
+        let body = ns.substring(with: effective)
+        var next = effective.location + effective.length
+        if next < source.length, ns.character(at: next) == 0x0A {
+            next += 1
+        }
+        return (body, next)
+    }
+
     /// Longueur de fence à utiliser pour envelopper `body` : au moins 3
     /// backticks, et toujours strictement supérieure à la plus longue suite
     /// de backticks présente dans le corps — sinon une fence interne se
@@ -260,12 +292,12 @@ enum MarkdownSerializer {
         case .h5: return "##### " + inline
         case .h6: return "###### " + inline
         case .blockquote: return "> " + inline
-        case .codeBlock:
-            // Inatteignable en pratique : `fencedCodeBlock` teste déjà
-            // `.mdBlockType` à `range.location` — toujours un début de ligne,
-            // la même position que celle-ci — avant que `emitParagraph` ne
-            // soit appelé. `inline` n'est qu'un repli défensif si cet
-            // invariant venait à être violé.
+        case .codeBlock, .rawBlock:
+            // Inatteignable en pratique : `fencedCodeBlock`/`rawBlock`
+            // testent déjà `.mdBlockType` à `range.location` — toujours un
+            // début de ligne, la même position que celle-ci — avant que
+            // `emitParagraph` ne soit appelé. `inline` n'est qu'un repli
+            // défensif si cet invariant venait à être violé.
             return inline
         case .thematicBreak:
             return "---"

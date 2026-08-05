@@ -70,7 +70,12 @@ enum StyleRenderer {
             case .blockquote:
                 storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
                 storage.addAttribute(.obliqueness, value: 0.15, range: range)
-            case .codeBlock:
+            case .codeBlock, .rawBlock:
+                // `.rawBlock` (tableau GFM, bloc HTML passthrough) partage le
+                // rendu du bloc de code : texte brut monospace, cf. la
+                // contrainte de conception du plan parser-pertes-de-données
+                // — un tableau affiché en texte brut est acceptable, un
+                // tableau effacé ne l'est pas.
                 storage.addAttribute(
                     .backgroundColor,
                     value: NSColor.quaternaryLabelColor.withAlphaComponent(0.3),
@@ -145,7 +150,7 @@ enum StyleRenderer {
         case .h2: return NSFont.systemFont(ofSize: 18, weight: .bold)
         case .h3: return NSFont.systemFont(ofSize: 15, weight: .bold)
         case .h4, .h5, .h6: return NSFont.systemFont(ofSize: 13.5, weight: .semibold)
-        case .codeBlock: return NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        case .codeBlock, .rawBlock: return NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         case .blockquote, .paragraph, .thematicBreak:
             return NSFont.systemFont(ofSize: baseFontSize)
         }

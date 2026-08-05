@@ -35,6 +35,14 @@ public enum BlockType: String, Codable, Hashable {
     case blockquote
     case codeBlock
     case thematicBreak
+    /// Bloc dont ce module ne modélise pas la structure (tableau GFM, bloc
+    /// HTML brut…). Le run porte le **markdown source littéral** du bloc,
+    /// réémis tel quel à la sérialisation sans être réinterprété — même
+    /// mécanisme de passthrough que `codeBlock`, voir
+    /// `MarkdownParser.emitRawBlock` / `MarkdownSerializer.rawBlock(in:at:ns:)`.
+    /// Garantit que le contenu survive même quand rien ne sait l'afficher
+    /// finement (rendu en texte brut monospace).
+    case rawBlock
 }
 
 /// Metadata attached to list items.

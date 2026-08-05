@@ -14,7 +14,7 @@ enum MarkdownParser {
     static func parse(_ source: String) -> NSAttributedString {
         let document = Document(parsing: source, options: [.parseBlockDirectives])
         let out = NSMutableAttributedString()
-        var visitor = Visitor()
+        var visitor = Visitor(source: source)
         visitor.walk(document.children, into: out)
         if out.length == 0 {
             return NSAttributedString(string: "", attributes: [.mdBlockType: BlockType.paragraph])
@@ -30,6 +30,10 @@ enum MarkdownParser {
     // MARK: - Visitor
 
     private struct Visitor {
+        /// Le markdown source complet, conservé pour `emitRawBlock` : c'est
+        /// lui qu'on découpe via `markup.range` pour retrouver le texte
+        /// littéral d'un `Table`/`HTMLBlock`, plutôt que de le reconstruire.
+        let source: String
         var listNesting: Int = 0
         var orderedCounters: [Int] = []
 
@@ -56,6 +60,10 @@ enum MarkdownParser {
                 emitCodeBlock(cb, into: out)
             case is ThematicBreak:
                 emitThematicBreak(into: out)
+            case let table as Table:
+                emitRawBlock(table, into: out)
+            case let html as HTMLBlock:
+                emitRawBlock(html, into: out)
             default:
                 for child in markup.children { emit(child, into: out) }
             }
@@ -147,6 +155,59 @@ enum MarkdownParser {
             let attrs: [NSAttributedString.Key: Any] = [.mdBlockType: BlockType.thematicBreak]
             out.append(NSAttributedString(string: "—", attributes: attrs))
             appendNewline(out)
+        }
+
+        /// Émet un bloc dont ce module ne modélise pas la structure (tableau
+        /// GFM, bloc HTML) comme un run unique portant son **markdown source
+        /// littéral** — même mécanisme de passthrough que `emitCodeBlock`
+        /// pour les blocs fencés. Le contenu survit ainsi même si rien ne
+        /// sait l'interpréter ; `MarkdownSerializer.rawBlock(in:at:ns:)` le
+        /// réémet tel quel, sans transformation.
+        ///
+        /// Le texte vient de `literalSource(for:)` (tranche exacte de
+        /// `source`), pas de `Markup.format()` : mesuré (sonde du
+        /// 2026-08-05, tâche 1 du plan parser-pertes-de-données), `format()`
+        /// renormalise un tableau — espaces de cellule réalignés, ligne de
+        /// séparateur `|---|---|` réduite à `|-|-|` — alors que
+        /// `markup.range` retrouve l'octet-source exact, y compris avec des
+        /// caractères accentués avant le nœud. `format()` sert de repli
+        /// seulement si `range` est `nil` (ne devrait pas arriver en
+        /// pratique : on parse toujours depuis une chaîne, jamais un nœud
+        /// construit à la main).
+        func emitRawBlock(_ markup: Markup, into out: NSMutableAttributedString) {
+            let body = literalSource(for: markup) ?? markup.format()
+            guard !body.isEmpty else { return }
+            out.append(NSAttributedString(string: body, attributes: [.mdBlockType: BlockType.rawBlock]))
+            appendNewline(out)
+        }
+
+        /// Extrait la sous-chaîne de `source` couverte par `markup.range`.
+        /// `SourceLocation.column` compte des **octets UTF-8** depuis le
+        /// début de sa ligne (pas des `Character`) — d'où l'indexation via
+        /// `source.utf8` plutôt que directement sur `source`, pour rester
+        /// correct sur du texte accentué.
+        func literalSource(for markup: Markup) -> String? {
+            guard let range = markup.range else { return nil }
+            var lineStarts: [String.Index] = [source.startIndex]
+            var idx = source.startIndex
+            while idx < source.endIndex {
+                if source[idx] == "\n" {
+                    let next = source.index(after: idx)
+                    lineStarts.append(next)
+                    idx = next
+                } else {
+                    idx = source.index(after: idx)
+                }
+            }
+            func index(line: Int, column: Int) -> String.Index? {
+                guard line >= 1, line <= lineStarts.count else { return nil }
+                return source.utf8.index(lineStarts[line - 1], offsetBy: column - 1,
+                                         limitedBy: source.endIndex)
+            }
+            guard let start = index(line: range.lowerBound.line, column: range.lowerBound.column),
+                  let end = index(line: range.upperBound.line, column: range.upperBound.column),
+                  start <= end else { return nil }
+            return String(source[start..<end])
         }
 
         // MARK: - Inline
