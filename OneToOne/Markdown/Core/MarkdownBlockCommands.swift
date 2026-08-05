@@ -97,6 +97,34 @@ enum MarkdownBlockCommands {
         storage.endEditing()
     }
 
+    /// Change le niveau d'imbrication (`ListInfo.level`) de l'item de liste
+    /// portant `location`, sans toucher à son `kind`/`index`/`checked` —
+    /// utilisée par le geste clavier Tab/⇧Tab (indenter/désindenter), qui ne
+    /// doit rien changer d'autre. Contrairement à `setListKind`, n'est **pas**
+    /// réversible/bascule : `setListKind` compare le `kind` cible à l'existant
+    /// pour décider d'un retour au paragraphe, ce qui ne s'applique pas ici
+    /// (changer de niveau ne « bascule » jamais vers le paragraphe). Ne fait
+    /// rien si la ligne n'est pas un item de liste (pas de `.mdListInfo`) ou
+    /// appartient à un bloc de code existant — mêmes gardes que
+    /// `setBlockType`/`setListKind`. `level` est plafonné à `>= 0` :
+    /// `MarkdownSerializer.prefix(for:)` clampe déjà `level` en sortie
+    /// (`max(0, info.level)`), mais stocker une valeur négative laisserait
+    /// `ListMarkerLayout`/`StyleRenderer` (qui, eux, ne clampent pas)
+    /// calculer une indentation négative.
+    static func setListLevel(_ level: Int, in storage: NSTextStorage, at location: Int) {
+        let range = lineRange(in: storage, at: location)
+        guard range.length > 0 else { return }
+
+        let currentBlockType = storage.attribute(.mdBlockType, at: range.location, effectiveRange: nil) as? BlockType
+        guard currentBlockType != .codeBlock else { return }
+        guard let current = storage.attribute(.mdListInfo, at: range.location, effectiveRange: nil) as? ListInfo else { return }
+
+        let updated = ListInfo(kind: current.kind, level: max(0, level), index: current.index, checked: current.checked)
+        storage.beginEditing()
+        storage.addAttribute(.mdListInfo, value: updated, range: range)
+        storage.endEditing()
+    }
+
     /// Plage de la ligne contenant `location`, **saut de ligne final exclu**.
     /// Ça n'a d'effet observable que sur `MarkdownSerializer.fencedCodeBlock`
     /// — seul chemin qui étend un run via `longestEffectiveRange` plutôt que

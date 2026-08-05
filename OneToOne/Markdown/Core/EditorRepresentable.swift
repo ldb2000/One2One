@@ -204,23 +204,42 @@ struct EditorRepresentable: NSViewRepresentable {
             return true
         }
 
-        /// Délègue la navigation clavier (↑ ↓ ⏎ Tab Échap) au menu ouvert —
-        /// « @ » en priorité s'il l'est (mentions de collaborateurs), sinon
-        /// « / » (tâche 6), qui porte aussi le correctif du Retour après un
-        /// titre (piège 4) quand aucun des deux menus n'est ouvert. Les deux
-        /// menus ne peuvent pas être ouverts simultanément : chacun ne
-        /// s'ouvre que sur son propre caractère déclencheur, et
-        /// `Coordinator.textDidChange` court-circuite dès qu'un des deux
-        /// absorbe la frappe (voir plus bas) — cet ordre est donc surtout une
-        /// question de priorité de lecture, pas un vrai arbitrage entre deux
-        /// états concurrents. `handle` renvoie `true` si la commande a été
-        /// consommée — l'appelant (`NSTextView`) n'exécute alors pas son
-        /// comportement par défaut.
+        /// Délègue la navigation clavier (↑ ↓ ⏎ Tab ⇧Tab ⌫ Échap) au menu
+        /// ouvert — « @ » en priorité s'il l'est (mentions de collaborateurs),
+        /// sinon « / » (tâche 6), qui porte aussi le correctif du Retour après
+        /// un titre (piège 4). Si aucun des deux menus n'a rien consommé — et
+        /// que le menu « / » n'est pas ouvert (voir plus bas) —,
+        /// `ListEditingCommands` prend le relais pour ⏎/Tab/⇧Tab/⌫ à
+        /// l'intérieur d'un item de liste. Les deux menus ne peuvent pas être
+        /// ouverts simultanément : chacun ne s'ouvre que sur son propre
+        /// caractère déclencheur, et `Coordinator.textDidChange`
+        /// court-circuite dès qu'un des deux absorbe la frappe (voir plus
+        /// bas) — cet ordre est donc surtout une question de priorité de
+        /// lecture, pas un vrai arbitrage entre deux états concurrents.
+        /// `handle` renvoie `true` si la commande a été consommée —
+        /// l'appelant (`NSTextView`) n'exécute alors pas son comportement par
+        /// défaut.
+        ///
+        /// Garde `slashController?.isOpen == true` avant `ListEditingCommands` :
+        /// `SlashController.handle` n'intercepte, menu ouvert, que
+        /// ↑↓/⏎/Tab/Échap (voir sa doc — « Tout le reste (dont ⌫) n'est pas
+        /// intercepté : le comportement par défaut s'applique ») ; sans cette
+        /// garde, un `⌫`/`⇧Tab` tapé pendant la composition d'une requête sur
+        /// une ligne qui est *aussi* un item de liste (ex. `/` tapé au tout
+        /// début d'un item vide) tomberait à tort dans
+        /// `ListEditingCommands` — la requête en cours de frappe n'est ni du
+        /// texte de list ni un raccourci clavier de liste.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if mentionController?.isOpen == true {
                 return mentionController?.handle(commandSelector: commandSelector) ?? false
             }
-            return slashController?.handle(commandSelector: commandSelector) ?? false
+            if slashController?.handle(commandSelector: commandSelector) == true {
+                return true
+            }
+            if slashController?.isOpen == true {
+                return false
+            }
+            return ListEditingCommands.handle(commandSelector: commandSelector, in: textView)
         }
 
         /// Ferme le menu « / » et/ou « @ » si le curseur sort de la plage de
