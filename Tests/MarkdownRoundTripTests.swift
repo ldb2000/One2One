@@ -78,7 +78,18 @@ final class MarkdownRoundTripTests: XCTestCase {
         "Avant\n\n---",
         "> Avant\n\nAprès",
         "> Avant\n\n> Après",
-        "- Avant\n\nAprès"
+        "- Avant\n\nAprès",
+        // Imbrication de listes — défaut A du plan parser-pertes-de-données
+        // (tâche 2) : `emitList` aplatissait tous les niveaux à 0.
+        "- a\n  - b\n    - c",
+        // Deux items imbriqués au même niveau puis retour au niveau 0 —
+        // garde contre un correctif qui ne gérerait que l'unique enfant
+        // imbriqué.
+        "- a\n  - b\n  - c\n- d",
+        // État des cases à cocher imbriquées — défaut B du plan, le plus
+        // grave : `b` non cochée ressortait cochée, l'état du parent
+        // écrasant celui de l'enfant.
+        "- [x] a\n  - [ ] b\n- [x] c"
     ]
 
     func test_allFixturesRoundTrip() {
