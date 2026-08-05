@@ -67,9 +67,6 @@ enum StyleRenderer {
             switch block {
             case .h1, .h2, .h3:
                 storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
-            case .blockquote:
-                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
-                storage.addAttribute(.obliqueness, value: 0.15, range: range)
             case .codeBlock, .rawBlock:
                 // `.rawBlock` (tableau GFM, bloc HTML passthrough) partage le
                 // rendu du bloc de code : texte brut monospace, cf. la
@@ -83,7 +80,7 @@ enum StyleRenderer {
                 )
             case .thematicBreak:
                 storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
-            case .h4, .h5, .h6, .paragraph:
+            case .h4, .h5, .h6, .paragraph, .blockquote:
                 break
             }
 
@@ -96,6 +93,19 @@ enum StyleRenderer {
                 // position — voir `ListMarkerLayout.textIndent(for:)`.
                 let para = NSMutableParagraphStyle()
                 let indent = ListMarkerLayout.textIndent(for: info)
+                para.headIndent = indent
+                para.firstLineHeadIndent = indent
+                storage.addAttribute(.paragraphStyle, value: para, range: range)
+            } else if block == .blockquote {
+                // Même mécanisme que pour un item de liste ci-dessus, mais
+                // pour le filet d'une citation (voir `MarkdownLayoutManager`
+                // et `BlockquoteRuleLayout`) : la marge ainsi réservée à
+                // gauche du texte reçoit le trait, pas un marqueur. Un item
+                // de liste l'emporte si les deux attributs coexistent
+                // (`listInfo` ci-dessus) — combinaison hors du périmètre de
+                // ce chantier (liste imbriquée dans une citation).
+                let para = NSMutableParagraphStyle()
+                let indent = BlockquoteRuleLayout.textIndent
                 para.headIndent = indent
                 para.firstLineHeadIndent = indent
                 storage.addAttribute(.paragraphStyle, value: para, range: range)

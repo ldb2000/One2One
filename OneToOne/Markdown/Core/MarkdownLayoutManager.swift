@@ -29,6 +29,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
+        drawBlockquoteRules(forGlyphRange: glyphsToShow, at: origin)
     }
 
     /// Parcourt les fragments de ligne du rendu en cours et dessine un
@@ -84,5 +85,46 @@ final class MarkdownLayoutManager: NSLayoutManager {
         let markerX = origin.x + textIndent - ListMarkerLayout.markerTrailingGap - markerSize.width
         let markerY = origin.y + lineFragmentRect.minY + (lineFragmentRect.height - markerSize.height) / 2
         markerText.draw(at: NSPoint(x: markerX, y: markerY), withAttributes: attributes)
+    }
+
+    /// Parcourt les fragments de ligne du rendu en cours et peint le filet
+    /// vertical d'une citation sur ceux qui appartiennent à un bloc
+    /// `.mdBlockType == .blockquote` — lu au début du fragment, à l'instar de
+    /// `drawListMarkers`, mais **sans** la restriction « premier fragment du
+    /// paragraphe » : contrairement au marqueur de liste (posé une seule fois
+    /// par item), le filet doit courir sur toute la hauteur du bloc, donc sur
+    /// chaque ligne visuelle qui en fait partie — qu'elle soit un simple
+    /// retour à la ligne automatique à l'intérieur d'un même paragraphe, ou
+    /// la première ligne d'un paragraphe suivant à l'intérieur de la même
+    /// citation (plusieurs paragraphes cités séparés par un `\n`, cf.
+    /// `MarkdownParser.emitBlockQuote`, qui pose `.mdBlockType` sur toute la
+    /// plage englobante). `enumerateLineFragments` renvoie des rects de ligne
+    /// qui se succèdent verticalement sans intervalle (aucun
+    /// `paragraphSpacing` n'est posé dans ce module — vérifié) : peindre le
+    /// rect plein de chaque fragment produit donc un filet continu sur
+    /// plusieurs lignes, pas des segments espacés.
+    private func drawBlockquoteRules(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, glyphsToShow.length > 0 else { return }
+        let ns = storage.string as NSString
+
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { lineRect, _, _, lineGlyphRange, _ in
+            let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+            guard charRange.location < ns.length else { return }
+            guard storage.attribute(.mdBlockType, at: charRange.location, effectiveRange: nil) as? BlockType == .blockquote else {
+                return
+            }
+            self.drawBlockquoteRule(forLineFragmentRect: lineRect, origin: origin)
+        }
+    }
+
+    private func drawBlockquoteRule(forLineFragmentRect lineFragmentRect: NSRect, origin: NSPoint) {
+        let ruleRect = NSRect(
+            x: origin.x + BlockquoteRuleLayout.ruleLeadingGap,
+            y: origin.y + lineFragmentRect.minY,
+            width: BlockquoteRuleLayout.ruleThickness,
+            height: lineFragmentRect.height
+        )
+        BlockquoteRuleLayout.ruleColor.setFill()
+        ruleRect.fill()
     }
 }

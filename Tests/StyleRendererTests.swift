@@ -598,6 +598,190 @@ final class StyleRendererTests: XCTestCase {
         }
     }
 
+    // MARK: - Blockquote rule
+
+    /// Une citation doit recevoir la même sorte d'indentation de paragraphe
+    /// qu'un item de liste (voir le bloc `if let info = listInfo` juste
+    /// au-dessus dans `StyleRenderer`) — la marge ainsi réservée à gauche du
+    /// texte est celle où `MarkdownLayoutManager` peint le filet.
+    func test_blockquote_getsParagraphIndentation() {
+        let storage = NSTextStorage(string: "une citation")
+        storage.addAttribute(.mdBlockType, value: BlockType.blockquote, range: NSRange(location: 0, length: storage.length))
+
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let paragraphStyle = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(paragraphStyle?.headIndent, BlockquoteRuleLayout.textIndent)
+        XCTAssertEqual(paragraphStyle?.firstLineHeadIndent, BlockquoteRuleLayout.textIndent)
+    }
+
+    /// Avant ce chantier, une citation était rendue en texte gris
+    /// (`NSColor.secondaryLabelColor`) et légèrement penché (`obliqueness`).
+    /// Le repère visuel passe désormais entièrement par le filet peint dans
+    /// la marge : le *texte* doit garder la couleur normale, sans obliquité.
+    func test_blockquote_hasNoObliquenessAndNoSecondaryLabelColor() {
+        let storage = NSTextStorage(string: "une citation")
+        storage.addAttribute(.mdBlockType, value: BlockType.blockquote, range: NSRange(location: 0, length: storage.length))
+
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        XCTAssertNil(
+            storage.attribute(.obliqueness, at: 0, effectiveRange: nil),
+            "une citation ne doit plus être penchée"
+        )
+        let color = storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(color, NSColor.labelColor, "une citation doit garder la couleur de texte normale")
+        XCTAssertNotEqual(color, NSColor.secondaryLabelColor, "une citation ne doit plus être grise")
+    }
+
+    /// Un paragraphe ordinaire ne doit recevoir ni l'indentation ni le filet
+    /// d'une citation — contrôle négatif du test précédent et de ceux du
+    /// filet ci-dessous.
+    func test_plainParagraph_getsNoBlockquoteIndentAndNoRule() throws {
+        let storage = NSTextStorage(string: "texte normal")
+        // Pas de `.mdBlockType` du tout : `StyleRenderer` retombe sur
+        // `.paragraph`, comme `MarkdownSerializer.boundaryKind` le documente.
+
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        XCTAssertNil(
+            storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil),
+            "un paragraphe ordinaire ne doit recevoir aucun paragraphStyle"
+        )
+
+        let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
+        let ruleXRange = Int(BlockquoteRuleLayout.ruleLeadingGap)
+            ..< Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+        XCTAssertEqual(
+            nonBackgroundPixelCount(bitmap, xRange: ruleXRange), 0,
+            "un paragraphe ordinaire ne doit peindre aucun filet dans la marge"
+        )
+    }
+
+    /// Le filet n'est pas qu'un attribut logique : il doit réellement se
+    /// peindre, sur le même modèle que
+    /// `test_listMarkers_bulletOrderedCheckedUnchecked_areActuallyPaintedInTheReservedMargin`.
+    func test_blockquoteRule_isActuallyPaintedInTheReservedMargin() throws {
+        let storage = NSTextStorage(string: "citation")
+        storage.addAttribute(.mdBlockType, value: BlockType.blockquote, range: NSRange(location: 0, length: storage.length))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
+        let ruleXRange = Int(BlockquoteRuleLayout.ruleLeadingGap)
+            ..< Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+        XCTAssertGreaterThan(
+            nonBackgroundPixelCount(bitmap, xRange: ruleXRange), 0,
+            "le filet doit être réellement peint dans la marge réservée, pas seulement porté par un attribut"
+        )
+    }
+
+    /// Un test « quelque chose est peint » ne prouve pas que la géométrie est
+    /// correcte — un glyphe rogné peint quand même quelque chose (mesuré
+    /// ailleurs sur cette branche). Ce test vérifie la géométrie exacte du
+    /// filet : rien avant sa gouttière gauche, rien entre lui et le début du
+    /// texte (`BlockquoteRuleLayout.textIndent`) — le filet occupe
+    /// exactement sa colonne, pas toute la marge.
+    func test_blockquoteRule_occupiesExactlyItsReservedThickness_notTheWholeMargin() throws {
+        let storage = NSTextStorage(string: "citation")
+        storage.addAttribute(.mdBlockType, value: BlockType.blockquote, range: NSRange(location: 0, length: storage.length))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
+
+        let beforeRule = 0..<Int(BlockquoteRuleLayout.ruleLeadingGap)
+        let ruleColumn = Int(BlockquoteRuleLayout.ruleLeadingGap)
+            ..< Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+        let afterRule = Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+            ..< Int(BlockquoteRuleLayout.textIndent)
+
+        XCTAssertEqual(
+            nonBackgroundPixelCount(bitmap, xRange: beforeRule), 0,
+            "rien ne doit être peint avant la gouttière gauche du filet"
+        )
+        XCTAssertGreaterThan(
+            nonBackgroundPixelCount(bitmap, xRange: ruleColumn), 0,
+            "le filet doit être peint dans sa propre colonne"
+        )
+        XCTAssertEqual(
+            nonBackgroundPixelCount(bitmap, xRange: afterRule), 0,
+            "rien ne doit être peint entre le filet et le début du texte indenté"
+        )
+    }
+
+    /// Une citation de plusieurs paragraphes séparés par un `\n` à
+    /// l'intérieur d'un même bloc — exactement ce que produit
+    /// `MarkdownParser.emitBlockQuote` pour `"> l1\n>\n> l2\n>\n> l3"`, une
+    /// plage `.mdBlockType == .blockquote` unique englobant les trois lignes
+    /// — doit recevoir un filet **continu**, pas trois segments espacés
+    /// verticalement. Un risque concret : dessiner seulement sur le premier
+    /// fragment de ligne de chaque paragraphe, comme `drawListMarkers` le
+    /// fait *volontairement* pour son marqueur (un marqueur ne se répète pas
+    /// sur les lignes de repli) — le filet, lui, ne doit pas imiter cette
+    /// restriction.
+    ///
+    /// Vérifié par géométrie, pas par une simple présence de pixels : la
+    /// plage de lignes peintes dans la colonne du filet doit être un
+    /// intervalle contigu (aucun trou) et couvrir sensiblement plus qu'une
+    /// seule ligne.
+    func test_multiParagraphBlockquote_getsAContinuousRuleAcrossAllLines() throws {
+        let ruleXRange = Int(BlockquoteRuleLayout.ruleLeadingGap)
+            ..< Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+
+        let single = NSTextStorage(string: "ligne unique")
+        single.addAttribute(.mdBlockType, value: BlockType.blockquote, range: NSRange(location: 0, length: single.length))
+        StyleRenderer.applyVisualStyle(to: single)
+        let singleBitmap = try renderToOffscreenBitmap(storage: single, width: 200, height: 120)
+        let singleLineRows = paintedRows(singleBitmap, xRange: ruleXRange)
+        XCTAssertFalse(singleLineRows.isEmpty, "prémisse : une citation d'une ligne doit déjà peindre son filet")
+
+        let multi = NSTextStorage(string: "ligne un\nligne deux\nligne trois")
+        multi.addAttribute(.mdBlockType, value: BlockType.blockquote, range: NSRange(location: 0, length: multi.length))
+        StyleRenderer.applyVisualStyle(to: multi)
+        let multiBitmap = try renderToOffscreenBitmap(storage: multi, width: 200, height: 120)
+        let multiRows = paintedRows(multiBitmap, xRange: ruleXRange)
+
+        XCTAssertGreaterThan(
+            multiRows.count, singleLineRows.count * 2,
+            "le filet d'une citation de trois lignes doit couvrir nettement plus de hauteur qu'une citation d'une ligne"
+        )
+
+        let span = (multiRows.max() ?? 0) - (multiRows.min() ?? 0) + 1
+        XCTAssertEqual(
+            span, multiRows.count,
+            "le filet doit être un trait continu du haut au bas du bloc : \(span - multiRows.count) ligne(s) de pixels " +
+            "manquante(s) — trois segments espacés au lieu d'un seul trait"
+        )
+    }
+
+    /// Le plus important pour ce chantier, sur le modèle de
+    /// `test_listMarkerVisualStyle_doesNotLeakIntoSerializedMarkdown` : le
+    /// filet et l'indentation ne sont qu'un effet visuel, jamais du texte ni
+    /// une information qui changerait la sérialisation. Fixtures reprises
+    /// telles quelles de `MarkdownRoundTripTests` (déjà vérifiées stables au
+    /// round-trip parse → serialize *sans* étape de style) : ce test insère
+    /// `applyVisualStyle` au milieu et vérifie qu'il n'y change rien — pas
+    /// une nouvelle preuve que ces markdown-là round-trippent (déjà acquis
+    /// ailleurs), seulement que le style n'y ajoute aucune fuite. Ce point a
+    /// été violé quatre fois sous des formes différentes sur cette branche :
+    /// ne pas le tenir pour acquis pour un fixture inventé sans vérification.
+    func test_blockquoteVisualStyle_doesNotLeakIntoSerializedMarkdown() {
+        let fixtures = [
+            "> citation simple",
+            "> quote next line — kept as block",
+            "> Avant\n\nAprès",
+            "> Avant\n\n> Après",
+        ]
+
+        for markdown in fixtures {
+            let parsed = MarkdownParser.parse(markdown)
+            let textStorage = NSTextStorage(attributedString: parsed)
+
+            StyleRenderer.applyVisualStyle(to: textStorage)
+
+            XCTAssertEqual(MarkdownSerializer.serialize(textStorage), markdown, "fixture : \(markdown)")
+        }
+    }
+
     // MARK: - List marker rendering fixtures
 
     /// Monte `storage` dans la même pile TextKit 1 qu'`EditorRepresentable`
@@ -685,6 +869,26 @@ final class StyleRendererTests: XCTestCase {
             }
         }
         return count
+    }
+
+    /// Indices de ligne `y` de `bitmap` où au moins un pixel de `xRange`
+    /// diffère du fond réellement peint — sert à vérifier la **géométrie**
+    /// d'un trait vertical (continuité, étendue), pas seulement sa présence :
+    /// `nonBackgroundPixelCount` répond « combien de pixels », celle-ci
+    /// répond « quelles lignes », ce qui permet de détecter un trou
+    /// (segments espacés) via la comparaison de `min`/`max`/`count` côté
+    /// appelant.
+    private func paintedRows(_ bitmap: NSBitmapImageRep, xRange: Range<Int>) -> [Int] {
+        let background = backgroundLightness(of: bitmap)
+        var rows: [Int] = []
+        for y in 0..<bitmap.pixelsHigh {
+            let rowIsPainted = xRange.contains { x in
+                guard x >= 0, x < bitmap.pixelsWide, let color = bitmap.colorAt(x: x, y: y) else { return false }
+                return abs(color.redComponent - background) > 0.02
+            }
+            if rowIsPainted { rows.append(y) }
+        }
+        return rows
     }
 
     /// Composantes RGBA de chaque pixel de `bitmap` dans `xRange` (toutes
