@@ -20,6 +20,14 @@ final class EditorTextView: NSTextView {
     /// `markdownLinks(handler:)`.
     var onLinkClick: ((URL) -> Bool)?
 
+    /// Set by the SwiftUI coordinator to handle ⌥↑ (`true`) / ⌥↓ (`false`) —
+    /// déplacement du bloc portant le curseur (voir `BlockMoveCommands`).
+    /// `nil` (le défaut, ex. un `EditorTextView` construit à la main sans
+    /// passer par `EditorRepresentable.makeNSView`) laisse `keyDown(with:)`
+    /// retomber sur `super`, comportement natif inchangé — même convention
+    /// que `onLinkClick`.
+    var onOptionVerticalArrow: ((Bool) -> Void)?
+
     // MARK: - Lifecycle
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -46,6 +54,54 @@ final class EditorTextView: NSTextView {
         isAutomaticSpellingCorrectionEnabled = false
         font = NSFont.systemFont(ofSize: 13)
         textContainerInset = NSSize(width: 6, height: 6)
+    }
+
+    // MARK: - ⌥↑ / ⌥↓ — déplacement de bloc
+
+    /// Code matériel des flèches Haut/Bas — stables quel que soit
+    /// l'agencement clavier (contrairement à `charactersIgnoringModifiers`,
+    /// qui peut varier). Valeurs `kVK_UpArrow`/`kVK_DownArrow` de
+    /// `Carbon.HIToolbox`, recopiées ici pour ne pas importer tout Carbon
+    /// pour deux constantes.
+    private static let upArrowKeyCode: UInt16 = 0x7E
+    private static let downArrowKeyCode: UInt16 = 0x7D
+
+    /// Modificateurs qui distinguent réellement une combinaison — masque
+    /// volontairement `.capsLock`/`.numericPad`/`.function`/`.help`, que
+    /// macOS pose aussi sur un événement flèche indépendamment de ce que
+    /// l'utilisateur tient réellement (mesuré : un ⌥↑ synthétique construit
+    /// sans ces flags est bien celui que macOS envoie pour de vrai — voir le
+    /// rapport de tâche — comparer `modifierFlags` à `.option` seul, sans ce
+    /// masque, échouerait si l'OS les ajoutait).
+    private static let relevantModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
+
+    /// Intercepte ⌥↑/⌥↓ **avant** `interpretKeyEvents:`/`doCommandBy:` :
+    /// mesuré (rapport de tâche), la combinaison résout via
+    /// `StandardKeyBinding.dict` en DEUX sélecteurs par frappe —
+    /// `moveBackward:`+`moveToBeginningOfParagraph:` pour ⌥↑,
+    /// `moveForward:`+`moveToEndOfParagraph:` pour ⌥↓ — chacun *partagé* avec
+    /// d'autres raccourcis (`^b`/`^a`/`^f`/`^e`) : les intercepter via
+    /// `Coordinator.textView(_:doCommandBy:)` détournerait ces derniers
+    /// aussi. Consomme systématiquement l'événement dès que `onOptionVerticalArrow`
+    /// est présent — y compris aux bords du document (le bloc ne bouge pas,
+    /// mais la touche ne doit pas non plus retomber sur la navigation par
+    /// paragraphe qu'elle remplace) ; `nil` (pas de closure assignée) laisse
+    /// `super` gérer, comportement natif inchangé.
+    override func keyDown(with event: NSEvent) {
+        if let handler = onOptionVerticalArrow,
+           event.modifierFlags.intersection(Self.relevantModifiers) == .option {
+            switch event.keyCode {
+            case Self.upArrowKeyCode:
+                handler(true)
+                return
+            case Self.downArrowKeyCode:
+                handler(false)
+                return
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
     }
 
     // MARK: - Collage

@@ -68,6 +68,9 @@ struct EditorRepresentable: NSViewRepresentable {
             coord?.pushMarkdownToBinding(force: true)
         }
         editor.onLinkClick = linkHandler
+        editor.onOptionVerticalArrow = { [weak coord = context.coordinator] up in
+            coord?.moveCurrentBlock(up: up)
+        }
         scroll.documentView = editor
         context.coordinator.textView = editor
         // Contrôleur du menu « / » (tâche 6) : construit juste après
@@ -312,6 +315,22 @@ struct EditorRepresentable: NSViewRepresentable {
                 guard let self else { return }
                 if Task.isCancelled { return }
                 self.parent.markdown = newMarkdown
+            }
+        }
+
+        /// ⌥↑ (`up == true`) / ⌥↓ — voir `BlockMoveCommands` et la doc de
+        /// `EditorTextView.onOptionVerticalArrow`. Cède la priorité si un
+        /// panneau (« / » ou « @ ») est ouvert, même garde que
+        /// `textView(_:doCommandBy:)` : déplacer un bloc pendant la
+        /// composition d'une requête n'est jamais ce que l'utilisateur veut.
+        @MainActor
+        func moveCurrentBlock(up: Bool) {
+            guard mentionController?.isOpen != true, slashController?.isOpen != true else { return }
+            guard let tv = textView else { return }
+            if up {
+                BlockMoveCommands.moveUp(in: tv)
+            } else {
+                BlockMoveCommands.moveDown(in: tv)
             }
         }
 
