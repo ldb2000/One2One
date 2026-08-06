@@ -35,6 +35,19 @@ falsifié, images corrompues à chaque enregistrement, texte tapé supprimé.
 Vérifié sur les 119 notes réelles de l'utilisateur, sauvegardées dans
 `~/Documents/OneToOne-sauvegarde-notes-2026-08-05/`.
 
+## Dette immédiate
+
+**`/sommaire` est livré sans tests** (commit `1818820`). Le code compile et ne
+casse rien — 80 tests des suites `Slash` au vert, aucune régression — mais
+aucun test dédié n'existe. Trois sous-agents consécutifs ont calé avant d'en
+écrire un.
+
+À couvrir : document sans titre, titres en double, indentation par niveau,
+aller-retour, absence d'héritage des attributs de frappe, et le fait qu'un
+sommaire inséré au milieu d'un texte reste un bloc distinct. Avec vérification
+par mutation — l'implémentation n'ayant jamais été éprouvée, les tests
+devront chercher à la casser plutôt qu'à la confirmer.
+
 ## Prochaine action
 
 **En cours au moment de la rédaction** : faire survivre le rappel de date.
