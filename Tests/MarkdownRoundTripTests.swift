@@ -46,6 +46,12 @@ final class MarkdownRoundTripTests: XCTestCase {
         // fence englobante plus longue (4) pour ne pas se refermer
         // prématurément et perdre du contenu au reparse.
         "````\n```\nx\n```\n````",
+        // Bloc mermaid — même mécanisme générique de bloc fencé que
+        // `swift`/`json` ci-dessus (`.mdCodeLanguage == "mermaid"` n'est
+        // qu'une valeur de langage comme une autre pour le parser/sérialiseur ;
+        // seul `StyleRenderer` lui donne un traitement particulier, à
+        // l'affichage). Vérifie l'aller-retour plutôt que de le supposer.
+        "```mermaid\nflowchart TD\n    A[Début] --> B[Fin]\n```",
         // Images — l'URL était perdue faute de cas `Image` dans le parser.
         // Les textes alternatifs évitent les caractères de
         // `MarkdownEscaping.inlineSpecials` (`+`, `-`, `_`, `#`, `!`…) : ils
