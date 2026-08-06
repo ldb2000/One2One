@@ -119,11 +119,19 @@ final class StyleRendererMermaidTests: XCTestCase {
         XCTAssertEqual(color, NSColor.clear)
     }
 
-    /// Seule la première ligne du bloc porte la hauteur réservée
-    /// (`placeholderHeight`, aucune image livrée en test headless) — les
+    /// Seule la première ligne du bloc porte la hauteur réservée — les
     /// lignes suivantes sont plafonnées à un filet quasi nul
     /// (`hiddenLineMaximumHeight`), jamais à une fraction de l'ancien
     /// `reservedHeight` (220pt).
+    ///
+    /// N'exige pas la hauteur exacte du placeholder (104pt) : un vrai
+    /// `WKWebView` est déclenché en tâche de fond par ce test (voir la doc
+    /// de tête de la suite) et peut, rarement, livrer le diagramme rendu
+    /// avant même l'assertion — mesuré en pratique (190pt observé, un cadre
+    /// réel dont l'image fait 190pt de haut, pas une régression). La
+    /// hauteur réservée doit rester **cohérente avec l'attachment courant**,
+    /// quel que soit son état à cet instant précis — jamais une fraction de
+    /// 220pt dans tous les cas.
     func test_closedMermaidBlock_onlyFirstLineReservesHeight_restIsCapped() throws {
         let markdown = "```mermaid\ngraph TD\nA-->B\n```"
         let storage = NSTextStorage(attributedString: MarkdownParser.parse(markdown))
@@ -133,14 +141,22 @@ final class StyleRendererMermaidTests: XCTestCase {
         // "graph TD\nA-->B" : la première ligne ("graph TD\n") fait 9
         // caractères, jusqu'à l'index 8 inclus depuis le début du bloc.
         let blockStart = (storage.string as NSString).range(of: "graph TD").location
+        let attachment = storage.attribute(.mdMermaidAttachment, at: blockStart, effectiveRange: nil) as? NSTextAttachment
+        let expectedHeight = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: attachment?.image?.size)
+
         let firstLineStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: blockStart, effectiveRange: nil) as? NSParagraphStyle)
-        XCTAssertEqual(firstLineStyle.minimumLineHeight, MermaidBlockLayout.placeholderHeight)
+        XCTAssertEqual(firstLineStyle.minimumLineHeight, expectedHeight)
+        // Le « jamais une fraction de 220pt » est couvert de façon
+        // déterministe par `MermaidBlockLayoutTests.
+        // test_closedFrameHeight_smallImage_isNotInflatedByReservedHeightLegacy`
+        // (fonction pure, taille d'image contrôlée) — pas ici, où la
+        // hauteur réelle dépend du rendu `WKWebView` en tâche de fond.
 
         let restIndex = blockStart + 9 // juste après "graph TD\n"
         let restStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: restIndex, effectiveRange: nil) as? NSParagraphStyle)
         XCTAssertEqual(restStyle.maximumLineHeight, MermaidBlockLayout.hiddenLineMaximumHeight)
         XCTAssertNotEqual(
-            restStyle.maximumLineHeight, MermaidBlockLayout.placeholderHeight,
+            restStyle.maximumLineHeight, expectedHeight,
             "la 2e ligne ne doit jamais hériter d'une fraction de la hauteur réservée"
         )
     }
