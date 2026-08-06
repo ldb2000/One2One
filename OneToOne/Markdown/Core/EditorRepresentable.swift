@@ -71,6 +71,9 @@ struct EditorRepresentable: NSViewRepresentable {
         editor.onOptionVerticalArrow = { [weak coord = context.coordinator] up in
             coord?.moveCurrentBlock(up: up)
         }
+        editor.onTableEditCommand = { [weak coord = context.coordinator] gesture in
+            coord?.performTableEdit(gesture)
+        }
         scroll.documentView = editor
         context.coordinator.textView = editor
         // Contrôleur du menu « / » (tâche 6) : construit juste après
@@ -331,6 +334,22 @@ struct EditorRepresentable: NSViewRepresentable {
                 BlockMoveCommands.moveUp(in: tv)
             } else {
                 BlockMoveCommands.moveDown(in: tv)
+            }
+        }
+
+        /// Opérations de structure sur un tableau (voir `TableEditCommands`
+        /// et la doc de `EditorTextView.onTableEditCommand`). Même garde que
+        /// `moveCurrentBlock(up:)` : un panneau (« / » ou « @ ») ouvert
+        /// absorbe déjà ⌘⌥+flèche pour sa propre navigation (le cas échéant),
+        /// une opération sur le tableau pendant la composition d'une requête
+        /// n'est jamais ce que l'utilisateur veut.
+        @MainActor
+        func performTableEdit(_ gesture: TableEditCommands.Gesture) {
+            guard mentionController?.isOpen != true, slashController?.isOpen != true else { return }
+            guard let tv = textView else { return }
+            switch gesture {
+            case .addRowBelow:
+                TableEditCommands.addRowBelow(in: tv)
             }
         }
 

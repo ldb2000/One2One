@@ -28,6 +28,28 @@ final class EditorTextView: NSTextView {
     /// que `onLinkClick`.
     var onOptionVerticalArrow: ((Bool) -> Void)?
 
+    /// Set par le coordinateur SwiftUI pour les opérations de structure sur
+    /// un tableau (ajouter/supprimer une ligne ou une colonne, voir
+    /// `TableEditCommands`) — déclenchées au clavier plutôt qu'au survol
+    /// (« poignées » à la AppFlowy) : `EditorTextView` ne gère que
+    /// `mouseDown`, aucune infrastructure de suivi de souris n'existe (même
+    /// constat que `onOptionVerticalArrow`). Choix retenu plutôt que des
+    /// entrées dans le menu `/` : ces dernières auraient exigé de faire
+    /// transiter le contexte curseur (cellule de tableau ou non) à travers
+    /// `SlashCatalog.grouped`/`SlashController.updateFilter`, qui ne filtrent
+    /// aujourd'hui que par `MarkdownFeature` — un jeu de fonctionnalités
+    /// statique, pas une position dans le document — donc un remaniement
+    /// plus large pour une surface fonctionnelle équivalente ; le clavier
+    /// reprend au contraire tel quel le patron déjà mesuré
+    /// d'`onOptionVerticalArrow` (interception avant `doCommandBy:`,
+    /// enregistrement manuel de l'inverse auprès d'`undoManager`). Combinaison
+    /// ⌘⌥ + flèche (bas = ligne, droite = colonne ; ajout = flèche seule,
+    /// suppression = flèche + ⇧) : aucun raccourci existant de ce module ni
+    /// des menus de l'app (`Views/Menus/MeetingCommands.swift`) ne l'utilise
+    /// — Tab/⇧Tab (indentation de liste) et ⌥↑/⌥↓ (déplacement de bloc)
+    /// restent seuls sur leurs combinaisons respectives.
+    var onTableEditCommand: ((TableEditCommands.Gesture) -> Void)?
+
     // MARK: - Lifecycle
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -96,6 +118,16 @@ final class EditorTextView: NSTextView {
                 return
             case Self.downArrowKeyCode:
                 handler(false)
+                return
+            default:
+                break
+            }
+        }
+        if let handler = onTableEditCommand,
+           event.modifierFlags.intersection(Self.relevantModifiers) == [.command, .option] {
+            switch event.keyCode {
+            case Self.downArrowKeyCode:
+                handler(.addRowBelow)
                 return
             default:
                 break
