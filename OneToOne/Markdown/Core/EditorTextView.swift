@@ -280,6 +280,15 @@ final class EditorTextView: NSTextView {
             return
         }
         if toggleTaskMarker(at: point) { return }
+        if let doneRange = mermaidDoneButtonRange(at: point) {
+            // Ferme le bloc (état 3 → fermé) en sortant le curseur de sa
+            // plage — `EditorRepresentable.Coordinator.
+            // updateMermaidBlockGeometryIfNeeded` referme sa géométrie et le
+            // diagramme se re-rend (voir `MarkdownLayoutManager.
+            // drawMermaidDiagram`).
+            setSelectedRange(NSRange(location: doneRange.location + doneRange.length, length: 0))
+            return
+        }
         if let mermaidRange = mermaidBlockRange(at: point) {
             setSelectedRange(NSRange(location: mermaidRange.location, length: 0))
             return
@@ -472,16 +481,45 @@ final class EditorTextView: NSTextView {
         let safeIndex = min(charIndex, storage.length - 1)
         guard safeIndex >= 0 else { return nil }
 
-        var blockRange = NSRange(location: 0, length: 0)
-        guard storage.attribute(.mdMermaidAttachment, at: safeIndex, effectiveRange: &blockRange) != nil else {
+        guard let blockRange = MermaidBlockLayout.blockRange(in: storage, at: safeIndex) else {
             return nil
         }
 
-        let current = selectedRange()
-        let cursorAlreadyInside = current.location >= blockRange.location
-            && current.location <= blockRange.location + blockRange.length
+        let cursorAlreadyInside = MermaidBlockLayout.selectionTouches(selectedRange().location, blockRange: blockRange)
         guard !cursorAlreadyInside else { return nil }
 
+        return blockRange
+    }
+
+    /// Plage du bloc mermaid **ouvert** (curseur dedans, source affiché —
+    /// voir `MarkdownLayoutManager.drawMermaidHeader`) dont le bouton
+    /// « Terminé » est sous `point`, ou `nil`. Dérivé du **curseur**
+    /// (`selectedRange().location`), pas du point cliqué : le bouton n'est
+    /// peint que pour le bloc du curseur, même schéma que
+    /// `tableControlGesture` — un seul calcul de géométrie
+    /// (`MermaidSourceLayout.doneButtonRect`) partagé avec le dessin, jamais
+    /// deux qui pourraient diverger.
+    func mermaidDoneButtonRange(at point: NSPoint) -> NSRange? {
+        guard let storage = textStorage, storage.length > 0,
+              let layoutManager, let container = textContainer
+        else { return nil }
+        let current = selectedRange()
+        let safeLocation = min(current.location, storage.length - 1)
+        guard safeLocation >= 0 else { return nil }
+
+        guard let blockRange = MermaidBlockLayout.blockRange(in: storage, at: safeLocation),
+              MermaidBlockLayout.selectionTouches(current.location, blockRange: blockRange)
+        else { return nil }
+
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
+        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let buttonRect = MermaidSourceLayout.doneButtonRect(above: firstLineRect, containerWidth: container.size.width)
+
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+        guard buttonRect.contains(containerPoint) else { return nil }
         return blockRange
     }
 

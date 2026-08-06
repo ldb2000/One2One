@@ -236,72 +236,172 @@ final class MarkdownLayoutManager: NSLayoutManager {
 
     // MARK: - Diagrammes mermaid
 
-    /// Peint le diagramme mermaid rendu (`.mdMermaidAttachment`, posé par
-    /// `StyleRenderer.applyMermaidAttachment`) par-dessus le texte source
-    /// d'un bloc — mais seulement quand le curseur n'y est **pas** : à
-    /// l'instar de `drawTableControls`, l'état « édition » (texte source
-    /// visible) ou « aperçu » (diagramme visible) d'un bloc mermaid se lit
-    /// sur la sélection courante, jamais sur un attribut stocké. Un clic
-    /// dans le bloc (voir `EditorTextView.mermaidBlockRange(at:)`) l'ouvre en
-    /// repositionnant simplement le curseur dedans ; en ressortir (clic
-    /// ailleurs, flèches) le referme — `EditorRepresentable.
-    /// textViewDidChangeSelection` invalide déjà tout l'affichage à chaque
-    /// changement de sélection (pour les contrôles de tableau), ce qui
-    /// couvre ce cas sans code supplémentaire.
+    /// Peint chaque bloc mermaid (`.mdMermaidAttachment`, posé par
+    /// `StyleRenderer.applyMermaidAttachment`) selon qu'il est **fermé**
+    /// (diagramme peint par-dessus le texte source masqué, voir
+    /// `drawMermaidDiagram`) ou **ouvert** (curseur dedans : gouttière de
+    /// numéros de ligne + en-tête peints à côté du texte source normalement
+    /// affiché, voir `drawMermaidLineNumber`/`drawMermaidHeader`) — l'état se
+    /// lit sur la sélection courante, jamais sur un attribut stocké (même
+    /// principe que `drawTableControls`). Un clic sur un bloc fermé (voir
+    /// `EditorTextView.mermaidBlockRange(at:)`) l'ouvre en repositionnant le
+    /// curseur dedans ; le bouton « Terminé » (`EditorTextView.
+    /// mermaidDoneButtonRange(at:)`) ou un clic/une flèche qui en sort le
+    /// referme — `EditorRepresentable.Coordinator.
+    /// updateMermaidBlockGeometryIfNeeded` recalcule alors sa géométrie
+    /// (hauteur de ligne) pour l'état qu'il vient de prendre, ce dessin ne
+    /// fait que suivre l'état déjà posé.
     ///
-    /// `drawnBlockStarts` évite de repeindre le même bloc pour chacune de ses
-    /// lignes visuelles — `enumerateLineFragments` en visite une par ligne,
-    /// mais un bloc de plusieurs lignes ne doit recevoir son diagramme
-    /// qu'une fois.
+    /// `drawnClosedBlockStarts` évite de repeindre le même diagramme fermé
+    /// pour chacune de ses lignes visuelles masquées — `enumerateLineFragments`
+    /// en visite une par ligne, mais un bloc de plusieurs lignes ne doit
+    /// recevoir son diagramme qu'une fois (la gouttière/l'en-tête, eux,
+    /// doivent au contraire se répéter par ligne/apparaître une fois en tête
+    /// — gérés directement par condition, pas par un tel ensemble).
     private func drawMermaidDiagrams(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard let storage = textStorage, glyphsToShow.length > 0,
               let textView = firstTextView, let container = textView.textContainer
         else { return }
         let ns = storage.string as NSString
-        let selectedRange = textView.selectedRange()
-        var drawnBlockStarts = Set<Int>()
+        let selectedLocation = textView.selectedRange().location
+        var drawnClosedBlockStarts = Set<Int>()
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] _, _, _, lineGlyphRange, _ in
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] lineRect, _, _, lineGlyphRange, _ in
             guard let self else { return }
             let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
             guard charRange.location < ns.length else { return }
 
-            var blockRange = NSRange(location: 0, length: 0)
-            guard let attachment = storage.attribute(
-                .mdMermaidAttachment, at: charRange.location, effectiveRange: &blockRange
-            ) as? NSTextAttachment else { return }
-            guard !drawnBlockStarts.contains(blockRange.location) else { return }
+            guard let attachment = storage.attribute(.mdMermaidAttachment, at: charRange.location, effectiveRange: nil) as? NSTextAttachment,
+                  let blockRange = MermaidBlockLayout.blockRange(in: storage, at: charRange.location)
+            else { return }
 
-            let cursorTouchesBlock = selectedRange.location != NSNotFound
-                && selectedRange.location >= blockRange.location
-                && selectedRange.location <= blockRange.location + blockRange.length
-            guard !cursorTouchesBlock else { return }
+            let isOpen = MermaidBlockLayout.selectionTouches(selectedLocation, blockRange: blockRange)
+            if isOpen {
+                let lineIndex = self.mermaidSourceLineIndex(forCharacterLocation: charRange.location, blockRange: blockRange, in: ns)
+                self.drawMermaidLineNumber(lineIndex, lineFragmentRect: lineRect, origin: origin)
+                if charRange.location == blockRange.location {
+                    self.drawMermaidHeader(above: lineRect, origin: origin, containerWidth: container.size.width)
+                }
+                return
+            }
 
-            drawnBlockStarts.insert(blockRange.location)
+            guard !drawnClosedBlockStarts.contains(blockRange.location) else { return }
+            drawnClosedBlockStarts.insert(blockRange.location)
             self.drawMermaidDiagram(attachment, forBlockRange: blockRange, in: container, origin: origin)
         }
     }
 
+    /// Peint le diagramme (ou le cadre de secours — chargement/erreur, voir
+    /// `MermaidAttachmentFactory`) **à sa taille native** — jamais étiré pour
+    /// remplir une zone réservée arbitraire (l'ancien défaut : un bloc de 2
+    /// lignes de source réservait 220pt, l'image y était alors redimensionnée
+    /// en « letterbox » dans cette zone bien plus grande qu'elle). La position
+    /// vient de la **première ligne** du bloc (`lineFragmentRect`, dont la
+    /// hauteur a été réservée exactement à `image.size.height + 2×inset` par
+    /// `StyleRenderer.applyClosedMermaidGeometry`) — jamais de
+    /// `boundingRect(forGlyphRange:)` sur tout le bloc : avec le texte source
+    /// masqué (couleur `.clear`), un tel rect dégénérerait vers la largeur
+    /// quasi nulle des glyphes invisibles, pas la largeur voulue du cadre.
+    /// La largeur est plafonnée à ce qui reste disponible dans le conteneur
+    /// (« la colonne de texte »), jamais au-delà.
     private func drawMermaidDiagram(
         _ attachment: NSTextAttachment,
         forBlockRange blockRange: NSRange,
         in container: NSTextContainer,
         origin: NSPoint
     ) {
-        let blockGlyphRange = glyphRange(forCharacterRange: blockRange, actualCharacterRange: nil)
-        let rect = boundingRect(forGlyphRange: blockGlyphRange, in: container).offsetBy(dx: origin.x, dy: origin.y)
-        guard rect.width > 0, rect.height > 0, let image = attachment.image else { return }
+        guard let image = attachment.image else { return }
+        let glyphIndex = glyphIndexForCharacter(at: blockRange.location)
+        let firstLineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+
+        let maxWidth = max(container.size.width - firstLineRect.minX, 0)
+        let frameWidth = min(MermaidBlockLayout.closedFrameWidth(forAttachmentSize: image.size), maxWidth)
+        let frameHeight = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: image.size)
+        let frameRect = NSRect(x: firstLineRect.minX, y: firstLineRect.minY, width: frameWidth, height: frameHeight)
+            .offsetBy(dx: origin.x, dy: origin.y)
+        guard frameRect.width > 0, frameRect.height > 0 else { return }
 
         MermaidBlockLayout.backgroundColor.setFill()
-        rect.fill()
+        frameRect.fill()
 
-        let insetRect = rect.insetBy(dx: MermaidBlockLayout.inset, dy: MermaidBlockLayout.inset)
-        let fitted = MermaidBlockLayout.fittedRect(for: image.size, in: insetRect)
-        image.draw(in: fitted)
+        let imageRect = MermaidBlockLayout.centeredImageRect(for: image.size, in: frameRect)
+        image.draw(in: imageRect)
 
-        let border = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+        let border = NSBezierPath(rect: frameRect.insetBy(dx: 0.5, dy: 0.5))
         MermaidBlockLayout.borderColor.setStroke()
         border.lineWidth = 1
         border.stroke()
+    }
+
+    // MARK: - Source mermaid ouvert (gouttière + en-tête)
+
+    /// Index (0-based) de la ligne portant `location` au sein du bloc mermaid
+    /// `blockRange` — compte les `\n` entre le début du bloc et `location`.
+    /// Un bloc mermaid tient sur une poignée de lignes (source d'un
+    /// diagramme, pas un fichier) : ce comptage linéaire par ligne visitée
+    /// reste négligeable, même philosophie que `TableControlLayout.
+    /// placementForCursor` (balayage local borné).
+    private func mermaidSourceLineIndex(forCharacterLocation location: Int, blockRange: NSRange, in ns: NSString) -> Int {
+        guard location > blockRange.location else { return 0 }
+        var count = 0
+        var index = blockRange.location
+        while index < location {
+            if ns.character(at: index) == 0x0A { count += 1 }
+            index += 1
+        }
+        return count
+    }
+
+    private func drawMermaidLineNumber(_ index: Int, lineFragmentRect: NSRect, origin: NSPoint) {
+        let text = "\(index + 1)" as NSString
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: MermaidSourceLayout.gutterFont,
+            .foregroundColor: MermaidSourceLayout.gutterColor
+        ]
+        let size = text.size(withAttributes: attrs)
+        let point = MermaidSourceLayout.lineNumberOrigin(lineRect: lineFragmentRect, numberSize: size)
+        text.draw(at: NSPoint(x: point.x + origin.x, y: point.y + origin.y), withAttributes: attrs)
+    }
+
+    /// Bande d'en-tête discrète au-dessus de la première ligne d'un bloc
+    /// mermaid ouvert — étiquette `mermaid` à gauche (après la gouttière),
+    /// bouton « Terminé » à droite (hit-testé par `EditorTextView.
+    /// mermaidDoneButtonRange(at:)`, même géométrie — `MermaidSourceLayout.
+    /// doneButtonRect`, un seul calcul partagé).
+    private func drawMermaidHeader(above lineFragmentRect: NSRect, origin: NSPoint, containerWidth: CGFloat) {
+        let labelAttrs: [NSAttributedString.Key: Any] = [
+            .font: MermaidSourceLayout.headerLabelFont,
+            .foregroundColor: MermaidSourceLayout.headerLabelColor
+        ]
+        let headerRect = MermaidSourceLayout.headerRect(above: lineFragmentRect, containerWidth: containerWidth)
+        let labelText = "mermaid" as NSString
+        let labelSize = labelText.size(withAttributes: labelAttrs)
+        labelText.draw(
+            at: NSPoint(
+                x: origin.x + MermaidSourceLayout.gutterWidth,
+                y: origin.y + headerRect.minY + (headerRect.height - labelSize.height) / 2
+            ),
+            withAttributes: labelAttrs
+        )
+
+        let buttonRect = MermaidSourceLayout.doneButtonRect(above: lineFragmentRect, containerWidth: containerWidth)
+            .offsetBy(dx: origin.x, dy: origin.y)
+        let pill = NSBezierPath(roundedRect: buttonRect, xRadius: buttonRect.height / 2, yRadius: buttonRect.height / 2)
+        NSColor.controlBackgroundColor.setFill()
+        pill.fill()
+        NSColor.separatorColor.setStroke()
+        pill.lineWidth = 1
+        pill.stroke()
+
+        let buttonAttrs: [NSAttributedString.Key: Any] = [
+            .font: MermaidSourceLayout.doneButtonFont,
+            .foregroundColor: NSColor.labelColor
+        ]
+        let buttonText = "Terminé" as NSString
+        let textSize = buttonText.size(withAttributes: buttonAttrs)
+        buttonText.draw(
+            at: NSPoint(x: buttonRect.midX - textSize.width / 2, y: buttonRect.midY - textSize.height / 2),
+            withAttributes: buttonAttrs
+        )
     }
 }

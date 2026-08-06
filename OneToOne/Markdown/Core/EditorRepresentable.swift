@@ -206,6 +206,9 @@ struct EditorRepresentable: NSViewRepresentable {
         var mentionController: MentionController?
         private var pendingStyleRange: NSRange?
         private var debounceTask: Task<Void, Never>?
+        /// Bloc mermaid ouvert (curseur dedans) au dernier changement de
+        /// sélection observé — voir `updateMermaidBlockGeometryIfNeeded`.
+        private var mermaidBlockRangeAtLastSelection: NSRange?
         /// Garde anti-récursion : `ShortcutDetector.apply` mute le storage,
         /// ce qui re-déclenche `textDidChange`. Sans ce flag on appliquerait
         /// les shortcuts en boucle.
@@ -271,6 +274,7 @@ struct EditorRepresentable: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             slashController?.selectionDidChange()
             mentionController?.selectionDidChange()
+            updateMermaidBlockGeometryIfNeeded()
             // `MarkdownLayoutManager.drawTableControls` peint les contrôles
             // de tableau en fonction du curseur (`selectedRange().location`),
             // pas d'un attribut du storage : un déplacement de curseur seul
@@ -283,6 +287,52 @@ struct EditorRepresentable: NSViewRepresentable {
             // taille d'une note : un redessin plein cadre par changement de
             // sélection reste négligeable.
             textView?.needsDisplay = true
+        }
+
+        /// Bascule la géométrie d'un bloc mermaid entre ouverte (source
+        /// affiché, état 3) et fermée (diagramme peint, états 1/2/4) quand le
+        /// curseur y entre ou en sort. Nécessaire parce que cette géométrie
+        /// (interligne, hauteur réservée — voir `StyleRenderer.
+        /// applyOpenMermaidGeometry`/`applyClosedMermaidGeometry`) est posée
+        /// une fois pour toutes lors du **style**, pas recalculée à chaque
+        /// dessin comme les contrôles de tableau (`drawTableControls`, dont
+        /// la géométrie ne dépend d'aucune hauteur de ligne) : un simple
+        /// déplacement de curseur ne mute rien dans le storage et ne
+        /// redéclenche donc normalement aucun restylage — ce hook comble
+        /// précisément ce manque en réappliquant `StyleRenderer.
+        /// applyVisualStyle` sur la plage du bloc concerné (jamais tout le
+        /// document : `affectedRange` non-`nil`, seul cas où
+        /// `applyMermaidAttachment` autorise l'état ouvert, voir sa doc).
+        ///
+        /// `mermaidBlockRangeAtLastSelection` ne sert qu'à éviter un
+        /// restylage redondant quand la sélection bouge sans changer de bloc
+        /// (ex. flèches à l'intérieur d'un même bloc déjà ouvert) — la
+        /// décision d'ouverture elle-même est toujours recalculée depuis la
+        /// sélection **actuelle**, jamais depuis ce cache : un désalignement
+        /// initial (bloc mermaid en toute fin de document, sélection posée
+        /// là par l'effet de bord `setAttributedString` avant que ce hook
+        /// n'ait jamais tourné) ne peut donc pas laisser un bloc figé dans le
+        /// mauvais état.
+        private func updateMermaidBlockGeometryIfNeeded() {
+            guard let tv = textView, let storage = tv.textStorage, storage.length > 0 else { return }
+            let selection = tv.selectedRange()
+            let safeLocation = min(selection.location, storage.length - 1)
+            var currentBlockRange: NSRange?
+            if safeLocation >= 0, let blockRange = MermaidBlockLayout.blockRange(in: storage, at: safeLocation),
+               MermaidBlockLayout.selectionTouches(selection.location, blockRange: blockRange) {
+                currentBlockRange = blockRange
+            }
+
+            let previousBlockRange = mermaidBlockRangeAtLastSelection
+            mermaidBlockRangeAtLastSelection = currentBlockRange
+            guard currentBlockRange != previousBlockRange else { return }
+
+            if let previousBlockRange, previousBlockRange != currentBlockRange {
+                StyleRenderer.applyVisualStyle(to: storage, affectedRange: previousBlockRange)
+            }
+            if let currentBlockRange {
+                StyleRenderer.applyVisualStyle(to: storage, affectedRange: currentBlockRange)
+            }
         }
 
         /// Réagit à chaque frappe : applique les raccourcis markdown puis

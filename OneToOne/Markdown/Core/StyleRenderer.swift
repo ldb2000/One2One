@@ -14,6 +14,20 @@ enum StyleRenderer {
         guard storage.length > 0 else { return }
 
         let renderRange = normalizedRenderRange(affectedRange, in: storage)
+        // Un bloc mermaid ne peut être « ouvert » (source affiché en
+        // édition) qu'à l'occasion d'un restylage **ciblé** — une frappe
+        // (`affectedRange` = la plage éditée) ou un déplacement de sélection
+        // qui touche/quitte le bloc (voir `EditorRepresentable.Coordinator.
+        // updateMermaidBlockGeometryIfNeeded`). Un restylage du document
+        // **entier** (`affectedRange == nil` : chargement initial, rechargement
+        // externe) ignore volontairement la sélection courante et referme
+        // toujours le bloc : `NSTextStorage.setAttributedString` déplace le
+        // curseur en fin de document *avant* que `applyVisualStyle` ne
+        // s'exécute (effet de bord AppKit non notifié au délégué, voir
+        // `Tests/EditorTextViewMermaidClickTests.swift`) — sans cette garde,
+        // un document se terminant par un bloc mermaid s'ouvrirait par
+        // erreur à chaque chargement.
+        let allowsOpenMermaidBlock = affectedRange != nil
         storage.beginEditing()
         storage.removeAttribute(.font, range: renderRange)
         storage.removeAttribute(.foregroundColor, range: renderRange)
@@ -135,7 +149,7 @@ enum StyleRenderer {
             }
 
             if block == .codeBlock, (attrs[.mdCodeLanguage] as? String) == "mermaid" {
-                applyMermaidAttachment(to: storage, range: range)
+                applyMermaidAttachment(to: storage, range: range, allowsOpen: allowsOpenMermaidBlock)
             }
 
             if let info = listInfo {
@@ -238,14 +252,19 @@ enum StyleRenderer {
 
     /// Pose l'attachment mermaid rendu (`MermaidAttachmentFactory`) sur toute
     /// la plage `range` d'un bloc de code dont `.mdCodeLanguage == "mermaid"`,
-    /// et réserve une hauteur de ligne minimale (`MermaidBlockLayout`) pour
-    /// que `MarkdownLayoutManager.drawMermaidDiagrams` ait la place d'y
-    /// inscrire le diagramme. Le rendu proprement dit est asynchrone (voir
-    /// `MermaidRenderer`) : `onUpdate` ne fait qu'invalider l'**affichage**
-    /// des `NSLayoutManager` attachés à `storage` une fois l'attachment mis à
-    /// jour en place — jamais le storage, jamais une re-sérialisation, jamais
-    /// une pile d'annulation (voir `MermaidAttachmentFactoryTests`).
-    private static func applyMermaidAttachment(to storage: NSTextStorage, range: NSRange) {
+    /// puis bascule sa géométrie entre **fermé** (diagramme peint par
+    /// `MarkdownLayoutManager.drawMermaidDiagram`, hauteur suivant l'image —
+    /// voir `applyClosedMermaidGeometry`) et **ouverte** (source affiché en
+    /// édition, interligne normal — voir `applyOpenMermaidGeometry`), selon
+    /// que le curseur touche ou non `range` — `allowsOpen` transmis par
+    /// l'appelant (voir sa doc dans `applyVisualStyle`). Le rendu proprement
+    /// dit est asynchrone (voir `MermaidRenderer`) : `onUpdate` invalide la
+    /// **mise en page** (pas seulement l'affichage) des `NSLayoutManager`
+    /// attachés à `storage`, pour que la hauteur réservée grandisse/rétrécisse
+    /// jusqu'à celle de l'image réelle une fois livrée — jamais le storage,
+    /// jamais une re-sérialisation, jamais une pile d'annulation (voir
+    /// `MermaidAttachmentFactoryTests`).
+    private static func applyMermaidAttachment(to storage: NSTextStorage, range: NSRange, allowsOpen: Bool) {
         guard range.length > 0 else { return }
         let source = (storage.string as NSString).substring(with: range)
         let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -257,20 +276,81 @@ enum StyleRenderer {
         // fil principal — `assumeIsolated` rend cette hypothèse explicite
         // plutôt que de propager `@MainActor` à `StyleRenderer` tout entier
         // et, avec lui, à tous ses appelants.
-        let attachment = MainActor.assumeIsolated {
-            MermaidAttachmentFactory.attachment(for: source, isDark: isDark) {
+        let (attachment, selectionLocation) = MainActor.assumeIsolated { () -> (NSTextAttachment, Int) in
+            let attachment = MermaidAttachmentFactory.attachment(for: source, isDark: isDark) {
                 for layoutManager in storage.layoutManagers {
+                    layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
                     layoutManager.invalidateDisplay(forCharacterRange: range)
                 }
             }
+            let location = storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
+            return (attachment, location)
         }
         storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
 
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.minimumLineHeight = MermaidBlockLayout.minimumLineHeight(
-            forLineCount: MermaidBlockLayout.lineCount(in: source)
-        )
-        storage.addAttribute(.paragraphStyle, value: paragraphStyle, range: range)
+        if allowsOpen, MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) {
+            applyOpenMermaidGeometry(to: storage, range: range)
+        } else {
+            applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
+        }
+    }
+
+    /// Géométrie **fermée** (état 1/2/4) : tout le bloc devient invisible
+    /// (`.foregroundColor = .clear`, pas de fond — le fond gris standard des
+    /// blocs de code, posé juste avant pour `.codeBlock`, est explicitement
+    /// retiré ici : il débordait sur toute la largeur, voir le constat de
+    /// tâche) ; seule la première ligne réserve une hauteur
+    /// (`MermaidBlockLayout.closedFrameHeight`, celle de l'image réelle une
+    /// fois connue, sinon `placeholderHeight`) — les lignes suivantes sont
+    /// plafonnées à un filet quasi nul (`hiddenLineMaximumHeight`), jamais
+    /// étalées : la mise en page tient sur une seule ligne, jamais sur
+    /// `lineCount` lignes comme l'ancien défaut.
+    private static func applyClosedMermaidGeometry(to storage: NSTextStorage, range: NSRange, attachmentImageSize: NSSize?) {
+        storage.removeAttribute(.backgroundColor, range: range)
+        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
+
+        let ns = storage.string as NSString
+        let (firstLine, rest) = MermaidBlockLayout.splitFirstLine(of: range, in: ns)
+
+        let firstLineStyle = NSMutableParagraphStyle()
+        firstLineStyle.minimumLineHeight = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: attachmentImageSize)
+        storage.addAttribute(.paragraphStyle, value: firstLineStyle, range: firstLine)
+
+        if rest.length > 0 {
+            let restStyle = NSMutableParagraphStyle()
+            restStyle.maximumLineHeight = MermaidBlockLayout.hiddenLineMaximumHeight
+            storage.addAttribute(.paragraphStyle, value: restStyle, range: rest)
+        }
+    }
+
+    /// Géométrie **ouverte** (état 3, curseur dans le bloc) : le fond gris
+    /// standard du bloc de code (déjà posé par le switch principal) et la
+    /// police monospace normale restent — c'est un bloc de code en édition
+    /// comme un autre, juste avec un interligne plus aéré
+    /// (`MermaidSourceLayout.lineHeightMultiple`) et une marge à gauche
+    /// (`gutterWidth`) pour la gouttière de numéros de ligne peinte par
+    /// `MarkdownLayoutManager.drawMermaidLineNumber`. La première ligne reçoit
+    /// en plus `paragraphSpacingBefore` : l'espace où
+    /// `MarkdownLayoutManager.drawMermaidHeader` peint l'étiquette `mermaid`
+    /// et le bouton « Terminé ».
+    private static func applyOpenMermaidGeometry(to storage: NSTextStorage, range: NSRange) {
+        let ns = storage.string as NSString
+        let (firstLine, rest) = MermaidBlockLayout.splitFirstLine(of: range, in: ns)
+
+        let firstLineStyle = NSMutableParagraphStyle()
+        firstLineStyle.lineHeightMultiple = MermaidSourceLayout.lineHeightMultiple
+        firstLineStyle.headIndent = MermaidSourceLayout.gutterWidth
+        firstLineStyle.firstLineHeadIndent = MermaidSourceLayout.gutterWidth
+        firstLineStyle.paragraphSpacingBefore = MermaidSourceLayout.headerHeight
+        storage.addAttribute(.paragraphStyle, value: firstLineStyle, range: firstLine)
+
+        if rest.length > 0 {
+            let restStyle = NSMutableParagraphStyle()
+            restStyle.lineHeightMultiple = MermaidSourceLayout.lineHeightMultiple
+            restStyle.headIndent = MermaidSourceLayout.gutterWidth
+            restStyle.firstLineHeadIndent = MermaidSourceLayout.gutterWidth
+            storage.addAttribute(.paragraphStyle, value: restStyle, range: rest)
+        }
     }
 
     private static func normalizedRenderRange(_ range: NSRange?, in storage: NSTextStorage) -> NSRange {
@@ -281,7 +361,51 @@ enum StyleRenderer {
         let upperBound = min(max(location, range.location + range.length), storage.length)
         let clamped = NSRange(location: location, length: upperBound - location)
         let nsText = storage.string as NSString
-        return expandedForTable(nsText.lineRange(for: clamped), in: storage)
+        let lineRange = expandedForTable(nsText.lineRange(for: clamped), in: storage)
+        return expandedForMermaidBlock(lineRange, in: storage)
+    }
+
+    /// Si `lineRange` tombe dans un bloc de code mermaid (`.mdBlockType ==
+    /// .codeBlock` + `.mdCodeLanguage == "mermaid"`), étend le résultat à la
+    /// totalité de **ce** bloc. `.mdBlockType`/`.mdCodeLanguage` sont posés
+    /// par le parseur comme un seul run continu sur tout le bloc (fences
+    /// comprises) — contrairement aux cellules de tableau (voir
+    /// `expandedForTable`, qui doit reconstituer la plage à la main car
+    /// chaque cellule y est un run distinct), une seule lecture
+    /// d'`effectiveRange` suffit ici.
+    ///
+    /// Nécessaire pour une raison différente d'`expandedForTable` mais tout
+    /// aussi bloquante : `applyMermaidAttachment` recalcule `source` en
+    /// relisant la plage reçue (`substring(with: range)`) — une frappe sur
+    /// la 3ᵉ ligne d'un bloc mermaid de 10 lignes ne doit jamais lui passer
+    /// cette seule ligne comme si c'était tout le source (attachment/rendu
+    /// mermaid faux, et géométrie fermée recalculée sur une « première
+    /// ligne » qui n'en est pas une).
+    private static func expandedForMermaidBlock(_ lineRange: NSRange, in storage: NSTextStorage) -> NSRange {
+        guard lineRange.location < storage.length,
+              storage.attribute(.mdBlockType, at: lineRange.location, effectiveRange: nil) as? BlockType == .codeBlock,
+              storage.attribute(.mdCodeLanguage, at: lineRange.location, effectiveRange: nil) as? String == "mermaid"
+        else { return lineRange }
+
+        // `longestEffectiveRange(_:in:)` — jamais le simple `effectiveRange:` —
+        // pour la même raison que `MermaidBlockLayout.blockRange(in:at:)` : un
+        // bloc déjà stylé une première fois porte un `.paragraphStyle`
+        // différent sur sa première ligne et le reste (voir
+        // `applyOpenMermaidGeometry`/`applyClosedMermaidGeometry`), ce qui
+        // scinde la représentation interne du storage à cette frontière —
+        // `effectiveRange:` s'y arrêterait même si `.mdBlockType` porte la
+        // même valeur des deux côtés.
+        var blockRange = NSRange(location: 0, length: 0)
+        _ = storage.attribute(
+            .mdBlockType, at: lineRange.location,
+            longestEffectiveRange: &blockRange, in: NSRange(location: 0, length: storage.length)
+        )
+        // Union plutôt que remplacement pur : `lineRange` peut déborder
+        // légèrement `blockRange` (retour à la ligne terminal compris dans
+        // l'un mais pas l'autre), même précaution qu'`expandedForTable`.
+        let start = min(lineRange.location, blockRange.location)
+        let end = max(lineRange.location + lineRange.length, blockRange.location + blockRange.length)
+        return NSRange(location: start, length: end - start)
     }
 
     /// Si `lineRange` touche une cellule de tableau (`.mdTableCell`), étend
