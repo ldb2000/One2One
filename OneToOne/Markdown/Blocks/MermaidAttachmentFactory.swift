@@ -24,6 +24,13 @@ enum MermaidAttachmentFactory {
     private static let frameHeightShort: CGFloat = MermaidBlockLayout.placeholderHeight
     private static let frameHeightWithDetail: CGFloat = MermaidBlockLayout.errorFrameHeight
 
+    /// Largeur maximale d'un diagramme rendu (état 2 : « largeur maximale =
+    /// la colonne de texte ») — même valeur qu'`ImageAttachmentFactory.
+    /// maxWidth`, déjà la convention retenue dans ce module pour approximer
+    /// la colonne de texte sans avoir à faire remonter la largeur réelle du
+    /// conteneur jusqu'au callback de rendu asynchrone (qui n'y a pas accès).
+    private static let maxDiagramWidth: CGFloat = ImageAttachmentFactory.maxWidth
+
     /// Attachments vivants, un par (source, apparence) — clé
     /// `MermaidRenderCache.key`. `StyleRenderer.applyMermaidAttachment` est
     /// réévalué à chaque frappe (comme tout le reste de `applyVisualStyle`) :
@@ -98,7 +105,14 @@ enum MermaidAttachmentFactory {
             let image: NSImage
             switch outcome {
             case .success(let rendered):
-                image = rendered
+                // État 2 : le SVG rasterisé par `MermaidRenderer` n'a lui-même
+                // aucun cadre — `framedDiagram` en compose un (fond + liseré
+                // discrets) directement dans l'image finale, pour que
+                // l'attachment soit un objet fini une fois pour toutes :
+                // `MarkdownLayoutManager.drawMermaidDiagram` n'a plus ensuite
+                // qu'à le dessiner tel quel, jamais à l'entourer une seconde
+                // fois ni à le redimensionner dans une zone réservée.
+                image = framedDiagram(rendered)
             case .failure(let message):
                 // État 4 : cadre teinté (pas un liseré rouge vif), message
                 // mermaid tronqué à deux lignes en monospace (voir
@@ -120,6 +134,44 @@ enum MermaidAttachmentFactory {
     private static func apply(image: NSImage, to attachment: NSTextAttachment) {
         attachment.image = image
         attachment.bounds = ImageAttachmentFactory.displayBounds(for: image.size)
+    }
+
+    /// Compose `diagram` (le SVG rasterisé par `MermaidRenderer`, sans cadre
+    /// propre) à l'intérieur d'un cadre discret — fond
+    /// `MermaidBlockLayout.backgroundColor`, liseré `borderColor`, marge
+    /// interne `MermaidBlockLayout.inset` — directement dans l'image finale.
+    /// L'attachment devient ainsi un objet fini une fois pour toutes :
+    /// `MarkdownLayoutManager.drawMermaidDiagram` le dessine tel quel, sans
+    /// fond ni liseré supplémentaires (jamais un double cadre) et sans le
+    /// redimensionner (jamais une zone réservée plus grande que lui).
+    ///
+    /// `diagram` est réduit si besoin pour que la largeur **finale** (cadre
+    /// compris) ne dépasse pas `maxDiagramWidth` — jamais agrandi (une petite
+    /// icône n'a pas à remplir la colonne).
+    private static func framedDiagram(_ diagram: NSImage) -> NSImage {
+        guard diagram.size.width > 0, diagram.size.height > 0 else { return diagram }
+
+        let maxContentWidth = maxDiagramWidth - MermaidBlockLayout.inset * 2
+        let scale = diagram.size.width > maxContentWidth ? maxContentWidth / diagram.size.width : 1
+        let contentSize = NSSize(width: diagram.size.width * scale, height: diagram.size.height * scale)
+        let size = NSSize(
+            width: contentSize.width + MermaidBlockLayout.inset * 2,
+            height: contentSize.height + MermaidBlockLayout.inset * 2
+        )
+
+        return NSImage(size: size, flipped: false) { rect in
+            MermaidBlockLayout.backgroundColor.setFill()
+            rect.fill()
+            diagram.draw(in: NSRect(
+                x: MermaidBlockLayout.inset, y: MermaidBlockLayout.inset,
+                width: contentSize.width, height: contentSize.height
+            ))
+            let border = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+            MermaidBlockLayout.borderColor.setStroke()
+            border.lineWidth = 1
+            border.stroke()
+            return true
+        }
     }
 
     /// Construit un cadre bordé avec un titre (et un détail optionnel) — sert

@@ -59,15 +59,17 @@ enum MermaidBlockLayout {
         })
     }
 
-    /// Hauteur totale du cadre fermé — l'image de l'attachment (déjà
-    /// dimensionnée par `ImageAttachmentFactory.displayBounds`/
-    /// `MermaidAttachmentFactory.apply`) plus la marge interne des deux
-    /// côtés. `nil`, ou une taille dégénérée (pas encore d'image livrée par
+    /// Hauteur totale du cadre fermé — l'attachment (`MermaidAttachmentFactory`)
+    /// porte déjà son propre cadre composé dans l'image elle-même
+    /// (`framedDiagram`/`frameImage` : fond, liseré et marge interne y sont
+    /// déjà dessinés), donc cette hauteur suit **directement** la taille de
+    /// l'image, sans y rajouter de marge une seconde fois — jamais un double
+    /// cadre. `nil`, ou une taille dégénérée (pas encore d'image livrée par
     /// le rendu asynchrone), retombe sur `placeholderHeight` — jamais sur
     /// zéro.
     static func closedFrameHeight(forAttachmentSize size: NSSize?) -> CGFloat {
         guard let size, size.height > 0 else { return placeholderHeight }
-        return size.height + inset * 2
+        return size.height
     }
 
     /// Largeur totale du cadre fermé — même principe que
@@ -76,28 +78,23 @@ enum MermaidBlockLayout {
     /// plafonne en plus à la largeur du conteneur).
     static func closedFrameWidth(forAttachmentSize size: NSSize?) -> CGFloat {
         guard let size, size.width > 0 else { return placeholderWidth }
-        return size.width + inset * 2
+        return size.width
     }
 
-    /// Rectangle où dessiner `imageSize` **à sa taille native** (jamais
-    /// redimensionnée), centré dans `containerRect` — un cadre fermé est
-    /// toujours dimensionné exactement sur son image (`closedFrameHeight`/
-    /// `closedFrameWidth`), donc ce centrage n'absorbe que l'éventuel écart
-    /// horizontal quand `containerRect` (toute la largeur disponible de la
-    /// colonne) est plus large que l'image elle-même. Contrairement à
-    /// l'ancien `fittedRect` (retiré : il redimensionnait l'image pour
-    /// remplir une zone réservée arbitraire — exactement le défaut « zone
-    /// réservée, pas un objet fini » signalé par l'utilisateur), rien n'est
-    /// mis à l'échelle ici. Taille dégénérée (image ou conteneur) renvoie
-    /// `containerRect` tel quel plutôt qu'un rectangle infini/`NaN`.
-    static func centeredImageRect(for imageSize: NSSize, in containerRect: NSRect) -> NSRect {
-        guard imageSize.width > 0, imageSize.height > 0,
-              containerRect.width > 0, containerRect.height > 0
-        else { return containerRect }
-
-        let x = containerRect.minX + (containerRect.width - imageSize.width) / 2
-        let y = containerRect.minY + (containerRect.height - imageSize.height) / 2
-        return NSRect(x: x, y: y, width: imageSize.width, height: imageSize.height)
+    /// Réduit `size` pour tenir dans `maxWidth`, en conservant son ratio
+    /// d'aspect — jamais agrandie. Utilisée par `MarkdownLayoutManager.
+    /// drawMermaidDiagram` pour ne jamais laisser un cadre déborder de la
+    /// colonne de texte disponible dans un conteneur plus étroit que
+    /// `MermaidAttachmentFactory`'s propre plafond (`ImageAttachmentFactory.
+    /// maxWidth`) : le dessin peut alors être très légèrement plus petit que
+    /// la hauteur réservée par le style (calculée sur la taille native de
+    /// l'image, sans connaître la largeur du conteneur au moment du rendu
+    /// asynchrone) — un écart mineur (un vide sous le cadre), jamais un
+    /// débordement. Taille ou `maxWidth` dégénérée renvoie `size` inchangée.
+    static func fittedSize(for size: NSSize, maxWidth: CGFloat) -> NSSize {
+        guard size.width > 0, size.height > 0, maxWidth > 0, size.width > maxWidth else { return size }
+        let scale = maxWidth / size.width
+        return NSSize(width: size.width * scale, height: size.height * scale)
     }
 
     /// Découpe `range` en sa première ligne (`\n` terminal compris) et le

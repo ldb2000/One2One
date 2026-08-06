@@ -295,15 +295,20 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// `MermaidAttachmentFactory`) **à sa taille native** — jamais étiré pour
     /// remplir une zone réservée arbitraire (l'ancien défaut : un bloc de 2
     /// lignes de source réservait 220pt, l'image y était alors redimensionnée
-    /// en « letterbox » dans cette zone bien plus grande qu'elle). La position
-    /// vient de la **première ligne** du bloc (`lineFragmentRect`, dont la
-    /// hauteur a été réservée exactement à `image.size.height + 2×inset` par
+    /// en « letterbox » dans cette zone bien plus grande qu'elle). L'image
+    /// porte déjà son propre cadre (fond + liseré composés dans les pixels
+    /// par `MermaidAttachmentFactory`) : aucun fond ni liseré n'est repeint
+    /// ici, jamais un double cadre.
+    ///
+    /// La position vient de la **première ligne** du bloc (`lineFragmentRect`,
+    /// dont la hauteur a été réservée exactement à `image.size.height` par
     /// `StyleRenderer.applyClosedMermaidGeometry`) — jamais de
     /// `boundingRect(forGlyphRange:)` sur tout le bloc : avec le texte source
     /// masqué (couleur `.clear`), un tel rect dégénérerait vers la largeur
     /// quasi nulle des glyphes invisibles, pas la largeur voulue du cadre.
-    /// La largeur est plafonnée à ce qui reste disponible dans le conteneur
-    /// (« la colonne de texte »), jamais au-delà.
+    /// La largeur est réduite (`MermaidBlockLayout.fittedSize`, jamais
+    /// agrandie) si le conteneur est plus étroit que ce que
+    /// `MermaidAttachmentFactory` a pu anticiper (« la colonne de texte »).
     private func drawMermaidDiagram(
         _ attachment: NSTextAttachment,
         forBlockRange blockRange: NSRange,
@@ -315,22 +320,12 @@ final class MarkdownLayoutManager: NSLayoutManager {
         let firstLineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
 
         let maxWidth = max(container.size.width - firstLineRect.minX, 0)
-        let frameWidth = min(MermaidBlockLayout.closedFrameWidth(forAttachmentSize: image.size), maxWidth)
-        let frameHeight = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: image.size)
-        let frameRect = NSRect(x: firstLineRect.minX, y: firstLineRect.minY, width: frameWidth, height: frameHeight)
+        let drawSize = MermaidBlockLayout.fittedSize(for: image.size, maxWidth: maxWidth)
+        guard drawSize.width > 0, drawSize.height > 0 else { return }
+
+        let rect = NSRect(x: firstLineRect.minX, y: firstLineRect.minY, width: drawSize.width, height: drawSize.height)
             .offsetBy(dx: origin.x, dy: origin.y)
-        guard frameRect.width > 0, frameRect.height > 0 else { return }
-
-        MermaidBlockLayout.backgroundColor.setFill()
-        frameRect.fill()
-
-        let imageRect = MermaidBlockLayout.centeredImageRect(for: image.size, in: frameRect)
-        image.draw(in: imageRect)
-
-        let border = NSBezierPath(rect: frameRect.insetBy(dx: 0.5, dy: 0.5))
-        MermaidBlockLayout.borderColor.setStroke()
-        border.lineWidth = 1
-        border.stroke()
+        image.draw(in: rect)
     }
 
     // MARK: - Source mermaid ouvert (gouttière + en-tête)

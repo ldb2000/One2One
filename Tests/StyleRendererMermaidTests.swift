@@ -95,4 +95,125 @@ final class StyleRendererMermaidTests: XCTestCase {
         XCTAssertEqual(attachments.count, 2, "prémisse : deux runs distincts")
         XCTAssertFalse(attachments[0] === attachments[1], "deux sources différentes ne doivent pas partager le même attachment")
     }
+
+    // MARK: - Géométrie fermée (états 1/2/4) : jamais de fond gris, source masqué
+
+    /// Le fond gris standard des blocs de code (posé pour tout `.codeBlock`)
+    /// ne doit jamais s'appliquer à un bloc mermaid fermé — il débordait sur
+    /// toute la largeur (constat de tâche).
+    func test_closedMermaidBlock_hasNoBackgroundColor() {
+        let storage = NSTextStorage(attributedString: MarkdownParser.parse("```mermaid\ngraph TD\nA-->B\n```"))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let background = storage.attribute(.backgroundColor, at: 0, effectiveRange: nil)
+        XCTAssertNil(background, "un bloc mermaid fermé ne porte plus le fond gris des blocs de code")
+    }
+
+    /// Le source reste masqué (couleur transparente) dès la pose du
+    /// placeholder — jamais visible « sous » le diagramme.
+    func test_closedMermaidBlock_sourceForegroundIsClear() {
+        let storage = NSTextStorage(attributedString: MarkdownParser.parse("```mermaid\ngraph TD\nA-->B\n```"))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let color = storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(color, NSColor.clear)
+    }
+
+    /// Seule la première ligne du bloc porte la hauteur réservée
+    /// (`placeholderHeight`, aucune image livrée en test headless) — les
+    /// lignes suivantes sont plafonnées à un filet quasi nul
+    /// (`hiddenLineMaximumHeight`), jamais à une fraction de l'ancien
+    /// `reservedHeight` (220pt).
+    func test_closedMermaidBlock_onlyFirstLineReservesHeight_restIsCapped() throws {
+        let markdown = "```mermaid\ngraph TD\nA-->B\n```"
+        let storage = NSTextStorage(attributedString: MarkdownParser.parse(markdown))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        // Le source stocké (fences exclues, voir `MarkdownParser`) est
+        // "graph TD\nA-->B" : la première ligne ("graph TD\n") fait 9
+        // caractères, jusqu'à l'index 8 inclus depuis le début du bloc.
+        let blockStart = (storage.string as NSString).range(of: "graph TD").location
+        let firstLineStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: blockStart, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(firstLineStyle.minimumLineHeight, MermaidBlockLayout.placeholderHeight)
+
+        let restIndex = blockStart + 9 // juste après "graph TD\n"
+        let restStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: restIndex, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(restStyle.maximumLineHeight, MermaidBlockLayout.hiddenLineMaximumHeight)
+        XCTAssertNotEqual(
+            restStyle.maximumLineHeight, MermaidBlockLayout.placeholderHeight,
+            "la 2e ligne ne doit jamais hériter d'une fraction de la hauteur réservée"
+        )
+    }
+
+    // MARK: - Géométrie ouverte (état 3) : interligne normal, jamais fermée par erreur
+
+    /// Un restylage **ciblé** (frappe, ou changement de sélection — voir
+    /// `EditorRepresentable.Coordinator.updateMermaidBlockGeometryIfNeeded`)
+    /// alors que le curseur touche le bloc doit produire la géométrie
+    /// ouverte : interligne normal, marge de gouttière — jamais la
+    /// réservation à une ligne de l'état fermé.
+    func test_targetedRestyle_withSelectionInsideBlock_getsOpenGeometry() throws {
+        let (storage, editor) = makeWiredEditor(markdown: "```mermaid\ngraph TD\nA-->B\n```")
+        var blockRange = NSRange(location: 0, length: 0)
+        storage.enumerateAttribute(.mdMermaidAttachment, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+            if value is NSTextAttachment, range.length > 0 { blockRange = range; stop.pointee = true }
+        }
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: blockRange)
+
+        let style = try XCTUnwrap(storage.attribute(.paragraphStyle, at: blockRange.location, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(style.lineHeightMultiple, MermaidSourceLayout.lineHeightMultiple)
+        XCTAssertEqual(style.headIndent, MermaidSourceLayout.gutterWidth)
+        XCTAssertEqual(style.paragraphSpacingBefore, MermaidSourceLayout.headerHeight)
+
+        let color = storage.attribute(.foregroundColor, at: blockRange.location, effectiveRange: nil) as? NSColor
+        XCTAssertNotEqual(color, NSColor.clear, "le source reste lisible pendant l'édition")
+    }
+
+    /// Corrige un bug latent découvert pendant ce chantier :
+    /// `NSTextStorage.setAttributedString` déplace le curseur en fin de
+    /// document *avant* que `applyVisualStyle` ne s'exécute, sans notifier
+    /// le délégué (`Tests/EditorTextViewMermaidClickTests.swift`) — un
+    /// document se terminant par un bloc mermaid verrait donc sa sélection
+    /// « accidentellement » dedans lors d'un restylage du document entier.
+    /// Un tel restylage (`affectedRange == nil`) doit toujours refermer le
+    /// bloc, quelle que soit la sélection courante.
+    func test_fullDocumentRestyle_staysClosed_evenWithSelectionInsideBlock() {
+        let (storage, editor) = makeWiredEditor(markdown: "```mermaid\ngraph TD\nA-->B\n```")
+        var blockRange = NSRange(location: 0, length: 0)
+        storage.enumerateAttribute(.mdMermaidAttachment, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+            if value is NSTextAttachment, range.length > 0 { blockRange = range; stop.pointee = true }
+        }
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+
+        // Restylage du document entier (`affectedRange` omis) — comme
+        // `applyInitialState`/`updateNSView` après `setAttributedString`.
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let color = storage.attribute(.foregroundColor, at: blockRange.location, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(color, NSColor.clear, "toujours fermé après un restylage du document entier")
+    }
+
+    // MARK: - Fixture
+
+    /// Storage + `MarkdownLayoutManager` + `EditorTextView` câblés, sans
+    /// `Coordinator`/délégué — ces tests appellent `StyleRenderer.
+    /// applyVisualStyle` directement, ils n'ont besoin que d'un
+    /// `firstTextView` capable de répondre à `selectedRange()`.
+    private func makeWiredEditor(markdown: String) -> (NSTextStorage, EditorTextView) {
+        let textStorage = NSTextStorage()
+        let layoutManager = MarkdownLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(containerSize: NSSize(width: 400, height: 1_000_000))
+        layoutManager.addTextContainer(container)
+        let editor = EditorTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 100), textContainer: container)
+
+        let parsed = MarkdownParser.parse(markdown)
+        textStorage.setAttributedString(parsed)
+        StyleRenderer.applyVisualStyle(to: textStorage)
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+
+        return (textStorage, editor)
+    }
 }

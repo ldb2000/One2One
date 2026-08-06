@@ -46,12 +46,14 @@ final class MermaidBlockLayoutTests: XCTestCase {
         )
     }
 
-    /// Avec une image connue, la hauteur suit **cette image**, plus la marge
-    /// interne des deux côtés — jamais une fraction de `220pt`, quel que soit
-    /// le nombre de lignes du source (qui n'entre même plus dans ce calcul).
-    func test_closedFrameHeight_withImage_followsImageHeightPlusInset() {
+    /// Avec une image connue, la hauteur suit **directement** cette image
+    /// (elle porte déjà son propre cadre composé par `MermaidAttachmentFactory`,
+    /// jamais une marge rajoutée ici en plus — un double cadre) — jamais une
+    /// fraction de `220pt`, quel que soit le nombre de lignes du source (qui
+    /// n'entre même plus dans ce calcul).
+    func test_closedFrameHeight_withImage_followsImageHeightExactly() {
         let height = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: NSSize(width: 300, height: 180))
-        XCTAssertEqual(height, 180 + MermaidBlockLayout.inset * 2)
+        XCTAssertEqual(height, 180)
     }
 
     /// Preuve directe de la régression corrigée : un diagramme dont l'image
@@ -60,7 +62,7 @@ final class MermaidBlockLayoutTests: XCTestCase {
     /// sur 2 lignes — la hauteur ne dépend plus du tout du nombre de lignes.
     func test_closedFrameHeight_smallImage_isNotInflatedByReservedHeightLegacy() {
         let height = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: NSSize(width: 300, height: 40))
-        XCTAssertEqual(height, 40 + MermaidBlockLayout.inset * 2)
+        XCTAssertEqual(height, 40)
         XCTAssertLessThan(height, 110, "l'ancien défaut réservait 110pt par ligne pour un bloc de 2 lignes")
     }
 
@@ -68,40 +70,37 @@ final class MermaidBlockLayoutTests: XCTestCase {
         XCTAssertEqual(MermaidBlockLayout.closedFrameWidth(forAttachmentSize: nil), MermaidBlockLayout.placeholderWidth)
     }
 
-    func test_closedFrameWidth_withImage_followsImageWidthPlusInset() {
+    func test_closedFrameWidth_withImage_followsImageWidthExactly() {
         let width = MermaidBlockLayout.closedFrameWidth(forAttachmentSize: NSSize(width: 300, height: 180))
-        XCTAssertEqual(width, 300 + MermaidBlockLayout.inset * 2)
+        XCTAssertEqual(width, 300)
     }
 
-    // MARK: - centeredImageRect — jamais de redimensionnement (letterbox)
+    // MARK: - fittedSize — jamais agrandie, réduite seulement si trop large
 
-    /// Contrairement à l'ancien `fittedRect` (retiré : il redimensionnait
-    /// l'image pour remplir une zone réservée arbitraire), l'image garde ici
-    /// sa taille native, quelle que soit `containerRect`.
-    func test_centeredImageRect_neverResizesTheImage() {
-        let container = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let rect = MermaidBlockLayout.centeredImageRect(for: NSSize(width: 120, height: 60), in: container)
-        XCTAssertEqual(rect.width, 120)
-        XCTAssertEqual(rect.height, 60)
+    func test_fittedSize_imageNarrowerThanMaxWidth_isUnchanged() {
+        let size = MermaidBlockLayout.fittedSize(for: NSSize(width: 200, height: 100), maxWidth: 400)
+        XCTAssertEqual(size.width, 200)
+        XCTAssertEqual(size.height, 100)
     }
 
-    func test_centeredImageRect_centersHorizontallyWhenContainerIsWider() {
-        let container = NSRect(x: 0, y: 0, width: 200, height: 60)
-        let rect = MermaidBlockLayout.centeredImageRect(for: NSSize(width: 100, height: 60), in: container)
-        XCTAssertEqual(rect.minX, 50, "centré : (200-100)/2")
-        XCTAssertEqual(rect.minY, 0)
+    /// Preuve directe : jamais de double cadre / redimensionnement en
+    /// letterbox dans une zone plus grande (l'ancien défaut, `fittedRect`,
+    /// retiré) — seule une image effectivement plus large que `maxWidth` est
+    /// réduite, en conservant son ratio d'aspect.
+    func test_fittedSize_imageWiderThanMaxWidth_isScaledDownPreservingAspectRatio() {
+        let size = MermaidBlockLayout.fittedSize(for: NSSize(width: 400, height: 100), maxWidth: 200)
+        XCTAssertEqual(size.width, 200)
+        XCTAssertEqual(size.height, 50, "ratio d'aspect conservé : /2 sur les deux dimensions")
     }
 
-    func test_centeredImageRect_degenerateImageSize_returnsContainerRectUnchanged() {
-        let container = NSRect(x: 10, y: 20, width: 200, height: 100)
-        let rect = MermaidBlockLayout.centeredImageRect(for: .zero, in: container)
-        XCTAssertEqual(rect, container)
+    func test_fittedSize_degenerateSize_returnsSizeUnchanged() {
+        let size = MermaidBlockLayout.fittedSize(for: .zero, maxWidth: 200)
+        XCTAssertEqual(size, .zero)
     }
 
-    func test_centeredImageRect_degenerateContainerRect_returnsContainerRectUnchanged() {
-        let container = NSRect(x: 0, y: 0, width: 0, height: 0)
-        let rect = MermaidBlockLayout.centeredImageRect(for: NSSize(width: 10, height: 10), in: container)
-        XCTAssertEqual(rect, container)
+    func test_fittedSize_degenerateMaxWidth_returnsSizeUnchanged() {
+        let size = MermaidBlockLayout.fittedSize(for: NSSize(width: 100, height: 50), maxWidth: 0)
+        XCTAssertEqual(size, NSSize(width: 100, height: 50))
     }
 
     // MARK: - splitFirstLine
@@ -154,5 +153,42 @@ final class MermaidBlockLayoutTests: XCTestCase {
 
     func test_selectionTouches_notFoundLocation_isFalse() {
         XCTAssertFalse(MermaidBlockLayout.selectionTouches(NSNotFound, blockRange: NSRange(location: 0, length: 10)))
+    }
+
+    // MARK: - blockRange(in:at:) — régression mesurée sur cette branche
+
+    /// Preuve directe de la régression mesurée pendant ce chantier, sur le
+    /// storage réel produit par `StyleRenderer` (`.mdMermaidAttachment` porte
+    /// la même instance sur tout le bloc, mais `.paragraphStyle` diffère
+    /// entre la première ligne et le reste — voir `applyClosedMermaidGeometry`
+    /// — ce qui scinde la représentation interne du storage) : mesuré,
+    /// `storage.attribute(_:at:effectiveRange:)` (non « longest ») renvoyait
+    /// {location, 9} au lieu de {location, 14} interrogé au tout début du
+    /// bloc. `blockRange(in:at:)` doit renvoyer la même plage complète quel
+    /// que soit le point d'entrée dans le bloc.
+    func test_blockRange_mergesAcrossTheParagraphStyleBoundaryOfARealClosedBlock() {
+        let storage = NSTextStorage(attributedString: MarkdownParser.parse("```mermaid\ngraph TD\nA-->B\n```"))
+        StyleRenderer.applyVisualStyle(to: storage)
+        defer { MainActor.assumeIsolated { MermaidAttachmentFactory.invalidateLiveCache() } }
+
+        // Le source stocké (fences exclues) est "graph TD\nA-->B" (14
+        // caractères) ; la première ligne ("graph TD\n") en fait 9.
+        let start = (storage.string as NSString).range(of: "graph TD").location
+        let expected = NSRange(location: start, length: 14)
+
+        XCTAssertEqual(MermaidBlockLayout.blockRange(in: storage, at: start), expected)
+        XCTAssertEqual(MermaidBlockLayout.blockRange(in: storage, at: start + 9), expected, "peu importe l'index de départ dans le bloc")
+        XCTAssertEqual(MermaidBlockLayout.blockRange(in: storage, at: start + 13), expected)
+    }
+
+    func test_blockRange_noAttachment_isNil() {
+        let storage = NSTextStorage(string: "hello world")
+        XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: 0))
+    }
+
+    func test_blockRange_outOfBoundsLocation_isNil() {
+        let storage = NSTextStorage(string: "hi")
+        XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: 10))
+        XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: -1))
     }
 }
