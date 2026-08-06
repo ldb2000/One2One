@@ -31,6 +31,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
         drawBlockquoteRules(forGlyphRange: glyphsToShow, at: origin)
         drawTableControls(at: origin)
+        drawMermaidDiagrams(forGlyphRange: glyphsToShow, at: origin)
     }
 
     /// Parcourt les fragments de ligne du rendu en cours et dessine un
@@ -231,5 +232,76 @@ final class MarkdownLayoutManager: NSLayoutManager {
             height: iconSize.height
         )
         tinted.draw(in: iconRect)
+    }
+
+    // MARK: - Diagrammes mermaid
+
+    /// Peint le diagramme mermaid rendu (`.mdMermaidAttachment`, posé par
+    /// `StyleRenderer.applyMermaidAttachment`) par-dessus le texte source
+    /// d'un bloc — mais seulement quand le curseur n'y est **pas** : à
+    /// l'instar de `drawTableControls`, l'état « édition » (texte source
+    /// visible) ou « aperçu » (diagramme visible) d'un bloc mermaid se lit
+    /// sur la sélection courante, jamais sur un attribut stocké. Un clic
+    /// dans le bloc (voir `EditorTextView.mermaidBlockRange(at:)`) l'ouvre en
+    /// repositionnant simplement le curseur dedans ; en ressortir (clic
+    /// ailleurs, flèches) le referme — `EditorRepresentable.
+    /// textViewDidChangeSelection` invalide déjà tout l'affichage à chaque
+    /// changement de sélection (pour les contrôles de tableau), ce qui
+    /// couvre ce cas sans code supplémentaire.
+    ///
+    /// `drawnBlockStarts` évite de repeindre le même bloc pour chacune de ses
+    /// lignes visuelles — `enumerateLineFragments` en visite une par ligne,
+    /// mais un bloc de plusieurs lignes ne doit recevoir son diagramme
+    /// qu'une fois.
+    private func drawMermaidDiagrams(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, glyphsToShow.length > 0,
+              let textView = firstTextView, let container = textView.textContainer
+        else { return }
+        let ns = storage.string as NSString
+        let selectedRange = textView.selectedRange()
+        var drawnBlockStarts = Set<Int>()
+
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] _, _, _, lineGlyphRange, _ in
+            guard let self else { return }
+            let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+            guard charRange.location < ns.length else { return }
+
+            var blockRange = NSRange(location: 0, length: 0)
+            guard let attachment = storage.attribute(
+                .mdMermaidAttachment, at: charRange.location, effectiveRange: &blockRange
+            ) as? NSTextAttachment else { return }
+            guard !drawnBlockStarts.contains(blockRange.location) else { return }
+
+            let cursorTouchesBlock = selectedRange.location != NSNotFound
+                && selectedRange.location >= blockRange.location
+                && selectedRange.location <= blockRange.location + blockRange.length
+            guard !cursorTouchesBlock else { return }
+
+            drawnBlockStarts.insert(blockRange.location)
+            self.drawMermaidDiagram(attachment, forBlockRange: blockRange, in: container, origin: origin)
+        }
+    }
+
+    private func drawMermaidDiagram(
+        _ attachment: NSTextAttachment,
+        forBlockRange blockRange: NSRange,
+        in container: NSTextContainer,
+        origin: NSPoint
+    ) {
+        let blockGlyphRange = glyphRange(forCharacterRange: blockRange, actualCharacterRange: nil)
+        let rect = boundingRect(forGlyphRange: blockGlyphRange, in: container).offsetBy(dx: origin.x, dy: origin.y)
+        guard rect.width > 0, rect.height > 0, let image = attachment.image else { return }
+
+        MermaidBlockLayout.backgroundColor.setFill()
+        rect.fill()
+
+        let insetRect = rect.insetBy(dx: MermaidBlockLayout.inset, dy: MermaidBlockLayout.inset)
+        let fitted = MermaidBlockLayout.fittedRect(for: image.size, in: insetRect)
+        image.draw(in: fitted)
+
+        let border = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+        MermaidBlockLayout.borderColor.setStroke()
+        border.lineWidth = 1
+        border.stroke()
     }
 }

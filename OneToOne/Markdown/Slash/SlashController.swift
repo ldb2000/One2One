@@ -432,6 +432,8 @@ final class SlashController {
             }
         case .insertOutline:
             insertOutline(at: applyLocation, in: textView)
+        case .insertMermaidDiagram:
+            insertMermaidDiagram(at: applyLocation, in: textView)
         }
     }
 
@@ -590,6 +592,43 @@ final class SlashController {
         let placeholderRange = NSRange(location: min(safeLocation + 1, storage.length), length: min(1, max(0, storage.length - (safeLocation + 1))))
         textView.setSelectedRange(placeholderRange)
         textView.typingAttributes[.mdBlockType] = BlockType.codeBlock
+    }
+
+    /// Corps du squelette inséré par « Diagramme » — un petit graphe valide,
+    /// pas un espace vide comme `insertCodeBlock` : un bloc mermaid vide
+    /// afficherait immédiatement un cadre d'erreur (voir `MermaidRenderer`),
+    /// alors qu'un squelette rend tout de suite un diagramme lisible.
+    private static let mermaidDiagramSkeleton = "flowchart TD\n    A[Début] --> B[Fin]"
+
+    /// Insère un bloc de code mermaid pré-rempli comme nouveau bloc au point
+    /// du curseur, sans convertir la ligne courante — même stratégie
+    /// qu'`insertCodeBlock` (le modèle explicitement désigné, voir la doc de
+    /// `SlashCommand.Action.insertMermaidDiagram`), avec `.mdCodeLanguage =
+    /// "mermaid"` en plus de `.mdBlockType = .codeBlock` sur tout le corps.
+    ///
+    /// Le squelette entier est sélectionné après l'insertion (pas juste un
+    /// caractère placeholder comme `insertCodeBlock`) : la première frappe de
+    /// l'utilisateur le remplace nativement par sa propre description, sans
+    /// laisser de résidu de l'exemple.
+    private func insertMermaidDiagram(at location: Int, in textView: EditorTextView) {
+        stripRiskyTypingAttributes(in: textView)
+        let body = Self.mermaidDiagramSkeleton
+        let attrs: [NSAttributedString.Key: Any] = [.mdBlockType: BlockType.codeBlock, .mdCodeLanguage: "mermaid"]
+        let insertion = NSMutableAttributedString(string: "\n")
+        insertion.append(NSAttributedString(string: body, attributes: attrs))
+        insertion.append(NSAttributedString(string: "\n"))
+        let safeLocation = min(location, textView.textStorage?.length ?? 0)
+        textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+
+        guard let storage = textView.textStorage else { return }
+        let bodyLength = (body as NSString).length
+        let placeholderRange = NSRange(
+            location: min(safeLocation + 1, storage.length),
+            length: min(bodyLength, max(0, storage.length - (safeLocation + 1)))
+        )
+        textView.setSelectedRange(placeholderRange)
+        textView.typingAttributes[.mdBlockType] = BlockType.codeBlock
+        textView.typingAttributes[.mdCodeLanguage] = "mermaid"
     }
 
     /// Insère un tableau GFM de 3 colonnes — la rangée d'en-tête (row 0,

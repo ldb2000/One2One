@@ -346,6 +346,7 @@ private extension SlashCommand.Key {
         case .table: return "tablecells"
         case .file: return "paperclip"
         case .outline: return "list.bullet.indent"
+        case .mermaidDiagram: return "point.3.connected.trianglepath.dotted"
         }
     }
 }

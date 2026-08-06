@@ -280,6 +280,10 @@ final class EditorTextView: NSTextView {
             return
         }
         if toggleTaskMarker(at: point) { return }
+        if let mermaidRange = mermaidBlockRange(at: point) {
+            setSelectedRange(NSRange(location: mermaidRange.location, length: 0))
+            return
+        }
 
         // Mesuré (sonde jetée après mesure, cf. commit) : dans cette
         // configuration TextKit 1 (`NSTextStorage` → `MarkdownLayoutManager`
@@ -444,6 +448,41 @@ final class EditorTextView: NSTextView {
         let toggled = ListInfo(kind: info.kind, level: info.level, index: info.index, checked: !(info.checked ?? false))
         applyTaskToggle(range: range, from: info, to: toggled)
         return true
+    }
+
+    // MARK: - Click handling for mermaid diagrams
+
+    /// Plage du bloc mermaid affiché (diagramme peint, texte source masqué —
+    /// voir `MarkdownLayoutManager.drawMermaidDiagrams`) sous `point`
+    /// (coordonnées de la vue, mêmes que `toggleTaskMarker`), ou `nil`.
+    ///
+    /// Ne teste que les blocs actuellement **couverts** par leur diagramme
+    /// (curseur ailleurs) : un bloc déjà « ouvert » (curseur dedans) n'a pas
+    /// de diagramme peint dessus — `super.mouseDown` s'en charge alors
+    /// normalement, positionnement du curseur au pixel cliqué, comme dans
+    /// n'importe quel bloc de code ordinaire. Sans cette garde, cliquer pour
+    /// repositionner le curseur *pendant* l'édition d'un bloc mermaid le
+    /// ramènerait systématiquement à son début.
+    ///
+    /// `internal` (pas `private`) pour être exercée directement par les
+    /// tests, comme `toggleTaskMarker`/`tableControlGesture`.
+    func mermaidBlockRange(at point: NSPoint) -> NSRange? {
+        guard let storage = textStorage, storage.length > 0 else { return nil }
+        let charIndex = characterIndexForInsertion(at: point)
+        let safeIndex = min(charIndex, storage.length - 1)
+        guard safeIndex >= 0 else { return nil }
+
+        var blockRange = NSRange(location: 0, length: 0)
+        guard storage.attribute(.mdMermaidAttachment, at: safeIndex, effectiveRange: &blockRange) != nil else {
+            return nil
+        }
+
+        let current = selectedRange()
+        let cursorAlreadyInside = current.location >= blockRange.location
+            && current.location <= blockRange.location + blockRange.length
+        guard !cursorAlreadyInside else { return nil }
+
+        return blockRange
     }
 
     // MARK: - Click handling for table controls

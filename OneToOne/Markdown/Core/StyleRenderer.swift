@@ -134,6 +134,10 @@ enum StyleRenderer {
                 break
             }
 
+            if block == .codeBlock, (attrs[.mdCodeLanguage] as? String) == "mermaid" {
+                applyMermaidAttachment(to: storage, range: range)
+            }
+
             if let info = listInfo {
                 // `firstLineHeadIndent` == `headIndent` : le texte de l'item
                 // (seul contenu de la ligne, le storage ne porte aucun
@@ -230,6 +234,43 @@ enum StyleRenderer {
         }
 
         storage.endEditing()
+    }
+
+    /// Pose l'attachment mermaid rendu (`MermaidAttachmentFactory`) sur toute
+    /// la plage `range` d'un bloc de code dont `.mdCodeLanguage == "mermaid"`,
+    /// et réserve une hauteur de ligne minimale (`MermaidBlockLayout`) pour
+    /// que `MarkdownLayoutManager.drawMermaidDiagrams` ait la place d'y
+    /// inscrire le diagramme. Le rendu proprement dit est asynchrone (voir
+    /// `MermaidRenderer`) : `onUpdate` ne fait qu'invalider l'**affichage**
+    /// des `NSLayoutManager` attachés à `storage` une fois l'attachment mis à
+    /// jour en place — jamais le storage, jamais une re-sérialisation, jamais
+    /// une pile d'annulation (voir `MermaidAttachmentFactoryTests`).
+    private static func applyMermaidAttachment(to storage: NSTextStorage, range: NSRange) {
+        guard range.length > 0 else { return }
+        let source = (storage.string as NSString).substring(with: range)
+        let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+
+        // `MermaidAttachmentFactory` est `@MainActor` (elle pilote un
+        // `WKWebView`) ; `applyVisualStyle` ne l'est pas elle-même, mais
+        // n'est jamais appelée que depuis le fil d'édition AppKit (délégués
+        // `NSTextView`, `SlashController`, `ShortcutDetector`…), toujours le
+        // fil principal — `assumeIsolated` rend cette hypothèse explicite
+        // plutôt que de propager `@MainActor` à `StyleRenderer` tout entier
+        // et, avec lui, à tous ses appelants.
+        let attachment = MainActor.assumeIsolated {
+            MermaidAttachmentFactory.attachment(for: source, isDark: isDark) {
+                for layoutManager in storage.layoutManagers {
+                    layoutManager.invalidateDisplay(forCharacterRange: range)
+                }
+            }
+        }
+        storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.minimumLineHeight = MermaidBlockLayout.minimumLineHeight(
+            forLineCount: MermaidBlockLayout.lineCount(in: source)
+        )
+        storage.addAttribute(.paragraphStyle, value: paragraphStyle, range: range)
     }
 
     private static func normalizedRenderRange(_ range: NSRange?, in storage: NSTextStorage) -> NSRange {

@@ -26,6 +26,7 @@ struct SlashCommand: Identifiable, Equatable {
         case emoji
         case file
         case outline
+        case mermaidDiagram
     }
 
     /// Groupe d'affichage. L'ordre des cas est l'ordre d'affichage dans le
@@ -131,6 +132,17 @@ struct SlashCommand: Identifiable, Equatable {
         /// aucun titre ne porte d'ancre dans ce module, seul son texte est
         /// repris.
         case insertOutline
+        /// « Diagramme » : insère un squelette mermaid comme nouveau bloc de
+        /// code au point du curseur — même stratégie qu'`.insertCodeBlock`
+        /// (le modèle explicitement désigné), avec `.mdCodeLanguage =
+        /// "mermaid"` en plus de `.mdBlockType = .codeBlock`. Contrairement
+        /// au bloc de code vide, le corps initial est un squelette non vide
+        /// (un petit graphe valide) plutôt qu'un simple espace : un bloc
+        /// mermaid vide afficherait un cadre d'erreur mermaid dès l'insertion
+        /// (voir `MermaidRenderer`), alors qu'un squelette rend tout de suite
+        /// un diagramme lisible, à éditer sur place. Voir
+        /// `SlashController.insertMermaidDiagram`.
+        case insertMermaidDiagram
     }
 
     let key: Key

@@ -35,6 +35,15 @@ public extension NSAttributedString.Key {
     /// (fonction `tableBlock`) / `StyleRenderer` (construction de
     /// `NSTextTable`/`NSTextTableBlock`).
     static let mdTableCell     = NSAttributedString.Key("mdTableCell")
+    /// Value: `NSTextAttachment` — diagramme mermaid rendu pour un bloc de
+    /// code dont `.mdCodeLanguage == "mermaid"`. Posé **en plus** de
+    /// `.mdBlockType`/`.mdCodeLanguage` sur la même plage, jamais à leur
+    /// place : purement une métadonnée d'affichage lue par
+    /// `MarkdownLayoutManager` pour peindre le diagramme par-dessus le texte
+    /// source quand le curseur n'y est pas (voir `drawMermaidDiagrams`) — le
+    /// texte source reste le seul contenu réellement stocké, voir
+    /// `StyleRenderer.applyMermaidAttachment`.
+    static let mdMermaidAttachment = NSAttributedString.Key("mdMermaidAttachment")
 }
 
 /// Block-level kind applied to a whole paragraph range.

@@ -21,6 +21,54 @@ enum MermaidAttachmentFactory {
     private static let frameHeightShort: CGFloat = 60
     private static let frameHeightWithDetail: CGFloat = 110
 
+    /// Attachments vivants, un par (source, apparence) — clé
+    /// `MermaidRenderCache.key`. `StyleRenderer.applyMermaidAttachment` est
+    /// réévalué à chaque frappe (comme tout le reste de `applyVisualStyle`) :
+    /// sans ce cache, rouvrir un `WKWebView` à chaque caractère tapé ailleurs
+    /// dans le document serait aussi ruineux qu'inutile pour un bloc mermaid
+    /// déjà rendu ou déjà en cours de rendu.
+    private static let liveCache: NSCache<NSString, NSTextAttachment> = {
+        let cache = NSCache<NSString, NSTextAttachment>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    /// Clés dont le rendu web est déjà en vol — évite de lancer un second
+    /// `WKWebView` pour le même bloc tant que le premier n'a pas répondu.
+    private static var pendingKeys = Set<String>()
+
+    /// Attachment mermaid pour `source`/`isDark`, partagé entre tous les
+    /// appels (dédoublonné via `pendingKeys`). Renvoie immédiatement un
+    /// placeholder ; si aucun rendu n'est déjà en cours pour cette clé, en
+    /// lance un et appelle `onUpdate` (main actor) une fois l'attachment mis
+    /// à jour en place — jamais avant, jamais deux fois pour le même rendu.
+    static func attachment(for source: String, isDark: Bool, onUpdate: @escaping () -> Void) -> NSTextAttachment {
+        let key = MermaidRenderCache.key(source: source, isDark: isDark)
+
+        if let cached = liveCache.object(forKey: key as NSString) {
+            return cached
+        }
+
+        let placeholderAttachment = placeholder(for: source)
+        liveCache.setObject(placeholderAttachment, forKey: key as NSString)
+
+        guard !pendingKeys.contains(key) else { return placeholderAttachment }
+        pendingKeys.insert(key)
+
+        render(source: source, isDark: isDark, into: placeholderAttachment) {
+            pendingKeys.remove(key)
+            onUpdate()
+        }
+        return placeholderAttachment
+    }
+
+    /// Vide le cache d'attachments vivants et les rendus en vol — tests
+    /// uniquement, sur le modèle d'`ImageAttachmentFactory.invalidate()`.
+    static func invalidateLiveCache() {
+        liveCache.removeAllObjects()
+        pendingKeys.removeAll()
+    }
+
     /// Attachment provisoire affiché pendant le rendu asynchrone.
     static func placeholder(for source: String) -> NSTextAttachment {
         let attachment = NSTextAttachment()
