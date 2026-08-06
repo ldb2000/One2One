@@ -195,6 +195,27 @@ final class StyleRendererMermaidTests: XCTestCase {
         XCTAssertEqual(color, NSColor.clear, "toujours fermé après un restylage du document entier")
     }
 
+    /// Régression : un restylage **ciblé** sur une ligne du milieu d'un bloc
+    /// mermaid (ex. une frappe sur la 2e ligne d'un bloc de 3) ne doit
+    /// jamais recalculer l'attachment/la géométrie sur cette seule ligne —
+    /// `expandedForMermaidBlock` doit élargir la plage à la totalité du bloc
+    /// avant qu'`applyMermaidAttachment` ne relise `source`.
+    func test_targetedRestyleOfAMiddleLine_stillCoversTheWholeMermaidBlockSource() throws {
+        let markdown = "```mermaid\ngraph TD\nA-->B\nB-->C\n```"
+        let storage = NSTextStorage(attributedString: MarkdownParser.parse(markdown))
+        StyleRenderer.applyVisualStyle(to: storage)
+
+        let ns = storage.string as NSString
+        let middleLineLocation = ns.range(of: "A-->B").location
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: NSRange(location: middleLineLocation, length: 1))
+
+        let blockRange = try XCTUnwrap(MermaidBlockLayout.blockRange(in: storage, at: middleLineLocation))
+        let source = ns.substring(with: blockRange)
+        XCTAssertTrue(source.contains("graph TD"), "la 1re ligne ne doit pas avoir disparu du bloc reconnu")
+        XCTAssertTrue(source.contains("A-->B"))
+        XCTAssertTrue(source.contains("B-->C"), "la 3e ligne ne doit pas avoir disparu du bloc reconnu")
+    }
+
     // MARK: - Fixture
 
     /// Storage + `MarkdownLayoutManager` + `EditorTextView` câblés, sans

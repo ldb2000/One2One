@@ -60,6 +60,38 @@ final class EditorTextViewMermaidClickTests: XCTestCase {
         XCTAssertNil(editor.mermaidBlockRange(at: point))
     }
 
+    // MARK: - mermaidDoneButtonRange (état 3 — bouton « Terminé »)
+
+    /// Ouvrir le bloc (curseur dedans) déclenche
+    /// `EditorRepresentable.Coordinator.updateMermaidBlockGeometryIfNeeded`
+    /// (délégué de sélection, câblé par `makeWiredEditor`), qui bascule sa
+    /// géométrie et fait apparaître le bouton — cliquer dessus doit renvoyer
+    /// la plage du bloc.
+    func test_clickingTheDoneButton_onAnOpenBlock_returnsItsRange() throws {
+        let (editor, blockRange) = try makeWiredEditorWithMermaidBlock(prefix: "intro\n\n")
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+
+        let point = try pointInDoneButton(forBlockRange: blockRange, in: editor)
+        XCTAssertEqual(editor.mermaidDoneButtonRange(at: point), blockRange)
+    }
+
+    func test_clickingTheSourceText_onAnOpenBlock_isNotMistakenForTheDoneButton() throws {
+        let (editor, blockRange) = try makeWiredEditorWithMermaidBlock(prefix: "intro\n\n")
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+
+        let point = try pointForCharacter(blockRange.location, in: editor)
+        XCTAssertNil(editor.mermaidDoneButtonRange(at: point))
+    }
+
+    /// Un bloc fermé (curseur ailleurs) ne peint aucun bouton — le hit-test
+    /// doit renvoyer `nil`, jamais l'ancienne géométrie ouverte figée.
+    func test_doneButtonRange_onAClosedBlock_returnsNil() throws {
+        let (editor, blockRange) = try makeWiredEditorWithMermaidBlock(prefix: "intro\n\n")
+
+        let point = try pointInDoneButton(forBlockRange: blockRange, in: editor)
+        XCTAssertNil(editor.mermaidDoneButtonRange(at: point))
+    }
+
     // MARK: - Fixtures
 
     /// Bâtit un éditeur dont le storage contient `prefix` puis un bloc
@@ -138,6 +170,22 @@ final class EditorTextViewMermaidClickTests: XCTestCase {
         return NSPoint(
             x: lineRect.minX + location.x + editor.textContainerInset.width,
             y: lineRect.midY + editor.textContainerInset.height
+        )
+    }
+
+    /// Point (coordonnées de la vue) au centre du bouton « Terminé » du bloc
+    /// `blockRange` — même calcul de géométrie que `EditorTextView.
+    /// mermaidDoneButtonRange(at:)` (`MermaidSourceLayout.doneButtonRect`),
+    /// pour ne jamais dupliquer une géométrie qui pourrait diverger.
+    private func pointInDoneButton(forBlockRange blockRange: NSRange, in editor: EditorTextView) throws -> NSPoint {
+        let layoutManager = try XCTUnwrap(editor.layoutManager)
+        let container = try XCTUnwrap(editor.textContainer)
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
+        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let buttonRect = MermaidSourceLayout.doneButtonRect(above: firstLineRect, containerWidth: container.size.width)
+        return NSPoint(
+            x: buttonRect.midX + editor.textContainerInset.width,
+            y: buttonRect.midY + editor.textContainerInset.height
         )
     }
 }

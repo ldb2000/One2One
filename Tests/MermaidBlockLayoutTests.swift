@@ -191,4 +191,13 @@ final class MermaidBlockLayoutTests: XCTestCase {
         XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: 10))
         XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: -1))
     }
+
+    /// `location == storage.length` (juste après le dernier caractère, ex.
+    /// curseur en toute fin de document) doit renvoyer `nil` — pas
+    /// planter : `storage.attribute(at:effectiveRange:)` exige une position
+    /// strictement inférieure à la longueur.
+    func test_blockRange_locationExactlyAtStorageLength_isNil() {
+        let storage = NSTextStorage(string: "hi")
+        XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: storage.length))
+    }
 }
