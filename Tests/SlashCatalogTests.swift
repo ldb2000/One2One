@@ -63,6 +63,18 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(command.matches("callout"))
     }
 
+    /// Titres 4/5/6 : trouvables par leur libellé (« Titre 4/5/6 ») et leur
+    /// alias (« h4 »/« h5 »/« h6 »), même forme de preuve que pour les titres
+    /// 1 à 3 (`test_matches_onLabel`/`test_matches_onAlias`).
+    func test_matches_heading4to6_onLabelAndAlias() {
+        XCTAssertTrue(command(.heading4).matches("Titre 4"))
+        XCTAssertTrue(command(.heading4).matches("h4"))
+        XCTAssertTrue(command(.heading5).matches("Titre 5"))
+        XCTAssertTrue(command(.heading5).matches("h5"))
+        XCTAssertTrue(command(.heading6).matches("Titre 6"))
+        XCTAssertTrue(command(.heading6).matches("h6"))
+    }
+
     func test_matches_emptyQuery_matchesEverything() {
         for entry in SlashCatalog.all {
             XCTAssertTrue(entry.matches(""), "\(entry.key) devrait matcher une requête vide")
@@ -132,6 +144,17 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertFalse(keys.contains(.heading1))
         XCTAssertFalse(keys.contains(.heading2))
         XCTAssertFalse(keys.contains(.heading3))
+    }
+
+    /// Titres 4/5/6 : chacun conditionné par son propre
+    /// `MarkdownFeature.heading(.h4/.h5/.h6)`, pas par un seul cas partagé —
+    /// n'activer que `.heading(.h4)` ne doit faire apparaître que « Titre 4 ».
+    func test_available_headingFeature_gatesEachLevelIndependently() {
+        let visible = SlashCatalog.available(for: [.heading(.h4)])
+        let keys = Set(visible.map(\.key))
+        XCTAssertTrue(keys.contains(.heading4))
+        XCTAssertFalse(keys.contains(.heading5))
+        XCTAssertFalse(keys.contains(.heading6))
     }
 
     func test_available_basicFeature_keepsBulletAndOrderedLists() {

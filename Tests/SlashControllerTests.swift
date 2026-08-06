@@ -278,6 +278,50 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "## Titre")
     }
 
+    /// Titres 4/5/6 : même mécanisme que « Titre 1 »/« Titre 2 »
+    /// (`applyBlockConversion`, non dupliqué pour ces trois niveaux), vérifié
+    /// ligne non vide (conversion réelle de contenu existant) pour chacun des
+    /// trois, jusqu'à l'aller-retour markdown.
+    func test_applyingHeading4_onNonEmptyLine_convertsExistingContent() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Sous section /h4", into: editor, controller: controller)
+
+        applySelectedCommand(.heading4, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertEqual(serialized, "#### Sous section")
+        let reparsed = MarkdownParser.parse(serialized)
+        XCTAssertEqual(reparsed.attribute(.mdBlockType, at: 0, effectiveRange: nil) as? BlockType, .h4)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized)
+    }
+
+    func test_applyingHeading5_onNonEmptyLine_convertsExistingContent() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Sous section /h5", into: editor, controller: controller)
+
+        applySelectedCommand(.heading5, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertEqual(serialized, "##### Sous section")
+        let reparsed = MarkdownParser.parse(serialized)
+        XCTAssertEqual(reparsed.attribute(.mdBlockType, at: 0, effectiveRange: nil) as? BlockType, .h5)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized)
+    }
+
+    func test_applyingHeading6_onEmptyLine_primesTypingAttributesForNextKeystroke() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/h6", into: editor, controller: controller)
+
+        applySelectedCommand(.heading6, controller: controller)
+        editor.insertText("Détail", replacementRange: editor.selectedRange())
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertEqual(serialized, "###### Détail")
+        let reparsed = MarkdownParser.parse(serialized)
+        XCTAssertEqual(reparsed.attribute(.mdBlockType, at: 0, effectiveRange: nil) as? BlockType, .h6)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized)
+    }
+
     func test_applyingBlockquote_onEmptyLine_primesTypingAttributes() {
         let (editor, controller, _) = makeWiredController(markdown: "")
         type("/citation", into: editor, controller: controller)
@@ -1036,16 +1080,15 @@ final class SlashControllerTests: XCTestCase {
     /// progresser `selectedIndex` (et donc l'entrée qu'⏎ applique) au-delà du
     /// nombre de lignes visibles sans défilement — condition nécessaire pour
     /// que le défilement visuel ait quelque chose de correct à amener en vue.
-    /// Catalogue complet non filtré (`/` seul, `.full` : 13 entrées depuis
-    /// l'ajout de « Encadré », intercalée entre « Citation » et « Séparateur »
-    /// — voir `SlashCatalog.all`) ; `maxVisibleRows + 2` pressions de flèche
-    /// bas mènent à l'index 10 (« Tableau »), au-delà des 8 premières lignes
-    /// visibles sans défiler.
+    /// Catalogue complet non filtré (`/` seul, `.full` : 16 entrées depuis
+    /// l'ajout de « Encadré » et des titres 4/5/6 — voir `SlashCatalog.all`) ;
+    /// `maxVisibleRows + 5` pressions de flèche bas mènent à l'index 13
+    /// (« Tableau »), au-delà des 8 premières lignes visibles sans défiler.
     func test_arrowDown_beyondVisibleRowCap_stillAdvancesSelection_toEntryPastTheFold() {
         let (editor, controller, _) = makeWiredController(markdown: "")
         type("/", into: editor, controller: controller)
 
-        for _ in 0...(SlashPanelMetrics.maxVisibleRows + 1) {
+        for _ in 0...(SlashPanelMetrics.maxVisibleRows + 4) {
             XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.moveDown(_:))))
         }
         XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:))))
@@ -1056,7 +1099,7 @@ final class SlashControllerTests: XCTestCase {
             if value != nil { cellCount += 1 }
         }
         XCTAssertEqual(cellCount, 9,
-                       "l'entrée appliquée doit être « Tableau » (index 10, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
+                       "l'entrée appliquée doit être « Tableau » (index 13, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
     }
 
     // MARK: - Piège 3 : pas de raccourci inline parasite au moment d'appliquer

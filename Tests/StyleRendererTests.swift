@@ -44,6 +44,65 @@ final class StyleRendererTests: XCTestCase {
         XCTAssertTrue(isBold(textStorage.attribute(.font, at: plainRange.location, effectiveRange: nil) as? NSFont))
     }
 
+    // MARK: - Titres 4/5/6 : distincts entre eux (réserve mesurée de la tâche)
+
+    /// Avant cette tâche, `.h4`/`.h5`/`.h6` partageaient exactement la même
+    /// taille (13,5 pt semibold) — sans conséquence tant qu'aucune entrée du
+    /// menu `/` ne les rendait atteignables. Devenus atteignables, les trois
+    /// doivent se distinguer visuellement l'un de l'autre : tailles
+    /// strictement décroissantes.
+    func test_heading4to6_haveStrictlyDecreasingFontSizes() {
+        let h4 = fontForHeading(.h4)
+        let h5 = fontForHeading(.h5)
+        let h6 = fontForHeading(.h6)
+
+        XCTAssertGreaterThan(h4.pointSize, h5.pointSize, "Titre 4 doit rester plus grand que Titre 5")
+        XCTAssertGreaterThan(h5.pointSize, h6.pointSize, "Titre 5 doit rester plus grand que Titre 6")
+    }
+
+    /// `.h6`, passé sous la taille du corps de texte (`baseFontSize`, 13 pt),
+    /// reçoit une couleur distincte (`.secondaryLabelColor`) pour rester
+    /// identifiable comme un titre plutôt que comme du texte réduit — pas le
+    /// même traitement que `.h4`/`.h5`, qui restent en `.labelColor` comme le
+    /// paragraphe (aucune couleur d'accent, contrairement à `.h1`-`.h3`).
+    func test_heading6_getsSecondaryLabelColor_unlikeHeading4And5() {
+        let storage = NSMutableAttributedString(string: "h4\nh5\nh6")
+        storage.addAttribute(.mdBlockType, value: BlockType.h4, range: NSRange(location: 0, length: 2))
+        storage.addAttribute(.mdBlockType, value: BlockType.h5, range: NSRange(location: 3, length: 2))
+        storage.addAttribute(.mdBlockType, value: BlockType.h6, range: NSRange(location: 6, length: 2))
+        let textStorage = NSTextStorage(attributedString: storage)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertEqual(
+            textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+            NSColor.labelColor
+        )
+        XCTAssertEqual(
+            textStorage.attribute(.foregroundColor, at: 3, effectiveRange: nil) as? NSColor,
+            NSColor.labelColor
+        )
+        XCTAssertEqual(
+            textStorage.attribute(.foregroundColor, at: 6, effectiveRange: nil) as? NSColor,
+            NSColor.secondaryLabelColor
+        )
+    }
+
+    /// `.h4` reste plus grand que le corps de texte (`baseFontSize`, 13 pt) —
+    /// contrairement à `.h5`/`.h6`, volontairement passés en dessous (voir la
+    /// doc de `StyleRenderer.baseFont`).
+    func test_heading4_remainsLargerThanBodyText() {
+        XCTAssertGreaterThan(fontForHeading(.h4).pointSize, StyleRenderer.baseFontSize)
+    }
+
+    private func fontForHeading(_ level: BlockType) -> NSFont {
+        let storage = NSMutableAttributedString(string: "Titre")
+        storage.addAttribute(.mdBlockType, value: level, range: NSRange(location: 0, length: 5))
+        let textStorage = NSTextStorage(attributedString: storage)
+        StyleRenderer.applyVisualStyle(to: textStorage)
+        return textStorage.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+    }
+
     // MARK: - Images
 
     func test_imageAttribute_withReadableFile_getsAttachment() throws {

@@ -85,6 +85,13 @@ enum StyleRenderer {
             switch block {
             case .h1, .h2, .h3:
                 storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
+            case .h6:
+                // Voir la doc de `baseFont` : `.h6` est la seule des trois
+                // (`.h4`/`.h5`/`.h6`) à recevoir une couleur distincte — sa
+                // taille (11,5 pt) passe sous celle du corps de texte
+                // (`baseFontSize`, 13 pt), `.secondaryLabelColor` la garde
+                // lisible comme un titre plutôt que comme du texte réduit.
+                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
             case .codeBlock, .rawBlock:
                 // `.rawBlock` (bloc HTML passthrough — les tableaux GFM ont
                 // leur propre rendu en grille, voir `tableCell` plus bas)
@@ -99,7 +106,7 @@ enum StyleRenderer {
                 )
             case .thematicBreak:
                 storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
-            case .h4, .h5, .h6, .paragraph, .blockquote:
+            case .h4, .h5, .paragraph, .blockquote:
                 break
             }
 
@@ -255,12 +262,26 @@ enum StyleRenderer {
         return NSRange(location: start, length: end - start)
     }
 
+    /// `.h4`/`.h5`/`.h6` avaient jusqu'ici la même taille (13,5 pt semibold,
+    /// aucune ne s'en distinguait), sans conséquence tant qu'aucune entrée du
+    /// menu `/` ne les rendait atteignables — l'utilisateur ne pouvait
+    /// produire ces trois titres qu'en tapant `####`/`#####`/`######` à la
+    /// main (`ShortcutDetector`), un geste rare. Depuis que le menu `/` les
+    /// propose, les trois seraient sinon indiscernables l'une de l'autre à
+    /// l'écran. Différenciées ici par une taille strictement décroissante
+    /// (14 → 12,5 → 11,5 pt), qui prolonge la progression déjà en place pour
+    /// `.h1`/`.h2`/`.h3` (22 → 18 → 15 pt) plutôt que de sauter d'un palier
+    /// disjoint ; `.h6` reçoit en plus `.secondaryLabelColor` (ci-dessous,
+    /// dans `applyVisualStyle`) pour rester lisible comme titre malgré une
+    /// taille passée sous celle du corps de texte (`baseFontSize`, 13 pt).
     private static func baseFont(for block: BlockType) -> NSFont {
         switch block {
         case .h1: return NSFont.systemFont(ofSize: 22, weight: .bold)
         case .h2: return NSFont.systemFont(ofSize: 18, weight: .bold)
         case .h3: return NSFont.systemFont(ofSize: 15, weight: .bold)
-        case .h4, .h5, .h6: return NSFont.systemFont(ofSize: 13.5, weight: .semibold)
+        case .h4: return NSFont.systemFont(ofSize: 14, weight: .semibold)
+        case .h5: return NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        case .h6: return NSFont.systemFont(ofSize: 11.5, weight: .semibold)
         case .codeBlock, .rawBlock: return NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         case .blockquote, .paragraph, .thematicBreak:
             return NSFont.systemFont(ofSize: baseFontSize)

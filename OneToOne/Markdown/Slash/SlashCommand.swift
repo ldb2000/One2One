@@ -14,6 +14,7 @@ struct SlashCommand: Identifiable, Equatable {
     enum Key: String, Hashable, CaseIterable {
         case text
         case heading1, heading2, heading3
+        case heading4, heading5, heading6
         case bulletList, orderedList, taskList
         case blockquote
         case callout

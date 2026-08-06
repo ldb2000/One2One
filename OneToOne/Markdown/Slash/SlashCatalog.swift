@@ -57,6 +57,36 @@ enum SlashCatalog {
             requiredFeature: .heading(.h3)
         ),
         SlashCommand(
+            key: .heading4,
+            label: "Titre 4",
+            keywords: ["titre", "sous-titre"],
+            aliases: ["h4", "heading4", "heading 4"],
+            shortcut: "####",
+            group: .basicBlocks,
+            action: .convertBlock(.h4),
+            requiredFeature: .heading(.h4)
+        ),
+        SlashCommand(
+            key: .heading5,
+            label: "Titre 5",
+            keywords: ["titre", "sous-titre"],
+            aliases: ["h5", "heading5", "heading 5"],
+            shortcut: "#####",
+            group: .basicBlocks,
+            action: .convertBlock(.h5),
+            requiredFeature: .heading(.h5)
+        ),
+        SlashCommand(
+            key: .heading6,
+            label: "Titre 6",
+            keywords: ["titre", "sous-titre"],
+            aliases: ["h6", "heading6", "heading 6"],
+            shortcut: "######",
+            group: .basicBlocks,
+            action: .convertBlock(.h6),
+            requiredFeature: .heading(.h6)
+        ),
+        SlashCommand(
             key: .bulletList,
             label: "Liste à puces",
             keywords: ["liste", "puce", "puces"],
