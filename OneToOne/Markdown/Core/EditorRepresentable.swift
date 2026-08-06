@@ -74,6 +74,9 @@ struct EditorRepresentable: NSViewRepresentable {
         editor.onTableEditCommand = { [weak coord = context.coordinator] gesture in
             coord?.performTableEdit(gesture)
         }
+        editor.onTableMoveCommand = { [weak coord = context.coordinator] gesture in
+            coord?.performTableMove(gesture)
+        }
         scroll.documentView = editor
         context.coordinator.textView = editor
         // Contrôleur du menu « / » (tâche 6) : construit juste après
@@ -368,6 +371,28 @@ struct EditorRepresentable: NSViewRepresentable {
                 TableEditCommands.deleteRow(in: tv)
             case .deleteColumn:
                 TableEditCommands.deleteColumn(in: tv)
+            }
+        }
+
+        /// Permutation d'une rangée/colonne de tableau avec sa voisine (voir
+        /// `TableMoveCommands` et la doc de `EditorTextView.
+        /// onTableMoveCommand`). Même garde que `performTableEdit` : un
+        /// panneau (« / » ou « @ ») ouvert absorbe déjà ⌘⌥⌃+flèche pour sa
+        /// propre navigation (le cas échéant), une permutation pendant la
+        /// composition d'une requête n'est jamais ce que l'utilisateur veut.
+        @MainActor
+        func performTableMove(_ gesture: TableMoveCommands.Gesture) {
+            guard mentionController?.isOpen != true, slashController?.isOpen != true else { return }
+            guard let tv = textView else { return }
+            switch gesture {
+            case .swapRowUp:
+                TableMoveCommands.swapRowUp(in: tv)
+            case .swapRowDown:
+                TableMoveCommands.swapRowDown(in: tv)
+            case .swapColumnLeft:
+                TableMoveCommands.swapColumnLeft(in: tv)
+            case .swapColumnRight:
+                TableMoveCommands.swapColumnRight(in: tv)
             }
         }
 

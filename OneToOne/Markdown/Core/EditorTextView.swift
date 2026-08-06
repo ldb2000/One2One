@@ -50,6 +50,17 @@ final class EditorTextView: NSTextView {
     /// restent seuls sur leurs combinaisons respectives.
     var onTableEditCommand: ((TableEditCommands.Gesture) -> Void)?
 
+    /// Set par le coordinateur SwiftUI pour la permutation d'une rangée/
+    /// colonne de tableau avec sa voisine (voir `TableMoveCommands`) —
+    /// même choix clavier qu'`onTableEditCommand` (curseur, pas survol),
+    /// mais **⌘⌥⌃** + flèche plutôt que ⌘⌥/⌘⌥⇧ : ces deux dernières
+    /// combinaisons sont déjà prises par `onTableEditCommand`
+    /// (ajouter/supprimer) — ⌘⌥⇧↓ et ⌘⌥⇧→ en particulier, qui auraient été
+    /// le choix « naturel » pour permuter vers le bas/la droite, valent déjà
+    /// « supprimer la ligne/la colonne ». Voir la doc de tête de
+    /// `TableMoveCommands` pour la vérification complète des collisions.
+    var onTableMoveCommand: ((TableMoveCommands.Gesture) -> Void)?
+
     // MARK: - Lifecycle
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -90,6 +101,9 @@ final class EditorTextView: NSTextView {
     /// Code matériel de la flèche Droite — voir la doc de
     /// `onTableEditCommand` : ⌘⌥→ ajoute une colonne à droite.
     private static let rightArrowKeyCode: UInt16 = 0x7C
+    /// Code matériel de la flèche Gauche — voir la doc de
+    /// `onTableMoveCommand` : ⌘⌥⌃← permute avec la colonne de gauche.
+    private static let leftArrowKeyCode: UInt16 = 0x7B
 
     /// Modificateurs qui distinguent réellement une combinaison — masque
     /// volontairement `.capsLock`/`.numericPad`/`.function`/`.help`, que
@@ -147,6 +161,25 @@ final class EditorTextView: NSTextView {
                 return
             case Self.rightArrowKeyCode:
                 handler(.deleteColumn)
+                return
+            default:
+                break
+            }
+        }
+        if let handler = onTableMoveCommand,
+           event.modifierFlags.intersection(Self.relevantModifiers) == [.command, .option, .control] {
+            switch event.keyCode {
+            case Self.upArrowKeyCode:
+                handler(.swapRowUp)
+                return
+            case Self.downArrowKeyCode:
+                handler(.swapRowDown)
+                return
+            case Self.leftArrowKeyCode:
+                handler(.swapColumnLeft)
+                return
+            case Self.rightArrowKeyCode:
+                handler(.swapColumnRight)
                 return
             default:
                 break
