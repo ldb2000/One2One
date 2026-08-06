@@ -352,6 +352,8 @@ struct EditorRepresentable: NSViewRepresentable {
                 TableEditCommands.addRowBelow(in: tv)
             case .addColumnRight:
                 TableEditCommands.addColumnRight(in: tv)
+            case .deleteRow:
+                TableEditCommands.deleteRow(in: tv)
             }
         }
 

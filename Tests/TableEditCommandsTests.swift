@@ -372,6 +372,188 @@ final class TableEditCommandsTests: XCTestCase {
         XCTAssertEqual(storage.string, "A\nB\n/1\n2\n3\n4", "l'ajout ne doit pas s'exécuter, menu ouvert")
     }
 
+    // MARK: - Supprimer une ligne
+
+    /// Trois rangées de corps (row 1, 2, 3), pour pouvoir supprimer une
+    /// rangée du milieu sans toucher aux bords.
+    private let threeBodyRowsTable = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |"
+    /// `table` a déjà 2 rangées de corps (row 1, row 2) — insuffisant pour
+    /// tester le refus de la dernière rangée de corps restante.
+    private let oneBodyRowTable = "| A | B |\n|---|---|\n| 1 | 2 |"
+
+    func test_deleteRow_removesTheCursorsRow() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0)) // rangée 2 (corps, du milieu)
+
+        let handled = TableEditCommands.deleteRow(in: editor)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n5\n6", "la rangée « 3 | 4 » a disparu, les autres restent contiguës")
+    }
+
+    func test_deleteRow_otherCellsSurviveWithCorrectTableCellInfo() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0))
+
+        _ = TableEditCommands.deleteRow(in: editor)
+
+        let ns = storage.string as NSString
+        func info(at substring: String) throws -> TableCellInfo {
+            let location = ns.range(of: substring).location
+            return try XCTUnwrap(storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo)
+        }
+
+        let a = try info(at: "A")
+        XCTAssertEqual(a.row, 0)
+        let one = try info(at: "1")
+        XCTAssertEqual(one.row, 1)
+        XCTAssertEqual(one.column, 0)
+        // L'ancienne rangée 3 (« 5 | 6 ») doit être renumérotée row 2.
+        let five = try info(at: "5")
+        XCTAssertEqual(five.row, 2)
+        XCTAssertEqual(five.column, 0)
+        let six = try info(at: "6")
+        XCTAssertEqual(six.row, 2)
+        XCTAssertEqual(six.column, 1)
+        XCTAssertEqual(a.tableID, five.tableID)
+    }
+
+    // MARK: - Refus aux bords
+
+    func test_deleteRow_onHeaderRow_isRefused() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let aLocation = (storage.string as NSString).range(of: "A").location
+        editor.setSelectedRange(NSRange(location: aLocation, length: 0)) // en-tête
+
+        let handled = TableEditCommands.deleteRow(in: editor)
+
+        XCTAssertFalse(handled, "la rangée d'en-tête ne doit jamais être supprimée")
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n3\n4\n5\n6")
+    }
+
+    func test_deleteRow_onlyRemainingBodyRow_isRefused() throws {
+        let (editor, _) = makeWiredEditor(markdown: oneBodyRowTable) // une seule rangée de corps
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        let handled = TableEditCommands.deleteRow(in: editor)
+
+        XCTAssertFalse(handled, "un tableau sans corps n'a pas de sens")
+        XCTAssertEqual(storage.string, "A\nB\n1\n2")
+    }
+
+    /// `table` a 2 rangées de corps (row 1, row 2) : supprimer l'une d'elles
+    /// est permis tant qu'il en reste au moins une.
+    func test_deleteRow_whenTwoBodyRowsRemain_isAllowed() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0)) // rangée 2 (dernière)
+
+        let handled = TableEditCommands.deleteRow(in: editor)
+
+        XCTAssertTrue(handled)
+        // "2" devient la dernière cellule du tableau mais garde son propre
+        // "\n" terminal (posé par `MarkdownParser.emitTableRow` sur chaque
+        // cellule) : seul un reparse complet retire le "\n" de tout le
+        // document (voir `MarkdownParser.parse`), pas une mutation directe
+        // du storage.
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n")
+        XCTAssertEqual(serialized(editor), "| A | B |\n| --- | --- |\n| 1 | 2 |", "l'aller-retour markdown n'a lui aucune trace de ce \\n de fin")
+    }
+
+    func test_deleteRow_cursorOutsideTable_isANoOp() throws {
+        let (editor, _) = makeWiredEditor(markdown: "Paragraphe\n\n" + threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let handled = TableEditCommands.deleteRow(in: editor)
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(storage.string, "Paragraphe\nA\nB\n1\n2\n3\n4\n5\n6")
+    }
+
+    // MARK: - Aller-retour markdown (suppression de ligne)
+
+    func test_deleteRow_roundTripsCorrectly() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0))
+
+        _ = TableEditCommands.deleteRow(in: editor)
+
+        let md = serialized(editor)
+        XCTAssertEqual(md, "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 5 | 6 |")
+
+        let reparsed = NSTextStorage(attributedString: MarkdownParser.parse(md))
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), md, "round-trip stable")
+        var rows: Set<Int> = []
+        reparsed.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: reparsed.length)) { value, _, _ in
+            guard let info = value as? TableCellInfo else { return }
+            rows.insert(info.row)
+        }
+        XCTAssertEqual(rows, [0, 1, 2], "3 rangées après reparse")
+    }
+
+    // MARK: - Annulation (suppression de ligne)
+
+    /// Le contenu réel de la rangée supprimée (pas seulement une rangée vide)
+    /// doit être restauré à l'identique par ⌘Z.
+    func test_undoingADeleteRow_restoresTheExactContent_andRedoReappliesIt() throws {
+        let (editor, window) = makeWiredEditorInWindow(markdown: threeBodyRowsTable)
+        XCTAssertNotNil(editor.window, "prémisse : la vue doit être rattachée à \(window) pour que undoManager résolve")
+        let storage = try XCTUnwrap(editor.textStorage)
+        let originalString = storage.string
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0))
+
+        editor.undoManager?.beginUndoGrouping()
+        XCTAssertTrue(TableEditCommands.deleteRow(in: editor))
+        editor.undoManager?.endUndoGrouping()
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n5\n6")
+
+        editor.undoManager?.undo()
+        XCTAssertEqual(storage.string, originalString, "⌘Z doit restaurer le contenu exact de la rangée supprimée")
+        let fourInfo = try XCTUnwrap(storage.attribute(.mdTableCell, at: (storage.string as NSString).range(of: "4").location, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(fourInfo.row, 2, "la renumérotation doit elle aussi être défaite (retour à row 2)")
+
+        editor.undoManager?.redo()
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n5\n6", "⇧⌘Z doit rétablir la suppression")
+    }
+
+    // MARK: - Câblage clavier réel (⌘⌥⇧↓ synthétique)
+
+    func test_realCommandOptionShiftDownArrowKeyEvent_deletesTheRow() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0))
+
+        editor.keyDown(with: try commandOptionShiftArrowEvent(keyCode: 0x7D)) // flèche bas
+
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n5\n6")
+    }
+
+    func test_whileSlashMenuOpen_deleteRow_doesNotRun() throws {
+        let (editor, coordinator, controller) = makeWiredCoordinator(markdown: threeBodyRowsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let threeLocation = (storage.string as NSString).range(of: "3").location
+        editor.setSelectedRange(NSRange(location: threeLocation, length: 0))
+        type("/", into: editor)
+        XCTAssertTrue(controller.isOpen, "prémisse : le menu doit être ouvert")
+
+        coordinator.performTableEdit(.deleteRow)
+
+        XCTAssertEqual(storage.string, "A\nB\n1\n2\n/3\n4\n5\n6", "la suppression ne doit pas s'exécuter, menu ouvert")
+    }
+
     // MARK: - Rendu : `NSTextTable` toujours partagée après l'insertion
 
     /// `StyleRenderer` doit reconstruire une grille cohérente après
@@ -538,6 +720,22 @@ final class TableEditCommandsTests: XCTestCase {
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: char,
+            charactersIgnoringModifiers: char,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
+    }
+
+    private func commandOptionShiftArrowEvent(keyCode: UInt16) throws -> NSEvent {
+        let char = String(UnicodeScalar(0xF701)!)
+        return try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option, .shift],
             timestamp: 0,
             windowNumber: 0,
             context: nil,

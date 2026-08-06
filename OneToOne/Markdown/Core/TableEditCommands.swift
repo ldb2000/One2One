@@ -32,6 +32,7 @@ enum TableEditCommands {
     enum Gesture {
         case addRowBelow
         case addColumnRight
+        case deleteRow
     }
 
     // MARK: - Ajouter une ligne
@@ -75,6 +76,31 @@ enum TableEditCommands {
 
         performInsertColumn(afterColumn: info.column, content: content, focusRow: info.row,
                             anchor: start, in: textView, storage: storage)
+        return true
+    }
+
+    // MARK: - Supprimer une ligne
+
+    /// Retire la rangée portant le curseur. `false` (aucun effet) si le
+    /// curseur n'est pas dans une cellule de tableau, si c'est la rangée
+    /// d'en-tête (row 0 — un tableau GFM sans en-tête n'existe pas, la
+    /// première rangée du markdown source en tient toujours lieu) ou
+    /// l'unique rangée de corps restante (un tableau sans corps n'a pas
+    /// davantage de sens, ni un aller-retour markdown fiable).
+    @discardableResult
+    static func deleteRow(in textView: NSTextView) -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else { return false }
+        let location = min(textView.selectedRange().location, storage.length - 1)
+        guard let info = storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo
+        else { return false }
+        guard info.row > 0 else { return false }
+
+        let start = tableStart(in: storage, at: location)
+        let allCells = cellsOfTable(startingAt: start, tableID: info.tableID, in: storage)
+        let maxRow = allCells.map({ $0.info.row }).max() ?? 0
+        guard maxRow > 1 else { return false }
+
+        performRemoveRow(row: info.row, anchor: start, in: textView, storage: storage)
         return true
     }
 

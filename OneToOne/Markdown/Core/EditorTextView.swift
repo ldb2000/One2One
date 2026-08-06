@@ -139,6 +139,16 @@ final class EditorTextView: NSTextView {
                 break
             }
         }
+        if let handler = onTableEditCommand,
+           event.modifierFlags.intersection(Self.relevantModifiers) == [.command, .option, .shift] {
+            switch event.keyCode {
+            case Self.downArrowKeyCode:
+                handler(.deleteRow)
+                return
+            default:
+                break
+            }
+        }
         super.keyDown(with: event)
     }
 
