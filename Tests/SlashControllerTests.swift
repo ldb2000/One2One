@@ -966,12 +966,16 @@ final class SlashControllerTests: XCTestCase {
         applySelectedCommand(.date, controller: controller)
 
         XCTAssertTrue(pickerWasInvoked)
-        // Calculé via le même formateur que la production
-        // (`SlashController.dateInsertionFormatter`) plutôt qu'une chaîne
-        // recopiée à la main : un test qui dupliquerait la configuration du
-        // formateur pourrait diverger silencieusement (fuseau horaire,
-        // locale) sans jamais détecter une régression du formateur réel.
-        let expected = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
+        // Calculé via les mêmes formateur/catalogue que la production
+        // (`SlashController.dateInsertionFormatter`, `DateLinkCatalog.dateURL`)
+        // plutôt qu'une chaîne recopiée à la main : un test qui dupliquerait
+        // cette construction pourrait diverger silencieusement (fuseau
+        // horaire, locale, format d'URL) sans jamais détecter une régression
+        // réelle. Depuis le chantier 1 de la spec, la date insérée est un
+        // lien markdown, pas du texte brut.
+        let expectedLabel = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
+        let expectedURL = DateLinkCatalog.dateURL(date: Self.fixedTestDate, includesTime: false, reminder: .none)
+        let expected = "[@\(expectedLabel)](\(expectedURL.absoluteString))"
         XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), expected)
         XCTAssertFalse(controller.isOpen)
     }
@@ -1071,7 +1075,7 @@ final class SlashControllerTests: XCTestCase {
 
         let expectedDate = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
         let expectedTime = SlashController.timeInsertionFormatter.string(from: Self.fixedTestDate)
-        XCTAssertEqual(editor.textStorage?.string, "\(expectedDate) \(expectedTime)")
+        XCTAssertEqual(editor.textStorage?.string, "@\(expectedDate) \(expectedTime)")
 
         let serialized = MarkdownSerializer.serialize(editor.textStorage!)
         XCTAssertFalse(serialized.contains("\\"), "le format avec heure ne doit nécessiter aucun antislash d'échappement : \(serialized.debugDescription)")
@@ -1178,7 +1182,11 @@ final class SlashControllerTests: XCTestCase {
         applySelectedCommand(.date, controller: controller)
 
         let expectedDateText = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
-        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "`code`\(expectedDateText)")
+        let expectedURL = DateLinkCatalog.dateURL(date: Self.fixedTestDate, includesTime: false, reminder: .none)
+        XCTAssertEqual(
+            MarkdownSerializer.serialize(editor.textStorage!),
+            "`code`[@\(expectedDateText)](\(expectedURL.absoluteString))"
+        )
 
         let insertedRange = (editor.textStorage!.string as NSString).range(of: expectedDateText)
         XCTAssertNotEqual(insertedRange.location, NSNotFound)
@@ -1212,7 +1220,11 @@ final class SlashControllerTests: XCTestCase {
         applySelectedCommand(.date, controller: controller)
 
         let expectedDateText = SlashController.dateInsertionFormatter.string(from: Self.fixedTestDate)
-        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "**bold**\(expectedDateText)")
+        let expectedURL = DateLinkCatalog.dateURL(date: Self.fixedTestDate, includesTime: false, reminder: .none)
+        XCTAssertEqual(
+            MarkdownSerializer.serialize(editor.textStorage!),
+            "**bold**[@\(expectedDateText)](\(expectedURL.absoluteString))"
+        )
 
         let insertedRange = (editor.textStorage!.string as NSString).range(of: expectedDateText)
         XCTAssertNotEqual(insertedRange.location, NSNotFound)
@@ -1220,6 +1232,58 @@ final class SlashControllerTests: XCTestCase {
             editor.textStorage!.attribute(.mdBold, at: insertedRange.location, effectiveRange: nil),
             "la date insérée ne doit pas hériter de .mdBold du texte en gras qui précède"
         )
+    }
+
+    /// Chantier 1 de la spec : la date insérée doit porter `.mdLink`, avec
+    /// exactement l'URL produite par `DateLinkCatalog.dateURL` pour la même
+    /// sélection — pas seulement une preuve *indirecte* via la sérialisation
+    /// (les tests ci-dessus), mais une lecture directe de l'attribut posé sur
+    /// le storage, comme demandé (« comparer la chaîne sérialisée peut être
+    /// aveugle »).
+    func test_applyingDate_insertedTextCarriesMdLinkAttributeWithTheDateURL() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+
+        let storage = editor.textStorage!
+        let expectedURL = DateLinkCatalog.dateURL(date: Self.fixedTestDate, includesTime: false, reminder: .none)
+        XCTAssertEqual(storage.attribute(.mdLink, at: 0, effectiveRange: nil) as? URL, expectedURL)
+    }
+
+    /// Même mesure que `MentionControllerTests.test_typingRightAfterMention_doesNotContinueTheLink`
+    /// pour la date : le texte tapé après ne doit pas continuer le lien —
+    /// sans quoi tout ce qu'on tape ensuite deviendrait cliquable.
+    func test_typingRightAfterDate_doesNotContinueTheLink() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
+        )
+
+        type("/date", into: editor, controller: controller)
+        applySelectedCommand(.date, controller: controller)
+        editor.insertText(" merci", replacementRange: editor.selectedRange())
+
+        let storage = editor.textStorage!
+        let suffixRange = (storage.string as NSString).range(of: " merci")
+        XCTAssertNotEqual(suffixRange.location, NSNotFound)
+        XCTAssertNil(storage.attribute(.mdLink, at: suffixRange.location, effectiveRange: nil),
+                     "le texte tapé après la date ne doit pas continuer le lien")
     }
 
     // MARK: - Application : emoji (délègue à la palette système)

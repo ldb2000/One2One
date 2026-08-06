@@ -673,43 +673,48 @@ final class SlashController {
         textView.insertImagePlaceholder(for: url)
     }
 
-    /// Insère la date/heure de `selection` comme **texte brut**, au format
-    /// français long (`dateInsertionFormatter` — ex. `"5 août 2026"`), suivi
-    /// de l'heure (`timeInsertionFormatter` — ex. `"13:08"`) séparée par une
-    /// espace si `selection.includesTime` est vrai (ex. `"6 août 2026
-    /// 13:08"`) : pas de syntaxe markdown à générer (pas de placeholder
-    /// attribué comme pour l'image), donc pas de risque d'échappement à la
-    /// sérialisation — vérifié pour les deux formateurs : `dateStyle = .long`
-    /// en `fr_FR` ne produit que lettres, chiffres et espaces, et
-    /// `dateFormat = "HH:mm"` ne produit que chiffres et `:` ; aucun de ces
-    /// caractères ne figure dans `MarkdownEscaping.inlineSpecials` (`\`,
-    /// `` ` ``, `*`, `_`, `{`, `}`, `[`, `]`, `(`, `)`, `#`, `+`, `-`, `!`) —
-    /// ni un format `jj/mm/aaaa` (`/` n'y figure pas non plus) ni un format
-    /// `aaaa-mm-jj` (qui, lui, contiendrait `-` et se retrouverait échappé en
-    /// `aaaa\-mm\-jj`) n'a été retenu pour cette raison sur le second, et
-    /// pour la lisibilité côté « libellés et contenus en français »
-    /// (convention du projet) sur le premier.
+    /// Insère la date/heure de `selection` comme **lien markdown** —
+    /// `docs/superpowers/specs/2026-08-05-dates-et-rappels.md` (chantier 1),
+    /// exécuté ici après le popover (chantiers 4/5, livrés avant, voir
+    /// l'annotation du 2026-08-06 en tête de la spec) : même patron que
+    /// `MentionController.insertMention`, qui insère `"@nom"` porteur de
+    /// `.mdLink` vers `MentionCatalog.mentionURL(for:)`.
     ///
-    /// `selection.reminder` n'est **pas** utilisé ici : cette méthode ne
-    /// produit que le texte inséré (hors périmètre de cette tâche : la
-    /// représentation du rappel dans le texte — chantier 1 de la spec — et
-    /// sa planification effective — chantier 3). Le rappel choisi est
-    /// disponible sur `selection` pour un futur appelant, simplement ignoré
-    /// ici.
+    /// Libellé visible : `"@"` + le format français long
+    /// (`dateInsertionFormatter` — ex. `"5 août 2026"`), suivi de l'heure
+    /// (`timeInsertionFormatter` — ex. `"13:08"`) séparée par une espace si
+    /// `selection.includesTime` est vrai (ex. `"@6 août 2026 13:08"`) — pas de
+    /// risque d'échappement à la sérialisation, aucun de ces caractères ne
+    /// figurant dans `MarkdownEscaping.inlineSpecials` (voir la justification
+    /// détaillée conservée sur `dateInsertionFormatter`/`timeInsertionFormatter`
+    /// ci-dessous) ; `[` et `]` (la syntaxe de lien elle-même) sont émis
+    /// structurellement par `MarkdownSerializer`, pas par ce texte.
+    ///
+    /// URL : `DateLinkCatalog.dateURL(date:includesTime:reminder:)`, qui
+    /// porte `selection.reminder` — contrairement à l'ancienne insertion en
+    /// texte brut, le rappel choisi survit désormais à l'enregistrement
+    /// (donnée conservée dans l'URL ; sa planification effective reste hors
+    /// périmètre, chantier 3 de la spec).
     ///
     /// `stripRiskyTypingAttributes` (piège 6, même parade que pour le
-    /// séparateur) avant l'insertion : sans ça, une date insérée juste après
-    /// du code inline ou du gras hériterait de `.mdInlineCode`/`.mdBold` via
-    /// `insertText(_:replacementRange:)`, qui fusionne les `typingAttributes`
-    /// courants dans le texte simple qu'on lui passe.
+    /// séparateur/le tableau) avant l'insertion : sans ça, une date insérée
+    /// juste après du code inline ou du gras hériterait de
+    /// `.mdInlineCode`/`.mdBold` via `insertText(_:replacementRange:)`, qui
+    /// fusionne les `typingAttributes` courants dans la chaîne attribuée
+    /// qu'on lui passe pour toute clé qu'elle ne porte pas déjà elle-même —
+    /// `.mdLink`, lui, est fourni explicitement sur `insertion` et n'est donc
+    /// jamais écrasé par cette fusion (même raisonnement que
+    /// `MentionController.insertMention`, cf. sa doc).
     private func insertDate(_ selection: SlashDateSelection, at location: Int, in textView: EditorTextView) {
         stripRiskyTypingAttributes(in: textView)
-        var text = Self.dateInsertionFormatter.string(from: selection.date)
+        var text = "@" + Self.dateInsertionFormatter.string(from: selection.date)
         if selection.includesTime {
             text += " " + Self.timeInsertionFormatter.string(from: selection.date)
         }
+        let url = DateLinkCatalog.dateURL(date: selection.date, includesTime: selection.includesTime, reminder: selection.reminder)
+        let insertion = NSAttributedString(string: text, attributes: [.mdLink: url])
         let safeLocation = min(location, textView.textStorage?.length ?? 0)
-        textView.insertText(text, replacementRange: NSRange(location: safeLocation, length: 0))
+        textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
     }
 
     /// Ouvre le sélecteur d'emoji système (`presentEmojiPicker`, injecté —

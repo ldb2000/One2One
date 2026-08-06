@@ -4,12 +4,14 @@ import Foundation
 /// `/`. Cinq choix, repris de `docs/superpowers/specs/2026-08-05-dates-et-rappels.md`
 /// (chantier 2 : popover d'édition).
 ///
-/// **Purement informatif pour l'instant** : rien ne planifie ni ne déclenche
-/// ces rappels (chantier 3 de la même spec, « rappels réellement
-/// déclenchés » — hors périmètre de ce sélecteur, coût élevé, dépend d'un
-/// modèle de données). `SlashDatePickerPresenter` le remonte quand même dans
-/// `SlashDateSelection` : la donnée est saisie et conservée par l'appelant,
-/// à charge pour un futur chantier de la stocker et de la déclencher.
+/// Écrit dans le lien inséré (`DateLinkCatalog.dateURL(date:includesTime:reminder:)`,
+/// paramètre `reminder`) depuis le chantier 1 : la donnée survit désormais à
+/// l'enregistrement. **Rien ne le planifie ni ne le déclenche pour autant**
+/// (chantier 3 de la même spec, « rappels réellement déclenchés » — coût
+/// élevé, dépend d'un modèle de données, voir `MeetingNotificationService`
+/// pour ce qui existe déjà). `SlashDatePickerPresenter` le remonte dans
+/// `SlashDateSelection` ; `SlashController.insertDate` le transmet à
+/// `DateLinkCatalog.dateURL`.
 enum DateReminder: CaseIterable, Hashable {
     case none
     case sameDayAt9
@@ -37,18 +39,20 @@ enum DateReminder: CaseIterable, Hashable {
 struct SlashDateSelection: Equatable {
     /// Date choisie dans le calendrier. Porte aussi l'heure choisie si
     /// `includesTime` est vrai ; sinon son composant heure est présent (la
-    /// valeur `Date` a toujours une heure) mais **non significatif** —
-    /// `SlashController.insertDate` ne l'émet pas dans le texte inséré tant
-    /// que `includesTime` est faux.
+    /// valeur `Date` a toujours une heure) mais **non significatif** — ni
+    /// `SlashController.insertDate` (libellé visible) ni
+    /// `DateLinkCatalog.dateURL` (URL du lien) ne l'émettent tant que
+    /// `includesTime` est faux.
     let date: Date
 
     /// Vrai si la bascule « Inclure l'heure » était activée à la
     /// validation. Détermine si `SlashController.insertDate` ajoute l'heure
-    /// au texte inséré.
+    /// au libellé visible et si `DateLinkCatalog.dateURL` l'ajoute à l'URL.
     let includesTime: Bool
 
     /// Rappel choisi dans le menu du même nom — voir la doc de `DateReminder`
-    /// pour ce qu'il implique (ou plutôt : n'implique pas encore).
+    /// pour ce qu'il implique (ou plutôt : n'implique pas encore) une fois
+    /// écrit dans le lien.
     let reminder: DateReminder
 
     init(date: Date, includesTime: Bool, reminder: DateReminder) {
