@@ -430,6 +430,8 @@ final class SlashController {
                 guard let self, let textView, let url else { return }
                 self.insertFile(url, at: applyLocation, in: textView)
             }
+        case .insertOutline:
+            insertOutline(at: applyLocation, in: textView)
         }
     }
 
@@ -676,6 +678,133 @@ final class SlashController {
         // doc) — mesuré, voir le rapport de tâche.
         stripRiskyTypingAttributes(in: textView)
         textView.typingAttributes[.mdTableCell] = info
+    }
+
+    /// Insère un **sommaire** : une liste à puces imbriquée reprenant, dans
+    /// l'ordre du document, le texte de chaque titre (`.mdBlockType`
+    /// `h1`-`h6`) — voir `collectHeadings`. Chaque item est indenté selon le
+    /// niveau du titre **relatif au titre de plus haut niveau rencontré**
+    /// (`ListInfo.level = niveau du titre − niveau minimal`) : un document
+    /// qui ne commence qu'à `h2` indente donc ses `h3` d'un cran, pas de
+    /// deux — le niveau de titre se mappe directement au niveau
+    /// d'indentation, sans offset arbitraire.
+    ///
+    /// **Non cliquable** : chaque item reprend seulement le texte du titre,
+    /// jamais de lien vers lui. Ce module ne pose aucune ancre sur un titre
+    /// (aucun identifiant stable, aucun mécanisme de navigation « aller au
+    /// titre X ») ; en inventer un dépasserait le périmètre de cette
+    /// commande.
+    ///
+    /// **Statique**, délibérément : un instantané pris à l'insertion,
+    /// jamais recalculé ensuite — renommer, ajouter ou supprimer un titre
+    /// après coup laisse le sommaire inchangé, jusqu'à ce qu'on le
+    /// supprime et le réinsère à la main. Un sommaire *vivant* (recalculé à
+    /// chaque frappe qui touche un titre) demanderait un bloc d'un type
+    /// nouveau — aucun mécanisme de bloc « calculé » n'existe dans ce
+    /// module, tout bloc ici est un intervalle de caractères porteur
+    /// d'attributs, relu et réémis tel quel par `MarkdownSerializer` — donc
+    /// sa propre sérialisation (un format qui doit rester stable au
+    /// reparse sans être du markdown ordinaire éditable à la main) et un
+    /// déclencheur de recalcul à observer sur tout le document à chaque
+    /// frappe, pas seulement sur la ligne courante. Trois pièces neuves
+    /// pour une commande que le plan de référence (`docs/superpowers/specs/
+    /// 2026-08-05-commandes-slash-manquantes.md`, lot 7) chiffre déjà
+    /// « coût M » en statique — hors périmètre ici.
+    ///
+    /// Cas limite : document sans aucun titre → n'insère rien (le menu est
+    /// déjà fermé par `apply` avant cet appel, donc rien de plus à faire
+    /// pour que la frappe soit un no-op silencieux).
+    ///
+    /// Stratégie d'insertion calquée sur `insertTable` — pas sur
+    /// `insertThematicBreak`, le modèle par défaut désigné pour ce fichier,
+    /// dont le `\n` nu systématique en tête produirait une ligne vide
+    /// superflue si le sommaire est inséré en tout début de ligne (piège
+    /// déjà mesuré et documenté sur `insertTable`, voir sa doc) : `\n` nu
+    /// seulement si le curseur n'est pas déjà en tête de ligne physique.
+    /// Chaque titre devient un item de liste à puces — `.mdListInfo` posé
+    /// sur tout l'item, texte du titre et son `\n` inclus, exactement comme
+    /// `MarkdownParser.emitList` le pose sur un item de liste ordinaire
+    /// (voir sa doc). Aucun `\n` nu supplémentaire après le dernier item :
+    /// il porte déjà le sien, qui sépare le sommaire de la suite —
+    /// `MarkdownSerializer.needsBlankLine` insère lui-même la ligne vide
+    /// markdown requise entre le dernier item et un paragraphe suivant
+    /// (paire `.listItem→.plainParagraph`, déjà mesurée, cf. sa doc) ; rien
+    /// à faire ici pour ce cas.
+    ///
+    /// `stripRiskyTypingAttributes` avant **et après** l'insertion (piège
+    /// 6) : avant, pour que le texte inséré n'hérite pas du gras/code
+    /// inline/lien courant (même raison qu'`insertTable`/`insertDate`) ;
+    /// après, parce que le dernier caractère inséré est le `\n` du dernier
+    /// item, porteur de `.mdListInfo` — `insertText` recalcule
+    /// `typingAttributes` d'après le caractère qui précède le nouveau
+    /// curseur (mesuré, voir le rapport de tâche), donc sans ce second
+    /// nettoyage la prochaine frappe continuerait le sommaire comme un item
+    /// de liste supplémentaire.
+    private func insertOutline(at location: Int, in textView: EditorTextView) {
+        guard let storage = textView.textStorage else { return }
+        let headings = Self.collectHeadings(in: storage)
+        guard !headings.isEmpty else { return }
+        let minLevel = headings.map(\.level).min() ?? 1
+
+        stripRiskyTypingAttributes(in: textView)
+
+        let safeLocation = min(location, storage.length)
+        let alreadyAtLineStart: Bool = {
+            guard safeLocation > 0 else { return true }
+            return (storage.string as NSString).character(at: safeLocation - 1) == 0x0A /* "\n" */
+        }()
+
+        let insertion = NSMutableAttributedString(string: alreadyAtLineStart ? "" : "\n")
+        for heading in headings {
+            let info = ListInfo(kind: .bullet, level: heading.level - minLevel, index: nil, checked: nil)
+            insertion.append(NSAttributedString(string: heading.text + "\n", attributes: [.mdListInfo: info]))
+        }
+
+        textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+        stripRiskyTypingAttributes(in: textView)
+    }
+
+    /// Recueille, dans l'ordre du document, chaque ligne portant un
+    /// `.mdBlockType` de titre (`h1`-`h6`) : son niveau (1-6) et son texte
+    /// brut (`BlockRange.of` délimite la ligne, `\n` final exclu — les
+    /// titres tiennent toujours sur une seule ligne physique, cf.
+    /// `MarkdownParser.emitBlock`/`appendNewline`, qui n'attribue jamais le
+    /// `\n` de fin de titre). Balaie ligne physique par ligne physique
+    /// (`NSString.lineRange(for:)`) plutôt que par run d'attribut : un bloc
+    /// de code ou brut peut porter le même `.mdBlockType` sur plusieurs
+    /// lignes internes (un seul run multi-ligne), et une cellule de tableau
+    /// ne porte `.mdBlockType` sous aucune forme — un balayage ligne à
+    /// ligne reste correct dans ces deux cas sans avoir à les distinguer
+    /// ici (il ignore simplement chaque ligne qui n'est pas un titre,
+    /// titre par définition non trouvé dans un bloc de code/tableau).
+    private static func collectHeadings(in storage: NSTextStorage) -> [(level: Int, text: String)] {
+        guard storage.length > 0 else { return [] }
+        let ns = storage.string as NSString
+        var headings: [(level: Int, text: String)] = []
+        var cursor = 0
+        while cursor < storage.length {
+            if let blockType = storage.attribute(.mdBlockType, at: cursor, effectiveRange: nil) as? BlockType,
+               let level = headingLevel(blockType) {
+                let block = BlockRange.of(in: storage, at: cursor)
+                headings.append((level, ns.substring(with: block.range)))
+            }
+            let lineRange = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            cursor = lineRange.location + lineRange.length
+        }
+        return headings
+    }
+
+    /// `h1`→1 … `h6`→6 ; tout autre `BlockType` n'est pas un titre.
+    private static func headingLevel(_ type: BlockType) -> Int? {
+        switch type {
+        case .h1: return 1
+        case .h2: return 2
+        case .h3: return 3
+        case .h4: return 4
+        case .h5: return 5
+        case .h6: return 6
+        case .paragraph, .blockquote, .codeBlock, .thematicBreak, .rawBlock: return nil
+        }
     }
 
     private func insertImage(_ url: URL, at location: Int, in textView: EditorTextView) {

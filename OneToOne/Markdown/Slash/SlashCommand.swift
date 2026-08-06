@@ -25,6 +25,7 @@ struct SlashCommand: Identifiable, Equatable {
         case table
         case emoji
         case file
+        case outline
     }
 
     /// Groupe d'affichage. L'ordre des cas est l'ordre d'affichage dans le
@@ -118,6 +119,18 @@ struct SlashCommand: Identifiable, Equatable {
         /// image : un fichier joint n'a pas de rendu visuel, voir
         /// `SlashController.insertFile`.
         case insertFile
+        /// « Sommaire » : balaie le storage courant, collecte chaque ligne
+        /// portant un `.mdBlockType` de titre (h1-h6) et insère une liste à
+        /// puces imbriquée qui reprend leur texte, indentée par niveau —
+        /// comme `.insertTable`/`.insertThematicBreak`, une insertion
+        /// synchrone d'un bloc entier, pas une conversion (une liste
+        /// imbriquée n'a pas d'équivalent `LineBlockType`). **Statique** :
+        /// un instantané pris à l'insertion, jamais recalculé si les titres
+        /// changent ensuite — voir `SlashController.insertOutline` pour la
+        /// justification détaillée de ce choix. Entrées **non cliquables** :
+        /// aucun titre ne porte d'ancre dans ce module, seul son texte est
+        /// repris.
+        case insertOutline
     }
 
     let key: Key

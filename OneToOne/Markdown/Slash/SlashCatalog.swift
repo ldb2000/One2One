@@ -209,6 +209,16 @@ enum SlashCatalog {
             action: .presentEmojiPicker,
             requiredFeature: nil
         ),
+        SlashCommand(
+            key: .outline,
+            label: "Sommaire",
+            keywords: ["sommaire", "table des matières"],
+            aliases: ["outline", "toc", "tableofcontents"],
+            shortcut: nil,
+            group: .insertions,
+            action: .insertOutline,
+            requiredFeature: .bulletList
+        ),
     ]
 
     /// Entrées visibles pour un jeu de fonctionnalités donné : celles sans

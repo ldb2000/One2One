@@ -345,6 +345,7 @@ private extension SlashCommand.Key {
         case .emoji: return "face.smiling"
         case .table: return "tablecells"
         case .file: return "paperclip"
+        case .outline: return "list.bullet.indent"
         }
     }
 }
