@@ -19,6 +19,10 @@ struct EditorRepresentable: NSViewRepresentable {
     /// `makeNSView` ne construit alors aucun `MentionController`.
     var mentionSearch: ((String) -> [MentionCandidate])? = nil
     var mentionCreate: ((String) -> MentionCandidate?)? = nil
+    /// Routeur des liens internes (voir `MarkdownTextEditor.markdownLinks(handler:)`).
+    /// `nil` (le défaut) : tout clic sur un lien retombe sur l'ouverture système
+    /// (voir `EditorTextView.clicked(onLink:at:)`).
+    var linkHandler: ((URL) -> Bool)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -63,6 +67,7 @@ struct EditorRepresentable: NSViewRepresentable {
         editor.onTaskToggle = { [weak coord = context.coordinator] (_: NSRange, _: Bool) in
             coord?.pushMarkdownToBinding(force: true)
         }
+        editor.onLinkClick = linkHandler
         scroll.documentView = editor
         context.coordinator.textView = editor
         // Contrôleur du menu « / » (tâche 6) : construit juste après
@@ -123,6 +128,10 @@ struct EditorRepresentable: NSViewRepresentable {
         context.coordinator.features = features
         context.coordinator.debounce = debounce
         context.coordinator.slashController?.updateFeatures(features)
+        // Rafraîchi à chaque rendu, même raison que les closures de mentions
+        // ci-dessous : l'appelant peut capturer un `@Query`/`ModelContext`
+        // reconstruit à chaque `body`.
+        editor.onLinkClick = linkHandler
         // Rafraîchit les closures de recherche/création à chaque rendu — voir
         // la doc de `MentionController.updateHandlers` : nécessaire, pas
         // seulement défensif, tant que l'appelant capture un `@Query`/

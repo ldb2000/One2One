@@ -20,6 +20,10 @@ public struct MarkdownTextEditor: View {
     /// une — voir `Modifiers.swift`.
     var mentionSearch: ((String) -> [MentionCandidate])?
     var mentionCreate: ((String) -> MentionCandidate?)?
+    /// Routeur des liens internes, injecté par `markdownLinks(handler:)`.
+    /// `nil` (le défaut) : tout lien s'ouvre via le système — voir
+    /// `Modifiers.swift`.
+    var linkHandler: ((URL) -> Bool)?
 
     public init(text: Binding<String>) {
         self._text = text
@@ -34,7 +38,8 @@ public struct MarkdownTextEditor: View {
             readOnly: readOnly,
             editorID: editorID,
             mentionSearch: mentionSearch,
-            mentionCreate: mentionCreate
+            mentionCreate: mentionCreate,
+            linkHandler: linkHandler
         )
     }
 }

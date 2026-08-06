@@ -69,4 +69,19 @@ public extension MarkdownTextEditor {
         copy.mentionCreate = create
         return copy
     }
+
+    /// Route un lien cliqué (ex. mention `onetoone://collaborator/<uuid>`,
+    /// voir `MentionCatalog.collaboratorID(from:)`) vers `handler`, appelé
+    /// avec l'`URL` du lien. Renvoyer `true` marque le clic comme pris en
+    /// charge ; renvoyer `false` (ou omettre ce modificateur — `nil` est le
+    /// défaut) laisse le lien s'ouvrir normalement par le système, seul
+    /// chemin pertinent pour un lien externe (`https://`, `mailto:`…). Ce
+    /// module ne connaît ni les modèles de l'app ni comment ouvrir une fiche
+    /// collaborateur : `handler` est le point où cette résolution a lieu,
+    /// côté appelant — voir `EditorTextView.clicked(onLink:at:)`.
+    func markdownLinks(handler: @escaping (URL) -> Bool) -> Self {
+        var copy = self
+        copy.linkHandler = handler
+        return copy
+    }
 }
