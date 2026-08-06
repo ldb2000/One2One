@@ -77,7 +77,8 @@ struct EditorRepresentable: NSViewRepresentable {
                 coord?.cancelPendingWrite()
             },
             presentImagePicker: SlashController.presentImageOpenPanel,
-            presentDatePicker: SlashController.presentDatePickerPopover
+            presentDatePicker: SlashController.presentDatePickerPopover,
+            presentEmojiPicker: SlashController.presentCharacterPalette
         )
         // Contrôleur du menu « @ » : seulement si l'appelant a fourni une
         // closure de recherche (`markdownMentions(search:create:)`) — voir la

@@ -96,7 +96,8 @@ final class EditorRepresentableMentionWiringTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
         )
         let controller = MentionController(
             textView: editor,

@@ -214,7 +214,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: { cancelCount += 1 },
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
         )
 
         type("Hello ", into: editor, controller: controller) // 6 frappes, menu jamais ouvert
@@ -914,7 +915,8 @@ final class SlashControllerTests: XCTestCase {
                 pickerWasInvoked = true
                 completion(imageURL)
             },
-            presentDatePicker: { _, _, completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
         )
 
         type("/image", into: editor, controller: controller)
@@ -932,7 +934,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { completion in completion(nil) },
-            presentDatePicker: { _, _, completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
         )
 
         type("/image", into: editor, controller: controller)
@@ -955,7 +958,8 @@ final class SlashControllerTests: XCTestCase {
             presentDatePicker: { _, _, completion in
                 pickerWasInvoked = true
                 completion(Self.fixedTestSelection)
-            }
+            },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -980,7 +984,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -1003,7 +1008,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -1030,7 +1036,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -1055,7 +1062,8 @@ final class SlashControllerTests: XCTestCase {
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in
                 completion(SlashDateSelection(date: Self.fixedTestDate, includesTime: true, reminder: .none))
-            }
+            },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -1091,7 +1099,8 @@ final class SlashControllerTests: XCTestCase {
             presentDatePicker: { _, rect, completion in
                 capturedRect = rect
                 completion(nil)
-            }
+            },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -1120,7 +1129,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
         )
 
         type("/date", into: editor, controller: controller)
@@ -1160,7 +1170,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
         )
 
         type(" /date", into: editor, controller: controller)
@@ -1193,7 +1204,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) }
+            presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
+            presentEmojiPicker: {}
         )
 
         type(" /date", into: editor, controller: controller)
@@ -1207,6 +1219,65 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertNil(
             editor.textStorage!.attribute(.mdBold, at: insertedRange.location, effectiveRange: nil),
             "la date insérée ne doit pas hériter de .mdBold du texte en gras qui précède"
+        )
+    }
+
+    // MARK: - Application : emoji (délègue à la palette système)
+
+    /// Limite connue (voir la doc de `SlashController.presentEmojiPicker`) :
+    /// la palette système n'a aucun callback, donc rien à vérifier sur ce
+    /// qu'elle insère effectivement — seul l'appel du présentateur injecté
+    /// est vérifiable ici, pas son effet. N'invente pas de couverture
+    /// au-delà de ça.
+    func test_applyingEmoji_invokesTheInjectedPresenter() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        var presenterWasInvoked = false
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: { presenterWasInvoked = true }
+        )
+
+        type("/emoji", into: editor, controller: controller)
+        applySelectedCommand(.emoji, controller: controller)
+
+        XCTAssertTrue(presenterWasInvoked)
+    }
+
+    /// Même mesure que pour le séparateur/la date (piège 6) : sans
+    /// `stripRiskyTypingAttributes` avant d'ouvrir la palette, un emoji
+    /// choisi juste après du gras hériterait de `.mdBold` (la palette tape
+    /// dans `typingAttributes`, comme une frappe normale). Vérifiable même
+    /// sans callback de la palette : `typingAttributes` est observable tout
+    /// de suite après l'appel, avant même que l'utilisateur choisisse quoi
+    /// que ce soit.
+    func test_applyingEmoji_afterBold_stripsRiskyTypingAttributesBeforePresenting() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "bold", attributes: [.mdBold: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        editor.typingAttributes[.mdBold] = true
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
+        )
+
+        type(" /emoji", into: editor, controller: controller)
+        applySelectedCommand(.emoji, controller: controller)
+
+        XCTAssertNil(
+            editor.typingAttributes[.mdBold],
+            "typingAttributes doit être nettoyé avant d'ouvrir la palette, pas seulement au moment d'une insertion de texte"
         )
     }
 
@@ -1433,7 +1504,8 @@ final class SlashControllerTests: XCTestCase {
             panel: SlashPanel(),
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
-            presentDatePicker: { _, _, completion in completion(nil) }
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {}
         )
     }
 

@@ -84,6 +84,15 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(command.matches("code"))
     }
 
+    /// « Emoji » : trouvable par son libellé et un mot-clé absent du libellé
+    /// (« smiley »).
+    func test_matches_emoji_onLabelAndKeyword() {
+        let command = command(.emoji)
+        XCTAssertTrue(command.matches("Emoji"))
+        XCTAssertTrue(command.matches("smiley"))
+        XCTAssertTrue(command.matches("émoticône"))
+    }
+
     func test_matches_emptyQuery_matchesEverything() {
         for entry in SlashCatalog.all {
             XCTAssertTrue(entry.matches(""), "\(entry.key) devrait matcher une requête vide")
@@ -211,15 +220,16 @@ final class SlashCatalogTests: XCTestCase {
     }
 
     func test_available_emptyFeatureSet_stillShowsUnconditionalEntries() {
-        // "Texte", "Image", "Date" et "Tableau" ne sont conditionnées par
-        // aucun MarkdownFeature (`MarkdownFeature` ne compte aucun cas
-        // `.table`, cf. la doc de `SlashCommand.requiredFeature`).
+        // "Texte", "Image", "Date", "Tableau" et "Emoji" ne sont conditionnées
+        // par aucun MarkdownFeature (`MarkdownFeature` ne compte aucun cas
+        // `.table` ni `.emoji`, cf. la doc de `SlashCommand.requiredFeature`).
         let visible = SlashCatalog.available(for: [])
         let keys = Set(visible.map(\.key))
         XCTAssertTrue(keys.contains(.text))
         XCTAssertTrue(keys.contains(.image))
         XCTAssertTrue(keys.contains(.date))
         XCTAssertTrue(keys.contains(.table))
+        XCTAssertTrue(keys.contains(.emoji))
     }
 
     /// « Tableau » appartient au groupe « Blocs de base », comme le
@@ -240,6 +250,12 @@ final class SlashCatalogTests: XCTestCase {
     /// séparateur et le tableau (même nature : une insertion de bloc entier).
     func test_codeBlock_belongsToBasicBlocksGroup() {
         XCTAssertEqual(command(.codeBlock).group, .basicBlocks)
+    }
+
+    /// « Emoji » appartient au groupe « Insertions », comme « Date » — une
+    /// insertion ponctuelle de texte, ni un bloc de base ni un média.
+    func test_emoji_belongsToInsertionsGroup() {
+        XCTAssertEqual(command(.emoji).group, .insertions)
     }
 
     // MARK: - Helpers

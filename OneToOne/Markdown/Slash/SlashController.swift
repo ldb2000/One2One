@@ -86,6 +86,23 @@ final class SlashController {
     /// initialisé à `Date()` — voir `SlashDatePickerPresenter.present`).
     private let presentDatePicker: (EditorTextView, NSRect, @escaping (SlashDateSelection?) -> Void) -> Void
 
+    /// Ouvre le sélecteur d'emoji système pour l'entrée « Emoji ». Point
+    /// d'injection pour les tests — la valeur par défaut
+    /// (`presentCharacterPalette`) ouvre le vrai panneau « Caractères »
+    /// d'AppKit (`NSApp.orderFrontCharacterPalette(nil)`).
+    ///
+    /// **Limite connue, structurelle** : contrairement à `presentImagePicker`/
+    /// `presentDatePicker`, cette closure ne prend ni ne renvoie rien — la
+    /// palette système tape directement dans le premier répondant une fois un
+    /// emoji choisi (même mécanisme que le collage ou la frappe normale), et
+    /// `NSApp.orderFrontCharacterPalette(nil)` n'offre aucun callback pour
+    /// observer ce qui a été inséré, ni même *si* quelque chose l'a été
+    /// (l'utilisateur peut fermer le panneau sans rien choisir). Les tests de
+    /// cette entrée se limitent donc à vérifier que le présentateur injecté
+    /// est bien appelé — ils ne peuvent pas, et ne prétendent pas, vérifier
+    /// le texte réellement inséré.
+    private let presentEmojiPicker: () -> Void
+
     // MARK: - État
 
     /// Vrai entre l'ouverture du menu et sa fermeture (application, Échap,
@@ -100,21 +117,23 @@ final class SlashController {
     private var flatCommands: [SlashCommand] = []
     private var selectedIndex: Int = 0
 
-    /// `panel`, `presentImagePicker` et `presentDatePicker` n'ont
-    /// volontairement pas de valeur par défaut : un défaut faisant appel à un
-    /// initialiseur/une méthode `@MainActor` depuis une position de paramètre
-    /// par défaut échoue à la compilation en mode Swift 6 (isolation d'acteur
-    /// d'une expression de défaut non résolue au contexte de l'appelant) —
-    /// mesuré. L'appelant (tâche 6, ou un test) passe explicitement
-    /// `SlashPanel()`, `SlashController.presentImageOpenPanel` et
-    /// `SlashController.presentDatePickerPopover`.
+    /// `panel`, `presentImagePicker`, `presentDatePicker` et
+    /// `presentEmojiPicker` n'ont volontairement pas de valeur par défaut :
+    /// un défaut faisant appel à un initialiseur/une méthode `@MainActor`
+    /// depuis une position de paramètre par défaut échoue à la compilation en
+    /// mode Swift 6 (isolation d'acteur d'une expression de défaut non
+    /// résolue au contexte de l'appelant) — mesuré. L'appelant (tâche 6, ou un
+    /// test) passe explicitement `SlashPanel()`, `SlashController.
+    /// presentImageOpenPanel`, `SlashController.presentDatePickerPopover` et
+    /// `SlashController.presentCharacterPalette`.
     init(
         textView: EditorTextView,
         features: Set<MarkdownFeature>,
         panel: SlashPanel,
         cancelPendingWrite: @escaping () -> Void,
         presentImagePicker: @escaping (@escaping (URL?) -> Void) -> Void,
-        presentDatePicker: @escaping (EditorTextView, NSRect, @escaping (SlashDateSelection?) -> Void) -> Void
+        presentDatePicker: @escaping (EditorTextView, NSRect, @escaping (SlashDateSelection?) -> Void) -> Void,
+        presentEmojiPicker: @escaping () -> Void
     ) {
         self.textView = textView
         self.features = features
@@ -122,6 +141,7 @@ final class SlashController {
         self.cancelPendingWrite = cancelPendingWrite
         self.presentImagePicker = presentImagePicker
         self.presentDatePicker = presentDatePicker
+        self.presentEmojiPicker = presentEmojiPicker
         panel.onSelect = { [weak self] command in self?.apply(command) }
     }
 
@@ -393,6 +413,8 @@ final class SlashController {
                 guard let self, let textView, let selection else { return }
                 self.insertDate(selection, at: applyLocation, in: textView)
             }
+        case .presentEmojiPicker:
+            presentEmojiCharacterPalette(in: textView)
         }
     }
 
@@ -690,6 +712,19 @@ final class SlashController {
         textView.insertText(text, replacementRange: NSRange(location: safeLocation, length: 0))
     }
 
+    /// Ouvre le sélecteur d'emoji système (`presentEmojiPicker`, injecté —
+    /// voir sa doc pour la limite connue : aucun callback, aucune
+    /// vérification possible de ce qui est réellement inséré).
+    /// `stripRiskyTypingAttributes` **avant** l'ouverture (piège 6, même
+    /// parade que pour le séparateur/la date) : la palette insère l'emoji
+    /// choisi dans le premier répondant via `typingAttributes`, comme une
+    /// frappe normale — sans ce nettoyage, un emoji choisi juste après du
+    /// texte en gras ou du code inline hériterait de `.mdBold`/`.mdInlineCode`.
+    private func presentEmojiCharacterPalette(in textView: EditorTextView) {
+        stripRiskyTypingAttributes(in: textView)
+        presentEmojiPicker()
+    }
+
     /// Format de la partie date de l'entrée « Date » — voir `insertDate`
     /// pour la justification du choix (`dateStyle = .long`, locale `fr_FR`)
     /// contre `MarkdownEscaping.inlineSpecials`. Internal (pas `private`) :
@@ -768,6 +803,19 @@ final class SlashController {
         _ completion: @escaping (SlashDateSelection?) -> Void
     ) {
         SlashDatePickerPresenter.shared.present(near: screenRect, in: anchorView, initialDate: Date(), completion: completion)
+    }
+
+    /// Ouvre le vrai panneau « Caractères » d'AppKit (implémentation par
+    /// défaut de `presentEmojiPicker`) — sélecteur système standard, déjà
+    /// utilisé ailleurs sur macOS (menu Édition › Emoji et symboles) ; ce
+    /// projet n'en construit pas de substitut. `orderFrontCharacterPalette(nil)`
+    /// cible le premier répondant courant, pas une vue précise passée en
+    /// paramètre — c'est pourquoi cette closure, contrairement à
+    /// `presentImagePicker`/`presentDatePicker`, ne reçoit ni vue ni
+    /// callback (voir la doc de la propriété `presentEmojiPicker`).
+    @MainActor
+    static func presentCharacterPalette() {
+        NSApp.orderFrontCharacterPalette(nil)
     }
 
     // MARK: - Attributs de frappe hérités (piège 6)

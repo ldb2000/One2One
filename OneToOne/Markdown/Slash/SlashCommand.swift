@@ -23,6 +23,7 @@ struct SlashCommand: Identifiable, Equatable {
         case image
         case date
         case table
+        case emoji
     }
 
     /// Groupe d'affichage. L'ordre des cas est l'ordre d'affichage dans le
@@ -32,8 +33,8 @@ struct SlashCommand: Identifiable, Equatable {
         case basicBlocks
         case media
         /// Insertions ponctuelles de texte qui ne sont ni un bloc de base ni
-        /// un média — aujourd'hui seulement « Date ». Groupe séparé plutôt
-        /// que rattaché à `.media` : une date n'est pas un média, et
+        /// un média — « Date » puis « Emoji ». Groupe séparé plutôt que
+        /// rattaché à `.media` : ni une date ni un emoji ne sont un média, et
         /// `.media`/« Média » reste fidèle à son seul contenu actuel (Image).
         case insertions
 
@@ -89,6 +90,16 @@ struct SlashCommand: Identifiable, Equatable {
     /// contenu qui survit à un aller-retour markdown — un corps réellement
     /// vide ne le survivrait pas, voir sa doc) sur le modèle
     /// d'`insertThematicBreak`. Aucune coloration syntaxique — hors périmètre.
+    /// `.presentEmojiPicker` (« Emoji ») n'insère rien lui-même : il ouvre le
+    /// sélecteur système (`NSApp.orderFrontCharacterPalette(nil)`, cf.
+    /// `SlashController.presentCharacterPalette`), qui tape directement dans
+    /// le premier répondant une fois un emoji choisi — hors du contrôle de ce
+    /// module, même mécanisme que le collage/la frappe normale. Comme
+    /// `.insertImage`/`.insertDate`, modélisé ici sans texte à produire :
+    /// contrairement à eux, pas de sélection intermédiaire dont le résultat
+    /// (URL, date) reviendrait à `SlashController` — la palette n'a aucun
+    /// callback (limite connue, voir la doc de `SlashController.
+    /// presentEmojiPicker`).
     enum Action: Equatable {
         case convertBlock(MarkdownBlockCommands.LineBlockType)
         case convertList(ListInfo.Kind)
@@ -98,6 +109,7 @@ struct SlashCommand: Identifiable, Equatable {
         case insertImage
         case insertDate
         case insertTable
+        case presentEmojiPicker
     }
 
     let key: Key

@@ -342,6 +342,7 @@ private extension SlashCommand.Key {
         case .thematicBreak: return "minus"
         case .image: return "photo"
         case .date: return "calendar"
+        case .emoji: return "face.smiling"
         case .table: return "tablecells"
         }
     }

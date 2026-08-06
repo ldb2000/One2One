@@ -189,6 +189,16 @@ enum SlashCatalog {
             action: .insertDate,
             requiredFeature: nil
         ),
+        SlashCommand(
+            key: .emoji,
+            label: "Emoji",
+            keywords: ["emoji", "émoticône", "smiley"],
+            aliases: ["emoji", "emoticon"],
+            shortcut: nil,
+            group: .insertions,
+            action: .presentEmojiPicker,
+            requiredFeature: nil
+        ),
     ]
 
     /// Entrées visibles pour un jeu de fonctionnalités donné : celles sans
