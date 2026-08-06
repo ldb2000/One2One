@@ -368,7 +368,8 @@ final class ListEditingCommandsTests: XCTestCase {
             cancelPendingWrite: { [weak coordinator] in coordinator?.cancelPendingWrite() },
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
         coordinator.slashController = controller
         return (editor, coordinator, controller)

@@ -180,6 +180,16 @@ enum SlashCatalog {
             requiredFeature: nil
         ),
         SlashCommand(
+            key: .file,
+            label: "Fichier",
+            keywords: ["fichier", "pièce jointe", "document", "joindre"],
+            aliases: ["file", "attachment", "upload", "pdf"],
+            shortcut: nil,
+            group: .media,
+            action: .insertFile,
+            requiredFeature: nil
+        ),
+        SlashCommand(
             key: .date,
             label: "Date",
             keywords: ["date", "jour", "calendrier"],

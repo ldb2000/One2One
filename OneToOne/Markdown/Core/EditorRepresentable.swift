@@ -92,7 +92,8 @@ struct EditorRepresentable: NSViewRepresentable {
             },
             presentImagePicker: SlashController.presentImageOpenPanel,
             presentDatePicker: SlashController.presentDatePickerPopover,
-            presentEmojiPicker: SlashController.presentCharacterPalette
+            presentEmojiPicker: SlashController.presentCharacterPalette,
+            presentFilePicker: SlashController.presentFileOpenPanel
         )
         // Contrôleur du menu « @ » : seulement si l'appelant a fourni une
         // closure de recherche (`markdownMentions(search:create:)`) — voir la

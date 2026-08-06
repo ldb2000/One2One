@@ -215,7 +215,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: { cancelCount += 1 },
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("Hello ", into: editor, controller: controller) // 6 frappes, menu jamais ouvert
@@ -916,7 +917,8 @@ final class SlashControllerTests: XCTestCase {
                 completion(imageURL)
             },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/image", into: editor, controller: controller)
@@ -935,7 +937,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { completion in completion(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/image", into: editor, controller: controller)
@@ -959,7 +962,8 @@ final class SlashControllerTests: XCTestCase {
                 pickerWasInvoked = true
                 completion(Self.fixedTestSelection)
             },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -989,7 +993,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1013,7 +1018,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1041,7 +1047,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1067,7 +1074,8 @@ final class SlashControllerTests: XCTestCase {
             presentDatePicker: { _, _, completion in
                 completion(SlashDateSelection(date: Self.fixedTestDate, includesTime: true, reminder: .none))
             },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1104,7 +1112,8 @@ final class SlashControllerTests: XCTestCase {
                 capturedRect = rect
                 completion(nil)
             },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1134,7 +1143,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1175,7 +1185,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type(" /date", into: editor, controller: controller)
@@ -1213,7 +1224,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type(" /date", into: editor, controller: controller)
@@ -1249,7 +1261,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1272,7 +1285,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(Self.fixedTestSelection) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type("/date", into: editor, controller: controller)
@@ -1303,7 +1317,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: { presenterWasInvoked = true }
+            presentEmojiPicker: { presenterWasInvoked = true },
+            presentFilePicker: { $0(nil) }
         )
 
         type("/emoji", into: editor, controller: controller)
@@ -1333,7 +1348,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
 
         type(" /emoji", into: editor, controller: controller)
@@ -1569,7 +1585,8 @@ final class SlashControllerTests: XCTestCase {
             cancelPendingWrite: {},
             presentImagePicker: { $0(nil) },
             presentDatePicker: { _, _, completion in completion(nil) },
-            presentEmojiPicker: {}
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(nil) }
         )
     }
 

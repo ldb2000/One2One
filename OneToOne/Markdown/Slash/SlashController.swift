@@ -65,6 +65,13 @@ final class SlashController {
     /// par défaut (`presentImageOpenPanel`) ouvre un vrai `NSOpenPanel`.
     private let presentImagePicker: (@escaping (URL?) -> Void) -> Void
 
+    /// Ouvre le sélecteur de fichier pour l'entrée « Fichier » et renvoie
+    /// l'URL choisie (`nil` si annulé) — même forme que `presentImagePicker`,
+    /// mais sans restriction de type de contenu (spec : PDF, zip, archive…).
+    /// Point d'injection pour les tests — la valeur par défaut
+    /// (`presentFileOpenPanel`) ouvre un vrai `NSOpenPanel`.
+    private let presentFilePicker: (@escaping (URL?) -> Void) -> Void
+
     /// Ouvre le sélecteur de date pour l'entrée « Date » et renvoie la
     /// sélection choisie via `completion` — **`nil` signifie annulation** :
     /// rien n'a été validé, l'appelant ne doit ni insérer de texte ni muter
@@ -117,15 +124,16 @@ final class SlashController {
     private var flatCommands: [SlashCommand] = []
     private var selectedIndex: Int = 0
 
-    /// `panel`, `presentImagePicker`, `presentDatePicker` et
-    /// `presentEmojiPicker` n'ont volontairement pas de valeur par défaut :
-    /// un défaut faisant appel à un initialiseur/une méthode `@MainActor`
-    /// depuis une position de paramètre par défaut échoue à la compilation en
-    /// mode Swift 6 (isolation d'acteur d'une expression de défaut non
-    /// résolue au contexte de l'appelant) — mesuré. L'appelant (tâche 6, ou un
-    /// test) passe explicitement `SlashPanel()`, `SlashController.
-    /// presentImageOpenPanel`, `SlashController.presentDatePickerPopover` et
-    /// `SlashController.presentCharacterPalette`.
+    /// `panel`, `presentImagePicker`, `presentDatePicker`,
+    /// `presentEmojiPicker` et `presentFilePicker` n'ont volontairement pas
+    /// de valeur par défaut : un défaut faisant appel à un initialiseur/une
+    /// méthode `@MainActor` depuis une position de paramètre par défaut
+    /// échoue à la compilation en mode Swift 6 (isolation d'acteur d'une
+    /// expression de défaut non résolue au contexte de l'appelant) — mesuré.
+    /// L'appelant (tâche 6, ou un test) passe explicitement `SlashPanel()`,
+    /// `SlashController.presentImageOpenPanel`, `SlashController.
+    /// presentDatePickerPopover`, `SlashController.presentCharacterPalette`
+    /// et `SlashController.presentFileOpenPanel`.
     init(
         textView: EditorTextView,
         features: Set<MarkdownFeature>,
@@ -133,7 +141,8 @@ final class SlashController {
         cancelPendingWrite: @escaping () -> Void,
         presentImagePicker: @escaping (@escaping (URL?) -> Void) -> Void,
         presentDatePicker: @escaping (EditorTextView, NSRect, @escaping (SlashDateSelection?) -> Void) -> Void,
-        presentEmojiPicker: @escaping () -> Void
+        presentEmojiPicker: @escaping () -> Void,
+        presentFilePicker: @escaping (@escaping (URL?) -> Void) -> Void
     ) {
         self.textView = textView
         self.features = features
@@ -142,6 +151,7 @@ final class SlashController {
         self.presentImagePicker = presentImagePicker
         self.presentDatePicker = presentDatePicker
         self.presentEmojiPicker = presentEmojiPicker
+        self.presentFilePicker = presentFilePicker
         panel.onSelect = { [weak self] command in self?.apply(command) }
     }
 
@@ -415,6 +425,11 @@ final class SlashController {
             }
         case .presentEmojiPicker:
             presentEmojiCharacterPalette(in: textView)
+        case .insertFile:
+            presentFilePicker { [weak self, weak textView] url in
+                guard let self, let textView, let url else { return }
+                self.insertFile(url, at: applyLocation, in: textView)
+            }
         }
     }
 
@@ -673,6 +688,43 @@ final class SlashController {
         textView.insertImagePlaceholder(for: url)
     }
 
+    /// Insère un lien markdown vers un fichier joint : copie `sourceURL`
+    /// (choisie par `presentFilePicker`) dans le stockage de l'app via
+    /// `MediaStore.saveFile(from:)` — jamais l'URL d'origine, qui peut être
+    /// déplacée ou supprimée après coup, voir sa doc — puis insère
+    /// `destination.lastPathComponent` (le nom d'origine, préservé tel quel
+    /// par `saveFile`) comme libellé d'un lien `.mdLink` pointant vers la
+    /// copie. Même patron qu'`insertDate`/`MentionController.insertMention` :
+    /// pas de placeholder image, un fichier joint n'a aucun rendu visuel
+    /// (`StyleRenderer` ne connaît que `.mdImageURL`, jamais posé ici) — juste
+    /// du texte simple porteur de `.mdLink`, exactement comme `"@nom"` pour
+    /// une mention. Le libellé n'a besoin d'aucun échappement manuel ici :
+    /// `MarkdownEscaping.escapeInline` s'applique déjà à **tout** run inline à
+    /// la sérialisation (`MarkdownSerializer.emitInline`), lien ou non — voir
+    /// le rapport de tâche pour la mesure d'aller-retour sur un nom contenant
+    /// `[`, `]`, `(`, `)`, espaces et accents.
+    ///
+    /// Si la copie échoue (`saveFile` renvoie `nil` — disque plein,
+    /// permissions…), rien n'est inséré : même échec silencieux assumé que
+    /// `EditorTextView.paste` pour une image collée dont l'écriture disque
+    /// échoue (voir sa doc) — pas de UI d'erreur pour ce cas limite.
+    ///
+    /// `stripRiskyTypingAttributes` avant l'insertion (piège 6, même parade
+    /// que `insertDate`/`insertThematicBreak`/`insertTable`) : sans lui, un
+    /// fichier inséré juste après du texte en gras ou du code inline
+    /// hériterait de `.mdBold`/`.mdInlineCode` via
+    /// `insertText(_:replacementRange:)`, qui fusionne les `typingAttributes`
+    /// courants dans le texte simple qu'on lui passe pour toute clé qu'il ne
+    /// porte pas déjà — `.mdLink`, lui, est fourni explicitement sur
+    /// `insertion` et n'est donc jamais écrasé par cette fusion.
+    private func insertFile(_ sourceURL: URL, at location: Int, in textView: EditorTextView) {
+        guard let destination = MediaStore.saveFile(from: sourceURL) else { return }
+        stripRiskyTypingAttributes(in: textView)
+        let insertion = NSAttributedString(string: destination.lastPathComponent, attributes: [.mdLink: destination])
+        let safeLocation = min(location, textView.textStorage?.length ?? 0)
+        textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+    }
+
     /// Insère la date/heure de `selection` comme **lien markdown** —
     /// `docs/superpowers/specs/2026-08-05-dates-et-rappels.md` (chantier 1),
     /// exécuté ici après le popover (chantiers 4/5, livrés avant, voir
@@ -791,6 +843,19 @@ final class SlashController {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
+        completion(panel.runModal() == .OK ? panel.url : nil)
+    }
+
+    /// Ouvre un vrai sélecteur de fichier quelconque (implémentation par
+    /// défaut de `presentFilePicker`) — même style que
+    /// `presentImageOpenPanel`, mais **sans** `allowedContentTypes` :
+    /// contrairement à l'entrée « Image », « Fichier » n'est pas limitée à un
+    /// type de contenu (spec : PDF, zip, archive… n'importe quel fichier).
+    static func presentFileOpenPanel(_ completion: @escaping (URL?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
         completion(panel.runModal() == .OK ? panel.url : nil)
     }
 

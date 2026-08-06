@@ -344,6 +344,7 @@ private extension SlashCommand.Key {
         case .date: return "calendar"
         case .emoji: return "face.smiling"
         case .table: return "tablecells"
+        case .file: return "paperclip"
         }
     }
 }

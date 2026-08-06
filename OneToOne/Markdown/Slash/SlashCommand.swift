@@ -24,6 +24,7 @@ struct SlashCommand: Identifiable, Equatable {
         case date
         case table
         case emoji
+        case file
     }
 
     /// Groupe d'affichage. L'ordre des cas est l'ordre d'affichage dans le
@@ -110,6 +111,13 @@ struct SlashCommand: Identifiable, Equatable {
         case insertDate
         case insertTable
         case presentEmojiPicker
+        /// « Fichier » : ouvre un sélecteur de fichier quelconque (pas limité
+        /// aux images, contrairement à `.insertImage`), copie le fichier
+        /// choisi dans le stockage de l'app (`MediaStore.saveFile`) et insère
+        /// un **lien markdown** `[nom-du-fichier](url)` — pas un placeholder
+        /// image : un fichier joint n'a pas de rendu visuel, voir
+        /// `SlashController.insertFile`.
+        case insertFile
     }
 
     let key: Key
