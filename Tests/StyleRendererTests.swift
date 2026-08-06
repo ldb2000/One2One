@@ -63,6 +63,116 @@ final class StyleRendererTests: XCTestCase {
         XCTAssertNil(textStorage.attribute(.link, at: 0, effectiveRange: nil), "le texte hors lien ne doit pas porter `.link`")
     }
 
+    // MARK: - Rendu distinct des liens internes (chantier 2, dates-et-rappels)
+
+    /// Un lien externe garde le rendu historique — pas de fond, souligné —
+    /// contrôle négatif des deux tests suivants.
+    func test_externalLink_keepsHistoricalStyle_underlinedNoBackground() {
+        let url = URL(string: "https://example.com")!
+        let storage = NSMutableAttributedString(string: "un lien")
+        storage.addAttribute(.mdLink, value: url, range: NSRange(location: 0, length: storage.length))
+        let textStorage = NSTextStorage(attributedString: storage)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertEqual(textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, NSColor.linkColor)
+        XCTAssertEqual(
+            textStorage.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int,
+            NSUnderlineStyle.single.rawValue
+        )
+        XCTAssertNil(textStorage.attribute(.backgroundColor, at: 0, effectiveRange: nil), "un lien externe ne doit pas avoir de fond")
+    }
+
+    /// Une mention (`onetoone://collaborator/…`) doit se distinguer d'un lien
+    /// externe : fond teinté, pas de soulignement — la pastille d'AppFlowy,
+    /// sans icône (hors périmètre de ce chantier).
+    func test_mentionLink_getsDistinctStyle_backgroundNoUnderline() {
+        let url = MentionCatalog.mentionURL(for: UUID())
+        let storage = NSMutableAttributedString(string: "@Marie Dupont")
+        storage.addAttribute(.mdLink, value: url, range: NSRange(location: 0, length: storage.length))
+        let textStorage = NSTextStorage(attributedString: storage)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertNotNil(textStorage.attribute(.backgroundColor, at: 0, effectiveRange: nil), "une mention doit avoir un fond")
+        XCTAssertNil(
+            textStorage.attribute(.underlineStyle, at: 0, effectiveRange: nil),
+            "une mention ne doit pas être soulignée, contrairement à un lien externe"
+        )
+        XCTAssertNotEqual(
+            textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+            NSColor.linkColor,
+            "une mention ne doit pas garder la couleur de lien historique"
+        )
+    }
+
+    /// Une date (`onetoone://date/…`) doit elle aussi se distinguer d'un lien
+    /// externe, avec une couleur différente de celle de la mention — sinon
+    /// les deux se marcheraient dessus (mise en garde explicite de la tâche).
+    func test_dateLink_getsDistinctStyle_backgroundNoUnderline_andDiffersFromMention() {
+        let dateURL = DateLinkCatalog.dateURL(date: Date(), includesTime: false, reminder: .none)
+        let dateStorage = NSMutableAttributedString(string: "@5 août 2026")
+        dateStorage.addAttribute(.mdLink, value: dateURL, range: NSRange(location: 0, length: dateStorage.length))
+        let dateTextStorage = NSTextStorage(attributedString: dateStorage)
+        StyleRenderer.applyVisualStyle(to: dateTextStorage)
+
+        XCTAssertNotNil(dateTextStorage.attribute(.backgroundColor, at: 0, effectiveRange: nil), "une date doit avoir un fond")
+        XCTAssertNil(
+            dateTextStorage.attribute(.underlineStyle, at: 0, effectiveRange: nil),
+            "une date ne doit pas être soulignée, contrairement à un lien externe"
+        )
+
+        let mentionURL = MentionCatalog.mentionURL(for: UUID())
+        let mentionStorage = NSMutableAttributedString(string: "@Marie Dupont")
+        mentionStorage.addAttribute(.mdLink, value: mentionURL, range: NSRange(location: 0, length: mentionStorage.length))
+        let mentionTextStorage = NSTextStorage(attributedString: mentionStorage)
+        StyleRenderer.applyVisualStyle(to: mentionTextStorage)
+
+        XCTAssertNotEqual(
+            dateTextStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+            mentionTextStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+            "une date et une mention doivent avoir des couleurs distinctes"
+        )
+    }
+
+    /// Un schéma `onetoone` avec un hôte non reconnu (ni `date` ni
+    /// `collaborator` — un futur hôte encore inconnu de cette version) doit
+    /// retomber sur le rendu historique plutôt que de deviner un style :
+    /// garde-fou de `LinkVisualStyle.style(for:)`.
+    func test_onetooneLink_unknownHost_fallsBackToHistoricalStyle() {
+        let url = URL(string: "onetoone://session-done")!
+        let storage = NSMutableAttributedString(string: "texte")
+        storage.addAttribute(.mdLink, value: url, range: NSRange(location: 0, length: storage.length))
+        let textStorage = NSTextStorage(attributedString: storage)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertEqual(textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, NSColor.linkColor)
+        XCTAssertNil(textStorage.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+    }
+
+    /// Rien de visuel ne doit entrer dans le storage (piège mesuré à quatre
+    /// reprises sur cette branche) : round-trip parse → style → serialize
+    /// pour une mention et pour une date, sur le modèle de
+    /// `test_link_visualLinkAttribute_doesNotLeakIntoSerializedMarkdown`.
+    func test_mentionAndDateLinkVisualStyle_doNotLeakIntoSerializedMarkdown() {
+        let dateURL = DateLinkCatalog.dateURL(date: Date(), includesTime: false, reminder: .dayBefore)
+        let mentionURL = MentionCatalog.mentionURL(for: UUID())
+        let fixtures = [
+            "[@5 août 2026](\(dateURL.absoluteString))",
+            "[@Marie Dupont](\(mentionURL.absoluteString))",
+        ]
+
+        for markdown in fixtures {
+            let parsed = MarkdownParser.parse(markdown)
+            let textStorage = NSTextStorage(attributedString: parsed)
+
+            StyleRenderer.applyVisualStyle(to: textStorage)
+
+            XCTAssertEqual(MarkdownSerializer.serialize(textStorage), markdown, "fixture : \(markdown)")
+        }
+    }
+
     /// Un rafraîchissement qui ne repose plus `.mdLink` sur une plage qui le
     /// portait auparavant doit aussi effacer `.link` — sinon la plage reste
     /// cliquable pour AppKit alors qu'elle n'est plus un lien.

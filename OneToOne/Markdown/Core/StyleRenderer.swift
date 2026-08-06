@@ -75,8 +75,23 @@ enum StyleRenderer {
             }
 
             if let link {
-                storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
-                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                // Chantier 2 de `docs/superpowers/specs/2026-08-05-dates-et-rappels.md` :
+                // une mention, une date et un lien externe se distinguent
+                // désormais en lisant le schéma/l'hôte de l'URL — voir
+                // `LinkVisualStyle`. Tout reste purement visuel : posé ici,
+                // effacé et redérivé à chaque frappe (`removeAttribute`
+                // ci-dessus en tête de fonction), rien n'entre dans le
+                // storage ni dans `MarkdownSerializer.emitInline` (qui ne lit
+                // que `.mdLink`, jamais `.foregroundColor`/`.backgroundColor`/
+                // `.underlineStyle`).
+                let style = LinkVisualStyle.style(for: link)
+                storage.addAttribute(.foregroundColor, value: style.foreground, range: range)
+                if let background = style.background {
+                    storage.addAttribute(.backgroundColor, value: background, range: range)
+                }
+                if style.underline {
+                    storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                }
                 // Attribut natif AppKit, distinct de `.mdLink` (source de
                 // vérité markdown, lue par `MarkdownSerializer` — cf.
                 // `MarkdownSerializer.emitInline`). `.link` ne pilote que
@@ -294,6 +309,62 @@ enum StyleRenderer {
         case .codeBlock, .rawBlock: return NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         case .blockquote, .paragraph, .thematicBreak:
             return NSFont.systemFont(ofSize: baseFontSize)
+        }
+    }
+}
+
+/// Rendu visuel d'un lien `.mdLink`, choisi en lisant le schéma/l'hôte de son
+/// URL — chantier 2 de
+/// `docs/superpowers/specs/2026-08-05-dates-et-rappels.md` : « une mention,
+/// une date et une URL externe s'affichent aujourd'hui identiquement (bleu
+/// souligné) ; `StyleRenderer` ne lit jamais le schéma de l'URL ». Une
+/// mention (`onetoone://collaborator/<uuid>`, voir `MentionCatalog`) et une
+/// date (`onetoone://date/…`, voir `DateLinkCatalog`) reçoivent chacune un
+/// fond teinté et pas de soulignement (repère de « pastille », sobre : pas
+/// d'icône — hors périmètre de ce chantier, voir la spec) ; tout le reste
+/// (schéma différent de `onetoone`, ou hôte `onetoone` non reconnu — un futur
+/// hôte encore inconnu de cette version, par prudence plutôt qu'un crash ou
+/// un rendu halluciné) garde le rendu historique : couleur de lien, souligné,
+/// aucun fond.
+///
+/// Couleurs choisies parmi les couleurs système dynamiques
+/// (`NSColor.systemOrange`/`.systemIndigo`), pas des constantes RVB fixes :
+/// elles s'adaptent déjà nativement au mode sombre, comme `.labelColor`/
+/// `.linkColor` ailleurs dans ce fichier — mêmes objets `NSColor` comparés
+/// directement par les tests d'attribut (`test_heading6_getsSecondaryLabelColor…`
+/// compare déjà `NSColor.secondaryLabelColor` sans rendu offscreen), donc pas
+/// concernées par le piège des tests pixel (`NSColor.labelColor` résolu en
+/// blanc peint sur fond blanc en apparence sombre, voir la doc de
+/// `StyleRendererTests.renderToOffscreenBitmap`) : ce piège ne touche que les
+/// tests qui *peignent* et lisent des pixels, pas ceux qui comparent
+/// l'attribut `NSColor` posé.
+private struct LinkVisualStyle {
+    let foreground: NSColor
+    /// `nil` pour le rendu historique (lien externe) : `applyVisualStyle` ne
+    /// pose alors aucun `.backgroundColor`, exactement comme avant ce
+    /// chantier.
+    let background: NSColor?
+    let underline: Bool
+
+    private static let externalLink = LinkVisualStyle(foreground: .linkColor, background: nil, underline: true)
+
+    static func style(for url: URL) -> LinkVisualStyle {
+        guard url.scheme == "onetoone" else { return externalLink }
+        switch url.host {
+        case "date":
+            return LinkVisualStyle(
+                foreground: .systemOrange,
+                background: NSColor.systemOrange.withAlphaComponent(0.14),
+                underline: false
+            )
+        case "collaborator":
+            return LinkVisualStyle(
+                foreground: .systemIndigo,
+                background: NSColor.systemIndigo.withAlphaComponent(0.14),
+                underline: false
+            )
+        default:
+            return externalLink
         }
     }
 }
