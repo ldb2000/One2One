@@ -31,6 +31,7 @@ enum TableEditCommands {
     /// le choix du clavier plutôt que du menu `/`.
     enum Gesture {
         case addRowBelow
+        case addColumnRight
     }
 
     // MARK: - Ajouter une ligne
@@ -47,6 +48,33 @@ enum TableEditCommands {
 
         let start = tableStart(in: storage, at: location)
         performInsertRow(afterRow: info.row, anchor: start, in: textView, storage: storage)
+        return true
+    }
+
+    // MARK: - Ajouter une colonne
+
+    /// Insère une nouvelle colonne vide (une cellule par rangée) juste à
+    /// droite de la colonne portant le curseur. `false` (aucun effet) si le
+    /// curseur n'est pas dans une cellule de tableau.
+    @discardableResult
+    static func addColumnRight(in textView: NSTextView) -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else { return false }
+        let location = min(textView.selectedRange().location, storage.length - 1)
+        guard let info = storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo
+        else { return false }
+
+        let start = tableStart(in: storage, at: location)
+        let allCells = cellsOfTable(startingAt: start, tableID: info.tableID, in: storage)
+        let newColumnCount = info.columnCount + 1
+        var content: [Int: NSAttributedString] = [:]
+        for row in Set(allCells.map({ $0.info.row })) {
+            let cellInfo = TableCellInfo(tableID: info.tableID, row: row, column: info.column + 1,
+                                         columnCount: newColumnCount, alignment: nil)
+            content[row] = NSAttributedString(string: "\n", attributes: [.mdTableCell: cellInfo])
+        }
+
+        performInsertColumn(afterColumn: info.column, content: content, focusRow: info.row,
+                            anchor: start, in: textView, storage: storage)
         return true
     }
 
@@ -193,6 +221,118 @@ enum TableEditCommands {
 
         textView.undoManager?.registerUndo(withTarget: textView) { tv in
             performInsertRowContent(afterRow: row - 1, content: removedContent, anchor: start, in: tv, storage: storage)
+        }
+    }
+
+    // MARK: - Primitives colonne (partagées ajout / suppression, undo réciproque)
+
+    /// Insère une nouvelle colonne, une cellule par rangée fournie par
+    /// `content` (déjà porteuse de sa `TableCellInfo` finale — vide côté
+    /// `addColumnRight`, contenu original capturé côté annulation de
+    /// `performRemoveColumn`), juste après la colonne `afterColumn` du
+    /// tableau atteint depuis `anchor`. Renumérote `column` (+1, colonnes à
+    /// droite de `afterColumn`) **et** `columnCount` (+1, **toutes** les
+    /// cellules — `columnCount` est dupliqué sur chacune, voir la doc de
+    /// `TableCellInfo`), en une passe d'attributs qui précède toute
+    /// insertion de texte (positions capturées dans `allCells` donc encore
+    /// valides). Insère ensuite rangée par rangée, de la dernière à la
+    /// première (position document décroissante) : une insertion dans une
+    /// rangée ne décale alors jamais la position déjà capturée d'une rangée
+    /// pas encore traitée. `focusRow` : rangée où placer le curseur après
+    /// coup (celle du geste initial, transmise telle quelle à travers la
+    /// chaîne d'annulation/rétablissement). Racine de `addColumnRight`
+    /// (geste direct) et de l'annulation de `performRemoveColumn` — même
+    /// schéma que `performInsertRowContent`/
+    /// `BlockMoveCommands.swapAdjacentBlocks`.
+    private static func performInsertColumn(
+        afterColumn: Int, content: [Int: NSAttributedString], focusRow: Int,
+        anchor: Int, in textView: NSTextView, storage: NSTextStorage
+    ) {
+        let start = tableStart(in: storage, at: anchor)
+        guard let tableID = (storage.attribute(.mdTableCell, at: start, effectiveRange: nil) as? TableCellInfo)?.tableID
+        else { return }
+        let allCells = cellsOfTable(startingAt: start, tableID: tableID, in: storage)
+        guard let oldColumnCount = allCells.first?.info.columnCount else { return }
+        let newColumnCount = oldColumnCount + 1
+        let byRow = Dictionary(grouping: allCells, by: { $0.info.row })
+
+        storage.beginEditing()
+        for cell in allCells {
+            let newColumn = cell.info.column > afterColumn ? cell.info.column + 1 : cell.info.column
+            let updated = TableCellInfo(tableID: tableID, row: cell.info.row, column: newColumn,
+                                        columnCount: newColumnCount, alignment: cell.info.alignment)
+            storage.addAttribute(.mdTableCell, value: updated, range: cell.range)
+        }
+        var insertLocationByRow: [Int: Int] = [:]
+        for row in byRow.keys.sorted(by: >) {
+            guard let target = byRow[row]?.first(where: { $0.info.column == afterColumn }) else { continue }
+            let insertLocation = target.range.location + target.range.length
+            insertLocationByRow[row] = insertLocation
+            let cellContent = content[row] ?? NSAttributedString(
+                string: "\n",
+                attributes: [.mdTableCell: TableCellInfo(tableID: tableID, row: row, column: afterColumn + 1,
+                                                          columnCount: newColumnCount, alignment: nil)]
+            )
+            storage.replaceCharacters(in: NSRange(location: insertLocation, length: 0), with: cellContent)
+        }
+        storage.endEditing()
+
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: NSRange(location: start, length: 0))
+        textView.didChangeText()
+        let cursorLocation = insertLocationByRow[focusRow] ?? start
+        textView.setSelectedRange(NSRange(location: min(cursorLocation, storage.length), length: 0))
+
+        textView.undoManager?.registerUndo(withTarget: textView) { tv in
+            performRemoveColumn(column: afterColumn + 1, focusRow: focusRow, anchor: start, in: tv, storage: storage)
+        }
+    }
+
+    /// Retire la colonne `column` (une cellule par rangée) du tableau
+    /// atteint depuis `anchor` ; renumérote `column` (-1, colonnes à droite)
+    /// et `columnCount` (-1, **toutes** les cellules). Capture le texte
+    /// attribué retiré, par rangée, pour le réinsérer identique au
+    /// rétablissement (⇧⌘Z) via `performInsertColumn` — sans quoi le
+    /// contenu réel d'une colonne supprimée (pas seulement une colonne vide
+    /// fraîchement ajoutée) serait perdu à l'annulation.
+    private static func performRemoveColumn(
+        column: Int, focusRow: Int, anchor: Int, in textView: NSTextView, storage: NSTextStorage
+    ) {
+        let start = tableStart(in: storage, at: anchor)
+        guard let tableID = (storage.attribute(.mdTableCell, at: start, effectiveRange: nil) as? TableCellInfo)?.tableID
+        else { return }
+        let allCells = cellsOfTable(startingAt: start, tableID: tableID, in: storage)
+        guard let oldColumnCount = allCells.first?.info.columnCount else { return }
+        let newColumnCount = oldColumnCount - 1
+        let byRow = Dictionary(grouping: allCells, by: { $0.info.row })
+
+        var capturedContent: [Int: NSAttributedString] = [:]
+        for cell in allCells where cell.info.column == column {
+            capturedContent[cell.info.row] = storage.attributedSubstring(from: cell.range)
+        }
+
+        storage.beginEditing()
+        for cell in allCells where cell.info.column != column {
+            let newColumn = cell.info.column > column ? cell.info.column - 1 : cell.info.column
+            let updated = TableCellInfo(tableID: tableID, row: cell.info.row, column: newColumn,
+                                        columnCount: newColumnCount, alignment: cell.info.alignment)
+            storage.addAttribute(.mdTableCell, value: updated, range: cell.range)
+        }
+        var cursorLocationByRow: [Int: Int] = [:]
+        for row in byRow.keys.sorted(by: >) {
+            guard let target = byRow[row]?.first(where: { $0.info.column == column }) else { continue }
+            cursorLocationByRow[row] = target.range.location
+            storage.replaceCharacters(in: target.range, with: "")
+        }
+        storage.endEditing()
+
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: NSRange(location: start, length: 0))
+        textView.didChangeText()
+        let cursorLocation = cursorLocationByRow[focusRow] ?? start
+        textView.setSelectedRange(NSRange(location: min(cursorLocation, storage.length), length: 0))
+
+        textView.undoManager?.registerUndo(withTarget: textView) { tv in
+            performInsertColumn(afterColumn: column - 1, content: capturedContent, focusRow: focusRow,
+                                anchor: start, in: tv, storage: storage)
         }
     }
 }

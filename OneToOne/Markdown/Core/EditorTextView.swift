@@ -87,6 +87,9 @@ final class EditorTextView: NSTextView {
     /// pour deux constantes.
     private static let upArrowKeyCode: UInt16 = 0x7E
     private static let downArrowKeyCode: UInt16 = 0x7D
+    /// Code matériel de la flèche Droite — voir la doc de
+    /// `onTableEditCommand` : ⌘⌥→ ajoute une colonne à droite.
+    private static let rightArrowKeyCode: UInt16 = 0x7C
 
     /// Modificateurs qui distinguent réellement une combinaison — masque
     /// volontairement `.capsLock`/`.numericPad`/`.function`/`.help`, que
@@ -128,6 +131,9 @@ final class EditorTextView: NSTextView {
             switch event.keyCode {
             case Self.downArrowKeyCode:
                 handler(.addRowBelow)
+                return
+            case Self.rightArrowKeyCode:
+                handler(.addColumnRight)
                 return
             default:
                 break

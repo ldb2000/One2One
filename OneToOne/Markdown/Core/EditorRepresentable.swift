@@ -350,6 +350,8 @@ struct EditorRepresentable: NSViewRepresentable {
             switch gesture {
             case .addRowBelow:
                 TableEditCommands.addRowBelow(in: tv)
+            case .addColumnRight:
+                TableEditCommands.addColumnRight(in: tv)
             }
         }
 

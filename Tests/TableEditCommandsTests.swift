@@ -161,6 +161,217 @@ final class TableEditCommandsTests: XCTestCase {
         XCTAssertEqual(rows, [0, 1, 2, 3], "4 rangées après reparse")
     }
 
+    // MARK: - Ajouter une colonne
+
+    func test_addColumnRight_insertsAnEmptyColumnRightAfterTheCursorsColumn() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0)) // colonne 0
+
+        let handled = TableEditCommands.addColumnRight(in: editor)
+
+        XCTAssertTrue(handled)
+        // Une nouvelle cellule vide ("\n") insérée après chaque cellule de
+        // colonne 0 ("A", "1", "3"), avant la colonne 1 existante.
+        XCTAssertEqual(storage.string, "A\n\nB\n1\n\n2\n3\n\n4")
+    }
+
+    func test_addColumnRight_otherCellsSurviveWithCorrectTableCellInfo() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        _ = TableEditCommands.addColumnRight(in: editor)
+
+        let ns = storage.string as NSString
+        func info(at substring: String) throws -> TableCellInfo {
+            let location = ns.range(of: substring).location
+            return try XCTUnwrap(storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo)
+        }
+
+        let a = try info(at: "A")
+        XCTAssertEqual(a.row, 0)
+        XCTAssertEqual(a.column, 0, "colonne 0 inchangée")
+        XCTAssertEqual(a.columnCount, 3, "columnCount doit augmenter sur TOUTES les cellules, y compris celles non déplacées")
+
+        // "B" était colonne 1, doit devenir colonne 2 (décalée à droite de
+        // la nouvelle colonne).
+        let b = try info(at: "B")
+        XCTAssertEqual(b.column, 2)
+        XCTAssertEqual(b.columnCount, 3)
+
+        let one = try info(at: "1")
+        XCTAssertEqual(one.row, 1)
+        XCTAssertEqual(one.column, 0)
+        let two = try info(at: "2")
+        XCTAssertEqual(two.column, 2)
+
+        let three = try info(at: "3")
+        XCTAssertEqual(three.row, 2)
+        XCTAssertEqual(three.column, 0)
+        let four = try info(at: "4")
+        XCTAssertEqual(four.column, 2)
+
+        XCTAssertEqual(a.tableID, one.tableID)
+        XCTAssertEqual(a.tableID, four.tableID)
+    }
+
+    /// La nouvelle colonne elle-même : une cellule vide par rangée, colonne
+    /// 1, alignement `nil` (pas d'alignement établi pour une colonne neuve).
+    func test_addColumnRight_newColumnHasEmptyCellsWithCorrectInfo() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        _ = TableEditCommands.addColumnRight(in: editor)
+
+        // "A\n\nB\n1\n\n2\n3\n\n4" : la nouvelle cellule de la rangée 0 est le
+        // "\n" isolé entre "A\n" et "B".
+        let ns = storage.string as NSString
+        let aLocation = ns.range(of: "A").location
+        let newCellRow0 = aLocation + 2 // après "A\n"
+        let info0 = try XCTUnwrap(storage.attribute(.mdTableCell, at: newCellRow0, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(info0.row, 0)
+        XCTAssertEqual(info0.column, 1)
+        XCTAssertEqual(info0.columnCount, 3)
+        XCTAssertNil(info0.alignment)
+
+        let oneLoc = ns.range(of: "1").location
+        let newCellRow1 = oneLoc + 2 // après "1\n"
+        let info1 = try XCTUnwrap(storage.attribute(.mdTableCell, at: newCellRow1, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(info1.row, 1)
+        XCTAssertEqual(info1.column, 1)
+    }
+
+    /// Colonne cursor la plus à droite : la nouvelle colonne s'ajoute en fin
+    /// de chaque rangée.
+    func test_addColumnRight_onRightmostColumn_appendsAtTheRowEnd() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0)) // colonne 1 (dernière)
+
+        _ = TableEditCommands.addColumnRight(in: editor)
+
+        XCTAssertEqual(storage.string, "A\nB\n\n1\n2\n\n3\n4\n")
+        let fourInfo = try XCTUnwrap(storage.attribute(.mdTableCell, at: (storage.string as NSString).range(of: "4").location, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(fourInfo.column, 1, "colonne 1 (« 4 ») inchangée, la nouvelle colonne est à sa droite (colonne 2)")
+    }
+
+    func test_addColumnRight_cursorOutsideTable_isANoOp() throws {
+        let (editor, _) = makeWiredEditor(markdown: "Paragraphe\n\n" + table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let handled = TableEditCommands.addColumnRight(in: editor)
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(storage.string, "Paragraphe\nA\nB\n1\n2\n3\n4")
+    }
+
+    // MARK: - Aller-retour markdown (colonne)
+
+    func test_addColumnRight_roundTripsCorrectly() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        _ = TableEditCommands.addColumnRight(in: editor)
+
+        let md = serialized(editor)
+        XCTAssertEqual(md, "| A |  | B |\n| --- | --- | --- |\n| 1 |  | 2 |\n| 3 |  | 4 |",
+                       "3 colonnes après ajout, séparateur suivant")
+
+        let reparsed = NSTextStorage(attributedString: MarkdownParser.parse(md))
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), md, "round-trip stable")
+        var columnCounts: Set<Int> = []
+        reparsed.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: reparsed.length)) { value, _, _ in
+            guard let info = value as? TableCellInfo else { return }
+            columnCounts.insert(info.columnCount)
+        }
+        XCTAssertEqual(columnCounts, [3], "columnCount == 3 sur toutes les cellules après reparse")
+    }
+
+    // MARK: - Rendu (colonne) : `NSTextTable` toujours partagée après l'insertion
+
+    func test_addColumnRight_allCellsShareTheSameNSTextTableInstanceAfterward() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        _ = TableEditCommands.addColumnRight(in: editor)
+
+        var tables: [ObjectIdentifier] = []
+        var blockCount = 0
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            guard let style = value as? NSParagraphStyle,
+                  let block = style.textBlocks.first as? NSTextTableBlock else { return }
+            blockCount += 1
+            tables.append(ObjectIdentifier(block.table))
+        }
+        // 3 rangées × 3 colonnes (2 originales + 1 nouvelle).
+        XCTAssertEqual(blockCount, 9)
+        XCTAssertEqual(Set(tables).count, 1, "toutes les cellules, y compris la nouvelle colonne, doivent partager la même NSTextTable")
+    }
+
+    // MARK: - Annulation (colonne)
+
+    func test_undoingAnAddColumn_restoresThePreviousStorage_andRedoReappliesIt() throws {
+        let (editor, window) = makeWiredEditorInWindow(markdown: table)
+        XCTAssertNotNil(editor.window, "prémisse : la vue doit être rattachée à \(window) pour que undoManager résolve")
+        let storage = try XCTUnwrap(editor.textStorage)
+        let originalString = storage.string
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        editor.undoManager?.beginUndoGrouping()
+        XCTAssertTrue(TableEditCommands.addColumnRight(in: editor))
+        editor.undoManager?.endUndoGrouping()
+        XCTAssertEqual(storage.string, "A\n\nB\n1\n\n2\n3\n\n4")
+        XCTAssertEqual(editor.undoManager?.canUndo, true, "l'ajout doit s'être enregistré auprès de l'undo manager")
+
+        editor.undoManager?.undo()
+        XCTAssertEqual(storage.string, originalString, "⌘Z doit défaire l'ajout de colonne")
+        XCTAssertEqual(serialized(editor), "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |")
+        let bInfo = try XCTUnwrap(storage.attribute(.mdTableCell, at: (storage.string as NSString).range(of: "B").location, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(bInfo.column, 1, "la renumérotation doit elle aussi être défaite (retour à column 1)")
+        XCTAssertEqual(bInfo.columnCount, 2)
+
+        editor.undoManager?.redo()
+        XCTAssertEqual(storage.string, "A\n\nB\n1\n\n2\n3\n\n4", "⇧⌘Z doit rétablir l'ajout")
+    }
+
+    // MARK: - Câblage clavier réel (⌘⌥→ synthétique, colonne)
+
+    func test_realCommandOptionRightArrowKeyEvent_addsAColumnRight() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        editor.keyDown(with: try commandOptionArrowEvent(keyCode: 0x7C)) // flèche droite
+
+        XCTAssertEqual(storage.string, "A\n\nB\n1\n\n2\n3\n\n4")
+    }
+
+    func test_whileSlashMenuOpen_addColumnRight_doesNotRun() throws {
+        let (editor, coordinator, controller) = makeWiredCoordinator(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+        type("/", into: editor)
+        XCTAssertTrue(controller.isOpen, "prémisse : le menu doit être ouvert")
+
+        coordinator.performTableEdit(.addColumnRight)
+
+        XCTAssertEqual(storage.string, "A\nB\n/1\n2\n3\n4", "l'ajout ne doit pas s'exécuter, menu ouvert")
+    }
+
     // MARK: - Rendu : `NSTextTable` toujours partagée après l'insertion
 
     /// `StyleRenderer` doit reconstruire une grille cohérente après
