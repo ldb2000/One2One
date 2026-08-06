@@ -334,6 +334,7 @@ private extension SlashCommand.Key {
         case .orderedList: return "list.number"
         case .taskList: return "checklist"
         case .blockquote: return "text.quote"
+        case .callout: return "lightbulb"
         case .thematicBreak: return "minus"
         case .image: return "photo"
         case .date: return "calendar"

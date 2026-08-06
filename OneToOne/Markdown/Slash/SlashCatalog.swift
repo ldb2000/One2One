@@ -97,6 +97,16 @@ enum SlashCatalog {
             requiredFeature: .blockquote
         ),
         SlashCommand(
+            key: .callout,
+            label: "Encadré",
+            keywords: ["encadré", "remarque", "astuce", "mise en avant"],
+            aliases: ["callout", "note", "tip"],
+            shortcut: nil,
+            group: .basicBlocks,
+            action: .insertCallout,
+            requiredFeature: .blockquote
+        ),
+        SlashCommand(
             key: .thematicBreak,
             label: "Séparateur",
             keywords: ["séparateur", "ligne horizontale", "trait"],

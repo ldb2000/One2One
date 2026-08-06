@@ -16,6 +16,7 @@ struct SlashCommand: Identifiable, Equatable {
         case heading1, heading2, heading3
         case bulletList, orderedList, taskList
         case blockquote
+        case callout
         case thematicBreak
         case image
         case date
@@ -67,10 +68,20 @@ struct SlashCommand: Identifiable, Equatable {
     /// `MarkdownBlockCommands.LineBlockType` (`setBlockType` ne sait muter
     /// qu'une ligne existante en un type qui tient sur une seule ligne —
     /// un tableau, lui, est une grille de plusieurs paragraphes-cellules).
-    /// Voir `SlashController.insertTable`.
+    /// Voir `SlashController.insertTable`. `.insertCallout` (« Encadré »)
+    /// n'est pas davantage une simple conversion : c'est une citation
+    /// (`MarkdownBlockCommands.LineBlockType.blockquote`, mécanisme inchangé)
+    /// précédée du texte littéral `"💡 "` — `SlashController.applyCallout`
+    /// insère ce préfixe puis délègue à `applyBlockConversion(.blockquote, …)`
+    /// pour poser `.mdBlockType` sur la ligne entière, préfixe compris. Aucun
+    /// nouveau `BlockType`/`LineBlockType` : un encadré sérialise en
+    /// `"> 💡 texte"`, une citation ordinaire dont `BlockquoteRuleLayout`
+    /// peint déjà le filet — l'emoji est ce qui la distingue visuellement
+    /// d'une citation, pas un attribut séparé.
     enum Action: Equatable {
         case convertBlock(MarkdownBlockCommands.LineBlockType)
         case convertList(ListInfo.Kind)
+        case insertCallout
         case insertThematicBreak
         case insertImage
         case insertDate

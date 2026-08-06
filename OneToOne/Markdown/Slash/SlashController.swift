@@ -369,6 +369,8 @@ final class SlashController {
             applyBlockConversion(type, at: applyLocation, in: textView)
         case .convertList(let kind):
             applyListConversion(kind, at: applyLocation, in: textView)
+        case .insertCallout:
+            applyCallout(at: applyLocation, in: textView)
         case .insertThematicBreak:
             insertThematicBreak(at: applyLocation, in: textView)
         case .insertTable:
@@ -429,6 +431,56 @@ final class SlashController {
         textView.didChangeText()
         let resultingInfo = storage.attribute(.mdListInfo, at: range.location, effectiveRange: nil) as? ListInfo
         primeTypingAttributes(blockType: .paragraph, listInfo: resultingInfo, in: textView)
+    }
+
+    /// Insère un « encadré » (callout) : une citation ordinaire — donc
+    /// `applyBlockConversion(.blockquote, …)`, réutilisée sans modification —
+    /// précédée du texte littéral `"💡 "`. Aucun mécanisme nouveau : le
+    /// round-trip d'une citation est déjà acquis (`> texte`) et
+    /// `BlockquoteRuleLayout` peint déjà le filet ; c'est l'emoji en tête de
+    /// ligne qui distingue visuellement l'encadré d'une citation ordinaire.
+    ///
+    /// Le préfixe est inséré **avant** `applyBlockConversion`, en tête de la
+    /// ligne du curseur (`range.location`, pas `location` lui-même — `/encadré`
+    /// tapé au milieu d'une ligne non vide doit produire `"> 💡 texte"`, pas
+    /// `"texte💡 "` ni un préfixe planté au milieu du contenu existant). Cet
+    /// ordre garantit aussi que la ligne est **toujours non vide** au moment
+    /// où `applyBlockConversion` s'exécute (au pire `"💡 "` seul, sur une
+    /// ligne vide au départ) : son unique embranchement réel — celui qui mute
+    /// les attributs des caractères existants via
+    /// `MarkdownBlockCommands.setBlockType` — s'applique donc uniformément,
+    /// sans dupliquer ici sa distinction ligne vide/non vide (déjà traitée en
+    /// tête d'`applyBlockConversion`, voir sa doc).
+    ///
+    /// `stripRiskyTypingAttributes` avant l'insertion du préfixe (piège 6,
+    /// même parade que `insertThematicBreak`/`insertTable`/`insertDate`) :
+    /// sans ça, un encadré inséré juste après du texte en gras ou du code
+    /// inline hériterait de `.mdBold`/`.mdInlineCode` via
+    /// `insertText(_:replacementRange:)`, qui fusionne les `typingAttributes`
+    /// courants dans le texte simple qu'on lui passe.
+    ///
+    /// `setSelectedRange(_:)` **avant** de nettoyer les `typingAttributes` —
+    /// pas seulement avant d'insérer : mesuré (test `test_applyingCallout_
+    /// afterInlineCode_prefixDoesNotInheritInlineCode`, provoqué par mutation
+    /// de cet ordre), `typingAttributes` n'est fiable que pour la sélection
+    /// *courante* — ici la fin de la requête effacée par `apply()`, qui n'est
+    /// pas forcément `range.location` (`/encadré` tapé au milieu d'une ligne
+    /// non vide laisse le curseur après le mot précédent, pas en tête de
+    /// ligne). Sans ce déplacement d'abord, `insertText` avec un
+    /// `replacementRange` distinct de la sélection courante ne consulte pas
+    /// `typingAttributes` du tout : il retombe sur les attributs du
+    /// caractère voisin du point d'insertion réel — ici potentiellement
+    /// `.mdInlineCode` du contenu existant, que `stripRiskyTypingAttributes`
+    /// n'aurait alors jamais eu l'occasion de retirer puisqu'il ne modifie
+    /// que `typingAttributes`, pas cet attribut de secours.
+    private func applyCallout(at location: Int, in textView: EditorTextView) {
+        guard let storage = textView.textStorage else { return }
+        let range = MarkdownBlockCommands.lineRange(in: storage, at: location)
+        let safeLocation = min(range.location, storage.length)
+        textView.setSelectedRange(NSRange(location: safeLocation, length: 0))
+        stripRiskyTypingAttributes(in: textView)
+        textView.insertText("💡 ", replacementRange: textView.selectedRange())
+        applyBlockConversion(.blockquote, at: safeLocation, in: textView)
     }
 
     /// Insère une **nouvelle** ligne portant `.mdBlockType = .thematicBreak`,

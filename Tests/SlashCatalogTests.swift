@@ -53,6 +53,16 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertFalse(command.matches("zzz introuvable"))
     }
 
+    /// « Encadré » (callout) doit se trouver via son libellé et un mot-clé
+    /// absent du libellé (« astuce ») — même forme de preuve que
+    /// `test_matches_table_onLabelKeywordAndAlias`.
+    func test_matches_callout_onLabelAndKeyword() {
+        let command = command(.callout)
+        XCTAssertTrue(command.matches("Encadré"))
+        XCTAssertTrue(command.matches("astuce"))
+        XCTAssertTrue(command.matches("callout"))
+    }
+
     func test_matches_emptyQuery_matchesEverything() {
         for entry in SlashCatalog.all {
             XCTAssertTrue(entry.matches(""), "\(entry.key) devrait matcher une requête vide")
@@ -139,6 +149,20 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertFalse(keys.contains(.thematicBreak))
     }
 
+    /// « Encadré » partage la fonctionnalité `.blockquote` : c'est la même
+    /// citation, juste préfixée d'un emoji (voir la doc de
+    /// `SlashCommand.Action.insertCallout`) — pas de raison de la conditionner
+    /// séparément.
+    func test_available_basicFeature_hidesCallout() {
+        let visible = SlashCatalog.available(for: .basic)
+        XCTAssertFalse(Set(visible.map(\.key)).contains(.callout))
+    }
+
+    func test_available_blockquoteFeature_showsCallout() {
+        let visible = SlashCatalog.available(for: [.blockquote])
+        XCTAssertTrue(Set(visible.map(\.key)).contains(.callout))
+    }
+
     func test_available_fullFeature_showsEverything() {
         let visible = SlashCatalog.available(for: .full)
         XCTAssertEqual(Set(visible.map(\.key)), Set(SlashCommand.Key.allCases))
@@ -162,6 +186,12 @@ final class SlashCatalogTests: XCTestCase {
     /// ponctuelles de texte, ex. Date) ni à « Média ».
     func test_table_belongsToBasicBlocksGroup() {
         XCTAssertEqual(command(.table).group, .basicBlocks)
+    }
+
+    /// « Encadré » appartient au groupe « Blocs de base », comme la citation
+    /// dont il dérive.
+    func test_callout_belongsToBasicBlocksGroup() {
+        XCTAssertEqual(command(.callout).group, .basicBlocks)
     }
 
     // MARK: - Helpers

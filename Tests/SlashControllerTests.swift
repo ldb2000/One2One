@@ -288,6 +288,116 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "> dit quelque chose")
     }
 
+    // MARK: - Application : encadré (citation préfixée d'un emoji)
+
+    /// Ligne vide : `applyCallout` insère `"💡 "` (littéralement, pas
+    /// seulement une amorce de `typingAttributes` comme
+    /// `applyBlockConversion` seul sur ligne vide) puis délègue à
+    /// `applyBlockConversion(.blockquote, …)`, qui trouve alors une ligne
+    /// non vide et pose réellement `.mdBlockType = .blockquote` dessus — la
+    /// frappe suivante en hérite via `typingAttributes` amorcé par
+    /// `applyBlockConversion`.
+    ///
+    /// N'affirme pas seulement sur la chaîne sérialisée (`>` n'est pas dans
+    /// `MarkdownEscaping.inlineSpecials` — un paragraphe commençant par
+    /// `"> 💡 "` littéral sérialiserait à l'identique) : vérifie aussi
+    /// directement `.mdBlockType` sur le préfixe.
+    func test_applyingCallout_onEmptyLine_insertsEmojiPrefixAsABlockquote() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/encadre", into: editor, controller: controller)
+
+        applySelectedCommand(.callout, controller: controller)
+        editor.insertText("dit quelque chose", replacementRange: editor.selectedRange())
+
+        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "> 💡 dit quelque chose")
+
+        let emojiLocation = (editor.textStorage!.string as NSString).range(of: "💡").location
+        XCTAssertNotEqual(emojiLocation, NSNotFound)
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: emojiLocation, effectiveRange: nil) as? BlockType,
+            .blockquote
+        )
+    }
+
+    /// Ligne non vide, déclencheur au milieu de la ligne (« Hello /encadre ») :
+    /// le préfixe doit se planter en tête de ligne, pas au point du curseur —
+    /// résultat attendu `"> 💡 Hello"`, pas `"Hello> 💡 "` ni un préfixe
+    /// planté au milieu du mot.
+    func test_applyingCallout_onNonEmptyLine_prefixesExistingContentAtLineStart() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Hello /encadre", into: editor, controller: controller)
+
+        applySelectedCommand(.callout, controller: controller)
+
+        XCTAssertEqual(MarkdownSerializer.serialize(editor.textStorage!), "> 💡 Hello")
+        let helloLocation = (editor.textStorage!.string as NSString).range(of: "Hello").location
+        XCTAssertNotEqual(helloLocation, NSNotFound)
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: helloLocation, effectiveRange: nil) as? BlockType,
+            .blockquote,
+            "le contenu existant doit lui aussi devenir partie de l'encadré, pas seulement le préfixe"
+        )
+    }
+
+    /// Aller-retour markdown : ce que produit `applyCallout` doit reparser en
+    /// exactement le même texte affiché (préfixe compris), puis se
+    /// resérialiser à l'identique dès la 2ᵉ passe.
+    func test_applyingCallout_roundTripsThroughSerializeAndReparse() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Hello /encadre", into: editor, controller: controller)
+        applySelectedCommand(.callout, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        let reparsed = MarkdownParser.parse(serialized)
+
+        XCTAssertEqual(reparsed.string, "💡 Hello")
+        XCTAssertEqual(
+            reparsed.attribute(.mdBlockType, at: 0, effectiveRange: nil) as? BlockType,
+            .blockquote
+        )
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized)
+    }
+
+    /// Même mesure que pour le séparateur/le tableau/la date (piège 6) : sans
+    /// `stripRiskyTypingAttributes`, le préfixe 💡 inséré juste après du code
+    /// inline hériterait de `.mdInlineCode` via `insertText(_:replacementRange:)`,
+    /// qui fusionne les `typingAttributes` courants dans le texte simple
+    /// qu'on lui passe. Le contenu existant (« code »), lui, doit garder son
+    /// style inline en devenant partie de l'encadré — seul le préfixe neuf ne
+    /// doit rien hériter.
+    func test_applyingCallout_afterInlineCode_prefixDoesNotInheritInlineCode() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "code", attributes: [.mdInlineCode: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = makeController(for: editor)
+
+        type(" /encadre", into: editor, controller: controller)
+        applySelectedCommand(.callout, controller: controller)
+
+        XCTAssertEqual(editor.textStorage!.string, "💡 code")
+
+        let emojiLocation = (editor.textStorage!.string as NSString).range(of: "💡").location
+        XCTAssertNotEqual(emojiLocation, NSNotFound)
+        XCTAssertNil(
+            editor.textStorage!.attribute(.mdInlineCode, at: emojiLocation, effectiveRange: nil),
+            "le préfixe 💡 inséré ne doit pas hériter de .mdInlineCode du texte qui précède"
+        )
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: emojiLocation, effectiveRange: nil) as? BlockType,
+            .blockquote
+        )
+
+        let codeLocation = (editor.textStorage!.string as NSString).range(of: "code").location
+        XCTAssertNotEqual(codeLocation, NSNotFound)
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdInlineCode, at: codeLocation, effectiveRange: nil) as? Bool,
+            true,
+            "le contenu existant garde son style inline en devenant un encadré"
+        )
+    }
+
     func test_applyingText_revertsAnExistingHeadingBackToParagraph() {
         // "Texte" (le paragraphe) est modélisé comme `.convertBlock(.paragraph)`
         // — même mécanisme que les titres, exercé ici sur une ligne déjà
@@ -926,14 +1036,16 @@ final class SlashControllerTests: XCTestCase {
     /// progresser `selectedIndex` (et donc l'entrée qu'⏎ applique) au-delà du
     /// nombre de lignes visibles sans défilement — condition nécessaire pour
     /// que le défilement visuel ait quelque chose de correct à amener en vue.
-    /// Catalogue complet non filtré (`/` seul, `.full` : 12 entrées) ;
-    /// `maxVisibleRows + 1` pressions de flèche bas mènent à l'index 9
-    /// (« Tableau »), au-delà des 8 premières lignes visibles sans défiler.
+    /// Catalogue complet non filtré (`/` seul, `.full` : 13 entrées depuis
+    /// l'ajout de « Encadré », intercalée entre « Citation » et « Séparateur »
+    /// — voir `SlashCatalog.all`) ; `maxVisibleRows + 2` pressions de flèche
+    /// bas mènent à l'index 10 (« Tableau »), au-delà des 8 premières lignes
+    /// visibles sans défiler.
     func test_arrowDown_beyondVisibleRowCap_stillAdvancesSelection_toEntryPastTheFold() {
         let (editor, controller, _) = makeWiredController(markdown: "")
         type("/", into: editor, controller: controller)
 
-        for _ in 0...SlashPanelMetrics.maxVisibleRows {
+        for _ in 0...(SlashPanelMetrics.maxVisibleRows + 1) {
             XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.moveDown(_:))))
         }
         XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:))))
@@ -944,7 +1056,7 @@ final class SlashControllerTests: XCTestCase {
             if value != nil { cellCount += 1 }
         }
         XCTAssertEqual(cellCount, 9,
-                       "l'entrée appliquée doit être « Tableau » (index 9, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
+                       "l'entrée appliquée doit être « Tableau » (index 10, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
     }
 
     // MARK: - Piège 3 : pas de raccourci inline parasite au moment d'appliquer
