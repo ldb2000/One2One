@@ -145,6 +145,9 @@ final class EditorTextView: NSTextView {
             case Self.downArrowKeyCode:
                 handler(.deleteRow)
                 return
+            case Self.rightArrowKeyCode:
+                handler(.deleteColumn)
+                return
             default:
                 break
             }

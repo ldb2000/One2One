@@ -33,6 +33,7 @@ enum TableEditCommands {
         case addRowBelow
         case addColumnRight
         case deleteRow
+        case deleteColumn
     }
 
     // MARK: - Ajouter une ligne
@@ -101,6 +102,27 @@ enum TableEditCommands {
         guard maxRow > 1 else { return false }
 
         performRemoveRow(row: info.row, anchor: start, in: textView, storage: storage)
+        return true
+    }
+
+    // MARK: - Supprimer une colonne
+
+    /// Retire la colonne portant le curseur. `false` (aucun effet) si le
+    /// curseur n'est pas dans une cellule de tableau, ou si c'est l'unique
+    /// colonne restante (un tableau sans colonne n'a pas de sens, ni un
+    /// aller-retour markdown fiable) — pas de garde symétrique à la rangée
+    /// d'en-tête ici : aucune colonne n'a de statut particulier comme la
+    /// rangée 0.
+    @discardableResult
+    static func deleteColumn(in textView: NSTextView) -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else { return false }
+        let location = min(textView.selectedRange().location, storage.length - 1)
+        guard let info = storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo
+        else { return false }
+        guard info.columnCount > 1 else { return false }
+
+        let start = tableStart(in: storage, at: location)
+        performRemoveColumn(column: info.column, focusRow: info.row, anchor: start, in: textView, storage: storage)
         return true
     }
 

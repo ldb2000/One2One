@@ -554,6 +554,214 @@ final class TableEditCommandsTests: XCTestCase {
         XCTAssertEqual(storage.string, "A\nB\n1\n2\n/3\n4\n5\n6", "la suppression ne doit pas s'exécuter, menu ouvert")
     }
 
+    // MARK: - Supprimer une colonne
+
+    /// Trois colonnes (0, 1, 2), pour pouvoir supprimer une colonne du
+    /// milieu sans toucher aux bords.
+    private let threeColumnsTable = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |"
+    /// Une seule colonne : fixture pour le refus de la dernière colonne.
+    private let oneColumnTable = "| A |\n|---|\n| 1 |"
+
+    func test_deleteColumn_removesTheCursorsColumn() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0)) // colonne 1 (du milieu)
+
+        let handled = TableEditCommands.deleteColumn(in: editor)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(storage.string, "A\nC\n1\n3\n4\n6", "la colonne « B | 2 | 5 » a disparu")
+    }
+
+    func test_deleteColumn_otherCellsSurviveWithCorrectTableCellInfo() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0))
+
+        _ = TableEditCommands.deleteColumn(in: editor)
+
+        let ns = storage.string as NSString
+        func info(at substring: String) throws -> TableCellInfo {
+            let location = ns.range(of: substring).location
+            return try XCTUnwrap(storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo)
+        }
+
+        let a = try info(at: "A")
+        XCTAssertEqual(a.row, 0)
+        XCTAssertEqual(a.column, 0, "colonne 0 inchangée")
+        XCTAssertEqual(a.columnCount, 2, "columnCount doit diminuer sur TOUTES les cellules")
+
+        // "C" était colonne 2, doit devenir colonne 1 (décalée à gauche).
+        let c = try info(at: "C")
+        XCTAssertEqual(c.column, 1)
+        XCTAssertEqual(c.columnCount, 2)
+
+        let one = try info(at: "1")
+        XCTAssertEqual(one.row, 1)
+        XCTAssertEqual(one.column, 0)
+        let three = try info(at: "3")
+        XCTAssertEqual(three.row, 1)
+        XCTAssertEqual(three.column, 1)
+
+        let four = try info(at: "4")
+        XCTAssertEqual(four.row, 2)
+        XCTAssertEqual(four.column, 0)
+        let six = try info(at: "6")
+        XCTAssertEqual(six.row, 2)
+        XCTAssertEqual(six.column, 1)
+
+        XCTAssertEqual(a.tableID, six.tableID)
+    }
+
+    // MARK: - Refus aux bords (colonne)
+
+    func test_deleteColumn_onlyRemainingColumn_isRefused() throws {
+        let (editor, _) = makeWiredEditor(markdown: oneColumnTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+        editor.setSelectedRange(NSRange(location: oneLocation, length: 0))
+
+        let handled = TableEditCommands.deleteColumn(in: editor)
+
+        XCTAssertFalse(handled, "un tableau sans colonne n'a pas de sens")
+        XCTAssertEqual(storage.string, "A\n1")
+    }
+
+    /// Symétrique de `test_deleteRow_whenTwoBodyRowsRemain_isAllowed` :
+    /// supprimer jusqu'à ne laisser qu'une seule colonne est permis, une
+    /// deuxième suppression est alors refusée.
+    func test_deleteColumn_downToTheLastColumn_thenRefused() throws {
+        let (editor, _) = makeWiredEditor(markdown: table) // 2 colonnes
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0)) // colonne 1
+
+        XCTAssertTrue(TableEditCommands.deleteColumn(in: editor))
+        // "3" (row 1) porte encore son propre "\n" terminal (elle avait
+        // toujours eu une cellule après elle, « 4 », qui seule manquait de
+        // "\n" — voir la même remarque pour la suppression de ligne) : seul
+        // un reparse complet retire le "\n" de tout le document.
+        XCTAssertEqual(storage.string, "A\n1\n3\n")
+
+        editor.setSelectedRange(NSRange(location: 0, length: 0)) // colonne 0, seule restante
+        let handled = TableEditCommands.deleteColumn(in: editor)
+
+        XCTAssertFalse(handled, "il ne doit plus rester qu'une seule colonne, sa suppression est refusée")
+        XCTAssertEqual(storage.string, "A\n1\n3\n")
+    }
+
+    func test_deleteColumn_cursorOutsideTable_isANoOp() throws {
+        let (editor, _) = makeWiredEditor(markdown: "Paragraphe\n\n" + threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let handled = TableEditCommands.deleteColumn(in: editor)
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(storage.string, "Paragraphe\nA\nB\nC\n1\n2\n3\n4\n5\n6")
+    }
+
+    // MARK: - Aller-retour markdown (suppression de colonne)
+
+    func test_deleteColumn_roundTripsCorrectly() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0))
+
+        _ = TableEditCommands.deleteColumn(in: editor)
+
+        let md = serialized(editor)
+        XCTAssertEqual(md, "| A | C |\n| --- | --- |\n| 1 | 3 |\n| 4 | 6 |")
+
+        let reparsed = NSTextStorage(attributedString: MarkdownParser.parse(md))
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), md, "round-trip stable")
+        var columnCounts: Set<Int> = []
+        reparsed.enumerateAttribute(.mdTableCell, in: NSRange(location: 0, length: reparsed.length)) { value, _, _ in
+            guard let info = value as? TableCellInfo else { return }
+            columnCounts.insert(info.columnCount)
+        }
+        XCTAssertEqual(columnCounts, [2], "columnCount == 2 sur toutes les cellules après reparse")
+    }
+
+    // MARK: - Rendu (colonne) : `NSTextTable` toujours partagée après la suppression
+
+    func test_deleteColumn_allCellsShareTheSameNSTextTableInstanceAfterward() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0))
+
+        _ = TableEditCommands.deleteColumn(in: editor)
+
+        var tables: [ObjectIdentifier] = []
+        var blockCount = 0
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            guard let style = value as? NSParagraphStyle,
+                  let block = style.textBlocks.first as? NSTextTableBlock else { return }
+            blockCount += 1
+            tables.append(ObjectIdentifier(block.table))
+        }
+        // 3 rangées × 2 colonnes restantes.
+        XCTAssertEqual(blockCount, 6)
+        XCTAssertEqual(Set(tables).count, 1, "toutes les cellules doivent partager la même NSTextTable après la suppression")
+    }
+
+    // MARK: - Annulation (suppression de colonne)
+
+    /// Le contenu réel de la colonne supprimée (pas seulement une colonne
+    /// vide fraîchement ajoutée) doit être restauré à l'identique par ⌘Z.
+    func test_undoingADeleteColumn_restoresTheExactContent_andRedoReappliesIt() throws {
+        let (editor, window) = makeWiredEditorInWindow(markdown: threeColumnsTable)
+        XCTAssertNotNil(editor.window, "prémisse : la vue doit être rattachée à \(window) pour que undoManager résolve")
+        let storage = try XCTUnwrap(editor.textStorage)
+        let originalString = storage.string
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0))
+
+        editor.undoManager?.beginUndoGrouping()
+        XCTAssertTrue(TableEditCommands.deleteColumn(in: editor))
+        editor.undoManager?.endUndoGrouping()
+        XCTAssertEqual(storage.string, "A\nC\n1\n3\n4\n6")
+
+        editor.undoManager?.undo()
+        XCTAssertEqual(storage.string, originalString, "⌘Z doit restaurer le contenu exact de la colonne supprimée")
+        let cInfo = try XCTUnwrap(storage.attribute(.mdTableCell, at: (storage.string as NSString).range(of: "C").location, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(cInfo.column, 2, "la renumérotation doit elle aussi être défaite (retour à column 2)")
+        XCTAssertEqual(cInfo.columnCount, 3)
+
+        editor.undoManager?.redo()
+        XCTAssertEqual(storage.string, "A\nC\n1\n3\n4\n6", "⇧⌘Z doit rétablir la suppression")
+    }
+
+    // MARK: - Câblage clavier réel (⌘⌥⇧→ synthétique)
+
+    func test_realCommandOptionShiftRightArrowKeyEvent_deletesTheColumn() throws {
+        let (editor, _) = makeWiredEditor(markdown: threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0))
+
+        editor.keyDown(with: try commandOptionShiftArrowEvent(keyCode: 0x7C)) // flèche droite
+
+        XCTAssertEqual(storage.string, "A\nC\n1\n3\n4\n6")
+    }
+
+    func test_whileSlashMenuOpen_deleteColumn_doesNotRun() throws {
+        let (editor, coordinator, controller) = makeWiredCoordinator(markdown: threeColumnsTable)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0))
+        type("/", into: editor)
+        XCTAssertTrue(controller.isOpen, "prémisse : le menu doit être ouvert")
+
+        coordinator.performTableEdit(.deleteColumn)
+
+        XCTAssertEqual(storage.string, "A\n/B\nC\n1\n2\n3\n4\n5\n6", "la suppression ne doit pas s'exécuter, menu ouvert")
+    }
+
     // MARK: - Rendu : `NSTextTable` toujours partagée après l'insertion
 
     /// `StyleRenderer` doit reconstruire une grille cohérente après
