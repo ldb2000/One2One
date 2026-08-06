@@ -44,6 +44,42 @@ final class StyleRendererTests: XCTestCase {
         XCTAssertTrue(isBold(textStorage.attribute(.font, at: plainRange.location, effectiveRange: nil) as? NSFont))
     }
 
+    // MARK: - Lien cliquable
+
+    /// `StyleRenderer` doit poser l'attribut natif `.link` (celui
+    /// qu'AppKit/`NSTextView` reconnaît pour router un clic vers
+    /// `clicked(onLink:at:)`), en plus du style visuel déjà posé — pas
+    /// seulement `.mdLink`, qui n'est qu'une donnée interne lue par
+    /// `MarkdownSerializer`.
+    func test_mdLinkAttribute_getsNativeLinkAttributeToo() {
+        let url = URL(string: "https://example.com")!
+        let storage = NSMutableAttributedString(string: "un lien")
+        storage.addAttribute(.mdLink, value: url, range: NSRange(location: 3, length: 4))
+        let textStorage = NSTextStorage(attributedString: storage)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertEqual(textStorage.attribute(.link, at: 3, effectiveRange: nil) as? URL, url)
+        XCTAssertNil(textStorage.attribute(.link, at: 0, effectiveRange: nil), "le texte hors lien ne doit pas porter `.link`")
+    }
+
+    /// Un rafraîchissement qui ne repose plus `.mdLink` sur une plage qui le
+    /// portait auparavant doit aussi effacer `.link` — sinon la plage reste
+    /// cliquable pour AppKit alors qu'elle n'est plus un lien.
+    func test_removingMdLink_alsoRemovesNativeLinkAttribute() {
+        let url = URL(string: "https://example.com")!
+        let storage = NSMutableAttributedString(string: "un lien")
+        storage.addAttribute(.mdLink, value: url, range: NSRange(location: 3, length: 4))
+        let textStorage = NSTextStorage(attributedString: storage)
+        StyleRenderer.applyVisualStyle(to: textStorage)
+        XCTAssertNotNil(textStorage.attribute(.link, at: 3, effectiveRange: nil))
+
+        textStorage.removeAttribute(.mdLink, range: NSRange(location: 3, length: 4))
+        StyleRenderer.applyVisualStyle(to: textStorage, affectedRange: NSRange(location: 3, length: 4))
+
+        XCTAssertNil(textStorage.attribute(.link, at: 3, effectiveRange: nil))
+    }
+
     // MARK: - Titres 4/5/6 : distincts entre eux (réserve mesurée de la tâche)
 
     /// Avant cette tâche, `.h4`/`.h5`/`.h6` partageaient exactement la même
@@ -641,6 +677,24 @@ final class StyleRendererTests: XCTestCase {
     /// aller-retour parse → applyVisualStyle → serialize doit redonner
     /// exactement le markdown d'origine, et aucun des glyphes de marqueur ne
     /// doit apparaître dans le storage.
+    /// Pipeline complet (`MarkdownParser` → `StyleRenderer` → `MarkdownSerializer`),
+    /// contrairement à `test_mdLinkAttribute_getsNativeLinkAttributeToo`
+    /// ci-dessus qui pose `.mdLink` à la main : ce test-ci exerce le
+    /// round-trip réel tel que produit en production, où `.link` (natif,
+    /// posé par cette tâche) coexiste avec `.mdLink` sur le storage envoyé à
+    /// `MarkdownSerializer.emitInline`, qui ne lit que `.mdLink` (cf. son
+    /// implémentation).
+    func test_link_visualLinkAttribute_doesNotLeakIntoSerializedMarkdown() throws {
+        let markdown = "[texte](https://example.com)"
+        let parsed = MarkdownParser.parse(markdown)
+        let textStorage = NSTextStorage(attributedString: parsed)
+
+        StyleRenderer.applyVisualStyle(to: textStorage)
+
+        XCTAssertNotNil(textStorage.attribute(.link, at: 0, effectiveRange: nil), "prémisse : `.link` bien posé par le pipeline")
+        XCTAssertEqual(MarkdownSerializer.serialize(textStorage), markdown)
+    }
+
     func test_listMarkerVisualStyle_doesNotLeakIntoSerializedMarkdown() {
         let markdown = "- puce\n1. premier\n2. second\n- [ ] à faire\n- [x] fait"
         let parsed = MarkdownParser.parse(markdown)

@@ -19,6 +19,7 @@ enum StyleRenderer {
         storage.removeAttribute(.foregroundColor, range: renderRange)
         storage.removeAttribute(.backgroundColor, range: renderRange)
         storage.removeAttribute(.underlineStyle, range: renderRange)
+        storage.removeAttribute(.link, range: renderRange)
         storage.removeAttribute(.strikethroughStyle, range: renderRange)
         storage.removeAttribute(.paragraphStyle, range: renderRange)
         storage.removeAttribute(.obliqueness, range: renderRange)
@@ -73,9 +74,17 @@ enum StyleRenderer {
                 storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
             }
 
-            if link != nil {
+            if let link {
                 storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
                 storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                // Attribut natif AppKit, distinct de `.mdLink` (source de
+                // vérité markdown, lue par `MarkdownSerializer` — cf.
+                // `MarkdownSerializer.emitInline`). `.link` ne pilote que
+                // l'affichage/l'interaction : `EditorTextView` en dépend
+                // pour reconnaître un clic sur un lien, mais la
+                // sérialisation ne lit jamais cette clé, donc sa présence ne
+                // peut pas fuiter dans le markdown produit.
+                storage.addAttribute(.link, value: link, range: range)
             }
 
             if isStrike {

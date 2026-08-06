@@ -12,6 +12,14 @@ final class EditorTextView: NSTextView {
     /// new state up the binding.
     var onTaskToggle: ((NSRange, Bool) -> Void)?
 
+    /// Set by the SwiftUI coordinator to route a clicked link. Returns
+    /// `true` if handled (typically an internal `onetoone://…` URL) — a
+    /// `false`/`nil` result (no closure, or the closure declined) lets
+    /// `clicked(onLink:at:)` fall through to `super`, which opens the link
+    /// through the system for an external URL. See `EditorRepresentable`'s
+    /// `markdownLinks(handler:)`.
+    var onLinkClick: ((URL) -> Bool)?
+
     // MARK: - Lifecycle
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -120,12 +128,108 @@ final class EditorTextView: NSTextView {
     // MARK: - Click handling for task checkboxes
 
     /// Intercepte le clic pour détecter s'il vise la case à cocher d'un item
-    /// de tâche. Délègue au comportement standard de `NSTextView` si ce
-    /// n'est pas le cas.
+    /// de tâche, puis pour préserver le placement du curseur sur un clic
+    /// simple au-dessus d'un lien (voir `suspendingNativeLink`). Délègue au
+    /// comportement standard de `NSTextView` dans tous les autres cas — y
+    /// compris ⌘-clic sur un lien, qu'AppKit route lui-même vers
+    /// `clicked(onLink:at:)` (ci-dessous).
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if toggleTaskMarker(at: point) { return }
+
+        // Mesuré (sonde jetée après mesure, cf. commit) : dans cette
+        // configuration TextKit 1 (`NSTextStorage` → `MarkdownLayoutManager`
+        // → `NSTextContainer`), le `mouseDown` natif d'AppKit route TOUT
+        // clic tombant sur une plage `.link` vers `clicked(onLink:at:)` —
+        // simple clic compris, ⌘ ou pas, `isEditable` ou pas — et le
+        // curseur ne se déplace jamais dans ce cas (contrairement à un clic
+        // hors lien, qui positionne bien le curseur : témoin vérifié dans la
+        // même sonde). La croyance répandue qu'un ⌘-clic serait nécessaire
+        // en mode éditable ne s'est *pas* vérifiée ici. Sans intervention,
+        // un simple clic sur un lien rendrait donc son texte impossible à
+        // corriger au clavier — régression explicitement proscrite par ce
+        // chantier. On ne neutralise que le cas simple clic + éditable :
+        // ⌘-clic doit au contraire atteindre `clicked(onLink:at:)`.
+        if isEditable, !event.modifierFlags.contains(.command), let linkRange = nativeLinkRange(at: point) {
+            suspendingNativeLink(in: linkRange) {
+                super.mouseDown(with: event)
+            }
+            return
+        }
+
         super.mouseDown(with: event)
+    }
+
+    // MARK: - Click handling for links
+
+    /// Plage effective de l'attribut natif `.link` (posé par
+    /// `StyleRenderer` à partir de `.mdLink`) sous `point`, ou `nil` si `point`
+    /// ne tombe sur aucun lien. Même logique de conversion que
+    /// `toggleTaskMarker` : `characterIndexForInsertion`, bornée à
+    /// `storage.length - 1`.
+    func nativeLinkRange(at point: NSPoint) -> NSRange? {
+        guard let storage = textStorage, storage.length > 0 else { return nil }
+        let charIndex = characterIndexForInsertion(at: point)
+        let safeIndex = min(charIndex, storage.length - 1)
+        guard safeIndex >= 0 else { return nil }
+        var effectiveRange = NSRange(location: 0, length: 0)
+        guard storage.attribute(.link, at: safeIndex, effectiveRange: &effectiveRange) != nil else { return nil }
+        return effectiveRange
+    }
+
+    /// Retire l'attribut natif `.link` sur `range` (jamais `.mdLink`, la
+    /// source de vérité markdown que `StyleRenderer` laisse intacte) le
+    /// temps d'exécuter `body`, puis le restaure. Utilisé pour qu'un simple
+    /// clic sur un lien, en mode éditable, traverse `super.mouseDown` comme
+    /// un clic de texte ordinaire (voir le commentaire de `mouseDown`)
+    /// plutôt que d'être avalé par la reconnaissance de lien native
+    /// d'AppKit. Mutation directe du storage hors `beginEditing`/`endEditing`
+    /// — même choix qu'`applyTaskToggle`, pour ne déclencher ni
+    /// `textDidChange` ni re-sérialisation pour ce qui n'est qu'un attribut
+    /// d'affichage transitoire.
+    func suspendingNativeLink(in range: NSRange, _ body: () -> Void) {
+        guard let storage = textStorage,
+              range.location + range.length <= storage.length,
+              let value = storage.attribute(.link, at: range.location, effectiveRange: nil)
+        else {
+            body()
+            return
+        }
+        storage.removeAttribute(.link, range: range)
+        body()
+        storage.addAttribute(.link, value: value, range: range)
+    }
+
+    /// Ouvre un lien externe via le système. `Coordinator`
+    /// (`EditorRepresentable.swift`) n'implémente aucune méthode
+    /// `NSTextViewDelegate` liée aux liens (`textView(_:clickedOnLink:at:)`),
+    /// donc appeler directement `NSWorkspace` ici équivaut à ce que ferait
+    /// `super.clicked(onLink:at:)` par défaut pour une valeur `URL` — sans
+    /// perdre de comportement délégué. Extrait en propriété injectable pour
+    /// que les tests puissent vérifier qu'un lien décliné par `onLinkClick`
+    /// atteint bien ce chemin, sans réellement lancer d'application externe
+    /// pendant les tests (voir `Tests/EditorTextViewLinkClickTests.swift`).
+    var openExternalLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
+
+    /// Point d'entrée qu'AppKit appelle lui-même dès qu'il reconnaît un clic
+    /// sur une plage `.link` (voir le commentaire de `mouseDown` : ceci
+    /// couvre aussi bien le mode lecture seule — clic simple — que le
+    /// ⌘-clic en mode éditable). Donne d'abord la main à `onLinkClick`
+    /// (routage interne, ex. mention `onetoone://collaborator/<uuid>` — voir
+    /// `EditorRepresentable.markdownLinks(handler:)`) ; si absent ou décliné
+    /// (`false`), retombe sur `openExternalLink` — c'est le chemin normal
+    /// pour un lien externe (`https://`, `mailto:`…). Une valeur `link` qui
+    /// n'est pas une `URL` retombe directement sur `super`, comportement
+    /// natif inchangé (ce chantier ne pose `.link` qu'avec des `URL`, voir
+    /// `StyleRenderer`, mais `clicked(onLink:at:)` reste un point d'entrée
+    /// public qu'un appelant externe pourrait invoquer avec autre chose).
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        guard let url = link as? URL else {
+            super.clicked(onLink: link, at: charIndex)
+            return
+        }
+        if onLinkClick?(url) == true { return }
+        openExternalLink(url)
     }
 
     /// Bascule l'état d'une case à cocher si `point` (coordonnées de la vue,
