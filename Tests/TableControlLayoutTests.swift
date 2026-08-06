@@ -33,37 +33,55 @@ final class TableControlLayoutTests: XCTestCase {
     private let rowRect = NSRect(x: 10, y: 130, width: 300, height: 20)
     private let cellRect = NSRect(x: 160, y: 130, width: 150, height: 20)
 
-    func test_placement_addRow_isCenteredAtCellMidXAndRowMaxY() {
+    /// Décalage horizontal/vertical d'un contrôle par rapport au centre de
+    /// son groupe — même formule que `TableControlLayout.placement`
+    /// (`controlDiameter / 2 + controlGap / 2`), reproduite ici pour ne pas
+    /// dépendre du détail interne d'implémentation, seulement de ses deux
+    /// constantes publiques.
+    private var clusterOffset: CGFloat {
+        TableControlLayout.controlDiameter / 2 + TableControlLayout.controlGap / 2
+    }
+
+    func test_placement_addRow_isOnTheRowsBottomBorder_leftOfCellCenter() {
         let placement = TableControlLayout.placement(
             tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
             canDeleteRow: true, canDeleteColumn: true
         )
 
-        XCTAssertEqual(placement.addRow.midX, cellRect.midX)
-        XCTAssertEqual(placement.addRow.midY, rowRect.maxY)
+        XCTAssertEqual(placement.addRow.midX, cellRect.midX - clusterOffset)
+        XCTAssertEqual(placement.addRow.midY, rowRect.maxY, "bordure basse de la RANGÉE, jamais de la table (voir la doc de tête)")
         XCTAssertEqual(placement.addRow.width, TableControlLayout.controlDiameter)
         XCTAssertEqual(placement.addRow.height, TableControlLayout.controlDiameter)
     }
 
-    func test_placement_addColumn_isCenteredAtCellMaxXAndCellMidY() {
+    func test_placement_addColumn_isOnTheColumnsRightBorder_aboveCellCenter() {
         let placement = TableControlLayout.placement(
             tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
             canDeleteRow: true, canDeleteColumn: true
         )
 
-        XCTAssertEqual(placement.addColumn.midX, cellRect.maxX)
-        XCTAssertEqual(placement.addColumn.midY, cellRect.midY)
+        XCTAssertEqual(placement.addColumn.midX, cellRect.maxX, "bordure droite de la COLONNE, jamais de la table")
+        XCTAssertEqual(placement.addColumn.midY, cellRect.midY + clusterOffset)
     }
 
-    func test_placement_deleteRow_whenAllowed_isCenteredAtTableMinXAndCellMidY() throws {
+    /// `deleteRow` partage la bordure basse de la rangée avec `addRow` (même
+    /// `y`) — c'est le point central du nouveau schéma : les deux pastilles
+    /// vivent sur une bordure **interne** (entre deux rangées, jamais la
+    /// bordure extérieure du tableau) où `TableLayout.cellPadding` est
+    /// disponible des deux côtés. Un premier essai centrait `deleteRow` sur
+    /// `tableRect.minX` (bordure gauche du tableau) : la sonde de rendu
+    /// bitmap a montré le contrôle empiéter sur le premier caractère de la
+    /// cellule — voir la doc de tête de `TableControlLayout` et le rapport
+    /// de tâche.
+    func test_placement_deleteRow_whenAllowed_isOnTheRowsBottomBorder_rightOfCellCenter() throws {
         let placement = TableControlLayout.placement(
             tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
             canDeleteRow: true, canDeleteColumn: true
         )
 
         let deleteRow = try XCTUnwrap(placement.deleteRow)
-        XCTAssertEqual(deleteRow.midX, tableRect.minX)
-        XCTAssertEqual(deleteRow.midY, cellRect.midY)
+        XCTAssertEqual(deleteRow.midX, cellRect.midX + clusterOffset)
+        XCTAssertEqual(deleteRow.midY, rowRect.maxY, "même bordure qu'addRow — un seul groupe, pas deux contrôles isolés")
     }
 
     func test_placement_deleteRow_whenRefused_isNil() {
@@ -75,15 +93,31 @@ final class TableControlLayoutTests: XCTestCase {
         XCTAssertNil(placement.deleteRow, "aucun contrôle pour un geste que TableEditCommands.deleteRow refuserait")
     }
 
-    func test_placement_deleteColumn_whenAllowed_isCenteredAtCellMidXAndTableMinY() throws {
+    /// `addRow` ne se recentre pas quand `deleteRow` est absent (voir la
+    /// doc de `placement`) : sa position reste la même, guide ou pas guide
+    /// à côté — pas de « saut » selon la rangée du curseur.
+    func test_placement_addRow_positionIsStable_whetherOrNotDeleteRowIsShown() {
+        let shown = TableControlLayout.placement(
+            tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
+            canDeleteRow: true, canDeleteColumn: true
+        )
+        let hidden = TableControlLayout.placement(
+            tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
+            canDeleteRow: false, canDeleteColumn: true
+        )
+
+        XCTAssertEqual(shown.addRow, hidden.addRow)
+    }
+
+    func test_placement_deleteColumn_whenAllowed_isOnTheColumnsRightBorder_belowCellCenter() throws {
         let placement = TableControlLayout.placement(
             tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
             canDeleteRow: true, canDeleteColumn: true
         )
 
         let deleteColumn = try XCTUnwrap(placement.deleteColumn)
-        XCTAssertEqual(deleteColumn.midX, cellRect.midX)
-        XCTAssertEqual(deleteColumn.midY, tableRect.minY)
+        XCTAssertEqual(deleteColumn.midX, cellRect.maxX, "même bordure qu'addColumn")
+        XCTAssertEqual(deleteColumn.midY, cellRect.midY - clusterOffset)
     }
 
     func test_placement_deleteColumn_whenRefused_isNil() {
@@ -142,7 +176,7 @@ final class TableControlLayoutTests: XCTestCase {
             canDeleteRow: false, canDeleteColumn: true
         )
 
-        let wouldBeCenter = NSPoint(x: tableRect.minX, y: cellRect.midY)
+        let wouldBeCenter = NSPoint(x: cellRect.midX + clusterOffset, y: rowRect.maxY)
         XCTAssertNil(TableControlLayout.gesture(at: wouldBeCenter, in: placement))
     }
 

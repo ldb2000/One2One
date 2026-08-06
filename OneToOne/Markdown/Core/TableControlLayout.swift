@@ -17,32 +17,78 @@ import AppKit
 /// la seule source de vérité, pour le dessin comme pour le clic.
 ///
 /// Mesuré hors écran (`NSLayoutManager`/`NSTextContainer` construits sans
-/// vue vivante, comme `Tests/TableEditCommandsTests.swift`) : une
+/// vue vivante, comme `Tests/TableEditCommandsTests.swift`, plus une sonde
+/// de rendu bitmap jetée après mesure — voir le rapport de tâche) : une
 /// `NSTextTable` sans largeur de colonne explicite (voir `StyleRenderer`,
 /// qui n'en pose aucune) occupe la **largeur totale** du conteneur — aucune
 /// marge libre à gauche ni à droite du tableau pour y loger des contrôles
-/// sans empiéter sur son propre rendu. Chaque contrôle est donc centré
-/// **sur** une bordure du tableau/de la rangée/de la colonne courante (moitié
-/// dedans, moitié dehors) plutôt que posé dans une marge qui n'existe pas :
-/// avec `controlDiameter` égal à `TableLayout.cellPadding` (6pt de part et
-/// d'autre du centre), l'empiétement maximal sur le texte d'une cellule
-/// voisine est nul — le rayon s'arrête exactement à la limite du remplissage.
+/// sans empiéter sur son propre rendu. Et surtout : `boundingRect(
+/// forGlyphRange:in:)` renvoie le rectangle du **contenu** d'une cellule —
+/// bordure et remplissage (`TableLayout.borderWidth`/`cellPadding`) déjà
+/// retirés par TextKit lui-même, pas une marge en plus à soustraire ici.
+/// Un premier essai centrait `deleteRow`/`deleteColumn` **sur la bordure
+/// extérieure du tableau** (`tableRect.minX`/`.minY`) en misant sur cette
+/// marge — inexistante : le rendu réel (sonde bitmap) montrait le contrôle
+/// à cheval sur le premier caractère de la cellule. `addRow`/`addColumn`,
+/// eux, centrés sur une bordure **entre deux cellules** (chacune apportant
+/// son propre remplissage), avaient bien la place et rendaient correctement
+/// — d'où le choix retenu : les quatre contrôles vivent tous sur une
+/// bordure **interne** (jamais l'extérieure du tableau), groupés deux par
+/// deux — ajouter/supprimer une ligne sur la bordure basse de la rangée
+/// courante, ajouter/supprimer une colonne sur la bordure droite de la
+/// colonne courante — comme deux petits boutons côte à côte plutôt
+/// qu'écartés aux quatre coins du tableau.
+///
+/// Rendu : pastille de fond neutre (couleur de bouton système, bordure fine
+/// `separatorColor`) surmontée d'une icône SF Symbols (`+`/`–`) — voir
+/// `MarkdownLayoutManager.drawTableControl` — plutôt qu'un disque saturé
+/// avec un trait dessiné à la main : un premier essai (disque
+/// `controlAccentColor`/`systemRed` plein, croix tracée en `NSBezierPath`)
+/// a été jugé peu soigné (retour utilisateur, voir le rapport de tâche) —
+/// remplacé par le patron « bouton +/– » natif macOS (Mail, Réglages
+/// Système, Trousseaux…) : fond neutre identique pour les quatre contrôles,
+/// seule la couleur de l'**icône** distingue ajouter (neutre) de supprimer
+/// (rouge, geste destructif), pour éviter l'effet « pastille de couleur ».
 enum TableControlLayout {
 
     /// Diamètre d'un contrôle, en points — égal à `TableLayout.cellPadding`
     /// (6pt de rayon) pour ne jamais empiéter au-delà du remplissage d'une
-    /// cellule voisine (voir la doc de tête).
+    /// cellule voisine. Mesuré : un premier essai à 16pt (8pt de rayon, pour
+    /// donner plus d'air à l'icône SF Symbols) dépassait ce rayon de
+    /// sécurité — une rangée à une seule ligne mesure couramment ~16pt de
+    /// haut, donc le centre vertical d'une cellule (`cellRect.midY`) ne se
+    /// trouve alors qu'à 8pt de la bordure basse de la rangée (`rowRect.
+    /// maxY`, où `addRow` est centré) : un clic en plein milieu du *texte*
+    /// de la cellule tombait dans le contrôle. Repris à 12pt (voir
+    /// `Tests/TableControlLayoutTests.
+    /// test_tableControlGesture_clickInsideCellText_returnsNil`, qui a
+    /// attrapé la régression).
     static let controlDiameter: CGFloat = TableLayout.cellPadding * 2
 
-    /// Couleur des contrôles d'ajout (ligne/colonne) — accent système, geste
-    /// neutre/positif.
-    static let addControlColor = NSColor.controlAccentColor
+    /// Espace entre les deux pastilles d'un même groupe (ajouter/supprimer)
+    /// — voir la doc de tête.
+    static let controlGap: CGFloat = 4
 
-    /// Couleur des contrôles de suppression — rouge système, geste destructif.
-    static let deleteControlColor = NSColor.systemRed
+    /// Fond des quatre contrôles — couleur de bouton système, identique
+    /// qu'il s'agisse d'ajouter ou de supprimer (voir la doc de tête).
+    static let controlBackgroundColor = NSColor.controlBackgroundColor
 
-    /// Couleur du symbole (+ / ×) peint par-dessus le disque de couleur.
-    static let symbolColor = NSColor.white
+    /// Bordure fine du fond — même couleur sémantique que les filets de
+    /// tableau (`TableLayout.borderColor`), pour rester cohérent avec le
+    /// reste du rendu.
+    static let controlBorderColor = NSColor.separatorColor
+    static let controlBorderWidth: CGFloat = 1
+
+    /// Couleur de l'icône `+` (ajouter une ligne/colonne) — `labelColor`
+    /// (pas `secondaryLabelColor`, mesuré trop pâle à cette taille sur la
+    /// sonde bitmap) : geste non destructif, mais doit rester lisible.
+    static let addIconColor = NSColor.labelColor
+
+    /// Couleur de l'icône `–` (supprimer la ligne/la colonne) — rouge
+    /// système, geste destructif. Seule l'icône est teintée, jamais le fond
+    /// (voir la doc de tête) : évite l'effet « bonbon » d'un disque
+    /// entièrement rouge.
+    static let deleteIconColor = NSColor.systemRed
 
     /// Position des quatre contrôles, en coordonnées du **conteneur** de
     /// texte — mêmes conventions que `NSLayoutManager.boundingRect(
@@ -70,34 +116,42 @@ enum TableControlLayout {
         let deleteColumn: NSRect?
     }
 
-    /// Calcule `Placement` à partir de trois rectangles déjà mesurés (voir
-    /// `placementForCursor`) : `tableRect` (le tableau entier), `rowRect`
-    /// (la rangée du curseur, même largeur que `tableRect`), `cellRect` (la
-    /// seule cellule du curseur). Chaque contrôle centré sur une bordure
-    /// différente — jamais deux sur la même, aucun risque de chevauchement
-    /// entre contrôles :
-    /// - ajouter une ligne : bordure basse de la **rangée** courante, à
-    ///   l'abscisse de la **cellule** courante ;
-    /// - ajouter une colonne : bordure droite de la **colonne** courante (=
-    ///   bordure droite de la cellule, les colonnes partageant leur abscisse
-    ///   sur toutes les rangées), à l'ordonnée de la cellule ;
-    /// - supprimer la ligne : bordure gauche du **tableau**, à l'ordonnée de
-    ///   la cellule ;
-    /// - supprimer la colonne : bordure haute du **tableau**, à l'abscisse de
-    ///   la cellule.
+    /// Calcule `Placement` à partir de deux rectangles déjà mesurés (voir
+    /// `placementForCursor`) : `rowRect` (la rangée du curseur, même largeur
+    /// que le tableau) et `cellRect` (la seule cellule du curseur — ses
+    /// abscisses valent pour toute sa colonne, les colonnes d'`NSTextTable`
+    /// partageant leur largeur sur toutes les rangées). `tableRect` n'entre
+    /// plus dans le calcul (voir la doc de tête : sa bordure extérieure n'a
+    /// pas la place). Deux groupes de deux pastilles, jamais sur la bordure
+    /// extérieure du tableau :
+    /// - **ligne** : bordure basse de la rangée courante — `addRow` à
+    ///   gauche du centre de la cellule, `deleteRow` à droite ;
+    /// - **colonne** : bordure droite de la colonne courante — `addColumn`
+    ///   au-dessus du centre de la cellule, `deleteColumn` en dessous.
+    ///
+    /// `addRow`/`addColumn` gardent une position fixe que `deleteRow`/
+    /// `deleteColumn` soit affiché ou non (pas de recentrage conditionnel) :
+    /// plus simple, et la position ne « saute » pas selon la rangée/colonne
+    /// du curseur.
     static func placement(
         tableRect: NSRect, rowRect: NSRect, cellRect: NSRect,
         canDeleteRow: Bool, canDeleteColumn: Bool
     ) -> Placement {
         let radius = controlDiameter / 2
+        let clusterOffset = radius + controlGap / 2
         func square(centeredAt point: NSPoint) -> NSRect {
             NSRect(x: point.x - radius, y: point.y - radius, width: controlDiameter, height: controlDiameter)
         }
 
-        let addRow = square(centeredAt: NSPoint(x: cellRect.midX, y: rowRect.maxY))
-        let addColumn = square(centeredAt: NSPoint(x: cellRect.maxX, y: cellRect.midY))
-        let deleteRow = canDeleteRow ? square(centeredAt: NSPoint(x: tableRect.minX, y: cellRect.midY)) : nil
-        let deleteColumn = canDeleteColumn ? square(centeredAt: NSPoint(x: cellRect.midX, y: tableRect.minY)) : nil
+        let addRow = square(centeredAt: NSPoint(x: cellRect.midX - clusterOffset, y: rowRect.maxY))
+        let deleteRow = canDeleteRow
+            ? square(centeredAt: NSPoint(x: cellRect.midX + clusterOffset, y: rowRect.maxY))
+            : nil
+
+        let addColumn = square(centeredAt: NSPoint(x: cellRect.maxX, y: cellRect.midY + clusterOffset))
+        let deleteColumn = canDeleteColumn
+            ? square(centeredAt: NSPoint(x: cellRect.maxX, y: cellRect.midY - clusterOffset))
+            : nil
 
         return Placement(addRow: addRow, addColumn: addColumn, deleteRow: deleteRow, deleteColumn: deleteColumn)
     }

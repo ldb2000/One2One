@@ -160,52 +160,76 @@ final class MarkdownLayoutManager: NSLayoutManager {
               )
         else { return }
 
-        drawTableControl(placement.addRow, color: TableControlLayout.addControlColor, symbol: .plus, origin: origin)
-        drawTableControl(placement.addColumn, color: TableControlLayout.addControlColor, symbol: .plus, origin: origin)
+        drawTableControl(placement.addRow, symbol: .plus, iconColor: TableControlLayout.addIconColor, origin: origin)
+        drawTableControl(placement.addColumn, symbol: .plus, iconColor: TableControlLayout.addIconColor, origin: origin)
         if let deleteRow = placement.deleteRow {
-            drawTableControl(deleteRow, color: TableControlLayout.deleteControlColor, symbol: .cross, origin: origin)
+            drawTableControl(deleteRow, symbol: .minus, iconColor: TableControlLayout.deleteIconColor, origin: origin)
         }
         if let deleteColumn = placement.deleteColumn {
-            drawTableControl(deleteColumn, color: TableControlLayout.deleteControlColor, symbol: .cross, origin: origin)
+            drawTableControl(deleteColumn, symbol: .minus, iconColor: TableControlLayout.deleteIconColor, origin: origin)
         }
     }
 
-    private enum TableControlSymbol { case plus, cross }
+    private enum TableControlSymbol {
+        case plus
+        case minus
 
-    /// Un disque de couleur (`color`) surmonté d'un symbole (`+`/`×`, tracé
-    /// au trait plutôt qu'en glyphe de police — décor pur, aucune dépendance
-    /// à une métrique de fonte). `rect` en coordonnées conteneur (voir
+        /// Nom SF Symbols — `"plus"`/`"minus"`, disponibles depuis macOS 11
+        /// (déploiement de l'app : macOS 15, cf. `CLAUDE.md`).
+        var systemSymbolName: String {
+            switch self {
+            case .plus: return "plus"
+            case .minus: return "minus"
+            }
+        }
+    }
+
+    /// Une pastille de fond neutre (`TableControlLayout.
+    /// controlBackgroundColor`, bordure fine `controlBorderColor` — le
+    /// patron « bouton +/– » natif macOS, cf. Mail/Réglages Système/
+    /// Trousseaux) surmontée d'une icône SF Symbols (`+`/`–`) teintée
+    /// `iconColor` — remplace un premier essai (disque de couleur saturée,
+    /// croix dessinée au trait) jugé peu soigné, voir la doc de tête de
+    /// `TableControlLayout`. `rect` en coordonnées conteneur (voir
     /// `TableControlLayout.Placement`), décalé par `origin` comme
     /// `drawMarker`/`drawBlockquoteRule`.
-    private func drawTableControl(_ rect: NSRect, color: NSColor, symbol: TableControlSymbol, origin: NSPoint) {
+    ///
+    /// Teinte l'icône par le patron `.sourceAtop` (dessiner l'image
+    /// « template », puis remplir son propre rectangle avec `iconColor` en
+    /// mode `.sourceAtop` — ne colore que les pixels déjà opaques de
+    /// l'icône) : `NSImage.isTemplate` seul ne suffit pas à forcer une
+    /// couleur arbitraire au dessin direct, `.sourceAtop` est le patron
+    /// standard AppKit pour teindre un glyphe SF Symbols hors `NSButton`/
+    /// `NSImageView` (qui, eux, teignent via `contentTintColor`).
+    private func drawTableControl(_ rect: NSRect, symbol: TableControlSymbol, iconColor: NSColor, origin: NSPoint) {
         let viewRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-        NSBezierPath(ovalIn: viewRect).fill(color: color)
 
-        let symbolInset = viewRect.insetBy(dx: viewRect.width * 0.28, dy: viewRect.height * 0.28)
-        let path = NSBezierPath()
-        path.lineWidth = 1.4
-        switch symbol {
-        case .plus:
-            path.move(to: NSPoint(x: symbolInset.midX, y: symbolInset.minY))
-            path.line(to: NSPoint(x: symbolInset.midX, y: symbolInset.maxY))
-            path.move(to: NSPoint(x: symbolInset.minX, y: symbolInset.midY))
-            path.line(to: NSPoint(x: symbolInset.maxX, y: symbolInset.midY))
-        case .cross:
-            path.move(to: NSPoint(x: symbolInset.minX, y: symbolInset.minY))
-            path.line(to: NSPoint(x: symbolInset.maxX, y: symbolInset.maxY))
-            path.move(to: NSPoint(x: symbolInset.minX, y: symbolInset.maxY))
-            path.line(to: NSPoint(x: symbolInset.maxX, y: symbolInset.minY))
+        let background = NSBezierPath(ovalIn: viewRect.insetBy(dx: 0.5, dy: 0.5))
+        TableControlLayout.controlBackgroundColor.setFill()
+        background.fill()
+        TableControlLayout.controlBorderColor.setStroke()
+        background.lineWidth = TableControlLayout.controlBorderWidth
+        background.stroke()
+
+        guard let symbolImage = NSImage(
+            systemSymbolName: symbol.systemSymbolName, accessibilityDescription: nil
+        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: viewRect.width * 0.5, weight: .semibold))
+        else { return }
+
+        let tinted = NSImage(size: symbolImage.size, flipped: false) { imageRect in
+            symbolImage.draw(in: imageRect)
+            iconColor.set()
+            imageRect.fill(using: .sourceAtop)
+            return true
         }
-        TableControlLayout.symbolColor.setStroke()
-        path.stroke()
-    }
-}
 
-private extension NSBezierPath {
-    /// Remplit ce chemin avec `color` — évite `color.setFill(); self.fill()`
-    /// répété à chaque contrôle dans `drawTableControl`.
-    func fill(color: NSColor) {
-        color.setFill()
-        fill()
+        let iconSize = symbolImage.size
+        let iconRect = NSRect(
+            x: viewRect.midX - iconSize.width / 2,
+            y: viewRect.midY - iconSize.height / 2,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        tinted.draw(in: iconRect)
     }
 }
