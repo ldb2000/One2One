@@ -262,6 +262,11 @@ struct MarkdownEditorView: View {
     /// moteur et les mentions se comportent pareil partout où l'on édite du
     /// texte de collaborateur).
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var mentionableCollaborators: [Collaborator]
+    /// Voir la doc de la même propriété dans `MarkdownNoteEditor` : ouvre la
+    /// fiche du collaborateur mentionné en feuille, seul point d'entrée
+    /// disponible ici (`CollaboratorDetailView` n'a pas d'autre chemin
+    /// programmatique que le `NavigationLink` de la barre latérale).
+    @State private var openedCollaborator: Collaborator?
 
     var body: some View {
         MarkdownTextEditor(text: $text)
@@ -271,6 +276,18 @@ struct MarkdownEditorView: View {
                 search: { CollaboratorMentionSource.search($0, in: mentionableCollaborators) },
                 create: { CollaboratorMentionSource.create($0, in: context) }
             )
+            .markdownLinks { url in
+                guard let collaborator = CollaboratorMentionSource.resolve(url, in: mentionableCollaborators) else {
+                    return false
+                }
+                openedCollaborator = collaborator
+                return true
+            }
+            .sheet(item: $openedCollaborator) { collaborator in
+                NavigationStack {
+                    CollaboratorDetailView(collaborator: collaborator)
+                }
+            }
     }
 }
 

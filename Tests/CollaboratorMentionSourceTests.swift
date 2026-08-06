@@ -135,4 +135,48 @@ final class CollaboratorMentionSourceTests: XCTestCase {
         let inserted = try context.fetch(FetchDescriptor<Collaborator>())
         XCTAssertTrue(inserted.isEmpty, "aucun Collaborator ne doit avoir été inséré pour un nom vide")
     }
+
+    // MARK: - `resolve`
+
+    /// Chemin nominal : l'URL insérée par `search` (via `MentionCandidate.id`
+    /// == `ensuredStableID`) doit retrouver le même `Collaborator` par
+    /// `resolve`, symétrique de la création de la mention.
+    func test_resolve_findsCollaborator_matchingOnEnsuredStableID() throws {
+        let context = ModelContext(try makeContainer())
+        let marie = Collaborator(name: "Marie Dupont")
+        context.insert(marie)
+        let url = MentionCatalog.mentionURL(for: marie.ensuredStableID)
+
+        let resolved = CollaboratorMentionSource.resolve(url, in: [marie])
+
+        XCTAssertTrue(resolved === marie)
+    }
+
+    /// Une URL qui n'a pas la forme d'une mention (schéma/hôte différents,
+    /// pas d'UUID) ne doit jamais matcher, même si `collaborators` n'est pas
+    /// vide.
+    func test_resolve_urlNotAMention_returnsNil() throws {
+        let context = ModelContext(try makeContainer())
+        let marie = Collaborator(name: "Marie Dupont")
+        context.insert(marie)
+
+        let resolved = CollaboratorMentionSource.resolve(URL(string: "https://example.com")!, in: [marie])
+
+        XCTAssertNil(resolved)
+    }
+
+    /// L'identifiant est bien formé mais ne correspond à aucun
+    /// `Collaborator` de `collaborators` — cas d'un collaborateur archivé
+    /// depuis la mention (exclu en amont par le `@Query` de l'appelant) ou
+    /// supprimé.
+    func test_resolve_idNotInProvidedCollaborators_returnsNil() throws {
+        let context = ModelContext(try makeContainer())
+        let marie = Collaborator(name: "Marie Dupont")
+        context.insert(marie)
+        let url = MentionCatalog.mentionURL(for: marie.ensuredStableID)
+
+        let resolved = CollaboratorMentionSource.resolve(url, in: [])
+
+        XCTAssertNil(resolved)
+    }
 }

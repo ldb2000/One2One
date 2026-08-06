@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 
 /// Fabrique les closures de recherche/création de collaborateurs pour
@@ -68,5 +69,21 @@ enum CollaboratorMentionSource {
         context.insert(collaborator)
         try? context.save()
         return MentionCandidate(id: collaborator.ensuredStableID, name: collaborator.name, role: collaborator.role)
+    }
+
+    /// Résout une URL de mention cliquée (voir `MarkdownTextEditor.
+    /// markdownLinks(handler:)`) en `Collaborator` parmi `collaborators` —
+    /// même liste que celle passée à `search(_:in:)` (typiquement
+    /// `mentionableCollaborators`, filtrée sur `!isArchived`), comparée sur
+    /// `ensuredStableID` : c'est cet identifiant, pas `persistentModelID`,
+    /// que `search(_:in:)` encode dans l'URL insérée à la sélection d'une
+    /// mention. `nil` si l'URL n'a pas la forme d'une mention
+    /// (`MentionCatalog.collaboratorID(from:)`) ou si aucun collaborateur de
+    /// `collaborators` ne porte cet identifiant — notamment un collaborateur
+    /// archivé depuis la mention, exclu par le même prédicat qui filtre
+    /// `collaborators` en amont.
+    static func resolve(_ url: URL, in collaborators: [Collaborator]) -> Collaborator? {
+        guard let id = MentionCatalog.collaboratorID(from: url) else { return nil }
+        return collaborators.first { $0.ensuredStableID == id }
     }
 }
