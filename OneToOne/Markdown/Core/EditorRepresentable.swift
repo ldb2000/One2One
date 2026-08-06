@@ -267,6 +267,18 @@ struct EditorRepresentable: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             slashController?.selectionDidChange()
             mentionController?.selectionDidChange()
+            // `MarkdownLayoutManager.drawTableControls` peint les contrôles
+            // de tableau en fonction du curseur (`selectedRange().location`),
+            // pas d'un attribut du storage : un déplacement de curseur seul
+            // (flèches, clic) ne mute rien et ne déclenche donc aucune
+            // invalidation d'affichage par défaut — `NSTextView` ne redessine
+            // que le rect du caret. Sans ce `needsDisplay`, entrer/sortir
+            // d'une cellule de tableau au clavier laisserait les contrôles
+            // absents (ou obsolètes, affichés pour la cellule quittée) tant
+            // qu'aucune frappe ne survient par ailleurs. Document de la
+            // taille d'une note : un redessin plein cadre par changement de
+            // sélection reste négligeable.
+            textView?.needsDisplay = true
         }
 
         /// Réagit à chaque frappe : applique les raccourcis markdown puis

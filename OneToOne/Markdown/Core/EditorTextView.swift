@@ -242,6 +242,10 @@ final class EditorTextView: NSTextView {
     /// `clicked(onLink:at:)` (ci-dessous).
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let gesture = tableControlGesture(at: point) {
+            onTableEditCommand?(gesture)
+            return
+        }
         if toggleTaskMarker(at: point) { return }
 
         // Mesuré (sonde jetée après mesure, cf. commit) : dans cette
@@ -407,6 +411,43 @@ final class EditorTextView: NSTextView {
         let toggled = ListInfo(kind: info.kind, level: info.level, index: info.index, checked: !(info.checked ?? false))
         applyTaskToggle(range: range, from: info, to: toggled)
         return true
+    }
+
+    // MARK: - Click handling for table controls
+
+    /// Contrôle de tableau (voir `TableControlLayout`) sous `point`
+    /// (coordonnées de la vue, mêmes que `toggleTaskMarker`), ou `nil` si
+    /// aucun n'y est peint. Dérivé de la position du **curseur**
+    /// (`selectedRange().location`), pas du point cliqué : les contrôles ne
+    /// sont peints que pour la cellule qui porte le curseur (voir
+    /// `MarkdownLayoutManager.drawTableControls`) — le hit-test doit tester
+    /// exactement le même jeu de rectangles, jamais en dériver un autre
+    /// depuis la ligne cliquée. Même schéma de conversion que
+    /// `toggleTaskMarker` : retire `textContainerInset` du point vue pour
+    /// retomber en coordonnées du conteneur, celles de `TableControlLayout.
+    /// Placement`.
+    ///
+    /// `internal` (pas `private`) pour être exercée directement par les
+    /// tests, comme `toggleTaskMarker` — voir sa doc pour la raison (`mouseDown`
+    /// réel non pilotable en test, cf. aussi le rapport de tâche : une boucle
+    /// de tracking AppKit attendant un `mouseUp` synthétique a bloqué un essai
+    /// précédent).
+    func tableControlGesture(at point: NSPoint) -> TableEditCommands.Gesture? {
+        guard isEditable, let storage = textStorage, storage.length > 0,
+              let layoutManager, let container = textContainer
+        else { return nil }
+        let location = min(selectedRange().location, storage.length - 1)
+        guard location >= 0,
+              let placement = TableControlLayout.placementForCursor(
+                in: storage, at: location, layoutManager: layoutManager, container: container
+              )
+        else { return nil }
+
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+        return TableControlLayout.gesture(at: containerPoint, in: placement)
     }
 
     /// Bascule effectivement `.mdListInfo` sur `range`, de `oldInfo` vers

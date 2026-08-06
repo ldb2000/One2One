@@ -30,6 +30,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
         drawBlockquoteRules(forGlyphRange: glyphsToShow, at: origin)
+        drawTableControls(at: origin)
     }
 
     /// Parcourt les fragments de ligne du rendu en cours et dessine un
@@ -126,5 +127,85 @@ final class MarkdownLayoutManager: NSLayoutManager {
         )
         BlockquoteRuleLayout.ruleColor.setFill()
         ruleRect.fill()
+    }
+
+    // MARK: - Contrôles de tableau (curseur dans une cellule)
+
+    /// Peint les contrôles de tableau (ajouter une ligne, ajouter une
+    /// colonne, supprimer la ligne/la colonne courantes) quand le curseur
+    /// est dans une cellule (`.mdTableCell` à `selectedRange().location`) —
+    /// jamais au survol de la souris, voir la doc de tête de
+    /// `TableControlLayout`. Même invariant que `drawListMarkers`/
+    /// `drawBlockquoteRules` : lu depuis le storage/la sélection au moment du
+    /// dessin, jamais écrit dedans.
+    ///
+    /// `firstTextView` — seule façon d'atteindre `selectedRange()` depuis un
+    /// `NSLayoutManager`, qui n'a pas de notion de sélection propre. Un seul
+    /// jeu de contrôles à la fois (celui de la cellule du curseur), donc pas
+    /// besoin d'`enumerateLineFragments` comme les deux méthodes précédentes
+    /// (peintes potentiellement pour chaque ligne du `glyphsToShow` reçu) :
+    /// `TableControlLayout.placementForCursor` fait sa propre mesure via
+    /// `boundingRect(forGlyphRange:in:)`, indépendante de la portion en cours
+    /// de rafraîchissement — dessiner en dehors du rectangle actuellement
+    /// redessiné est sans effet visible (AppKit borne le clip courant), pas
+    /// une erreur.
+    private func drawTableControls(at origin: NSPoint) {
+        guard let storage = textStorage, storage.length > 0,
+              let textView = firstTextView, let container = textView.textContainer
+        else { return }
+        let location = min(textView.selectedRange().location, storage.length - 1)
+        guard location >= 0,
+              let placement = TableControlLayout.placementForCursor(
+                in: storage, at: location, layoutManager: self, container: container
+              )
+        else { return }
+
+        drawTableControl(placement.addRow, color: TableControlLayout.addControlColor, symbol: .plus, origin: origin)
+        drawTableControl(placement.addColumn, color: TableControlLayout.addControlColor, symbol: .plus, origin: origin)
+        if let deleteRow = placement.deleteRow {
+            drawTableControl(deleteRow, color: TableControlLayout.deleteControlColor, symbol: .cross, origin: origin)
+        }
+        if let deleteColumn = placement.deleteColumn {
+            drawTableControl(deleteColumn, color: TableControlLayout.deleteControlColor, symbol: .cross, origin: origin)
+        }
+    }
+
+    private enum TableControlSymbol { case plus, cross }
+
+    /// Un disque de couleur (`color`) surmonté d'un symbole (`+`/`×`, tracé
+    /// au trait plutôt qu'en glyphe de police — décor pur, aucune dépendance
+    /// à une métrique de fonte). `rect` en coordonnées conteneur (voir
+    /// `TableControlLayout.Placement`), décalé par `origin` comme
+    /// `drawMarker`/`drawBlockquoteRule`.
+    private func drawTableControl(_ rect: NSRect, color: NSColor, symbol: TableControlSymbol, origin: NSPoint) {
+        let viewRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+        NSBezierPath(ovalIn: viewRect).fill(color: color)
+
+        let symbolInset = viewRect.insetBy(dx: viewRect.width * 0.28, dy: viewRect.height * 0.28)
+        let path = NSBezierPath()
+        path.lineWidth = 1.4
+        switch symbol {
+        case .plus:
+            path.move(to: NSPoint(x: symbolInset.midX, y: symbolInset.minY))
+            path.line(to: NSPoint(x: symbolInset.midX, y: symbolInset.maxY))
+            path.move(to: NSPoint(x: symbolInset.minX, y: symbolInset.midY))
+            path.line(to: NSPoint(x: symbolInset.maxX, y: symbolInset.midY))
+        case .cross:
+            path.move(to: NSPoint(x: symbolInset.minX, y: symbolInset.minY))
+            path.line(to: NSPoint(x: symbolInset.maxX, y: symbolInset.maxY))
+            path.move(to: NSPoint(x: symbolInset.minX, y: symbolInset.maxY))
+            path.line(to: NSPoint(x: symbolInset.maxX, y: symbolInset.minY))
+        }
+        TableControlLayout.symbolColor.setStroke()
+        path.stroke()
+    }
+}
+
+private extension NSBezierPath {
+    /// Remplit ce chemin avec `color` — évite `color.setFill(); self.fill()`
+    /// répété à chaque contrôle dans `drawTableControl`.
+    func fill(color: NSColor) {
+        color.setFill()
+        fill()
     }
 }
