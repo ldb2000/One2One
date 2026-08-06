@@ -152,6 +152,115 @@ donnée affichée, non déclenchée, dans un premier temps — à condition de l
 
 Un rappel qui ne se déclenche pas est pire qu'un rappel absent.
 
+> ## ⚠️ Constat du 2026-08-06 — chantier 3 mesuré, non construit
+>
+> Lecture de `OneToOne/Services/MeetingNotificationService.swift` (299 lignes),
+> demandée par la question 3 ci-dessus. Chantiers 1 et 2 livrés dans l'intervalle
+> (lien `onetoone://date/…?reminder=…`, rendu distinct) — voir les commits de
+> cette branche. Ce qui suit mesure, sans construire, comme demandé.
+>
+> ### Ce que sait faire `MeetingNotificationService`
+>
+> - Planifie des notifications locales via `UNUserNotificationCenter`
+>   (`UNCalendarNotificationTrigger` sur des `DateComponents`, pas un simple
+>   délai) — quatre par réunion : pré-rappel (N min avant le début, réglable),
+>   début, « fin dans 5 min » (fixe), fin.
+> - Annulation : `cancel(for: meeting)` retire quatre identifiants **connus à
+>   l'avance** (`"meeting.<uuid>.preStart"`, `.start`, `.endWarning`, `.end`) —
+>   aucun scan, aucun diff contre ce qui est réellement planifié côté OS
+>   (`UNUserNotificationCenter.getPendingNotificationRequests()` n'est appelée
+>   nulle part dans ce fichier). Reprogrammation : `schedule(for:settings:)`
+>   appelle `cancel(for:)` avant de reposer les quatre requêtes — idempotent
+>   par construction (mêmes identifiants réécrits), jamais par comparaison.
+> - Déclenchement aujourd'hui, quatre call sites, tous liés au calendrier ou
+>   aux réglages — aucun sur une sauvegarde de texte libre :
+>   `CalendarMeetingImportService` (import), `MeetingView.resyncFromCalendarInMeetingView`
+>   (resync), `AppDelegate.applicationDidFinishLaunching` (résilience au
+>   redémarrage, via `syncPending`) et `SettingsView.resyncNotifs` (au
+>   changement du délai de pré-rappel). `syncPending` re-fetch les réunions à
+>   venir (`FetchDescriptor<Meeting>` sur `scheduledStart > now`) et rappelle
+>   `schedule` pour chacune — la résilience vient de cette requête SwiftData,
+>   pas d'un cache en mémoire.
+> - S'appuie entièrement sur un modèle SwiftData concret, `Meeting`
+>   (`scheduledStart`/`scheduledEnd`/`title`/`teamsJoinURL`/`participants`,
+>   `ensuredStableID` pour construire l'identifiant de requête). Aucune valeur
+>   libre passée à l'appel ne fait office de source de vérité — même
+>   `snoozePreStart`/`notifyRecordingStarted`, qui prennent des paramètres,
+>   restent appelés depuis un `Meeting` déjà chargé.
+>
+> ### Réponses aux trois questions
+>
+> 1. **Où vivrait le rappel ?** Le texte porteur d'un `/date` n'est pas
+>    uniforme : `Note.body` (`Models/Note.swift`, une note par Projet ou
+>    Collaborateur) et `Meeting.notes` (`String`, un champ par réunion) sont
+>    deux formes différentes déjà mesurées, sans doute pas les seules. Le
+>    patron déjà en place pour les réunions (`Meeting.scheduledStart` = source
+>    de vérité, `syncPending` = balayage de réconciliation au démarrage) pointe
+>    vers un **modèle SwiftData dédié**, rempli par un balayage du texte **à la
+>    sauvegarde** (pas au moment de sonner) plutôt qu'un balayage pur sans
+>    modèle : sans modèle, détecter qu'un rappel a disparu du texte demanderait
+>    de diffuser contre `getPendingNotificationRequests()`, une API que ce
+>    fichier n'utilise nulle part aujourd'hui. La donnée du lien
+>    (`onetoone://date/…?reminder=P1D`) reste la source déclarative dans le
+>    texte ; le modèle en serait la projection planifiable, sur le même
+>    principe que `Meeting.scheduledStart` aujourd'hui.
+> 2. **Que se passe-t-il si la mention est effacée du texte ?** Rien
+>    aujourd'hui ne le détecterait : `MeetingNotificationService` n'a aucune
+>    logique de diff, seulement des identifiants connus à l'avance, annulés
+>    explicitement par un appelant qui *sait* qu'un `Meeting` a changé. Pour un
+>    rappel dans du texte libre, il faudrait à chaque sauvegarde : extraire
+>    l'ensemble courant des liens `onetoone://date/…` porteurs d'un rappel
+>    (brique déjà acquise : `DateLinkCatalog.selection(from:)`, chantier 1),
+>    le comparer à l'ensemble précédemment connu (le modèle dédié ci-dessus),
+>    annuler + supprimer les lignes disparues, ajouter les nouvelles. **Manque
+>    concret mesuré** : l'URL actuelle ne porte qu'une date/heure/type de
+>    rappel, aucun identifiant d'instance — deux rappels identiques dans la
+>    même note seraient indiscernables pour ce diff. `DateLinkCatalog.dateURL`
+>    devrait gagner un paramètre d'identité pour que la réconciliation soit
+>    fiable.
+> 3. **Quelle part du travail reste réellement ?** Réutilisable tel quel : le
+>    canevas de notification — délégué `UNUserNotificationCenter`, demande
+>    d'autorisation, catégories/actions, routage du tap vers
+>    `NotificationCenter.default.post`, et la primitive privée
+>    `schedule(id:title:body:fireAt:category:userInfo:interruptionLevel:)`
+>    (générique, pas spécifique aux réunions). **Manque, mesuré, à
+>    construire** :
+>    (a) trancher où vit réellement le texte porteur de `/date` en production
+>    (`Note.body` ? `Meeting.notes` ? les deux ?) — non fait ici ;
+>    (b) un identifiant d'instance dans l'URL de date (point 2) ;
+>    (c) un modèle SwiftData dédié au rappel, avec propriétaire flexible
+>    (`Note`/`Meeting`, sur le modèle des deux relations optionnelles
+>    mutuellement exclusives déjà présentes sur `Note`) ;
+>    (d) une extraction — parcourir les runs `.mdLink` dont l'hôte est `date`
+>    dans le texte d'une note/réunion, câblée sur son chemin de sauvegarde ;
+>    (e) la logique de diff/réconciliation (ajout, suppression, changement),
+>    absente de `MeetingNotificationService`, qui ne fait qu'annuler quatre
+>    identifiants fixes puis reposer — jamais comparer contre un ensemble
+>    variable ;
+>    (f) `registerCategories()` **remplace** tout le jeu de catégories à chaque
+>    appel (`center.setNotificationCategories([...])`) — un nouveau type de
+>    rappel doit être ajouté à cette même liste, pas déclaré à part, sous peine
+>    de faire disparaître silencieusement les actions déjà enregistrées pour
+>    les réunions ;
+>    (g) le tap sur une notification ne sait aujourd'hui qu'ouvrir un `Meeting`
+>    par id (`openMeetingNotification`) — atteindre un point précis dans une
+>    note n'a pas d'équivalent.
+>    **Estimation** : chantier réellement « coût élevé », comme la table du
+>    haut de ce document le disait déjà — confirmé, pas seulement supposé. Le
+>    canevas de notification (partie la plus visible) est acquis, mais le cœur
+>    du travail (modèle, identité d'instance, diff, branchement sur la
+>    sauvegarde, décision sur l'emplacement du texte) reste entièrement à
+>    construire. Pas un prolongement d'une heure des chantiers 1/2.
+>
+> **Conséquence pour le menu « Rappel » du popover** : la donnée survit
+> désormais à l'enregistrement (chantier 1), mais rien ne la déclenchera avant
+> ce chantier 3 tel que mesuré ci-dessus — non construit dans ce passage, par
+> consigne explicite (« si le chemin s'avère court, on le fera ensuite ; s'il
+> est long, on retirera le menu plutôt que de mentir à l'utilisateur »). Au vu
+> de ce qui précède, le chemin est **long** : retirer le menu « Rappel » du
+> popover (ou le marquer clairement non fonctionnel) reste la décision
+> cohérente tant que ce chantier n'est pas engagé.
+
 ## Pièges connus de ce code
 
 Tous mesurés sur cette branche :
