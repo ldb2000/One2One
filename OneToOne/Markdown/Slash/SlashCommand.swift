@@ -18,6 +18,7 @@ struct SlashCommand: Identifiable, Equatable {
         case bulletList, orderedList, taskList
         case blockquote
         case callout
+        case codeBlock
         case thematicBreak
         case image
         case date
@@ -78,12 +79,22 @@ struct SlashCommand: Identifiable, Equatable {
     /// nouveau `BlockType`/`LineBlockType` : un encadré sérialise en
     /// `"> 💡 texte"`, une citation ordinaire dont `BlockquoteRuleLayout`
     /// peint déjà le filet — l'emoji est ce qui la distingue visuellement
-    /// d'une citation, pas un attribut séparé.
+    /// d'une citation, pas un attribut séparé. `.insertCodeBlock` (« Bloc de
+    /// code ») est, comme `.insertThematicBreak`, une insertion synchrone
+    /// d'un bloc entier : `.codeBlock` est volontairement absent de
+    /// `MarkdownBlockCommands.LineBlockType` (voir sa doc — appliqué à une
+    /// ligne existante, il en perdrait l'inline à la sérialisation) et ne
+    /// peut donc pas être une conversion. `SlashController.insertCodeBlock`
+    /// insère un fence vide (un espace-placeholder pré-sélectionné, seul
+    /// contenu qui survit à un aller-retour markdown — un corps réellement
+    /// vide ne le survivrait pas, voir sa doc) sur le modèle
+    /// d'`insertThematicBreak`. Aucune coloration syntaxique — hors périmètre.
     enum Action: Equatable {
         case convertBlock(MarkdownBlockCommands.LineBlockType)
         case convertList(ListInfo.Kind)
         case insertCallout
         case insertThematicBreak
+        case insertCodeBlock
         case insertImage
         case insertDate
         case insertTable

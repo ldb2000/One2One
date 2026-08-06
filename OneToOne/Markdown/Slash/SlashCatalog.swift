@@ -4,11 +4,14 @@ import Foundation
 /// `MarkdownFeature`, et leur groupement pour l'affichage.
 ///
 /// Hors périmètre (décision utilisateur du 2026-08-04, voir le plan) : les
-/// entrées IA, mermaid, draw.io, le bloc de code, les mentions `@`. Les
-/// tableaux, initialement hors périmètre de cette même décision, en sont
-/// sortis le 2026-08-05 une fois leur rendu en grille livré (commit
-/// `fc2234a`) : `.table` ci-dessous comble l'absence de commande pour en
-/// insérer un.
+/// entrées IA, mermaid, draw.io, les mentions `@`. Les tableaux, initialement
+/// hors périmètre de cette même décision, en sont sortis le 2026-08-05 une
+/// fois leur rendu en grille livré (commit `fc2234a`) : `.table` ci-dessous
+/// comble l'absence de commande pour en insérer un. Le bloc de code,
+/// également initialement hors périmètre, en est sorti à son tour une fois
+/// la sortie du bloc au clavier livrée (⏎ sur une ligne vide en sort, voir
+/// `SlashController.exitEmptyCodeBlockIfNeeded`) : `.codeBlock` ci-dessous
+/// comble l'absence de commande pour en insérer un.
 enum SlashCatalog {
 
     /// Toutes les entrées, dans l'ordre déclaré (celui du tableau du plan,
@@ -135,6 +138,16 @@ enum SlashCatalog {
             group: .basicBlocks,
             action: .insertCallout,
             requiredFeature: .blockquote
+        ),
+        SlashCommand(
+            key: .codeBlock,
+            label: "Bloc de code",
+            keywords: ["code", "bloc de code", "programmation"],
+            aliases: ["code", "codeblock", "```"],
+            shortcut: "```",
+            group: .basicBlocks,
+            action: .insertCodeBlock,
+            requiredFeature: .codeBlock
         ),
         SlashCommand(
             key: .thematicBreak,

@@ -338,6 +338,7 @@ private extension SlashCommand.Key {
         case .taskList: return "checklist"
         case .blockquote: return "text.quote"
         case .callout: return "lightbulb"
+        case .codeBlock: return "chevron.left.forwardslash.chevron.right"
         case .thematicBreak: return "minus"
         case .image: return "photo"
         case .date: return "calendar"

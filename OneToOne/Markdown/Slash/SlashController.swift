@@ -231,7 +231,11 @@ final class SlashController {
     /// (voir `breakOutOfHeadingIfNeeded`) — général, pas limité aux titres
     /// appliqués par ce menu : le bug (`typingAttributes` qui perpétue
     /// `.mdBlockType` d'un titre au `\n`) est le même quelle que soit
-    /// l'origine du titre.
+    /// l'origine du titre. Essaie ensuite `exitEmptyCodeBlockIfNeeded` (même
+    /// geste que `ListEditingCommands` pour un item de liste vide, transposé
+    /// au bloc de code — voir sa doc) : sans lui, le curseur resterait piégé
+    /// dans le bloc, `setBlockType`/`setListKind` refusant tous deux
+    /// d'opérer sur une ligne `.codeBlock`.
     func handle(commandSelector: Selector) -> Bool {
         if isOpen {
             switch commandSelector {
@@ -253,7 +257,8 @@ final class SlashController {
         }
 
         if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            return breakOutOfHeadingIfNeeded()
+            if breakOutOfHeadingIfNeeded() { return true }
+            return exitEmptyCodeBlockIfNeeded()
         }
         return false
     }
@@ -373,6 +378,8 @@ final class SlashController {
             applyCallout(at: applyLocation, in: textView)
         case .insertThematicBreak:
             insertThematicBreak(at: applyLocation, in: textView)
+        case .insertCodeBlock:
+            insertCodeBlock(at: applyLocation, in: textView)
         case .insertTable:
             insertTable(at: applyLocation, in: textView)
         case .insertImage:
@@ -499,6 +506,51 @@ final class SlashController {
         insertion.append(NSAttributedString(string: "\n"))
         let safeLocation = min(location, textView.textStorage?.length ?? 0)
         textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+    }
+
+    /// Insère un bloc de code vide comme nouveau bloc au point du curseur,
+    /// sans convertir la ligne courante — même stratégie qu'`insertThematicBreak`
+    /// (le modèle explicitement désigné) : `.codeBlock` est absent de
+    /// `MarkdownBlockCommands.LineBlockType` (voir sa doc), ce n'est donc pas
+    /// une conversion.
+    ///
+    /// Corps initial : **un espace**, pas une chaîne vide — mesuré
+    /// (`MarkdownParser.parse("```\n\n```")` donne un `NSAttributedString` de
+    /// longueur 0 : `CodeBlock.code`, une fois `trimmingCharacters(in:
+    /// .newlines)` appliqué par `MarkdownParser.emitCodeBlock`, devient `""`,
+    /// et `NSAttributedString(string: "", attributes:)` ne contribue aucun
+    /// caractère à la sortie — impossible d'y accrocher `.mdBlockType`). Un
+    /// bloc de code réellement vide ne survit donc à aucun aller-retour texte
+    /// complet (sérialisation puis reparse), qu'il vienne de cette insertion
+    /// ou d'un bloc fencé tapé à la main ailleurs dans l'app — limite
+    /// structurelle du modèle de stockage (un attribut ne peut porter sur
+    /// zéro caractère), pas un bug propre à cette insertion. Un espace,
+    /// lui, survit intact (vérifié) : `fenceLength`/`fencedCodeBlock` le
+    /// traitent comme un corps d'un caractère, ordinaire.
+    ///
+    /// Représentation, sur le modèle exact d'`insertThematicBreak` (`"\n"` +
+    /// caractère de contenu attribué + `"\n"` nu) : `"\n"` (termine la ligne
+    /// du curseur) + `" "` porteur de `.mdBlockType = .codeBlock` (le corps
+    /// placeholder) + `"\n"` nu (terminateur du bloc, cf.
+    /// `MarkdownParser.emitCodeBlock` → `appendNewline`, toujours nu après le
+    /// corps).
+    ///
+    /// L'espace-placeholder est **sélectionné** (pas seulement le curseur
+    /// placé avant) après l'insertion : la première frappe de l'utilisateur
+    /// le remplace alors nativement plutôt que de s'insérer à côté, évitant
+    /// un espace résiduel en tête ou en fin de code.
+    private func insertCodeBlock(at location: Int, in textView: EditorTextView) {
+        stripRiskyTypingAttributes(in: textView)
+        let insertion = NSMutableAttributedString(string: "\n")
+        insertion.append(NSAttributedString(string: " ", attributes: [.mdBlockType: BlockType.codeBlock]))
+        insertion.append(NSAttributedString(string: "\n"))
+        let safeLocation = min(location, textView.textStorage?.length ?? 0)
+        textView.insertText(insertion, replacementRange: NSRange(location: safeLocation, length: 0))
+
+        guard let storage = textView.textStorage else { return }
+        let placeholderRange = NSRange(location: min(safeLocation + 1, storage.length), length: min(1, max(0, storage.length - (safeLocation + 1))))
+        textView.setSelectedRange(placeholderRange)
+        textView.typingAttributes[.mdBlockType] = BlockType.codeBlock
     }
 
     /// Insère un tableau GFM de 3 colonnes — la rangée d'en-tête (row 0,
@@ -792,5 +844,69 @@ final class SlashController {
         case .h1, .h2, .h3, .h4, .h5, .h6: return true
         case .paragraph, .blockquote, .codeBlock, .thematicBreak, .rawBlock: return false
         }
+    }
+
+    // MARK: - Sortie du bloc de code
+
+    /// ⏎ sur une ligne vide **à l'intérieur** d'un bloc de code en sort,
+    /// revient au paragraphe — même geste que
+    /// `ListEditingCommands.exitEmptyListItem` pour un item de liste vide
+    /// (inspiration explicitement désignée par la tâche), transposé au bloc
+    /// de code : sans lui, le curseur resterait piégé — `setBlockType`/
+    /// `setListKind` (`MarkdownBlockCommands`) refusent tous deux d'opérer
+    /// sur une ligne `.codeBlock` (gardes délibérées, voir leur doc), et
+    /// aucune conversion via le menu `/` ne peut donc en sortir. Une ligne
+    /// **non vide** (le cas courant : le corps du code) n'est **pas** traitée
+    /// ici — ⏎ y garde son comportement par défaut, qui insère un `"\n"`
+    /// héritant `.mdBlockType = .codeBlock` de `typingAttributes` (continue
+    /// le bloc sur une ligne de plus, sans code dédié à ce cas : c'est déjà
+    /// le comportement natif d'`NSTextView`).
+    ///
+    /// Détection du type de bloc **en arrière** (le caractère qui précède le
+    /// curseur), pas en avant comme `ListEditingCommands.currentListInfo` —
+    /// mesuré : un bloc de code n'est **pas** structuré comme une liste. Une
+    /// liste attribue `.mdListInfo` à **chaque** `"\n"` d'item (« contenu +
+    /// retour à la ligne », cf. sa doc) ; un bloc de code est un unique run
+    /// (`MarkdownParser.emitCodeBlock` : `attrs` posé une fois sur tout le
+    /// corps, retours à la ligne internes compris) suivi d'un **seul**
+    /// terminateur final nu (`appendNewline`, jamais attribué). Le `"\n"`
+    /// qu'`NSTextView` insère par défaut pour continuer le bloc (cas non vide
+    /// ci-dessus) hérite `.mdBlockType` de `typingAttributes` et rejoint donc
+    /// ce run par continuité d'attribut — mais le terminateur nu du bloc,
+    /// lui, reste toujours en aval, jamais rattrapé. Un contrôle en avant (au
+    /// terminateur de la ligne vide courante) y lirait donc systématiquement
+    /// `nil`/`.paragraph`, jamais `.codeBlock` — mesuré (`handled == false`
+    /// au 2ᵉ ⏎ avec une première version qui lisait en avant, voir le
+    /// rapport de tâche) : le bug que cette version corrige.
+    ///
+    /// Ne traite que le curseur sans sélection (`selection.length == 0`) —
+    /// même restriction qu'`breakOutOfHeadingIfNeeded`/`ListEditingCommands
+    /// .handleReturn`, un cas plus large non mesuré.
+    private func exitEmptyCodeBlockIfNeeded() -> Bool {
+        guard let textView, let storage = textView.textStorage else { return false }
+        let selection = textView.selectedRange()
+        guard selection.length == 0, selection.location > 0 else { return false }
+
+        let contentRange = MarkdownBlockCommands.lineRange(in: storage, at: selection.location)
+        guard contentRange.length == 0 else { return false }
+        guard storage.attribute(.mdBlockType, at: selection.location - 1, effectiveRange: nil) as? BlockType == .codeBlock else {
+            return false
+        }
+
+        // Recolore le `"\n"` qui précède le curseur (celui que le ⏎ précédent
+        // vient d'ajouter au run du bloc, voir la doc ci-dessus) en paragraphe :
+        // referme visuellement le bloc à cet endroit — sans effet sur la
+        // sérialisation (`MarkdownSerializer.fencedCodeBlock` rogne de toute
+        // façon les retours à la ligne de fin du corps, `trimmingTrailingNewlines`),
+        // mais évite qu'une ligne vide sans code garde le fond visuel du bloc.
+        let newlineRange = NSRange(location: selection.location - 1, length: 1)
+        storage.addAttribute(.mdBlockType, value: BlockType.paragraph, range: newlineRange)
+        storage.removeAttribute(.mdCodeLanguage, range: newlineRange)
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: newlineRange)
+        textView.didChangeText()
+
+        textView.typingAttributes[.mdBlockType] = BlockType.paragraph
+        textView.typingAttributes.removeValue(forKey: .mdCodeLanguage)
+        return true
     }
 }

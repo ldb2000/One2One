@@ -514,6 +514,196 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertEqual(MarkdownSerializer.serialize(reparsed), MarkdownSerializer.serialize(editor.textStorage!))
     }
 
+    // MARK: - Application : bloc de code (insertion, pas conversion — sortie testée à part)
+
+    /// L'espace-placeholder est **sélectionné** (longueur 1), pas seulement
+    /// le curseur placé avant : la première frappe de l'utilisateur le
+    /// remplace plutôt que de s'insérer à côté.
+    func test_applyingCodeBlock_insertsASelectedPlaceholder() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/code", into: editor, controller: controller)
+
+        applySelectedCommand(.codeBlock, controller: controller)
+
+        let selection = editor.selectedRange()
+        XCTAssertEqual(selection.length, 1, "le placeholder doit être sélectionné, pas seulement le curseur placé avant")
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: selection.location, effectiveRange: nil) as? BlockType,
+            .codeBlock
+        )
+        XCTAssertEqual(editor.typingAttributes[.mdBlockType] as? BlockType, .codeBlock)
+    }
+
+    /// Taper par-dessus le placeholder (sélection non vide, longueur 1) le
+    /// remplace nativement — pas d'espace résiduel — et le résultat survit à
+    /// un aller-retour texte complet. Déclenché après « Avant » (pas sur un
+    /// document vierge) : `insertCodeBlock` ajoute inconditionnellement un
+    /// `"\n"` de tête (même patron qu'`insertThematicBreak`, explicitement
+    /// désigné par la tâche) — sur un document vierge, ce `"\n"` produirait
+    /// un paragraphe de tête vide superflu (mesuré : `/code` seul sur un
+    /// document vierge sérialise en `"\n```\n…\n```"`), même famille de paire
+    /// à risque qu'`insertThematicBreak` (non traitée par lui non plus, cf.
+    /// sa propre suite de tests, qui ne couvre jamais ce cas) ; non couverte
+    /// ici non plus (hors périmètre de cette tâche — `insertTable` est la
+    /// seule des trois à s'en prémunir explicitement, via
+    /// `alreadyAtLineStart`).
+    func test_applyingCodeBlock_typingOverThePlaceholder_roundTrips() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Avant /code", into: editor, controller: controller)
+
+        applySelectedCommand(.codeBlock, controller: controller)
+        editor.insertText("let x = 1", replacementRange: editor.selectedRange())
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertEqual(serialized, "Avant\n```\nlet x = 1\n```")
+
+        let reparsed = MarkdownParser.parse(serialized)
+        let codeLocation = (reparsed.string as NSString).range(of: "let x = 1").location
+        XCTAssertNotEqual(codeLocation, NSNotFound)
+        XCTAssertEqual(reparsed.attribute(.mdBlockType, at: codeLocation, effectiveRange: nil) as? BlockType, .codeBlock)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized)
+    }
+
+    /// Un bloc de code laissé tel quel (placeholder jamais remplacé) survit
+    /// aussi à l'aller-retour — c'est précisément pour ça que le placeholder
+    /// est un espace, pas une chaîne vide (voir la doc d'`insertCodeBlock` :
+    /// un corps réellement vide ne survivrait à aucun reparse,
+    /// `NSAttributedString(string: "", …)` ne contribuant aucun caractère).
+    func test_applyingCodeBlock_leftUntouched_stillRoundTrips() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("Avant /code", into: editor, controller: controller)
+
+        applySelectedCommand(.codeBlock, controller: controller)
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertEqual(serialized, "Avant\n```\n \n```")
+
+        let reparsed = MarkdownParser.parse(serialized)
+        XCTAssertEqual(reparsed.string, "Avant\n ", "le corps (un espace) doit survivre au reparse")
+        let placeholderLocation = (reparsed.string as NSString).range(of: " ", options: .backwards).location
+        XCTAssertEqual(reparsed.attribute(.mdBlockType, at: placeholderLocation, effectiveRange: nil) as? BlockType, .codeBlock)
+        XCTAssertEqual(MarkdownSerializer.serialize(reparsed), serialized)
+    }
+
+    /// Même mesure que pour le séparateur/le tableau/la date (piège 6) : sans
+    /// `stripRiskyTypingAttributes`, le placeholder inséré juste après du
+    /// code inline hériterait de `.mdInlineCode`.
+    func test_applyingCodeBlock_afterInlineCode_placeholderDoesNotInheritInlineCode() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "code", attributes: [.mdInlineCode: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = makeController(for: editor)
+
+        type(" /code", into: editor, controller: controller)
+        applySelectedCommand(.codeBlock, controller: controller)
+
+        let selection = editor.selectedRange()
+        XCTAssertEqual(selection.length, 1)
+        XCTAssertNil(
+            editor.textStorage!.attribute(.mdInlineCode, at: selection.location, effectiveRange: nil),
+            "le placeholder du bloc de code ne doit pas hériter de .mdInlineCode du texte qui précède"
+        )
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: selection.location, effectiveRange: nil) as? BlockType,
+            .codeBlock
+        )
+    }
+
+    // MARK: - Sortie du bloc de code (⏎ sur une ligne vide)
+
+    /// Scénario complet : insertion, remplacement du placeholder, ⏎ à
+    /// l'intérieur du bloc (ligne non vide — continue le bloc, comportement
+    /// par défaut) puis ⏎ à nouveau sur la ligne désormais vide — doit sortir
+    /// du bloc, comme `ListEditingCommands` pour un item de liste vide.
+    func test_exitEmptyCodeBlock_onEnterOnEmptyLine_returnsToParagraphForSubsequentTyping() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/code", into: editor, controller: controller)
+        applySelectedCommand(.codeBlock, controller: controller)
+        editor.insertText("premiere ligne", replacementRange: editor.selectedRange())
+
+        // ⏎ à l'intérieur du bloc (ligne non vide) : ni breakOutOfHeadingIfNeeded
+        // ni exitEmptyCodeBlockIfNeeded ne le traitent — laissé au comportement
+        // par défaut, qui hérite `.mdBlockType = .codeBlock` de
+        // `typingAttributes` (continue le bloc sur une ligne de plus).
+        let handledFirstReturn = controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertFalse(handledFirstReturn, "ligne non vide à l'intérieur du bloc : pas de sortie, comportement par défaut attendu")
+        editor.insertNewline(nil)
+
+        // Ligne désormais vide : ⏎ à nouveau doit en sortir.
+        let handledSecondReturn = controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertTrue(handledSecondReturn, "ligne vide à l'intérieur du bloc : doit en sortir")
+
+        editor.insertText("texte normal", replacementRange: editor.selectedRange())
+
+        let serialized = MarkdownSerializer.serialize(editor.textStorage!)
+        XCTAssertTrue(
+            serialized.contains("```\npremiere ligne\n```"),
+            "le bloc de code doit garder son contenu : \(serialized.debugDescription)"
+        )
+        XCTAssertTrue(
+            serialized.hasSuffix("texte normal"),
+            "le texte tapé après la sortie doit suivre, en paragraphe normal : \(serialized.debugDescription)"
+        )
+
+        let normalLocation = (editor.textStorage!.string as NSString).range(of: "texte normal").location
+        XCTAssertNotEqual(normalLocation, NSNotFound)
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: normalLocation, effectiveRange: nil) as? BlockType,
+            .paragraph,
+            "le texte tapé après la sortie ne doit pas hériter .mdBlockType = .codeBlock"
+        )
+    }
+
+    /// Témoin : sans passer par `controller.handle(...)`, l'action standard
+    /// `insertNewline` d'`NSTextView` ne sort jamais du bloc — sans ce test,
+    /// le précédent pourrait passer pour une tout autre raison (ex. si plus
+    /// rien ne portait jamais `.mdBlockType = .codeBlock`).
+    func test_witness_defaultInsertNewline_withoutController_neverExitsTheCodeBlock() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/code", into: editor, controller: controller)
+        applySelectedCommand(.codeBlock, controller: controller)
+        editor.insertText("premiere ligne", replacementRange: editor.selectedRange())
+
+        editor.insertNewline(nil)
+        editor.insertNewline(nil)
+        editor.insertText("toujours du code ?", replacementRange: editor.selectedRange())
+
+        let insertedLocation = (editor.textStorage!.string as NSString).range(of: "toujours du code ?").location
+        XCTAssertNotEqual(insertedLocation, NSNotFound)
+        XCTAssertEqual(
+            editor.textStorage!.attribute(.mdBlockType, at: insertedLocation, effectiveRange: nil) as? BlockType,
+            .codeBlock,
+            "témoin : sans le correctif, le second ⏎ ne sort pas du bloc, le texte suivant reste du code"
+        )
+    }
+
+    /// Une ligne vide qui n'est **pas** dans un bloc de code (un paragraphe
+    /// ordinaire vide, en fin de document) ne doit pas être traitée par
+    /// `exitEmptyCodeBlockIfNeeded` — sans cette garde, ⏎ sur n'importe quelle
+    /// ligne vide serait à tort consommé, cassant le comportement par défaut
+    /// d'un simple retour à la ligne. Mesuré par mutation : retirer le
+    /// contrôle `.mdBlockType == .codeBlock` de `exitEmptyCodeBlockIfNeeded`
+    /// ne faisait échouer *aucun* test avant l'ajout de celui-ci — voir le
+    /// rapport de tâche.
+    func test_exitEmptyCodeBlock_onPlainEmptyParagraphLine_isNotHandled() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        // Construit directement le storage (plutôt que de passer par
+        // `MarkdownParser.parse`, qui ne matérialise pas forcément une ligne
+        // vide de fin) : "texte\n", tout attribué `.paragraph` — une vraie
+        // ligne vide suit le `"\n"` final, curseur en tout bout de document.
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "texte\n", attributes: [.mdBlockType: BlockType.paragraph])
+        )
+        editor.setSelectedRange(NSRange(location: editor.textStorage!.length, length: 0))
+        let controller = makeController(for: editor)
+
+        let handled = controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:)))
+
+        XCTAssertFalse(handled, "une ligne vide hors bloc de code n'est pas concernée par ce correctif")
+    }
+
     // MARK: - Application : tableau (insertion, pas conversion)
 
     /// Vérifie directement le squelette inséré sur le storage réel : 3
@@ -1080,15 +1270,16 @@ final class SlashControllerTests: XCTestCase {
     /// progresser `selectedIndex` (et donc l'entrée qu'⏎ applique) au-delà du
     /// nombre de lignes visibles sans défilement — condition nécessaire pour
     /// que le défilement visuel ait quelque chose de correct à amener en vue.
-    /// Catalogue complet non filtré (`/` seul, `.full` : 16 entrées depuis
-    /// l'ajout de « Encadré » et des titres 4/5/6 — voir `SlashCatalog.all`) ;
-    /// `maxVisibleRows + 5` pressions de flèche bas mènent à l'index 13
-    /// (« Tableau »), au-delà des 8 premières lignes visibles sans défiler.
+    /// Catalogue complet non filtré (`/` seul, `.full` : 17 entrées depuis
+    /// l'ajout de « Encadré », des titres 4/5/6 et « Bloc de code » — voir
+    /// `SlashCatalog.all`) ; `maxVisibleRows + 6` pressions de flèche bas
+    /// mènent à l'index 14 (« Tableau »), au-delà des 8 premières lignes
+    /// visibles sans défiler.
     func test_arrowDown_beyondVisibleRowCap_stillAdvancesSelection_toEntryPastTheFold() {
         let (editor, controller, _) = makeWiredController(markdown: "")
         type("/", into: editor, controller: controller)
 
-        for _ in 0...(SlashPanelMetrics.maxVisibleRows + 4) {
+        for _ in 0...(SlashPanelMetrics.maxVisibleRows + 5) {
             XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.moveDown(_:))))
         }
         XCTAssertTrue(controller.handle(commandSelector: #selector(NSResponder.insertNewline(_:))))
@@ -1099,7 +1290,7 @@ final class SlashControllerTests: XCTestCase {
             if value != nil { cellCount += 1 }
         }
         XCTAssertEqual(cellCount, 9,
-                       "l'entrée appliquée doit être « Tableau » (index 13, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
+                       "l'entrée appliquée doit être « Tableau » (index 14, 9 cellules) — au-delà des 8 premières lignes visibles sans défilement")
     }
 
     // MARK: - Piège 3 : pas de raccourci inline parasite au moment d'appliquer

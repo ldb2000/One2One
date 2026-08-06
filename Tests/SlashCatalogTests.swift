@@ -75,6 +75,15 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(command(.heading6).matches("h6"))
     }
 
+    /// « Bloc de code » : trouvable par son libellé, un mot-clé absent du
+    /// libellé (« programmation ») et son alias (« code »).
+    func test_matches_codeBlock_onLabelKeywordAndAlias() {
+        let command = command(.codeBlock)
+        XCTAssertTrue(command.matches("Bloc de code"))
+        XCTAssertTrue(command.matches("programmation"))
+        XCTAssertTrue(command.matches("code"))
+    }
+
     func test_matches_emptyQuery_matchesEverything() {
         for entry in SlashCatalog.all {
             XCTAssertTrue(entry.matches(""), "\(entry.key) devrait matcher une requête vide")
@@ -172,6 +181,16 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertFalse(keys.contains(.thematicBreak))
     }
 
+    func test_available_basicFeature_hidesCodeBlock() {
+        let visible = SlashCatalog.available(for: .basic)
+        XCTAssertFalse(Set(visible.map(\.key)).contains(.codeBlock))
+    }
+
+    func test_available_codeBlockFeature_showsCodeBlock() {
+        let visible = SlashCatalog.available(for: [.codeBlock])
+        XCTAssertTrue(Set(visible.map(\.key)).contains(.codeBlock))
+    }
+
     /// « Encadré » partage la fonctionnalité `.blockquote` : c'est la même
     /// citation, juste préfixée d'un emoji (voir la doc de
     /// `SlashCommand.Action.insertCallout`) — pas de raison de la conditionner
@@ -215,6 +234,12 @@ final class SlashCatalogTests: XCTestCase {
     /// dont il dérive.
     func test_callout_belongsToBasicBlocksGroup() {
         XCTAssertEqual(command(.callout).group, .basicBlocks)
+    }
+
+    /// « Bloc de code » appartient au groupe « Blocs de base », comme le
+    /// séparateur et le tableau (même nature : une insertion de bloc entier).
+    func test_codeBlock_belongsToBasicBlocksGroup() {
+        XCTAssertEqual(command(.codeBlock).group, .basicBlocks)
     }
 
     // MARK: - Helpers
