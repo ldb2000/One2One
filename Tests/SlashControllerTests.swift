@@ -947,6 +947,187 @@ final class SlashControllerTests: XCTestCase {
         XCTAssertEqual(editor.textStorage?.string, "", "annulation du sélecteur : rien ne doit être inséré")
     }
 
+    // MARK: - Application : fichier
+
+    /// Vérifie les trois effets attendus de l'entrée « Fichier » : le
+    /// sélecteur injecté est bien appelé, le fichier choisi est **copié**
+    /// dans le stockage de l'app (`MediaStore.attachmentsDirectory`, pas
+    /// référencé en place — piège 2 du rapport de tâche) avec son contenu
+    /// intact, et un lien markdown `[nom](url)` portant `.mdLink` vers la
+    /// copie est inséré.
+    func test_applyingFile_opensPickerAndInsertsLinkOnChosenURL() throws {
+        let sourceURL = try makeTemporaryFile(named: "rapport.pdf", contents: "contenu du rapport")
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let (editor, _) = makeWiredEditor(markdown: "")
+        var pickerWasInvoked = false
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {},
+            presentFilePicker: { completion in
+                pickerWasInvoked = true
+                completion(sourceURL)
+            }
+        )
+
+        type("/fichier", into: editor, controller: controller)
+        applySelectedCommand(.file, controller: controller)
+
+        XCTAssertTrue(pickerWasInvoked)
+        let storage = try XCTUnwrap(editor.textStorage)
+        XCTAssertEqual(storage.string, "rapport.pdf", "le texte visible doit être le nom du fichier")
+        let insertedURL = try XCTUnwrap(storage.attribute(.mdLink, at: 0, effectiveRange: nil) as? URL)
+        defer { try? FileManager.default.removeItem(at: insertedURL.deletingLastPathComponent()) }
+
+        XCTAssertNotEqual(insertedURL.standardizedFileURL, sourceURL.standardizedFileURL,
+                          "le lien doit pointer vers une copie, jamais vers le fichier d'origine")
+        XCTAssertTrue(insertedURL.path.contains("OneToOne/attachments"))
+        XCTAssertEqual(insertedURL.lastPathComponent, "rapport.pdf")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: insertedURL.path), "la copie doit exister sur disque")
+        XCTAssertEqual(try Data(contentsOf: insertedURL), Data("contenu du rapport".utf8),
+                       "la copie doit avoir le même contenu que l'original")
+
+        XCTAssertEqual(
+            MarkdownSerializer.serialize(storage),
+            "[rapport.pdf](\(insertedURL.absoluteString))"
+        )
+    }
+
+    func test_applyingFile_pickerCancelled_insertsNothing() {
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {},
+            presentFilePicker: { completion in completion(nil) }
+        )
+
+        type("/fichier", into: editor, controller: controller)
+        applySelectedCommand(.file, controller: controller)
+
+        XCTAssertEqual(editor.textStorage?.string, "", "annulation du sélecteur : rien ne doit être inséré")
+    }
+
+    /// Nom de fichier « difficile » : crochets, parenthèses, tiret, espaces
+    /// et accent — tous des caractères qu'`MarkdownEscaping.escapeInline`
+    /// échappe (voir sa doc). Le libellé d'un lien étant émis
+    /// structurellement par `MarkdownSerializer.emitInline` (le `[`/`]`
+    /// entourant n'est jamais confondu avec le contenu échappé), le nom doit
+    /// survivre intact à l'aller-retour — vérifié ici sur le **texte
+    /// réellement reparsé**, pas seulement sur la stabilité de la chaîne
+    /// sérialisée (qui serait aveugle à un marqueur mal échappé produisant un
+    /// arbre markdown différent mais sérialisant, par coïncidence, vers la
+    /// même chaîne — voir le rapport de tâche).
+    func test_applyingFile_difficultFileName_roundTripsIntact() throws {
+        let fileName = "rapport [v2] (été) - final.pdf"
+        let sourceURL = try makeTemporaryFile(named: fileName, contents: "x")
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let (editor, _) = makeWiredEditor(markdown: "")
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(sourceURL) }
+        )
+
+        type("/fichier", into: editor, controller: controller)
+        applySelectedCommand(.file, controller: controller)
+
+        let storage = try XCTUnwrap(editor.textStorage)
+        let insertedURL = try XCTUnwrap(storage.attribute(.mdLink, at: 0, effectiveRange: nil) as? URL)
+        defer { try? FileManager.default.removeItem(at: insertedURL.deletingLastPathComponent()) }
+        XCTAssertEqual(storage.string, fileName, "prémisse : le texte inséré est le nom exact du fichier")
+
+        let firstPass = MarkdownSerializer.serialize(storage)
+        let reparsedOnce = MarkdownParser.parse(firstPass)
+
+        // Le texte reparsé doit être exactement le nom d'origine — pas une
+        // version tronquée par un `[`/`]`/`(`/`)` mal échappé qui aurait été
+        // lu comme une frontière de lien plutôt que comme du texte littéral.
+        XCTAssertEqual(reparsedOnce.string, fileName)
+        var effectiveRange = NSRange(location: 0, length: 0)
+        let reparsedURL = try XCTUnwrap(reparsedOnce.attribute(.mdLink, at: 0, effectiveRange: &effectiveRange) as? URL)
+        // `.path` (décodé), pas l'égalité `URL` stricte : `URL(string:)` (ce
+        // que fait le parser en reconstruisant l'URL depuis le texte) et
+        // `appendingPathComponent` (ce que fait `MediaStore.saveFile` à
+        // l'insertion) n'encodent pas `(`/`)` de façon identique — mesuré,
+        // voir le rapport de tâche — mais les deux désignent le même fichier
+        // une fois décodés, ce qui est la seule propriété qui compte ici.
+        XCTAssertEqual(reparsedURL.path, insertedURL.path, "l'URL reparsée doit désigner le même fichier")
+        XCTAssertEqual(
+            effectiveRange,
+            NSRange(location: 0, length: (reparsedOnce.string as NSString).length),
+            ".mdLink doit couvrir le nom de fichier reparsé entier, pas une sous-plage"
+        )
+
+        let secondPass = MarkdownSerializer.serialize(reparsedOnce)
+        XCTAssertEqual(secondPass, firstPass, "la sérialisation doit être stable dès la 1ʳᵉ repasse")
+
+        // Une 2ᵉ repasse complète (reparse du reparse) : `escapeURL` ne doit
+        // pas ré-encoder le `%` déjà présent dans `insertedURL.absoluteString`
+        // (espaces/accent) — sans quoi chaque aller-retour ajouterait une
+        // couche d'encodage supplémentaire et cette assertion échouerait.
+        let reparsedTwice = MarkdownParser.parse(secondPass)
+        let thirdPass = MarkdownSerializer.serialize(reparsedTwice)
+        XCTAssertEqual(thirdPass, firstPass, "la sérialisation doit rester stable à la 2ᵉ repasse")
+        XCTAssertEqual(reparsedTwice.string, fileName)
+    }
+
+    // MARK: - Piège 6 : le fichier n'hérite pas des attributs de frappe
+
+    /// Sans `stripRiskyTypingAttributes`, un fichier inséré juste après du
+    /// code inline hériterait de `.mdInlineCode` (mêmes raisons que pour
+    /// `insertDate`/`MentionController.insertMention`, voir leurs tests
+    /// homologues).
+    func test_applyingFile_afterInlineCode_insertedLinkDoesNotInheritInlineCode() throws {
+        let sourceURL = try makeTemporaryFile(named: "note.txt", contents: "x")
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let (editor, _) = makeWiredEditor(markdown: "")
+        editor.textStorage?.setAttributedString(
+            NSAttributedString(string: "code", attributes: [.mdInlineCode: true])
+        )
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        let controller = SlashController(
+            textView: editor,
+            features: .full,
+            panel: SlashPanel(),
+            cancelPendingWrite: {},
+            presentImagePicker: { $0(nil) },
+            presentDatePicker: { _, _, completion in completion(nil) },
+            presentEmojiPicker: {},
+            presentFilePicker: { $0(sourceURL) }
+        )
+
+        type(" /fichier", into: editor, controller: controller)
+        applySelectedCommand(.file, controller: controller)
+
+        let storage = try XCTUnwrap(editor.textStorage)
+        let insertedRange = (storage.string as NSString).range(of: "note.txt")
+        XCTAssertNotEqual(insertedRange.location, NSNotFound, "prémisse : le lien doit avoir été inséré")
+        let insertedURL = try XCTUnwrap(storage.attribute(.mdLink, at: insertedRange.location, effectiveRange: nil) as? URL)
+        defer { try? FileManager.default.removeItem(at: insertedURL.deletingLastPathComponent()) }
+
+        for location in insertedRange.location..<(insertedRange.location + insertedRange.length) {
+            XCTAssertNil(storage.attribute(.mdInlineCode, at: location, effectiveRange: nil),
+                         "position \(location) du lien hérite à tort de .mdInlineCode")
+        }
+    }
+
     // MARK: - Application : date
 
     func test_applyingDate_opensPickerAndInsertsChosenDate() {
@@ -1670,6 +1851,21 @@ final class SlashControllerTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("onetoone-slashcontroller-\(UUID().uuidString).png")
         try data.write(to: url)
+        return url
+    }
+
+    /// Fichier temporaire quelconque portant `name` (jamais réutilisé tel
+    /// quel comme URL de lien — `MediaStore.saveFile` en fait toujours une
+    /// copie, voir les tests de l'entrée « Fichier ») : chaque appel vit dans
+    /// son propre sous-dossier `UUID` du répertoire temporaire pour que
+    /// `name` (potentiellement identique d'un appel à l'autre dans un même
+    /// test) ne collisionne jamais entre deux fichiers sources.
+    private func makeTemporaryFile(named name: String, contents: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("onetoone-slashcontroller-file-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(name)
+        try Data(contents.utf8).write(to: url)
         return url
     }
 }

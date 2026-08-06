@@ -93,6 +93,16 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(command.matches("émoticône"))
     }
 
+    /// « Fichier » : trouvable par son libellé, un mot-clé absent du libellé
+    /// (« pièce jointe ») et un alias (« pdf ») — même forme de preuve que
+    /// `test_matches_table_onLabelKeywordAndAlias`.
+    func test_matches_file_onLabelKeywordAndAlias() {
+        let command = command(.file)
+        XCTAssertTrue(command.matches("Fichier"))
+        XCTAssertTrue(command.matches("pièce jointe"))
+        XCTAssertTrue(command.matches("pdf"))
+    }
+
     func test_matches_emptyQuery_matchesEverything() {
         for entry in SlashCatalog.all {
             XCTAssertTrue(entry.matches(""), "\(entry.key) devrait matcher une requête vide")
@@ -220,9 +230,10 @@ final class SlashCatalogTests: XCTestCase {
     }
 
     func test_available_emptyFeatureSet_stillShowsUnconditionalEntries() {
-        // "Texte", "Image", "Date", "Tableau" et "Emoji" ne sont conditionnées
-        // par aucun MarkdownFeature (`MarkdownFeature` ne compte aucun cas
-        // `.table` ni `.emoji`, cf. la doc de `SlashCommand.requiredFeature`).
+        // "Texte", "Image", "Date", "Tableau", "Emoji" et "Fichier" ne sont
+        // conditionnées par aucun MarkdownFeature (`MarkdownFeature` ne
+        // compte aucun cas `.table` ni `.emoji`, cf. la doc de
+        // `SlashCommand.requiredFeature`).
         let visible = SlashCatalog.available(for: [])
         let keys = Set(visible.map(\.key))
         XCTAssertTrue(keys.contains(.text))
@@ -230,6 +241,7 @@ final class SlashCatalogTests: XCTestCase {
         XCTAssertTrue(keys.contains(.date))
         XCTAssertTrue(keys.contains(.table))
         XCTAssertTrue(keys.contains(.emoji))
+        XCTAssertTrue(keys.contains(.file))
     }
 
     /// « Tableau » appartient au groupe « Blocs de base », comme le
@@ -256,6 +268,13 @@ final class SlashCatalogTests: XCTestCase {
     /// insertion ponctuelle de texte, ni un bloc de base ni un média.
     func test_emoji_belongsToInsertionsGroup() {
         XCTAssertEqual(command(.emoji).group, .insertions)
+    }
+
+    /// « Fichier » appartient au groupe « Média », comme « Image » — une
+    /// pièce jointe copiée dans le stockage de l'app, pas une insertion de
+    /// texte ponctuelle.
+    func test_file_belongsToMediaGroup() {
+        XCTAssertEqual(command(.file).group, .media)
     }
 
     // MARK: - Helpers
