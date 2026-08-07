@@ -232,6 +232,121 @@ final class StyleRendererMermaidTests: XCTestCase {
         XCTAssertTrue(source.contains("B-->C"), "la 3e ligne ne doit pas avoir disparu du bloc reconnu")
     }
 
+    // MARK: - refreshClosedMermaidGeometry (rafraîchissement après rendu asynchrone)
+
+    /// Défaut constaté (rapport de tâche) : le cadre d'erreur
+    /// (`MermaidBlockLayout.errorFrameHeight`, 132pt) est **toujours** plus
+    /// haut que le placeholder (`placeholderHeight`, 104pt) réservé au
+    /// moment de la pose synchrone de l'attachment. Sans
+    /// `refreshClosedMermaidGeometry`, la hauteur réservée
+    /// (`NSParagraphStyle.minimumLineHeight`, une valeur figée dans
+    /// l'attribut posé) ne suivait jamais l'image une fois le rendu
+    /// asynchrone livré — `MarkdownLayoutManager.drawMermaidDiagram` dessine
+    /// pourtant l'image à sa taille **native**, débordant alors de la ligne
+    /// réservée et empiétant sur les lignes de source suivantes (masquage
+    /// couleur intact, mais espace insuffisant pour les couvrir : le
+    /// débordement de l'image lui-même, visible « en travers » du cadre).
+    ///
+    /// Construit le storage à la main (pas `StyleRenderer.applyVisualStyle`,
+    /// qui déclencherait un vrai rendu `WKWebView` en tâche de fond — timing
+    /// non déterministe, voir la doc de tête de la suite et le commentaire
+    /// de `test_closedMermaidBlock_onlyFirstLineReservesHeight_restIsCapped`) :
+    /// place directement l'attachment et la géométrie fermée qu'
+    /// `applyMermaidAttachment`/`applyClosedMermaidGeometry` auraient posées
+    /// pour un placeholder tout juste livré, puis mute l'image en place
+    /// (même geste que `MermaidAttachmentFactory.render`) avant d'appeler la
+    /// fonction sous test.
+    @MainActor
+    func test_refreshClosedMermaidGeometry_growsReservedHeightToMatchTallerImage() throws {
+        let (storage, blockRange) = try makeClosedMermaidStorage()
+        let attachment = try XCTUnwrap(storage.attribute(.mdMermaidAttachment, at: blockRange.location, effectiveRange: nil) as? NSTextAttachment)
+
+        let tallerImage = MermaidAttachmentFactory.frameImage(
+            title: "Diagramme invalide", detail: "Lexical error on line 2. Unrecognized text.",
+            borderColor: .systemRed, titleColor: .systemRed, tinted: true, actionLabel: "Ouvrir le source"
+        )
+        XCTAssertGreaterThan(tallerImage.size.height, MermaidBlockLayout.placeholderHeight, "prémisse : le cadre d'erreur est bien plus haut que le placeholder")
+        attachment.image = tallerImage
+
+        StyleRenderer.refreshClosedMermaidGeometry(in: storage, range: blockRange)
+
+        let refreshedStyle = try XCTUnwrap(storage.attribute(.paragraphStyle, at: blockRange.location, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(
+            refreshedStyle.minimumLineHeight, tallerImage.size.height,
+            "la hauteur réservée doit suivre la taille réelle et actuelle de l'image, pas rester figée sur celle du placeholder"
+        )
+    }
+
+    /// Le bloc peut être rouvert (curseur dedans) entre la pose du
+    /// placeholder et l'arrivée du rendu asynchrone — dans ce cas, rafraîchir
+    /// la géométrie **fermée** serait faux (le bloc affiche son source, pas
+    /// de diagramme) : `refreshClosedMermaidGeometry` doit se taire.
+    @MainActor
+    func test_refreshClosedMermaidGeometry_doesNothing_whenBlockIsCurrentlyOpen() throws {
+        let (storage, blockRange) = try makeClosedMermaidStorage()
+        let attachment = try XCTUnwrap(storage.attribute(.mdMermaidAttachment, at: blockRange.location, effectiveRange: nil) as? NSTextAttachment)
+        let editor = try XCTUnwrap(storage.layoutManagers.first?.firstTextView as? EditorTextView)
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0)) // curseur dans le bloc : ouvert
+
+        let styleBefore = try XCTUnwrap(storage.attribute(.paragraphStyle, at: blockRange.location, effectiveRange: nil) as? NSParagraphStyle)
+        let reservedHeightBefore = styleBefore.minimumLineHeight
+
+        attachment.image = MermaidAttachmentFactory.frameImage(
+            title: "Diagramme invalide", detail: "erreur", borderColor: .systemRed, titleColor: .systemRed, tinted: true
+        )
+        StyleRenderer.refreshClosedMermaidGeometry(in: storage, range: blockRange)
+
+        let styleAfter = try XCTUnwrap(storage.attribute(.paragraphStyle, at: blockRange.location, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(styleAfter.minimumLineHeight, reservedHeightBefore, "un bloc ouvert ne doit pas voir sa géométrie fermée recalculée")
+    }
+
+    /// Construit un storage portant un bloc mermaid déjà **fermé**, avec
+    /// exactement la géométrie qu'`applyMermaidAttachment`/
+    /// `applyClosedMermaidGeometry` posent pour un placeholder tout juste
+    /// livré (104pt réservés) — sans passer par `StyleRenderer.
+    /// applyVisualStyle` (voir la doc des deux tests ci-dessus).
+    private func makeClosedMermaidStorage() throws -> (NSTextStorage, NSRange) {
+        // « intro » avant le bloc : sans préfixe, le bloc commencerait à la
+        // position 0 — le curseur par défaut (0) « toucherait » alors son
+        // propre début (`MermaidBlockLayout.selectionTouches` est inclusive
+        // aux deux bornes) et serait à tort considéré dedans (bloc ouvert).
+        // Même piège déjà mesuré dans `EditorTextViewMermaidClickTests.
+        // makeWiredEditorWithMermaidBlock`.
+        let markdown = "intro\n\n```mermaid\ngraph TD\nA-->B\n```"
+        let parsed = MarkdownParser.parse(markdown)
+        let storage = NSTextStorage(attributedString: parsed)
+        let layoutManager = MarkdownLayoutManager()
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(containerSize: NSSize(width: 400, height: 1_000_000))
+        layoutManager.addTextContainer(container)
+        let editor = EditorTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 100), textContainer: container)
+        editor.setSelectedRange(NSRange(location: 0, length: 0)) // hors du bloc : fermé
+
+        let blockStart = (storage.string as NSString).range(of: "graph TD").location
+        var blockRange = NSRange(location: 0, length: 0)
+        let blockType = storage.attribute(.mdBlockType, at: blockStart, longestEffectiveRange: &blockRange, in: NSRange(location: 0, length: storage.length)) as? BlockType
+        let codeLanguage = storage.attribute(.mdCodeLanguage, at: blockStart, effectiveRange: nil) as? String
+        XCTAssertEqual(blockType, .codeBlock)
+        XCTAssertEqual(codeLanguage, "mermaid")
+
+        let placeholder = MainActor.assumeIsolated { MermaidAttachmentFactory.placeholder(for: (storage.string as NSString).substring(with: blockRange)) }
+        storage.addAttribute(.mdMermaidAttachment, value: placeholder, range: blockRange)
+        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: blockRange)
+
+        let ns = storage.string as NSString
+        let (firstLine, rest) = MermaidBlockLayout.splitFirstLine(of: blockRange, in: ns)
+        let firstLineStyle = NSMutableParagraphStyle()
+        firstLineStyle.minimumLineHeight = MermaidBlockLayout.closedFrameHeight(forAttachmentSize: placeholder.image?.size)
+        storage.addAttribute(.paragraphStyle, value: firstLineStyle, range: firstLine)
+        if rest.length > 0 {
+            let restStyle = NSMutableParagraphStyle()
+            restStyle.maximumLineHeight = MermaidBlockLayout.hiddenLineMaximumHeight
+            storage.addAttribute(.paragraphStyle, value: restStyle, range: rest)
+        }
+
+        return (storage, blockRange)
+    }
+
     // MARK: - Fixture
 
     /// Storage + `MarkdownLayoutManager` + `EditorTextView` câblés, sans

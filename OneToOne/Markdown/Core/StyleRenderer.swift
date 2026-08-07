@@ -258,12 +258,23 @@ enum StyleRenderer {
     /// édition, interligne normal — voir `applyOpenMermaidGeometry`), selon
     /// que le curseur touche ou non `range` — `allowsOpen` transmis par
     /// l'appelant (voir sa doc dans `applyVisualStyle`). Le rendu proprement
-    /// dit est asynchrone (voir `MermaidRenderer`) : `onUpdate` invalide la
-    /// **mise en page** (pas seulement l'affichage) des `NSLayoutManager`
-    /// attachés à `storage`, pour que la hauteur réservée grandisse/rétrécisse
-    /// jusqu'à celle de l'image réelle une fois livrée — jamais le storage,
-    /// jamais une re-sérialisation, jamais une pile d'annulation (voir
-    /// `MermaidAttachmentFactoryTests`).
+    /// dit est asynchrone (voir `MermaidRenderer`) : `onUpdate` **ré-applique**
+    /// la géométrie fermée (`refreshClosedMermaidGeometry`), pas seulement
+    /// n'invalide la mise en page — `NSParagraphStyle.minimumLineHeight` est
+    /// une valeur figée dans l'attribut posé ci-dessous, `invalidateLayout`
+    /// seul ne la recalcule pas depuis la taille (nouvelle, une fois le rendu
+    /// livré) de l'image : sans ce ré-calcul, la ligne réservée reste à la
+    /// taille du placeholder (104pt) alors que l'image dessinée (à sa taille
+    /// native, voir `MarkdownLayoutManager.drawMermaidDiagram`) peut être plus
+    /// grande — le cadre d'erreur (132pt, toujours plus haut que le
+    /// placeholder) déborde alors systématiquement sur les lignes de source
+    /// suivantes, dont le masquage (`.foregroundColor = .clear`) reste
+    /// correct mais dont l'espace, désormais insuffisant, ne les couvre plus
+    /// visuellement (constat de tâche : source dessiné « en travers » du
+    /// cadre d'erreur). Jamais le storage textuel, jamais une
+    /// re-sérialisation, jamais une pile d'annulation (voir
+    /// `MermaidAttachmentFactoryTests`) : seuls des attributs d'affichage
+    /// sont mutés, comme partout ailleurs dans `StyleRenderer`.
     private static func applyMermaidAttachment(to storage: NSTextStorage, range: NSRange, allowsOpen: Bool) {
         guard range.length > 0 else { return }
         let source = (storage.string as NSString).substring(with: range)
@@ -278,10 +289,7 @@ enum StyleRenderer {
         // et, avec lui, à tous ses appelants.
         let (attachment, selectionLocation) = MainActor.assumeIsolated { () -> (NSTextAttachment, Int) in
             let attachment = MermaidAttachmentFactory.attachment(for: source, isDark: isDark) {
-                for layoutManager in storage.layoutManagers {
-                    layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
-                    layoutManager.invalidateDisplay(forCharacterRange: range)
-                }
+                refreshClosedMermaidGeometry(in: storage, range: range)
             }
             let location = storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
             return (attachment, location)
@@ -292,6 +300,35 @@ enum StyleRenderer {
             applyOpenMermaidGeometry(to: storage, range: range)
         } else {
             applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
+        }
+    }
+
+    /// Ré-applique la géométrie **fermée** de `range` d'après la taille
+    /// **actuelle** de l'attachment mermaid qui y est posé — appelée depuis
+    /// `onUpdate` (voir sa doc dans `applyMermaidAttachment`) une fois le
+    /// rendu asynchrone terminé (succès ou erreur). Ne fait rien si `range`
+    /// ne pointe plus dans les bornes du storage (bloc retiré entre-temps)
+    /// ou si le bloc est actuellement **ouvert** (curseur dedans) : la
+    /// géométrie ouverte ne dépend pas de la taille de l'image, la rouvrir
+    /// ici écraserait à tort son interligne d'édition.
+    ///
+    /// `internal` (pas `private`) pour être exercée directement par les
+    /// tests avec un attachment dont l'image a été substituée à la main
+    /// (simule un rendu terminé sans dépendre du timing d'un vrai
+    /// `WKWebView`) — même patron que `EditorTextView.mermaidDoneButtonRange`.
+    static func refreshClosedMermaidGeometry(in storage: NSTextStorage, range: NSRange) {
+        guard range.location >= 0, range.location + range.length <= storage.length else { return }
+        let selectionLocation = storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
+        guard !MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) else { return }
+
+        let attachment = storage.attribute(.mdMermaidAttachment, at: range.location, effectiveRange: nil) as? NSTextAttachment
+        storage.beginEditing()
+        applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment?.image?.size)
+        storage.endEditing()
+
+        for layoutManager in storage.layoutManagers {
+            layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+            layoutManager.invalidateDisplay(forCharacterRange: range)
         }
     }
 
