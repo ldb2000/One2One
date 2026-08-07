@@ -1,10 +1,63 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-06
+Dernière mise à jour : 2026-08-07
 
 ## En cours
 
-**Branche `feat/editeur-slash-blocs`** — 70 commits, rien de fusionné vers `master`.
+**Branche `feat/editeur-slash-blocs`** — 93 commits (`git rev-list --count
+$(git merge-base master HEAD)..HEAD`), rien de fusionné vers `master`.
+
+### Bloc mermaid — 3 défauts, toujours pas bon après correctif (2026-08-07)
+
+Trois défauts constatés par l'utilisateur sur le bloc mermaid (capture à
+l'appui) : tiret transformé en tiret cadratin par la substitution
+automatique AppKit (`-->` devenait `—>`, mermaid refusait le diagramme),
+cadre d'erreur qui déborde sur le source masqué, bouton « Ouvrir le
+source » non cliquable.
+
+Trois correctifs commités, chacun avec tests dédiés (géométrie pure +
+hit-test comme fonction, jamais de `mouseDown` réel piloté) et vérification
+par mutation :
+
+- `33f7027` — `isAutomaticDashSubstitutionEnabled = false` (propriété
+  distincte d'`isAutomaticTextReplacementEnabled`, qui ne couvrait pas la
+  substitution des tirets malgré ce que prétendait le commentaire existant).
+- `6e77b6c` — la géométrie fermée (hauteur réservée) ne se remettait jamais
+  à jour après l'arrivée du rendu asynchrone ; `onUpdate` ne faisait
+  qu'invalider l'affichage, jamais recalculer `minimumLineHeight` depuis la
+  taille réelle de l'image. Le cadre d'erreur (132pt) est systématiquement
+  plus haut que le placeholder (104pt) réservé au départ → débordement
+  systématique sur les lignes de source suivantes.
+- `be7c5e3` — `EditorTextView.mermaidErrorActionButtonRange(at:)` ajouté,
+  câblé dans `mouseDown`, même patron que `mermaidDoneButtonRange`.
+
+Build propre, suite complète au vert (`swift test --skip
+CalendarImportEventTests` : 847 tests XCTest + 138 Swift Testing, seul
+échec = `MenuBarStatsTests.test_badge_twelve_compact`, préexistant et
+sensible à l'heure — voir plus bas).
+
+**Rebuild vérifié** : `~/Applications/OneToOne.app` a été reconstruit à
+08:03 le 2026-08-07, après les trois commits (dernier à 08:02) — la capture
+d'écran de l'utilisateur reflète donc bien le code corrigé, pas un ancien
+build.
+
+**Retour utilisateur après ce rebuild : « Encore pas bon » (capture
+d'écran fournie, pas encore analysée en détail dans cette session).** Je
+n'ai pas de description précise de ce qui reste visible à l'écran — aucune
+piste supplémentaire n'a été creusée avant l'écriture de cette entrée, sur
+consigne explicite de l'utilisateur (« Je verrais plus tard »).
+
+**Prochaine action sur ce chantier** : obtenir une reproduction précise
+(quel texte tapé, quel symptôme exact sur la capture — un des trois
+défauts persiste-t-il tel quel, ou est-ce un quatrième défaut non couvert
+par les tests ajoutés ?) avant de retoucher le code. Pistes déjà envisagées
+et **non couvertes** par les tests de ce chantier (à vérifier en premier) :
+le câblage `mouseDown` → `mermaidErrorActionButtonRange`/
+`mermaidBlockRange` lui-même (les fonctions sont testées, pas leur
+déclenchement réel au clic) et le câblage `onUpdate` →
+`refreshClosedMermaidGeometry` dans `StyleRenderer.applyMermaidAttachment`
+(idem, la fonction est testée directement, pas son déclenchement par le
+rendu asynchrone réel).
 
 Refonte de l'éditeur markdown en s'inspirant d'AppFlowy. Voir
 `docs/superpowers/specs/2026-08-06-editeur-appflowy-cap.md` pour l'écart mesuré
