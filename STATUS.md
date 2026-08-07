@@ -152,12 +152,15 @@ n'existe pas) :
 
 ## Écarts entre `CLAUDE.md` et le dépôt
 
-- **`task test` n'existe pas** — ni `Taskfile`, ni binaire `task`. Les tests se
-  lancent par `swift test --skip CalendarImportEventTests`.
+- ~~**`task test` n'existe pas**~~ — corrigé le 2026-08-07 : la règle 3 cite
+  désormais `swift test --skip CalendarImportEventTests`, vérifiée en la
+  lançant.
+- ~~**`## Conventions` apparaît deux fois**~~ — corrigé le 2026-08-07, les
+  deux sections sont fusionnées. La section `## Éditeur` avait aussi orphelin
+  `### Cache HuggingFace`, remis sous le provider IA, et « pas de commit sur
+  `main` » disait une branche qui n'existe pas (c'est `master`).
 - **`docs/adr/` n'existe pas** — les décisions ci-dessus attendent d'y être
-  consignées.
-- **`## Conventions` apparaît deux fois** dans `CLAUDE.md`, avec des contenus
-  différents.
+  consignées. Seul écart restant.
 
 ## Échecs de test préexistants
 

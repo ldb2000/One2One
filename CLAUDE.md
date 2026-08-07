@@ -69,8 +69,31 @@ Si « Error reading 'config.json' » : le snapshot pointé par `refs/main` doit 
 `config.json` + l'index + le tokenizer **et** les `*.safetensors` (un téléchargement partiel peut
 éclater métadonnées et poids sur deux snapshots).
 
+## Éditeur
+
+On s'inspire d'[AppFlowy](https://github.com/AppFlowy-IO/AppFlowy) pour l'éditeur : commandes `/`,
+paragraphes déplaçables, ajout de blocs. **Aucun code d'AppFlowy n'est repris** (Dart/Flutter et
+React/Slate, sous AGPL-3.0) — seules la conception et les bibliothèques MIT qu'il utilise le sont.
+
+Le module vit dans `OneToOne/Markdown/` : TextKit 1, **le markdown reste la source de vérité**
+(pas de modèle de blocs). Voir `STATUS.md` pour l'état et les défauts connus.
+
+## Règles de travail
+
+1. Lire `STATUS.md` avant de commencer.
+2. Une PR = une intention. Si le périmètre dérive, s'arrêter et me demander.
+3. `swift test --skip CalendarImportEventTests` avant de proposer la PR.
+   (Le `--skip` évite un crash d'environnement hors bundle applicatif ;
+   voir les échecs préexistants listés dans `STATUS.md`.)
+4. Mettre à jour `STATUS.md` en fin de session : état, prochaine action, date.
+5. Pas de dépendance nouvelle sans justification dans la PR.
+6. En cas de doute sur un choix structurant : proposer, ne pas décider.
+
 ## Conventions
 
+- Branche par tâche, PR obligatoire, pas de commit sur `master` (branche principale du dépôt).
+- Commits conventionnels.
+- Décision structurante → ADR dans `docs/adr/`.
 - Commentaires & libellés UI en **français** ; symboles/code en anglais.
 - Énums persistées SwiftData stockées en `…Raw: String` + wrapper calculé (contournement bug SwiftData).
 - Services : `enum` namespace (fonctions statiques pures) ou `class` singleton `@MainActor` `.shared`.
