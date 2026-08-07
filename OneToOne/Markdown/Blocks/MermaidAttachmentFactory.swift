@@ -117,13 +117,15 @@ enum MermaidAttachmentFactory {
                 // État 4 : cadre teinté (pas un liseré rouge vif), message
                 // mermaid tronqué à deux lignes en monospace (voir
                 // `frameImage`), bouton « Ouvrir le source » — cliquer
-                // n'importe où sur ce cadre ouvre déjà le source, voir
-                // `EditorTextView.mermaidBlockRange` : le bouton n'est donc
-                // qu'une affordance visuelle, pas un hit-test séparé.
+                // n'importe où sur ce cadre ouvre déjà le source (voir
+                // `EditorTextView.mermaidBlockRange`), et le bouton
+                // lui-même est en plus hit-testé précisément
+                // (`EditorTextView.mermaidErrorActionButtonRange`, géométrie
+                // partagée via `MermaidBlockLayout.errorActionButtonRect`).
                 image = frameImage(
                     title: "Diagramme invalide", detail: message,
                     borderColor: .systemRed, titleColor: .systemRed,
-                    tinted: true, actionLabel: "Ouvrir le source"
+                    tinted: true, actionLabel: MermaidBlockLayout.errorActionLabel
                 )
             }
             apply(image: image, to: attachment)
@@ -250,12 +252,15 @@ enum MermaidAttachmentFactory {
 
             if let actionLabel {
                 let buttonAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                    .font: MermaidBlockLayout.errorActionFont,
                     .foregroundColor: NSColor.labelColor
                 ]
                 let buttonText = actionLabel as NSString
                 let textSize = buttonText.size(withAttributes: buttonAttrs)
-                let buttonRect = NSRect(x: 12, y: 10, width: textSize.width + 20, height: 20)
+                // Géométrie partagée avec le hit-test — voir
+                // `EditorTextView.mermaidErrorActionButtonRange` : un seul
+                // calcul, jamais deux qui pourraient diverger.
+                let buttonRect = MermaidBlockLayout.errorActionButtonRect(labelSize: textSize)
                 let pill = NSBezierPath(roundedRect: buttonRect, xRadius: buttonRect.height / 2, yRadius: buttonRect.height / 2)
                 NSColor.controlBackgroundColor.setFill()
                 pill.fill()

@@ -200,4 +200,82 @@ final class MermaidBlockLayoutTests: XCTestCase {
         let storage = NSTextStorage(string: "hi")
         XCTAssertNil(MermaidBlockLayout.blockRange(in: storage, at: storage.length))
     }
+
+    // MARK: - errorActionButtonRect / imageLocalPoint — bouton « Ouvrir le source »
+
+    /// Le bouton est posé près du **bas** de l'image (`y: 10`, coordonnées
+    /// natives bas-gauche — voir `MermaidAttachmentFactory.frameImage`),
+    /// jamais du haut (où se trouve déjà le titre/message d'erreur).
+    func test_errorActionButtonRect_sitsNearTheBottomOfTheNativeImage() {
+        let rect = MermaidBlockLayout.errorActionButtonRect(labelSize: NSSize(width: 80, height: 12))
+        XCTAssertEqual(rect.minY, 10)
+        XCTAssertEqual(rect.height, 20)
+    }
+
+    /// La largeur suit le texte mesuré (marge de 20pt, 10pt de chaque côté)
+    /// — un libellé plus long doit produire un bouton plus large, jamais une
+    /// largeur fixe qui tronquerait le texte ou laisserait un vide.
+    func test_errorActionButtonRect_widthFollowsLabelSize() {
+        let narrow = MermaidBlockLayout.errorActionButtonRect(labelSize: NSSize(width: 40, height: 12))
+        let wide = MermaidBlockLayout.errorActionButtonRect(labelSize: NSSize(width: 120, height: 12))
+        XCTAssertEqual(narrow.width, 60)
+        XCTAssertEqual(wide.width, 140)
+        XCTAssertGreaterThan(wide.width, narrow.width)
+    }
+
+    /// Coin haut-gauche de l'image dessinée (`drawnRect`) → coin haut-gauche
+    /// en coordonnées natives, mais **bas-gauche** de l'image elle-même
+    /// (`NSImage(size:flipped:false)`) — l'axe Y s'inverse : le haut de
+    /// l'image dessinée correspond à `imageSize.height` en natif, pas à 0.
+    func test_imageLocalPoint_topLeftOfDrawnRect_mapsToTopOfNativeImage() {
+        let drawnRect = NSRect(x: 100, y: 200, width: 320, height: 132)
+        let imageSize = NSSize(width: 320, height: 132) // même échelle : pas de mise à l'échelle
+
+        let point = MermaidBlockLayout.imageLocalPoint(
+            fromContainerPoint: NSPoint(x: 100, y: 200), drawnRect: drawnRect, imageSize: imageSize
+        )
+        XCTAssertEqual(point?.x, 0)
+        XCTAssertEqual(point?.y, 132, "le haut du rectangle dessiné correspond au sommet natif (bas-gauche = origine)")
+    }
+
+    /// Bas-gauche de `drawnRect` (coordonnées conteneur, grand y = bas dans
+    /// une vue flippée) → origine native (0, 0, bas-gauche de l'image).
+    func test_imageLocalPoint_bottomLeftOfDrawnRect_mapsToNativeOrigin() {
+        let drawnRect = NSRect(x: 100, y: 200, width: 320, height: 132)
+        let imageSize = NSSize(width: 320, height: 132)
+
+        let point = MermaidBlockLayout.imageLocalPoint(
+            fromContainerPoint: NSPoint(x: 100, y: 332), drawnRect: drawnRect, imageSize: imageSize
+        )
+        XCTAssertEqual(point?.x, 0)
+        XCTAssertEqual(point?.y, 0)
+    }
+
+    /// L'image effectivement dessinée peut être réduite (`fittedSize`) par
+    /// rapport à sa taille native — la conversion doit tenir compte de cette
+    /// mise à l'échelle, jamais supposer un rapport 1:1.
+    func test_imageLocalPoint_scaledDownDrawnRect_convertsBackToNativeScale() throws {
+        let drawnRect = NSRect(x: 0, y: 0, width: 160, height: 66) // moitié de la taille native
+        let imageSize = NSSize(width: 320, height: 132)
+
+        let point = try XCTUnwrap(MermaidBlockLayout.imageLocalPoint(
+            fromContainerPoint: NSPoint(x: 80, y: 33), drawnRect: drawnRect, imageSize: imageSize
+        ))
+        XCTAssertEqual(point.x, 160, accuracy: 0.001, "80pt à l'échelle 0.5 → 160pt natifs")
+        XCTAssertEqual(point.y, 66, accuracy: 0.001)
+    }
+
+    func test_imageLocalPoint_degenerateDrawnRect_isNil() {
+        let point = MermaidBlockLayout.imageLocalPoint(
+            fromContainerPoint: .zero, drawnRect: .zero, imageSize: NSSize(width: 320, height: 132)
+        )
+        XCTAssertNil(point)
+    }
+
+    func test_imageLocalPoint_degenerateImageSize_isNil() {
+        let point = MermaidBlockLayout.imageLocalPoint(
+            fromContainerPoint: .zero, drawnRect: NSRect(x: 0, y: 0, width: 320, height: 132), imageSize: .zero
+        )
+        XCTAssertNil(point)
+    }
 }

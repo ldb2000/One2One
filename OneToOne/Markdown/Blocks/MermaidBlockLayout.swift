@@ -97,6 +97,52 @@ enum MermaidBlockLayout {
         return NSSize(width: size.width * scale, height: size.height * scale)
     }
 
+    // MARK: - Bouton « Ouvrir le source » (état 4 — cadre d'erreur)
+
+    /// Libellé et police du bouton d'action peint dans le cadre d'erreur
+    /// (`MermaidAttachmentFactory.frameImage`) — source de vérité unique
+    /// partagée avec le hit-test (`EditorTextView.
+    /// mermaidErrorActionButtonRange`), pour que les deux mesurent le texte
+    /// à l'identique.
+    static let errorActionLabel = "Ouvrir le source"
+    static let errorActionFont = NSFont.systemFont(ofSize: 10, weight: .medium)
+
+    /// Rectangle du bouton d'action, en coordonnées **natives de l'image**
+    /// (origine bas-gauche — voir `NSImage(size:flipped:false)` dans
+    /// `MermaidAttachmentFactory.frameImage`, qui pose le bouton à `y: 10`,
+    /// donc près du **bas** visuel du cadre). `labelSize` : la taille
+    /// mesurée d'`errorActionLabel` avec `errorActionFont`, à fournir par
+    /// l'appelant (dessin ou hit-test) — jamais mesurée deux fois avec des
+    /// attributs qui pourraient diverger.
+    static func errorActionButtonRect(labelSize: NSSize) -> NSRect {
+        NSRect(x: 12, y: 10, width: labelSize.width + 20, height: 20)
+    }
+
+    /// Convertit `point` (coordonnées **conteneur**, mêmes conventions que
+    /// `MarkdownLayoutManager.drawMermaidDiagram`/`origin`) en coordonnées
+    /// **natives de l'image** dessinée dans `drawnRect` (la zone où
+    /// `drawMermaidDiagram` positionne effectivement l'image, réduite au
+    /// besoin par `fittedSize`) — pour hit-tester une zone définie dans le
+    /// repère de l'image (`errorActionButtonRect`) depuis un point écran.
+    ///
+    /// `NSImage.draw(in:)` rend toujours l'image "à l'endroit" quelle que
+    /// soit la vue de destination (flippée ou non, voir sa documentation
+    /// Apple) : l'axe X se convertit donc directement (mise à l'échelle
+    /// seule), l'axe Y s'inverse — le bas de l'image (`y` natif petit,
+    /// origine bas-gauche) correspond au bas de `drawnRect` (`y` conteneur
+    /// grand, `NSTextView` étant flippée : l'axe y grandit vers le bas de
+    /// l'écran). `nil` si `drawnRect`/`imageSize` sont dégénérés (largeur
+    /// nulle) — rien à hit-tester.
+    static func imageLocalPoint(fromContainerPoint point: NSPoint, drawnRect: NSRect, imageSize: NSSize) -> NSPoint? {
+        guard drawnRect.width > 0, imageSize.width > 0 else { return nil }
+        let scale = drawnRect.width / imageSize.width
+        guard scale > 0 else { return nil }
+        return NSPoint(
+            x: (point.x - drawnRect.minX) / scale,
+            y: (drawnRect.maxY - point.y) / scale
+        )
+    }
+
     /// Découpe `range` en sa première ligne (`\n` terminal compris) et le
     /// reste — pure fonction sur `NSString`, partagée par `StyleRenderer`
     /// (répartition des styles ouvert/fermé) et testable sans storage vivant.

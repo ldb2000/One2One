@@ -301,6 +301,14 @@ final class EditorTextView: NSTextView {
             setSelectedRange(NSRange(location: doneRange.location + doneRange.length, length: 0))
             return
         }
+        if let actionRange = mermaidErrorActionButtonRange(at: point) {
+            // Même geste qu'un clic ailleurs sur le cadre (ci-dessous) —
+            // ouvre le bloc en y plaçant le curseur — mais hit-testé
+            // précisément sur la pastille « Ouvrir le source » plutôt que
+            // sur toute la zone où l'image est dessinée.
+            setSelectedRange(NSRange(location: actionRange.location, length: 0))
+            return
+        }
         if let mermaidRange = mermaidBlockRange(at: point) {
             setSelectedRange(NSRange(location: mermaidRange.location, length: 0))
             return
@@ -499,6 +507,60 @@ final class EditorTextView: NSTextView {
 
         let cursorAlreadyInside = MermaidBlockLayout.selectionTouches(selectedRange().location, blockRange: blockRange)
         guard !cursorAlreadyInside else { return nil }
+
+        return blockRange
+    }
+
+    /// Plage du bloc mermaid **fermé en erreur** (cadre teinté, voir
+    /// `MermaidAttachmentFactory.frameImage`) dont le bouton « Ouvrir le
+    /// source » est sous `point`, ou `nil`. Un clic n'importe où sur un bloc
+    /// fermé ouvre déjà le source (`mermaidBlockRange`, appelé juste après
+    /// dans `mouseDown` si celle-ci renvoie `nil`) : ce hit-test dédié ne
+    /// change donc pas le geste final, mais le borne précisément à la
+    /// pastille peinte plutôt qu'à toute la zone où l'image est dessinée —
+    /// même schéma que `mermaidDoneButtonRange`, un calcul de géométrie
+    /// partagé avec le dessin (`MermaidBlockLayout.errorActionButtonRect`),
+    /// jamais deux qui pourraient diverger.
+    ///
+    /// `internal` (pas `private`) pour être exercée directement par les
+    /// tests, comme `mermaidBlockRange`/`mermaidDoneButtonRange`.
+    func mermaidErrorActionButtonRange(at point: NSPoint) -> NSRange? {
+        guard let storage = textStorage, storage.length > 0,
+              let layoutManager, let container = textContainer
+        else { return nil }
+        let charIndex = characterIndexForInsertion(at: point)
+        let safeIndex = min(charIndex, storage.length - 1)
+        guard safeIndex >= 0 else { return nil }
+
+        guard let blockRange = MermaidBlockLayout.blockRange(in: storage, at: safeIndex),
+              !MermaidBlockLayout.selectionTouches(selectedRange().location, blockRange: blockRange)
+        else { return nil }
+
+        guard let attachment = storage.attribute(.mdMermaidAttachment, at: blockRange.location, effectiveRange: nil) as? NSTextAttachment,
+              let image = attachment.image
+        else { return nil }
+
+        // Même géométrie que `MarkdownLayoutManager.drawMermaidDiagram` :
+        // position/taille réelles de l'image dessinée, réduite au besoin
+        // par `fittedSize` si le conteneur est plus étroit que prévu.
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
+        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let maxWidth = max(container.size.width - firstLineRect.minX, 0)
+        let drawSize = MermaidBlockLayout.fittedSize(for: image.size, maxWidth: maxWidth)
+        guard drawSize.width > 0, drawSize.height > 0 else { return nil }
+        let drawnRect = NSRect(x: firstLineRect.minX, y: firstLineRect.minY, width: drawSize.width, height: drawSize.height)
+
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+        guard drawnRect.contains(containerPoint),
+              let localPoint = MermaidBlockLayout.imageLocalPoint(fromContainerPoint: containerPoint, drawnRect: drawnRect, imageSize: image.size)
+        else { return nil }
+
+        let labelSize = (MermaidBlockLayout.errorActionLabel as NSString).size(withAttributes: [.font: MermaidBlockLayout.errorActionFont])
+        let buttonRect = MermaidBlockLayout.errorActionButtonRect(labelSize: labelSize)
+        guard buttonRect.contains(localPoint) else { return nil }
 
         return blockRange
     }
