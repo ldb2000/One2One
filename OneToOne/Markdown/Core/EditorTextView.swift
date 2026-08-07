@@ -77,6 +77,17 @@ final class EditorTextView: NSTextView {
     /// remplacements automatiques sont désactivés car ils interféreraient avec
     /// la syntaxe markdown (ex. transformation des `--` en tiret long), et
     /// `importsGraphics` est coupé car l'éditeur ne gère que du texte balisé.
+    ///
+    /// `isAutomaticTextReplacementEnabled` ne couvre **que** les
+    /// remplacements du panneau Réglages Système › Clavier › Substitutions de
+    /// texte — la substitution `--`/`---` → tiret demi-cadratin/cadratin est
+    /// pilotée par la propriété séparée `isAutomaticDashSubstitutionEnabled`
+    /// (défaut AppKit : `true`), non couverte par le flag ci-dessus malgré ce
+    /// que suggérait le commentaire précédent. Sans cette ligne, taper `-->`
+    /// dans un bloc ```` ```mermaid ```` insérait un tiret cadratin (`—>`)
+    /// au lieu des deux traits d'union `--` de la syntaxe de flèche — mermaid
+    /// refusait alors le diagramme (« Lexical error… Unrecognized text »)
+    /// alors que l'utilisateur avait tapé une syntaxe valide.
     private func commonInit() {
         isRichText = true
         allowsUndo = true
@@ -85,6 +96,7 @@ final class EditorTextView: NSTextView {
         isAutomaticTextCompletionEnabled = false
         isAutomaticTextReplacementEnabled = false
         isAutomaticSpellingCorrectionEnabled = false
+        isAutomaticDashSubstitutionEnabled = false
         font = NSFont.systemFont(ofSize: 13)
         textContainerInset = NSSize(width: 6, height: 6)
     }
