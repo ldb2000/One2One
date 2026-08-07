@@ -98,7 +98,105 @@ final class EditorTextView: NSTextView {
         isAutomaticSpellingCorrectionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
         font = NSFont.systemFont(ofSize: 13)
-        textContainerInset = NSSize(width: 6, height: 6)
+        // `width: 58` réserve la gouttière de bloc à gauche (spec Screen 4 du
+        // handoff `editeur_blocs` — poignée `⠿` + bouton `+`). Symétrique par
+        // limitation de `NSTextView.textContainerInset` (largeur unique
+        // gauche+droite) : les 58 px à droite sont wasted pour l'instant. Un
+        // wrapper `NSView` documentView du scrollView (à faire step 4) rendra
+        // cet inset asymétrique.
+        textContainerInset = NSSize(width: BlockGutterLayout.width, height: 6)
+    }
+
+    // MARK: - Gouttière de bloc (step 1 handoff `editeur_blocs`)
+
+    /// Plage du bloc actuellement survolé. Synchronisé avec
+    /// `MarkdownLayoutManager.hoveredBlockRange` qui la consomme pour peindre
+    /// les icônes `+`/`⠿` et le léger fond de survol.
+    private var hoveredBlockRange: NSRange? {
+        didSet {
+            guard hoveredBlockRange != oldValue else { return }
+            (layoutManager as? MarkdownLayoutManager)?.hoveredBlockRange = hoveredBlockRange
+            needsDisplay = true
+        }
+    }
+
+    /// Plage du bloc sélectionné comme objet (clic sur `⠿`). Synchronisé avec
+    /// `MarkdownLayoutManager.selectedBlockRange` qui la consomme pour peindre
+    /// le cadre `#0a6cff` + fond `#f4f8ff`.
+    var selectedBlockRange: NSRange? {
+        didSet {
+            guard selectedBlockRange != oldValue else { return }
+            (layoutManager as? MarkdownLayoutManager)?.selectedBlockRange = selectedBlockRange
+            needsDisplay = true
+        }
+    }
+
+    /// `NSTrackingArea` couvre tout le bounds du textView, refreshé à chaque
+    /// changement de taille. `mouseMoved` fait la logique de suivi elle-même
+    /// (calcul du bloc sous le curseur), pas besoin de multiples rects par
+    /// bloc. Requiert la fenêtre : appelé par AppKit dès que le textView est
+    /// attaché à une hiérarchie de vues visibles.
+    private var gutterTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = gutterTrackingArea {
+            removeTrackingArea(existing)
+            gutterTrackingArea = nil
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        gutterTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        hoveredBlockRange = blockRange(at: point)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoveredBlockRange = nil
+    }
+
+    /// Plage du bloc contenant `point` (coordonnées vue). Retourne `nil` si
+    /// hors du storage. Ne considère PAS la zone de gouttière — un point dans
+    /// la gouttière renvoie le bloc de la ligne à sa hauteur, ce qui permet
+    /// au survol d'afficher la gouttière du bloc même quand la souris est
+    /// pile dans la gouttière (sinon dès que la souris entre dans la
+    /// gouttière, le survol s'éteindrait — self-flickering).
+    func blockRange(at point: NSPoint) -> NSRange? {
+        guard let storage = textStorage, storage.length > 0 else { return nil }
+        // `characterIndexForInsertion` clamp à un x utile même si le point est
+        // dans la gouttière (à gauche du texte) : il retourne alors le début
+        // de la ligne à cette hauteur, ce qu'on veut.
+        let charIndex = characterIndexForInsertion(at: point)
+        let safeIndex = min(max(0, charIndex), storage.length - 1)
+        return BlockRange.of(in: storage, at: safeIndex).range
+    }
+
+    /// Hit-test d'un clic dans la gouttière du bloc à la hauteur de `point`.
+    /// Retourne la zone cliquée + la plage du bloc concerné, ou `nil` si le
+    /// point ne touche ni `+` ni `⠿` du bloc à cette hauteur.
+    func blockGutterHit(at point: NSPoint) -> (zone: BlockGutterLayout.HitZone, range: NSRange)? {
+        guard let range = blockRange(at: point),
+              let manager = layoutManager as? MarkdownLayoutManager,
+              let container = textContainer
+        else { return nil }
+        guard let bodyContainerRect = BlockGutterLayout.containerRect(
+            for: range, layoutManager: manager, container: container
+        ) else { return nil }
+        let bodyViewRect = bodyContainerRect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+        guard let zone = BlockGutterLayout.hitTest(point: point, bodyRect: bodyViewRect) else {
+            return nil
+        }
+        return (zone, range)
     }
 
     // MARK: - ⌥↑ / ⌥↓ — déplacement de bloc
@@ -287,6 +385,25 @@ final class EditorTextView: NSTextView {
     /// `clicked(onLink:at:)` (ci-dessous).
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // Gouttière de bloc (step 1 handoff `editeur_blocs`) : un clic sur `⠿`
+        // sélectionne le bloc comme objet (mode distinct du curseur texte).
+        // `+` est réservé pour l'insertion (step 4) — pour l'instant no-op mais
+        // consomme le clic pour ne pas positionner le curseur là.
+        if let hit = blockGutterHit(at: point) {
+            switch hit.zone {
+            case .handle:
+                selectedBlockRange = hit.range
+            case .plus:
+                // TODO(step 4) : insérer un bloc au-dessus/en dessous.
+                break
+            }
+            return
+        }
+        // Clic ailleurs → si un bloc était sélectionné comme objet, on retombe
+        // en mode curseur texte : la sélection de bloc se dissipe.
+        if selectedBlockRange != nil {
+            selectedBlockRange = nil
+        }
         if let gesture = tableControlGesture(at: point) {
             onTableEditCommand?(gesture)
             return

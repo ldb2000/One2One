@@ -26,12 +26,133 @@ import AppKit
 /// l'item, jamais par-dessus.
 final class MarkdownLayoutManager: NSLayoutManager {
 
+    /// Plage du bloc **actuellement survolé** par la souris — mis à jour par
+    /// `EditorTextView.mouseMoved` (via un `NSTrackingArea`), consommé ici pour
+    /// peindre la gouttière (`⠿`/`+`) et un léger fond de survol sur ce bloc.
+    /// `nil` : rien de survolé (souris hors éditeur, ou sur un bloc mermaid
+    /// fermé/ouvert dont la géométrie propre remplace la gouttière — cas non
+    /// implémenté ici, à voir step 4).
+    var hoveredBlockRange: NSRange?
+
+    /// Plage du bloc **sélectionné comme objet** (clic sur `⠿`) — dessiné avec
+    /// un cadre `1.5 px #0a6cff` + fond `#f4f8ff`. Distinct du curseur texte
+    /// dans le contenu (cf. spec Screen 4 « Distinction critique »).
+    /// `nil` : pas de sélection de bloc active.
+    var selectedBlockRange: NSRange?
+
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        // Fond de sélection/survol : AVANT super, pour que les glyphes se
+        // superposent au calque de couleur.
+        drawBlockSelectionBackground(at: origin)
+        drawBlockHoverBackground(at: origin)
+
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
         drawBlockquoteRules(forGlyphRange: glyphsToShow, at: origin)
         drawTableControls(at: origin)
         drawMermaidDiagrams(forGlyphRange: glyphsToShow, at: origin)
+
+        // Cadre de sélection + icônes gouttière : APRÈS super, pour rester
+        // au-dessus du contenu (une bordure sous les glyphes serait invisible
+        // sur les lignes hautes).
+        drawBlockSelectionBorder(at: origin)
+        drawBlockGutterIcons(at: origin)
+    }
+
+    // MARK: - Gouttière de bloc + sélection (step 1 handoff `editeur_blocs`)
+
+    /// Rect englobant du corps du bloc `range` en coordonnées **vue**
+    /// (`containerRect` + `origin`, où `origin` est déjà le
+    /// `textContainerOrigin` de la vue courante). Retourne `nil` si la plage
+    /// est vide ou si le container n'est pas disponible.
+    private func viewBodyRect(for range: NSRange, origin: NSPoint) -> NSRect? {
+        guard let container = firstTextView?.textContainer,
+              let container2 = textContainers.first,
+              let rect = BlockGutterLayout.containerRect(
+                for: range,
+                layoutManager: self,
+                container: container2
+              ) ?? BlockGutterLayout.containerRect(
+                for: range,
+                layoutManager: self,
+                container: container
+              )
+        else { return nil }
+        return rect.offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    private func drawBlockSelectionBackground(at origin: NSPoint) {
+        guard let range = selectedBlockRange,
+              let bodyRect = viewBodyRect(for: range, origin: origin)
+        else { return }
+        let frame = BlockGutterLayout.selectionFrame(forBodyRect: bodyRect)
+        let path = NSBezierPath(roundedRect: frame,
+                                xRadius: BlockGutterLayout.bodyCornerRadius,
+                                yRadius: BlockGutterLayout.bodyCornerRadius)
+        BlockGutterLayout.selectionFillColor.setFill()
+        path.fill()
+    }
+
+    private func drawBlockHoverBackground(at origin: NSPoint) {
+        // Pas de survol si le bloc est déjà sélectionné (feedback sélection prime).
+        guard let range = hoveredBlockRange, range != selectedBlockRange,
+              let bodyRect = viewBodyRect(for: range, origin: origin)
+        else { return }
+        let frame = BlockGutterLayout.selectionFrame(forBodyRect: bodyRect)
+        let path = NSBezierPath(roundedRect: frame,
+                                xRadius: BlockGutterLayout.bodyCornerRadius,
+                                yRadius: BlockGutterLayout.bodyCornerRadius)
+        BlockGutterLayout.hoverFillColor.setFill()
+        path.fill()
+    }
+
+    private func drawBlockSelectionBorder(at origin: NSPoint) {
+        guard let range = selectedBlockRange,
+              let bodyRect = viewBodyRect(for: range, origin: origin)
+        else { return }
+        let frame = BlockGutterLayout.selectionFrame(forBodyRect: bodyRect)
+        let path = NSBezierPath(roundedRect: frame,
+                                xRadius: BlockGutterLayout.bodyCornerRadius,
+                                yRadius: BlockGutterLayout.bodyCornerRadius)
+        BlockGutterLayout.accentColor.setStroke()
+        path.lineWidth = BlockGutterLayout.selectionBorderWidth
+        path.stroke()
+    }
+
+    /// Peint `+` et `⠿` dans la gouttière du bloc survolé (ou sélectionné, qui
+    /// prend le pas). L'utilisateur qui glisse la souris sur un bloc voit
+    /// apparaître ces deux boutons ; les autres blocs restent nus.
+    private func drawBlockGutterIcons(at origin: NSPoint) {
+        let rangeToShow = selectedBlockRange ?? hoveredBlockRange
+        guard let range = rangeToShow,
+              let bodyRect = viewBodyRect(for: range, origin: origin)
+        else { return }
+        let icons = BlockGutterLayout.iconsFrame(forBodyRect: bodyRect)
+
+        // ⠿ — poignée de glissement, priorité visuelle.
+        let handleAttrs: [NSAttributedString.Key: Any] = [
+            .font: BlockGutterLayout.handleGlyphFont,
+            .foregroundColor: BlockGutterLayout.handleGlyphColor
+        ]
+        drawCenteredGlyph("⠿", in: icons.handle, attributes: handleAttrs)
+
+        // + — insertion (comportement au step 4).
+        let plusAttrs: [NSAttributedString.Key: Any] = [
+            .font: BlockGutterLayout.plusGlyphFont,
+            .foregroundColor: BlockGutterLayout.plusGlyphColor
+        ]
+        drawCenteredGlyph("+", in: icons.plus, attributes: plusAttrs)
+    }
+
+    private func drawCenteredGlyph(_ glyph: String, in rect: NSRect, attributes: [NSAttributedString.Key: Any]) {
+        let text = glyph as NSString
+        let size = text.size(withAttributes: attributes)
+        let origin = NSPoint(
+            x: rect.midX - size.width / 2,
+            y: rect.midY - size.height / 2
+        )
+        text.draw(at: origin, withAttributes: attributes)
     }
 
     /// Parcourt les fragments de ligne du rendu en cours et dessine un
