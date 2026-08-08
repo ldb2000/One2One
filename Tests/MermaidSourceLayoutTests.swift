@@ -109,6 +109,79 @@ final class MermaidSourceLayoutTests: XCTestCase {
         XCTAssertEqual(height, 100 + 2 * MermaidSourceLayout.previewVerticalPadding)
     }
 
+    // MARK: - previewHeight(in:blockRange:containerWidth:)
+
+    /// Point d'entrée **unique** utilisé par le dessin et le hit-test : doit
+    /// renvoyer exactement ce que renvoie `previewHeight(forAttachmentSize:
+    /// containerWidth:)` pour la taille de l'image portée par
+    /// `.mdMermaidAttachment` sur le bloc — jamais un calcul recopié à la
+    /// main qui pourrait diverger de l'original.
+    func test_previewHeightInStorage_matchesPreviewHeightForTheAttachmentImageSize() {
+        let storage = NSTextStorage(string: "graph TD\nA-->B")
+        let blockRange = NSRange(location: 0, length: storage.length)
+        let imageSize = NSSize(width: 300, height: 100)
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        image.unlockFocus()
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        storage.addAttribute(.mdMermaidAttachment, value: attachment, range: blockRange)
+
+        let height = MermaidSourceLayout.previewHeight(in: storage, blockRange: blockRange, containerWidth: 400)
+        let expected = MermaidSourceLayout.previewHeight(forAttachmentSize: imageSize, containerWidth: 400)
+
+        XCTAssertEqual(height, expected)
+    }
+
+    /// Bloc sans `.mdMermaidAttachment` (pas encore stylé, ou attribut
+    /// retiré) : pas de bande, comme si l'image n'existait pas.
+    func test_previewHeightInStorage_withoutTheAttribute_isZero() {
+        let storage = NSTextStorage(string: "graph TD\nA-->B")
+        let blockRange = NSRange(location: 0, length: storage.length)
+
+        XCTAssertEqual(MermaidSourceLayout.previewHeight(in: storage, blockRange: blockRange, containerWidth: 400), 0)
+    }
+
+    /// L'attribut est typé `Any` dans `NSAttributedString` : rien n'empêche
+    /// un objet qui n'est pas un `NSTextAttachment` de s'y retrouver. Le cast
+    /// raté doit renvoyer 0, jamais crasher.
+    func test_previewHeightInStorage_withANonAttachmentValue_isZeroWithoutCrashing() {
+        let storage = NSTextStorage(string: "graph TD\nA-->B")
+        let blockRange = NSRange(location: 0, length: storage.length)
+        storage.addAttribute(.mdMermaidAttachment, value: "not an attachment", range: blockRange)
+
+        XCTAssertEqual(MermaidSourceLayout.previewHeight(in: storage, blockRange: blockRange, containerWidth: 400), 0)
+    }
+
+    /// Le rendu asynchrone n'a pas encore livré d'image (`attachment.image
+    /// == nil`) : pas de bande tant qu'il n'y a rien à montrer.
+    func test_previewHeightInStorage_withAnAttachmentWithoutAnImage_isZero() {
+        let storage = NSTextStorage(string: "graph TD\nA-->B")
+        let blockRange = NSRange(location: 0, length: storage.length)
+        storage.addAttribute(.mdMermaidAttachment, value: NSTextAttachment(), range: blockRange)
+
+        XCTAssertEqual(MermaidSourceLayout.previewHeight(in: storage, blockRange: blockRange, containerWidth: 400), 0)
+    }
+
+    /// `blockRange.location` négatif ou hors bornes ne doit jamais être
+    /// transmis à `storage.attribute(at:effectiveRange:)` — sinon crash.
+    func test_previewHeightInStorage_withAnOutOfBoundsLocation_isZeroWithoutReadingOutOfBounds() {
+        let storage = NSTextStorage(string: "graph TD\nA-->B")
+
+        XCTAssertEqual(
+            MermaidSourceLayout.previewHeight(
+                in: storage, blockRange: NSRange(location: -1, length: 0), containerWidth: 400
+            ),
+            0
+        )
+        XCTAssertEqual(
+            MermaidSourceLayout.previewHeight(
+                in: storage, blockRange: NSRange(location: storage.length, length: 0), containerWidth: 400
+            ),
+            0
+        )
+    }
+
     /// L'image est réduite **deux fois** : d'abord à la largeur du conteneur,
     /// puis au plafond de hauteur. Sans la première réduction, la hauteur
     /// réservée serait celle de l'image native alors que le dessin, lui,
