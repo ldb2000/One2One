@@ -135,3 +135,84 @@ final class ProbeDocumentReplaceTests: XCTestCase {
         XCTAssertEqual(document.blocks.map(\.text), [""])
     }
 }
+
+/// Navigation d'une position à l'autre, extraction du texte sélectionné, et
+/// écriture non structurante d'un bloc.
+final class ProbeDocumentNavigationTests: XCTestCase {
+
+    func test_positionAfter_stepsToTheNextBlockAtTheEndOfOne() {
+        let document = ProbeDocument(texts: ["Un", "Deux"])
+        let end = ProbePosition(blockIndex: 0, offset: 2)
+        XCTAssertEqual(document.position(after: end), ProbePosition(blockIndex: 1, offset: 0))
+    }
+
+    func test_positionAfter_atTheEndOfTheDocument_staysPut() {
+        let document = ProbeDocument(texts: ["Un", "Deux"])
+        let end = ProbePosition(blockIndex: 1, offset: 4)
+        XCTAssertEqual(document.position(after: end), end)
+    }
+
+    func test_positionBefore_stepsToTheEndOfThePreviousBlock() {
+        let document = ProbeDocument(texts: ["Un", "Deux"])
+        let start = ProbePosition(blockIndex: 1, offset: 0)
+        XCTAssertEqual(document.position(before: start), ProbePosition(blockIndex: 0, offset: 2))
+    }
+
+    /// Un pas franchit une séquence composée entière, jamais une demi-paire
+    /// de substituts : sans cela, ⇧→ couperait un emoji en deux.
+    func test_positionSteps_crossWholeComposedSequences() {
+        let document = ProbeDocument(texts: ["a👍b"])
+        let afterA = ProbePosition(blockIndex: 0, offset: 1)
+        XCTAssertEqual(document.position(after: afterA), ProbePosition(blockIndex: 0, offset: 3))
+        XCTAssertEqual(document.position(before: ProbePosition(blockIndex: 0, offset: 3)), afterA)
+    }
+
+    func test_wholeDocument_coversEverything() {
+        let document = ProbeDocument(texts: ["Un", "Deux", "Trois"])
+        XCTAssertEqual(document.wholeDocument.start, ProbePosition(blockIndex: 0, offset: 0))
+        XCTAssertEqual(document.wholeDocument.end, ProbePosition(blockIndex: 2, offset: 5))
+    }
+
+    /// Le texte d'une sélection multi-blocs joint les blocs par un saut de
+    /// ligne — c'est ce qui part au pasteboard.
+    func test_textInSelection_joinsBlocksWithNewlines() {
+        let document = ProbeDocument(texts: ["Un", "Deux", "Trois"])
+        let selection = ProbeSelection(anchor: ProbePosition(blockIndex: 0, offset: 1),
+                                       head: ProbePosition(blockIndex: 2, offset: 2))
+        XCTAssertEqual(document.text(in: selection), "n\nDeux\nTr")
+    }
+
+    func test_textInSelection_insideOneBlock_takesTheRun() {
+        let document = ProbeDocument(texts: ["Bonjour"])
+        let selection = ProbeSelection(anchor: ProbePosition(blockIndex: 0, offset: 3),
+                                       head: ProbePosition(blockIndex: 0, offset: 7))
+        XCTAssertEqual(document.text(in: selection), "jour")
+    }
+
+    /// Aller-retour : copier une sélection puis la recoller à sa place rend le
+    /// même texte. C'est l'invariant qui relie `text(in:)` à `replace`.
+    func test_copyThenPasteInPlace_leavesTheTextUnchanged() {
+        var document = ProbeDocument(texts: ["Un", "Deux", "Trois"])
+        let before = document.blocks.map(\.text)
+        let selection = ProbeSelection(anchor: ProbePosition(blockIndex: 0, offset: 1),
+                                       head: ProbePosition(blockIndex: 2, offset: 2))
+
+        let copied = document.text(in: selection)
+        document.replace(selection, with: copied)
+
+        XCTAssertEqual(document.blocks.map(\.text), before)
+    }
+
+    /// `setText` est la voie de la frappe native : elle change le texte d'un
+    /// bloc sans toucher à la structure ni à l'identité, donc sans provoquer
+    /// de reconstruction de vue.
+    func test_setText_changesOneBlockWithoutTouchingIdentityOrStructure() {
+        var document = ProbeDocument(texts: ["Un", "Deux"])
+        let identity = document.blocks[1].id
+
+        document.setText("Deuxième", at: 1)
+
+        XCTAssertEqual(document.blocks.map(\.text), ["Un", "Deuxième"])
+        XCTAssertEqual(document.blocks[1].id, identity)
+    }
+}

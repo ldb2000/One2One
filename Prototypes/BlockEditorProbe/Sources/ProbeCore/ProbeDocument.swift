@@ -74,3 +74,77 @@ public struct ProbeDocument: Equatable {
         return ProbePosition(blockIndex: index, offset: offset)
     }
 }
+
+// MARK: - Navigation et extraction
+
+extension ProbeDocument {
+
+    public var startPosition: ProbePosition {
+        ProbePosition(blockIndex: 0, offset: 0)
+    }
+
+    public var endPosition: ProbePosition {
+        ProbePosition(blockIndex: blocks.count - 1, offset: blocks[blocks.count - 1].length)
+    }
+
+    /// La sélection de ⌘A.
+    public var wholeDocument: ProbeSelection {
+        ProbeSelection(anchor: startPosition, head: endPosition)
+    }
+
+    /// Un pas vers l'avant. Franchit une séquence composée entière et passe au
+    /// bloc suivant quand la fin du bloc courant est atteinte.
+    public func position(after position: ProbePosition) -> ProbePosition {
+        let here = clamped(position)
+        let block = blocks[here.blockIndex]
+        if here.offset < block.length {
+            let composed = (block.text as NSString).rangeOfComposedCharacterSequence(at: here.offset)
+            return ProbePosition(blockIndex: here.blockIndex, offset: NSMaxRange(composed))
+        }
+        guard here.blockIndex + 1 < blocks.count else { return here }
+        return ProbePosition(blockIndex: here.blockIndex + 1, offset: 0)
+    }
+
+    /// Un pas vers l'arrière, symétrique de `position(after:)`.
+    public func position(before position: ProbePosition) -> ProbePosition {
+        let here = clamped(position)
+        if here.offset > 0 {
+            let composed = (blocks[here.blockIndex].text as NSString)
+                .rangeOfComposedCharacterSequence(at: here.offset - 1)
+            return ProbePosition(blockIndex: here.blockIndex, offset: composed.location)
+        }
+        guard here.blockIndex > 0 else { return here }
+        let previous = here.blockIndex - 1
+        return ProbePosition(blockIndex: previous, offset: blocks[previous].length)
+    }
+
+    /// Le texte couvert par une sélection, les blocs joints par `\n`. C'est ce
+    /// qui part au pasteboard, et ce que `replace` sait relire.
+    public func text(in selection: ProbeSelection) -> String {
+        let start = clamped(selection.start)
+        let end = clamped(selection.end)
+
+        if start.blockIndex == end.blockIndex {
+            let range = NSRange(location: start.offset, length: end.offset - start.offset)
+            return (blocks[start.blockIndex].text as NSString).substring(with: range)
+        }
+
+        var parts = [(blocks[start.blockIndex].text as NSString).substring(from: start.offset)]
+        for index in (start.blockIndex + 1)..<end.blockIndex {
+            parts.append(blocks[index].text)
+        }
+        parts.append((blocks[end.blockIndex].text as NSString).substring(to: end.offset))
+        return parts.joined(separator: "\n")
+    }
+
+    /// Écrit le texte d'un bloc sans toucher à la structure.
+    ///
+    /// C'est la voie de la **frappe native** : le `NSTextView` focalisé traite
+    /// lui-même la saisie — accents, touches mortes, correcteur, services — et
+    /// le coordinateur recopie ensuite le résultat ici. Aucune vue n'est
+    /// reconstruite, l'identité du bloc ne bouge pas.
+    public mutating func setText(_ text: String, at blockIndex: Int) {
+        guard blocks.indices.contains(blockIndex) else { return }
+        blocks[blockIndex].text = text
+    }
+}
