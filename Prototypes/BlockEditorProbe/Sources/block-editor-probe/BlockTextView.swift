@@ -140,4 +140,31 @@ final class BlockTextView: NSTextView {
     override func selectAll(_ sender: Any?) {
         owner.selectAllBlocks()
     }
+
+    // MARK: - Actions déléguées au coordinateur
+
+    /// `NSTextView` implémente `copy:`/`cut:`/`paste:` (protocole `NSText`)
+    /// et, premier répondant, les capterait avant le coordinateur.
+    override func copy(_ sender: Any?) {
+        owner.copySelection()
+    }
+
+    override func cut(_ sender: Any?) {
+        owner.cutSelection()
+    }
+
+    override func paste(_ sender: Any?) {
+        owner.pasteFromPasteboard()
+    }
+
+    /// `undo:` et `redo:` n'existent pas sur `NSResponder` : les déclarer ici
+    /// met le premier répondant sur leur chemin, avant tout `UndoManager`
+    /// que la fenêtre pourrait fournir.
+    @objc func undo(_ sender: Any?) {
+        owner.undoLastEdit()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        owner.redoLastEdit()
+    }
 }

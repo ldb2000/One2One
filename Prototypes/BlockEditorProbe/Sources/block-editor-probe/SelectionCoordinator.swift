@@ -289,6 +289,61 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
         return false
     }
 
+    // MARK: - Mécanisme 3 : pasteboard et undo
+
+    /// Sérialise la sélection multi-blocs : un bloc par ligne. Le collage
+    /// relit exactement ce format, ce que `ProbeDocument.replace` sait faire.
+    func copySelection() {
+        guard !selection.isCollapsed else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(document.text(in: selection), forType: .string)
+    }
+
+    func cutSelection() {
+        guard !selection.isCollapsed else { return }
+        copySelection()
+        apply { ProbeEditing.insertText("", in: &$0, selection: self.selection) }
+    }
+
+    func pasteFromPasteboard() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+        apply { ProbeEditing.insertText(pasted, in: &$0, selection: self.selection) }
+    }
+
+    /// ⌘Z global.
+    ///
+    /// Les `UndoManager` des `NSTextView` sont désactivés (`allowsUndo =
+    /// false`) : sans cela, ⌘Z annulerait bloc par bloc, dans l'ordre où
+    /// l'utilisateur a visité les blocs et non dans celui des modifications.
+    /// C'est ce point qui décide si l'undo explicite d'AppFlowy est
+    /// transposable.
+    func undoLastEdit() {
+        let current = ProbeSnapshot(document: document, selection: selection)
+        guard let previous = history.undo(current: current) else { return }
+        restore(previous)
+    }
+
+    func redoLastEdit() {
+        let current = ProbeSnapshot(document: document, selection: selection)
+        guard let next = history.redo(current: current) else { return }
+        restore(next)
+    }
+
+    /// Écrit dans les vues (`reload` + `synchroniseViews`) : comme `apply`,
+    /// doit lever la garde de synchronisation avant `reload` — voir le
+    /// commentaire d'`isSynchronising` en tête de fichier. Écart au brief
+    /// documenté dans le rapport de tâche : le code du brief n'enveloppait
+    /// pas cet appel.
+    private func restore(_ snapshot: ProbeSnapshot) {
+        document = snapshot.document
+        selection = snapshot.selection
+        whileSynchronising {
+            stack?.reload(document: document)
+            synchroniseViews(focusing: true)
+        }
+    }
+
     // MARK: - NSTextViewDelegate
 
     /// La frappe simple reste **native** : c'est ce qui donne gratuitement les
