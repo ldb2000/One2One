@@ -296,34 +296,49 @@ final class MarkdownLayoutManager: NSLayoutManager {
         var drawnStarts = Set<Int>()
 
         storage.enumerateAttribute(.mdMermaidAttachment, in: visibleCharacters) { value, range, _ in
-            guard value != nil,
+            guard let attachment = value as? NSTextAttachment,
                   let blockRange = MermaidBlockLayout.blockRange(in: storage, at: range.location),
                   MermaidBlockLayout.selectionTouches(selectedLocation, blockRange: blockRange),
                   drawnStarts.insert(blockRange.location).inserted
             else { return }
 
+            let containerWidth = container.size.width
             let firstGlyph = self.glyphIndexForCharacter(at: blockRange.location)
             let lastCharacter = max(blockRange.location, NSMaxRange(blockRange) - 1)
             let lastGlyph = self.glyphIndexForCharacter(at: lastCharacter)
             let firstLine = self.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
             let lastLine = self.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+
+            // Même calcul que le hit-test de « Terminé » et que la hauteur
+            // réservée par `StyleRenderer.applyOpenMermaidGeometry`.
+            let previewHeight = MermaidSourceLayout.previewHeight(
+                in: storage, blockRange: blockRange, containerWidth: containerWidth
+            )
+
             let frame = MermaidSourceLayout.frameRect(
-                firstLineRect: firstLine,
-                lastLineRect: lastLine,
-                containerWidth: container.size.width,
-                previewHeight: 0
+                firstLineRect: firstLine, lastLineRect: lastLine,
+                containerWidth: containerWidth, previewHeight: previewHeight
             ).offsetBy(dx: origin.x, dy: origin.y)
             let header = MermaidSourceLayout.headerRect(
-                above: firstLine,
-                containerWidth: container.size.width,
-                previewHeight: 0
+                above: firstLine, containerWidth: containerWidth, previewHeight: previewHeight
             ).offsetBy(dx: origin.x, dy: origin.y)
             let body = MermaidSourceLayout.bodyRect(
-                firstLineRect: firstLine,
-                lastLineRect: lastLine,
-                containerWidth: container.size.width,
-                previewHeight: 0
+                firstLineRect: firstLine, lastLineRect: lastLine,
+                containerWidth: containerWidth, previewHeight: previewHeight
             ).offsetBy(dx: origin.x, dy: origin.y)
+
+            // `drawBackground(forGlyphRange:at:)` peut fournir un clip limité
+            // aux lignes en cours : le cadre et l'aperçu vivent au-dessus de
+            // la première ligne du bloc, donc **hors** de ce clip. Sans cet
+            // élargissement, la bande d'aperçu du bloc ouvert disparaît
+            // derrière le cadre du bloc précédent — exactement le défaut déjà
+            // rencontré avec l'en-tête (voir `drawMermaidHeader`).
+            NSGraphicsContext.current?.saveGraphicsState()
+            defer { NSGraphicsContext.current?.restoreGraphicsState() }
+            let clipHeight = self.firstTextView?.bounds.height ?? frame.height
+            NSBezierPath(
+                rect: NSRect(x: origin.x, y: 0, width: containerWidth, height: clipHeight)
+            ).addClip()
 
             let card = NSBezierPath(
                 roundedRect: frame.insetBy(dx: 0.5, dy: 0.5),
@@ -339,10 +354,29 @@ final class MarkdownLayoutManager: NSLayoutManager {
             header.fill()
             MermaidSourceLayout.gutterBackgroundColor.setFill()
             NSRect(x: body.minX, y: body.minY, width: MermaidSourceLayout.gutterWidth, height: body.height).fill()
+
+            // Aperçu **figé** : l'image déjà portée par l'attachment, jamais
+            // un rendu relancé (voir `StyleRenderer.applyMermaidAttachment`,
+            // branche « bloc ouvert »). Elle date de la dernière fermeture du
+            // bloc ; « Terminé » la rafraîchit.
+            if previewHeight > 0, let image = attachment.image {
+                let preview = MermaidSourceLayout.previewRect(
+                    above: firstLine, containerWidth: containerWidth, imageSize: image.size
+                ).offsetBy(dx: origin.x, dy: origin.y)
+                if !preview.isEmpty {
+                    image.draw(in: preview)
+                }
+            }
             NSGraphicsContext.current?.restoreGraphicsState()
 
             MermaidSourceLayout.dividerColor.setFill()
             NSRect(x: header.minX, y: header.maxY - 1, width: header.width, height: 1).fill()
+            if previewHeight > 0 {
+                // Filet entre l'aperçu et le source : c'est lui qui fait lire
+                // les deux comme un seul bloc en deux moitiés, pas comme deux
+                // cadres empilés.
+                NSRect(x: body.minX, y: body.minY, width: body.width, height: 1).fill()
+            }
             NSRect(x: body.minX + MermaidSourceLayout.gutterWidth, y: body.minY, width: 1, height: body.height).fill()
 
             MermaidSourceLayout.borderColor.setStroke()
