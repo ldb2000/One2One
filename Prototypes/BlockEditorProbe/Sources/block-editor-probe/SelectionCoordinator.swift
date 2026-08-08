@@ -223,6 +223,11 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
             guard selection.spansBlocks || (selection.isCollapsed && selection.head.offset == 0) else {
                 return false
             }
+            // Garde de borne, sur le modèle de celle de `moveDown` (tâche 9) :
+            // en tête du tout premier bloc, il n'y a pas de bloc précédent à
+            // fusionner. Rendre la main plutôt qu'appliquer une mutation
+            // inerte, qui empilerait un instantané d'historique fantôme.
+            guard selection.spansBlocks || selection.head.blockIndex > 0 else { return false }
             apply { ProbeEditing.deleteBackward(in: &$0, selection: self.selection) }
             return true
 
@@ -230,6 +235,11 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
             let atBlockEnd = selection.isCollapsed
                 && selection.head.offset == document.blocks[selection.head.blockIndex].length
             guard selection.spansBlocks || atBlockEnd else { return false }
+            // Garde de borne symétrique : en fin du tout dernier bloc, il n'y
+            // a pas de bloc suivant à remonter. Même raison qu'au-dessus.
+            guard selection.spansBlocks || selection.head.blockIndex + 1 < document.blocks.count else {
+                return false
+            }
             apply { ProbeEditing.deleteForward(in: &$0, selection: self.selection) }
             return true
 
@@ -261,14 +271,21 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
     func textView(_ textView: NSTextView,
                   shouldChangeTextIn affectedRange: NSRange,
                   replacementString: String?) -> Bool {
+        // `replacementString` vaut `nil` quand seuls les attributs de texte
+        // changent (services macOS, correction automatique, futur collage
+        // riche) — ce n'est pas la même chose qu'une chaîne vide, qui
+        // signifierait « effacer la sélection ». Un changement purement
+        // attributaire ne touche ni au document ni à l'historique : on laisse
+        // `NSTextView` faire, sans passer par `apply`.
+        guard let replacementString else { return true }
+
         guard selection.spansBlocks else {
             // Voie native, mais l'historique doit quand même voir l'état
             // d'avant : l'undo est unifié au niveau du conteneur.
             history.record(ProbeSnapshot(document: document, selection: selection))
             return true
         }
-        let inserted = replacementString ?? ""
-        apply { ProbeEditing.insertText(inserted, in: &$0, selection: self.selection) }
+        apply { ProbeEditing.insertText(replacementString, in: &$0, selection: self.selection) }
         return false
     }
 
