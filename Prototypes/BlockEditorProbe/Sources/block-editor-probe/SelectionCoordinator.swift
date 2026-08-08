@@ -109,6 +109,112 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
         }
     }
 
+    // MARK: - Mécanisme 1 : sélection traversante
+
+    /// Pose l'ancre au clic, puis suit le glissement **au niveau du
+    /// conteneur** : c'est le seul endroit qui voit tous les blocs à la fois.
+    func beginSelectionDrag(from view: BlockTextView, event: NSEvent) {
+        guard let stack, let window = view.window else { return }
+
+        let anchor = position(ofWindowPoint: event.locationInWindow, in: stack)
+        setSelection(ProbeSelection(caret: anchor))
+
+        window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp],
+                           timeout: NSEvent.foreverDuration,
+                           mode: .eventTracking) { tracked, stop in
+            guard let tracked else {
+                stop.pointee = true
+                return
+            }
+            if tracked.type == .leftMouseUp {
+                stop.pointee = true
+                return
+            }
+            let head = self.position(ofWindowPoint: tracked.locationInWindow, in: stack)
+            // `focusing: false` : reprendre le premier répondant à chaque
+            // mouvement casserait le suivi du glissement.
+            self.setSelection(ProbeSelection(anchor: self.selection.anchor, head: head),
+                              focusing: false)
+        }
+
+        // Le focus n'est repris qu'au relâchement, sur le bloc de la tête.
+        synchroniseViews(focusing: true)
+    }
+
+    /// Traduit un point de la fenêtre en position du document, en débordant
+    /// proprement au-dessus du premier bloc et sous le dernier.
+    private func position(ofWindowPoint point: NSPoint, in stack: BlockStackView) -> ProbePosition {
+        let inStack = stack.convert(point, from: nil)
+        guard let index = stack.blockIndex(atContentPoint: inStack),
+              let view = stack.view(at: index) else {
+            return document.clamped(selection.head)
+        }
+        let inView = view.convert(point, from: nil)
+        let clampedPoint = NSPoint(x: inView.x,
+                                   y: min(max(inView.y, 0), max(view.bounds.height - 1, 0)))
+        return ProbePosition(blockIndex: index, offset: view.probeOffset(atViewPoint: clampedPoint))
+    }
+
+    /// ⌘A prend tout le document, pas seulement le bloc focalisé.
+    func selectAllBlocks() {
+        setSelection(document.wholeDocument)
+    }
+
+    // MARK: - Commandes clavier
+
+    /// Ne reprend la main que lorsque `NSTextView` ne peut pas s'en sortir
+    /// seul : au franchissement d'une frontière de bloc, ou dès que la
+    /// sélection en déborde déjà.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard let view = textView as? BlockTextView else { return false }
+
+        switch selector {
+        case #selector(NSResponder.selectAll(_:)):
+            selectAllBlocks()
+            return true
+
+        case #selector(NSResponder.moveRightAndModifySelection(_:)),
+             #selector(NSResponder.moveForwardAndModifySelection(_:)):
+            return extendSelection(to: document.position(after: selection.head),
+                                   whenNativeWouldSuffice: !selection.spansBlocks
+                                       && selection.head.offset < document.blocks[selection.head.blockIndex].length)
+
+        case #selector(NSResponder.moveLeftAndModifySelection(_:)),
+             #selector(NSResponder.moveBackwardAndModifySelection(_:)):
+            return extendSelection(to: document.position(before: selection.head),
+                                   whenNativeWouldSuffice: !selection.spansBlocks
+                                       && selection.head.offset > 0)
+
+        case #selector(NSResponder.moveDownAndModifySelection(_:)):
+            guard selection.spansBlocks || view.isOnLastLine(offset: selection.head.offset) else { return false }
+            let next = min(selection.head.blockIndex + 1, document.blocks.count - 1)
+            setSelection(ProbeSelection(anchor: selection.anchor,
+                                        head: ProbePosition(blockIndex: next, offset: 0)))
+            return true
+
+        case #selector(NSResponder.moveUpAndModifySelection(_:)):
+            guard selection.spansBlocks || view.isOnFirstLine(offset: selection.head.offset) else { return false }
+            guard selection.head.blockIndex > 0 else { return false }
+            let previous = selection.head.blockIndex - 1
+            setSelection(ProbeSelection(
+                anchor: selection.anchor,
+                head: ProbePosition(blockIndex: previous, offset: document.blocks[previous].length)))
+            return true
+
+        default:
+            return false
+        }
+    }
+
+    /// Étend la sélection vers `head`. Rend la main à `NSTextView` quand le
+    /// mouvement reste dans un bloc : c'est lui qui connaît le mieux ses
+    /// propres lignes.
+    private func extendSelection(to head: ProbePosition, whenNativeWouldSuffice native: Bool) -> Bool {
+        guard !native else { return false }
+        setSelection(ProbeSelection(anchor: selection.anchor, head: head))
+        return true
+    }
+
     // MARK: - NSTextViewDelegate
 
     /// La frappe simple reste **native** : c'est ce qui donne gratuitement les

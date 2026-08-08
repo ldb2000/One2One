@@ -94,4 +94,43 @@ final class BlockTextView: NSTextView {
             painted.offsetBy(dx: origin.x, dy: origin.y).fill()
         }
     }
+
+    // MARK: - Souris
+
+    /// Le clic ne pose pas la sélection lui-même : il la demande au
+    /// coordinateur, qui seul sait ce qu'est une sélection traversante.
+    override func mouseDown(with event: NSEvent) {
+        owner.beginSelectionDrag(from: self, event: event)
+    }
+
+    /// Position du document sous un point exprimé dans les coordonnées de
+    /// cette vue.
+    func probeOffset(atViewPoint point: NSPoint) -> Int {
+        characterIndexForInsertion(at: point)
+    }
+
+    // MARK: - Lignes
+
+    /// Vrai si le décalage tombe sur le dernier fragment de ligne du bloc.
+    /// Sert à savoir quand ↓ doit franchir la frontière de bloc.
+    func isOnLastLine(offset: Int) -> Bool {
+        guard let manager = layoutManager, manager.numberOfGlyphs > 0 else { return true }
+        var lineRange = NSRange()
+        let glyph = min(manager.glyphIndexForCharacter(at: offset), manager.numberOfGlyphs - 1)
+        manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &lineRange)
+        return NSMaxRange(lineRange) >= manager.numberOfGlyphs
+    }
+
+    /// Symétrique : vrai sur le premier fragment de ligne du bloc.
+    func isOnFirstLine(offset: Int) -> Bool {
+        guard let manager = layoutManager, manager.numberOfGlyphs > 0 else { return true }
+        var lineRange = NSRange()
+        let glyph = min(manager.glyphIndexForCharacter(at: offset), manager.numberOfGlyphs - 1)
+        manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &lineRange)
+        return lineRange.location == 0
+    }
+
+    override func selectAll(_ sender: Any?) {
+        owner.selectAllBlocks()
+    }
 }
