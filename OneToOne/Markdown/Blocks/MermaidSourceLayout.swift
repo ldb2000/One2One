@@ -82,6 +82,73 @@ enum MermaidSourceLayout {
     /// Marge entre le bouton « Terminé » et le bord droit du conteneur.
     static let doneButtonTrailingMargin: CGFloat = 8
 
+    // MARK: - Bornes du texte (piège `lineFragmentRect` / `lineFragmentUsedRect`)
+
+    /// Bornes verticales du **texte** d'un bloc mermaid ouvert, en
+    /// coordonnées conteneur : sommet de la première ligne de source
+    /// (`top`), bas de la dernière (`bottom`).
+    ///
+    /// Ce type existe pour rendre **impossible** l'erreur qui l'a motivé. En
+    /// TextKit 1, `lineFragmentRect` **inclut** l'espace réservé par
+    /// `paragraphSpacingBefore` (en haut) et par `paragraphSpacing` (en bas) :
+    /// le fragment commence au sommet de l'espace réservé, pas du texte. Seul
+    /// `lineFragmentUsedRect` commence au sommet du texte. Mesuré (script
+    /// `.superpowers/sdd/2026-08-08-aeration-blocs-mermaid/mesure-textkit.swift`),
+    /// pour un paragraphe « Intro » à `paragraphSpacing = 28` suivi d'un bloc
+    /// ouvert à `paragraphSpacingBefore = 307` :
+    ///
+    ///     Intro      frag.minY=  0.0  h= 44.0 | used.minY=  0.0  h=16.0
+    ///     graph TD   frag.minY= 44.0  h=323.0 | used.minY=351.0  h=16.0
+    ///
+    /// Ancrer la bande (en-tête + aperçu + cadre) sur `frag.minY` la peignait
+    /// donc 307 pt trop haut, par-dessus le bloc précédent. Symétriquement,
+    /// dériver le bas du cadre de `frag.maxY` enfermait dans la carte les
+    /// 28 pt d'écart qu'`StyleRenderer.applyBlockSpacing` pose pour l'en
+    /// *séparer*.
+    ///
+    /// Plus aucune fonction de cette géométrie n'accepte un `NSRect` de
+    /// ligne : elles prennent toutes un `SourceTextBounds`, dont le seul
+    /// constructeur accessible au code de production est
+    /// `textBounds(forBlockRange:layoutManager:)` — qui lit
+    /// `lineFragmentUsedRect`. Passer un rect de fragment par inadvertance ne
+    /// compile plus.
+    struct SourceTextBounds {
+        let top: CGFloat
+        let bottom: CGFloat
+
+        fileprivate init(top: CGFloat, bottom: CGFloat) {
+            self.top = top
+            self.bottom = bottom
+        }
+    }
+
+    /// Bornes du texte du bloc `blockRange` d'après la mise en page réelle —
+    /// **le** point d'entrée de la géométrie du bloc ouvert, partagé par le
+    /// dessin du cadre, le dessin de l'en-tête et le hit-test de « Terminé »
+    /// (même principe qu'`previewHeight(in:blockRange:containerWidth:)` pour
+    /// la hauteur de bande : deux calculs divergents rendraient « Terminé »
+    /// incliquable).
+    ///
+    /// Suppose la mise en page assurée pour la plage visée — c'est le cas de
+    /// tous ses appelants (dessin en cours, ou vue déjà affichée).
+    static func textBounds(forBlockRange blockRange: NSRange, layoutManager: NSLayoutManager) -> SourceTextBounds {
+        let firstGlyph = layoutManager.glyphIndexForCharacter(at: blockRange.location)
+        let lastCharacter = max(blockRange.location, NSMaxRange(blockRange) - 1)
+        let lastGlyph = layoutManager.glyphIndexForCharacter(at: lastCharacter)
+        let first = layoutManager.lineFragmentUsedRect(forGlyphAt: firstGlyph, effectiveRange: nil)
+        let last = layoutManager.lineFragmentUsedRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+        return SourceTextBounds(top: first.minY, bottom: last.maxY)
+    }
+
+    /// Bornes fabriquées à la main, **réservées aux tests** de géométrie pure
+    /// (relations algébriques entre en-tête, aperçu et cadre, sans vue
+    /// vivante) — même patron que `StyleRenderer.
+    /// applyOpenMermaidGeometryForTesting`. Le code de production passe
+    /// toujours par `textBounds(forBlockRange:layoutManager:)`.
+    static func sourceTextBoundsForTesting(top: CGFloat, bottom: CGFloat) -> SourceTextBounds {
+        SourceTextBounds(top: top, bottom: bottom)
+    }
+
     // MARK: - Bande d'aperçu figé
 
     /// Taille à laquelle dessiner l'aperçu d'un bloc **ouvert** : l'image de
@@ -129,11 +196,11 @@ enum MermaidSourceLayout {
     /// Rectangle où peindre l'image d'aperçu, en coordonnées **conteneur** —
     /// centré horizontalement, juste sous la bande d'en-tête. `NSRect.zero`
     /// quand il n'y a pas d'image : rien à peindre.
-    static func previewRect(above firstLineRect: NSRect, containerWidth: CGFloat, imageSize: NSSize?) -> NSRect {
+    static func previewRect(above textBounds: SourceTextBounds, containerWidth: CGFloat, imageSize: NSSize?) -> NSRect {
         let scaled = previewImageSize(forAttachmentSize: imageSize, containerWidth: containerWidth)
         guard scaled.height > 0 else { return .zero }
         let band = scaled.height + previewVerticalPadding * 2
-        let header = headerRect(above: firstLineRect, containerWidth: containerWidth, previewHeight: band)
+        let header = headerRect(above: textBounds, containerWidth: containerWidth, previewHeight: band)
         return NSRect(
             x: (containerWidth - scaled.width) / 2,
             y: header.maxY + previewVerticalPadding,
@@ -147,8 +214,8 @@ enum MermaidSourceLayout {
     /// `origin`/`textContainerInset` qu'ajoute chaque appelant) — dans la
     /// bande d'en-tête, aligné à droite. `previewHeight` : voir
     /// `headerRect(above:containerWidth:previewHeight:)`.
-    static func doneButtonRect(above firstLineRect: NSRect, containerWidth: CGFloat, previewHeight: CGFloat) -> NSRect {
-        let header = headerRect(above: firstLineRect, containerWidth: containerWidth, previewHeight: previewHeight)
+    static func doneButtonRect(above textBounds: SourceTextBounds, containerWidth: CGFloat, previewHeight: CGFloat) -> NSRect {
+        let header = headerRect(above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight)
         let y = header.minY + (headerHeight - doneButtonHeight) / 2
         let x = containerWidth - doneButtonWidth - doneButtonTrailingMargin
         return NSRect(x: x, y: y, width: doneButtonWidth, height: doneButtonHeight)
@@ -160,28 +227,36 @@ enum MermaidSourceLayout {
     /// la première ligne de source, et l'en-tête remonte d'autant. C'est ce
     /// qui l'empêche de paraître coiffer la carte du bloc précédent.
     ///
-    /// L'espace total ainsi occupé au-dessus de `firstLineRect` est exactement
-    /// le `paragraphSpacingBefore` que pose
+    /// L'espace total ainsi occupé au-dessus du **texte** de la première ligne
+    /// est exactement le `paragraphSpacingBefore` que pose
     /// `StyleRenderer.applyOpenMermaidGeometry` : `headerHeight +
-    /// previewHeight + bodyTopPadding`.
-    static func headerRect(above firstLineRect: NSRect, containerWidth: CGFloat, previewHeight: CGFloat) -> NSRect {
+    /// previewHeight + bodyTopPadding`. D'où l'ancrage sur
+    /// `SourceTextBounds.top` (rect *used*) et non sur le sommet du fragment,
+    /// qui *contient* déjà cette réservation — voir la doc de
+    /// `SourceTextBounds`.
+    static func headerRect(above textBounds: SourceTextBounds, containerWidth: CGFloat, previewHeight: CGFloat) -> NSRect {
         NSRect(
             x: 0,
-            y: firstLineRect.minY - bodyTopPadding - previewHeight - headerHeight,
+            y: textBounds.top - bodyTopPadding - previewHeight - headerHeight,
             width: containerWidth,
             height: headerHeight
         )
     }
 
+    /// Cadre complet de la carte. Le bas suit le **texte** de la dernière
+    /// ligne (`SourceTextBounds.bottom`) : le fragment, lui, contient l'écart
+    /// inter-blocs qu'`StyleRenderer.applyBlockSpacing` pose ensuite
+    /// (`max(paragraphSpacing, 28)`), et l'enfermer dans le cadre laisserait
+    /// 38 pt de vide en bas de la carte pour un écart visible nul en dessous.
     static func frameRect(
-        firstLineRect: NSRect, lastLineRect: NSRect, containerWidth: CGFloat, previewHeight: CGFloat
+        textBounds: SourceTextBounds, containerWidth: CGFloat, previewHeight: CGFloat
     ) -> NSRect {
-        let header = headerRect(above: firstLineRect, containerWidth: containerWidth, previewHeight: previewHeight)
+        let header = headerRect(above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight)
         return NSRect(
             x: 0,
             y: header.minY,
             width: containerWidth,
-            height: max(0, lastLineRect.maxY + bodyBottomPadding - header.minY)
+            height: max(0, textBounds.bottom + bodyBottomPadding - header.minY)
         )
     }
 
@@ -189,32 +264,40 @@ enum MermaidSourceLayout {
     /// commence sous la bande d'aperçu, jamais sous l'en-tête seul — sinon la
     /// gouttière serait peinte derrière le diagramme.
     static func bodyRect(
-        firstLineRect: NSRect, lastLineRect: NSRect, containerWidth: CGFloat, previewHeight: CGFloat
+        textBounds: SourceTextBounds, containerWidth: CGFloat, previewHeight: CGFloat
     ) -> NSRect {
-        let header = headerRect(above: firstLineRect, containerWidth: containerWidth, previewHeight: previewHeight)
+        let header = headerRect(above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight)
         let top = header.maxY + previewHeight
         return NSRect(
             x: 0,
             y: top,
             width: containerWidth,
-            height: max(0, lastLineRect.maxY + bodyBottomPadding - top)
+            height: max(0, textBounds.bottom + bodyBottomPadding - top)
         )
     }
 
     /// Origine (coordonnées conteneur) du numéro de ligne `index` (0-based
     /// dans le bloc), aligné à droite dans la gouttière, centré verticalement
-    /// sur `lineRect`.
-    static func lineNumberOrigin(lineRect: NSRect, numberSize: NSSize) -> NSPoint {
+    /// sur la ligne.
+    ///
+    /// `usedRect` — le rect du **texte** de la ligne
+    /// (`lineFragmentUsedRect`), jamais son fragment : sur la première ligne
+    /// d'un bloc ouvert, le fragment englobe aussi l'en-tête et la bande
+    /// d'aperçu réservés par `paragraphSpacingBefore` (mesuré : 323 pt de
+    /// fragment pour 16 pt de texte), et le « 1 » se retrouverait centré en
+    /// plein milieu du diagramme. Voir la doc de `SourceTextBounds`.
+    static func lineNumberOrigin(usedRect: NSRect, numberSize: NSSize) -> NSPoint {
         NSPoint(
             x: gutterWidth - 7 - numberSize.width,
-            y: lineRect.minY + (lineRect.height - numberSize.height) / 2
+            y: usedRect.minY + (usedRect.height - numberSize.height) / 2
         )
     }
 
-    static func sourceLineRect(for index: Int, lineFragmentRect: NSRect) -> NSRect {
-        // Le TextKit line fragment est désormais la ligne de code elle-même;
+    static func sourceLineRect(for index: Int, usedRect: NSRect) -> NSRect {
+        // Le rect *used* TextKit est désormais la ligne de code elle-même ;
         // l'en-tête est réservé par `paragraphSpacingBefore`, pas en gonflant
-        // la hauteur de la première ligne (ce qui gonflait le curseur).
-        return lineFragmentRect
+        // la hauteur de la première ligne (ce qui gonflait le curseur) — cette
+        // réservation vit donc dans le *fragment*, hors du rect *used*.
+        return usedRect
     }
 }

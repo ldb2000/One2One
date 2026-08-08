@@ -146,7 +146,12 @@ final class MarkdownLayoutManager: NSLayoutManager {
         guard let storage = textStorage, glyphsToShow.length > 0 else { return }
         let ns = storage.string as NSString
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] lineRect, _, _, lineGlyphRange, _ in
+        // `usedRect` (2e paramètre) et non `lineRect` : le fragment inclut
+        // l'espace de `paragraphSpacing`, que `StyleRenderer.applyBlockSpacing`
+        // porte à 28 pt sur le dernier item d'une liste voisine d'une carte —
+        // centrer dessus faisait descendre la puce d'environ 9 pt sous le
+        // centre de son propre texte.
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] _, usedRect, _, lineGlyphRange, _ in
             guard let self else { return }
             let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
             // Strict : `storage.attribute(at:)` exige `location < length`.
@@ -161,7 +166,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 return
             }
 
-            self.drawMarker(for: info, at: charRange.location, in: storage, lineFragmentRect: lineRect, origin: origin)
+            self.drawMarker(for: info, at: charRange.location, in: storage, usedRect: usedRect, origin: origin)
         }
     }
 
@@ -169,7 +174,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         for info: ListInfo,
         at location: Int,
         in storage: NSTextStorage,
-        lineFragmentRect: NSRect,
+        usedRect: NSRect,
         origin: NSPoint
     ) {
         // Police et couleur fixes (`ListMarkerLayout.markerFont`/`markerColor`)
@@ -187,7 +192,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info)
 
         let markerX = origin.x + textIndent - ListMarkerLayout.markerTrailingGap - markerSize.width
-        let markerY = origin.y + lineFragmentRect.minY + (lineFragmentRect.height - markerSize.height) / 2
+        let markerY = origin.y + usedRect.minY + (usedRect.height - markerSize.height) / 2
         markerText.draw(at: NSPoint(x: markerX, y: markerY), withAttributes: attributes)
     }
 
@@ -202,31 +207,53 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// la première ligne d'un paragraphe suivant à l'intérieur de la même
     /// citation (plusieurs paragraphes cités séparés par un `\n`, cf.
     /// `MarkdownParser.emitBlockQuote`, qui pose `.mdBlockType` sur toute la
-    /// plage englobante). `enumerateLineFragments` renvoie des rects de ligne
-    /// qui se succèdent verticalement sans intervalle (aucun
-    /// `paragraphSpacing` n'est posé dans ce module — vérifié) : peindre le
-    /// rect plein de chaque fragment produit donc un filet continu sur
-    /// plusieurs lignes, pas des segments espacés.
+    /// plage englobante).
+    ///
+    /// Le filet part du sommet du **texte** de la ligne (`usedRect.minY`) et
+    /// descend jusqu'au bas de son **fragment** (`lineRect.maxY`) — sauf sur
+    /// la **dernière** ligne du bloc, où il s'arrête au bas du texte. Ces deux
+    /// bornes règlent deux exigences contraires, mesurées :
+    ///
+    /// - `StyleRenderer.applyBlockSpacing` pose `paragraphSpacing` sur chaque
+    ///   paragraphe cité (10 pt, ou 28 pt au voisinage d'une carte). Cet
+    ///   espace vit dans le *fragment*, pas dans le rect *used* : s'arrêter au
+    ///   rect *used* de chaque ligne troue le filet de 10 pt entre deux
+    ///   paragraphes de la même citation (mesuré : trois segments au lieu d'un
+    ///   trait, cf. `StyleRendererTests.
+    ///   test_multiParagraphBlockquote_getsAContinuousRuleAcrossAllLines`).
+    /// - à l'inverse, le `paragraphSpacing` de la **dernière** ligne est
+    ///   l'écart qui sépare la citation du bloc suivant : le peindre faisait
+    ///   courir le filet jusqu'à 28 pt sous sa dernière ligne de texte.
     private func drawBlockquoteRules(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard let storage = textStorage, glyphsToShow.length > 0 else { return }
         let ns = storage.string as NSString
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { lineRect, _, _, lineGlyphRange, _ in
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { lineRect, usedRect, _, lineGlyphRange, _ in
             let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
             guard charRange.location < ns.length else { return }
             guard storage.attribute(.mdBlockType, at: charRange.location, effectiveRange: nil) as? BlockType == .blockquote else {
                 return
             }
-            self.drawBlockquoteRule(forLineFragmentRect: lineRect, origin: origin)
+            // La citation continue-t-elle après cette ligne visuelle ? Lu sur
+            // le caractère suivant : `.mdBlockType` est posé par le parseur sur
+            // toute la plage de la citation, lignes de repli comprises.
+            let next = NSMaxRange(charRange)
+            let continuesBelow = next < ns.length
+                && storage.attribute(.mdBlockType, at: next, effectiveRange: nil) as? BlockType == .blockquote
+            self.drawBlockquoteRule(
+                from: usedRect.minY,
+                to: continuesBelow ? lineRect.maxY : usedRect.maxY,
+                origin: origin
+            )
         }
     }
 
-    private func drawBlockquoteRule(forLineFragmentRect lineFragmentRect: NSRect, origin: NSPoint) {
+    private func drawBlockquoteRule(from top: CGFloat, to bottom: CGFloat, origin: NSPoint) {
         let ruleRect = NSRect(
             x: origin.x + BlockquoteRuleLayout.ruleLeadingGap,
-            y: origin.y + lineFragmentRect.minY,
+            y: origin.y + top,
             width: BlockquoteRuleLayout.ruleThickness,
-            height: lineFragmentRect.height
+            height: max(0, bottom - top)
         )
         BlockquoteRuleLayout.ruleColor.setFill()
         ruleRect.fill()
@@ -303,11 +330,14 @@ final class MarkdownLayoutManager: NSLayoutManager {
             else { return }
 
             let containerWidth = container.size.width
-            let firstGlyph = self.glyphIndexForCharacter(at: blockRange.location)
-            let lastCharacter = max(blockRange.location, NSMaxRange(blockRange) - 1)
-            let lastGlyph = self.glyphIndexForCharacter(at: lastCharacter)
-            let firstLine = self.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
-            let lastLine = self.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+            // Bornes du **texte** du bloc (rects *used*), jamais ses rects de
+            // fragment : ceux-ci englobent l'espace réservé par
+            // `paragraphSpacingBefore`/`paragraphSpacing`, et la carte serait
+            // peinte toute la bande d'aperçu trop haut — voir
+            // `MermaidSourceLayout.SourceTextBounds`.
+            let textBounds = MermaidSourceLayout.textBounds(
+                forBlockRange: blockRange, layoutManager: self
+            )
 
             // Même calcul que le hit-test de « Terminé » et que la hauteur
             // réservée par `StyleRenderer.applyOpenMermaidGeometry`.
@@ -316,14 +346,14 @@ final class MarkdownLayoutManager: NSLayoutManager {
             )
 
             let frame = MermaidSourceLayout.frameRect(
-                firstLineRect: firstLine, lastLineRect: lastLine,
+                textBounds: textBounds,
                 containerWidth: containerWidth, previewHeight: previewHeight
             ).offsetBy(dx: origin.x, dy: origin.y)
             let header = MermaidSourceLayout.headerRect(
-                above: firstLine, containerWidth: containerWidth, previewHeight: previewHeight
+                above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight
             ).offsetBy(dx: origin.x, dy: origin.y)
             let body = MermaidSourceLayout.bodyRect(
-                firstLineRect: firstLine, lastLineRect: lastLine,
+                textBounds: textBounds,
                 containerWidth: containerWidth, previewHeight: previewHeight
             ).offsetBy(dx: origin.x, dy: origin.y)
 
@@ -361,7 +391,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
             // bloc ; « Terminé » la rafraîchit.
             if previewHeight > 0, let image = attachment.image {
                 let preview = MermaidSourceLayout.previewRect(
-                    above: firstLine, containerWidth: containerWidth, imageSize: image.size
+                    above: textBounds, containerWidth: containerWidth, imageSize: image.size
                 ).offsetBy(dx: origin.x, dy: origin.y)
                 if !preview.isEmpty {
                     image.draw(in: preview)
@@ -415,7 +445,11 @@ final class MarkdownLayoutManager: NSLayoutManager {
         let selectedLocation = textView.selectedRange().location
         var drawnClosedBlockStarts = Set<Int>()
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] lineRect, _, _, lineGlyphRange, _ in
+        // `usedRect` (2e paramètre) et non `lineRect` : sur la première ligne
+        // d'un bloc ouvert, le fragment englobe l'en-tête et la bande
+        // d'aperçu réservés par `paragraphSpacingBefore` — voir
+        // `MermaidSourceLayout.SourceTextBounds`.
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] _, usedRect, _, lineGlyphRange, _ in
             guard let self else { return }
             let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
             guard charRange.location < ns.length else { return }
@@ -427,13 +461,14 @@ final class MarkdownLayoutManager: NSLayoutManager {
             let isOpen = MermaidBlockLayout.selectionTouches(selectedLocation, blockRange: blockRange)
             if isOpen {
                 let lineIndex = self.mermaidSourceLineIndex(forCharacterLocation: charRange.location, blockRange: blockRange, in: ns)
-                self.drawMermaidLineNumber(lineIndex, lineFragmentRect: lineRect, origin: origin)
+                self.drawMermaidLineNumber(lineIndex, usedRect: usedRect, origin: origin)
                 if charRange.location == blockRange.location {
                     let previewHeight = MermaidSourceLayout.previewHeight(
                         in: storage, blockRange: blockRange, containerWidth: container.size.width
                     )
                     self.drawMermaidHeader(
-                        above: lineRect, origin: origin,
+                        above: MermaidSourceLayout.textBounds(forBlockRange: blockRange, layoutManager: self),
+                        origin: origin,
                         containerWidth: container.size.width, previewHeight: previewHeight
                     )
                 }
@@ -556,15 +591,15 @@ final class MarkdownLayoutManager: NSLayoutManager {
         return count
     }
 
-    private func drawMermaidLineNumber(_ index: Int, lineFragmentRect: NSRect, origin: NSPoint) {
+    private func drawMermaidLineNumber(_ index: Int, usedRect: NSRect, origin: NSPoint) {
         let text = "\(index + 1)" as NSString
         let attrs: [NSAttributedString.Key: Any] = [
             .font: MermaidSourceLayout.gutterFont,
             .foregroundColor: MermaidSourceLayout.gutterColor
         ]
         let size = text.size(withAttributes: attrs)
-        let sourceLineRect = MermaidSourceLayout.sourceLineRect(for: index, lineFragmentRect: lineFragmentRect)
-        let point = MermaidSourceLayout.lineNumberOrigin(lineRect: sourceLineRect, numberSize: size)
+        let sourceLineRect = MermaidSourceLayout.sourceLineRect(for: index, usedRect: usedRect)
+        let point = MermaidSourceLayout.lineNumberOrigin(usedRect: sourceLineRect, numberSize: size)
         text.draw(at: NSPoint(x: point.x + origin.x, y: point.y + origin.y), withAttributes: attrs)
     }
 
@@ -574,7 +609,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// mermaidDoneButtonRange(at:)`, même géométrie — `MermaidSourceLayout.
     /// doneButtonRect`, un seul calcul partagé).
     private func drawMermaidHeader(
-        above lineFragmentRect: NSRect, origin: NSPoint,
+        above textBounds: MermaidSourceLayout.SourceTextBounds, origin: NSPoint,
         containerWidth: CGFloat, previewHeight: CGFloat
     ) {
         // `drawGlyphs(forGlyphRange:)` peut fournir un clip limité à la ligne
@@ -594,7 +629,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
             .foregroundColor: MermaidSourceLayout.headerLabelColor
         ]
         let headerRect = MermaidSourceLayout.headerRect(
-            above: lineFragmentRect, containerWidth: containerWidth, previewHeight: previewHeight
+            above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight
         )
         let labelText = "mermaid" as NSString
         let labelSize = labelText.size(withAttributes: labelAttrs)
@@ -607,7 +642,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         )
 
         let buttonRect = MermaidSourceLayout.doneButtonRect(
-            above: lineFragmentRect, containerWidth: containerWidth, previewHeight: previewHeight
+            above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight
         )
             .offsetBy(dx: origin.x, dy: origin.y)
         let pill = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)

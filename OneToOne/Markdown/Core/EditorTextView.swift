@@ -1409,16 +1409,20 @@ final class EditorTextView: NSTextView {
             in: storage, selection: selectedRange().location
         ) else { return nil }
 
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
-        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-        // Même calcul que le dessin (`MarkdownLayoutManager.drawMermaidHeader`) :
-        // la bande d'aperçu remonte l'en-tête, donc le bouton. Deux valeurs
-        // divergentes rendraient « Terminé » incliquable.
+        // Mêmes deux calculs que le dessin
+        // (`MarkdownLayoutManager.drawMermaidHeader`) : les bornes du **texte**
+        // du bloc (`MermaidSourceLayout.textBounds`, jamais les rects de
+        // fragment — voir `SourceTextBounds`) et la hauteur de la bande
+        // d'aperçu, qui remonte l'en-tête donc le bouton. Une divergence sur
+        // l'un ou l'autre rendrait « Terminé » incliquable.
+        let textBounds = MermaidSourceLayout.textBounds(
+            forBlockRange: blockRange, layoutManager: layoutManager
+        )
         let previewHeight = MermaidSourceLayout.previewHeight(
             in: storage, blockRange: blockRange, containerWidth: container.size.width
         )
         let buttonRect = MermaidSourceLayout.doneButtonRect(
-            above: firstLineRect, containerWidth: container.size.width, previewHeight: previewHeight
+            above: textBounds, containerWidth: container.size.width, previewHeight: previewHeight
         )
 
         let containerPoint = NSPoint(

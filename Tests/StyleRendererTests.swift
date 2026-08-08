@@ -976,6 +976,104 @@ final class StyleRendererTests: XCTestCase {
         )
     }
 
+    /// Le filet ne doit pas s'allonger de l'écart qui **sépare** la citation
+    /// du bloc suivant. `StyleRenderer.applyBlockSpacing` pose 10 pt sur le
+    /// dernier paragraphe d'un bloc ordinaire, 28 pt au voisinage d'une carte
+    /// — cet espace vit dans le rect de **fragment** de la dernière ligne, pas
+    /// dans son rect *used* (piège TextKit 1, voir `MarkdownLayoutManager.
+    /// drawBlockquoteRules`). Le dimensionner sur le fragment faisait courir
+    /// le filet jusqu'à 28 pt sous sa dernière ligne de texte.
+    ///
+    /// Vérifié sans dépendre d'une conversion de coordonnées : la citation
+    /// étant le premier bloc, sa mise en page ne dépend pas de son propre
+    /// espacement de fin — les lignes de pixels peintes doivent donc être
+    /// **exactement les mêmes** avec 10 pt et avec 28 pt.
+    func test_blockquoteRule_neverRunsBelowItsLastLine_whateverTheBlockSpacing() throws {
+        let ruleXRange = Int(BlockquoteRuleLayout.ruleLeadingGap)
+            ..< Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+
+        let narrow = try paintedRowsForBlockquote(
+            trailingSpacing: BlockGutterLayout.blockSpacing, xRange: ruleXRange
+        )
+        let wide = try paintedRowsForBlockquote(
+            trailingSpacing: BlockGutterLayout.cardBlockSpacing, xRange: ruleXRange
+        )
+
+        XCTAssertFalse(narrow.isEmpty, "prémisse : le filet doit être peint")
+        XCTAssertEqual(
+            wide, narrow,
+            "le filet suit l'écart inter-blocs : \(wide.count - narrow.count) ligne(s) de pixels en trop sous la citation"
+        )
+    }
+
+    /// Même piège pour le marqueur de liste, centré verticalement : sur le
+    /// dernier item d'une liste voisine d'une carte, centrer sur le rect de
+    /// **fragment** (qui inclut les 28 pt de `paragraphSpacing`) faisait
+    /// descendre la puce d'environ 9 pt sous le centre de son propre texte.
+    /// Même protocole que le test précédent : l'item étant le premier bloc,
+    /// les lignes peintes doivent être identiques quel que soit l'écart.
+    func test_listMarker_staysCenteredOnItsText_whateverTheBlockSpacing() throws {
+        // Colonne du marqueur seule : au-delà du filet du bloc suivant (voir
+        // `paintedRowsForBulletItem`), en deçà du texte de l'item.
+        let markerXRange = Int(BlockquoteRuleLayout.ruleLeadingGap + BlockquoteRuleLayout.ruleThickness)
+            ..< Int(ListMarkerLayout.textIndent(for: ListInfo(kind: .bullet)) - ListMarkerLayout.markerTrailingGap)
+
+        let narrow = try paintedRowsForBulletItem(
+            trailingSpacing: BlockGutterLayout.blockSpacing, xRange: markerXRange
+        )
+        let wide = try paintedRowsForBulletItem(
+            trailingSpacing: BlockGutterLayout.cardBlockSpacing, xRange: markerXRange
+        )
+
+        XCTAssertFalse(narrow.isEmpty, "prémisse : la puce doit être peinte")
+        XCTAssertEqual(
+            wide, narrow,
+            "la puce suit l'écart inter-blocs au lieu de rester centrée sur son texte"
+        )
+    }
+
+    /// Citation d'une ligne, **suivie d'un autre bloc**, dont le paragraphe
+    /// cité porte `trailingSpacing` — l'écart qu'`applyBlockSpacing` pose
+    /// selon le voisinage, reposé ici à la main pour l'isoler du reste du
+    /// pipeline.
+    ///
+    /// Le bloc suivant est indispensable : mesuré, TextKit ne réserve **pas**
+    /// le `paragraphSpacing` du dernier paragraphe du conteneur (son fragment
+    /// est alors égal à son rect *used*), et la fixture ne prouverait rien.
+    private func paintedRowsForBlockquote(trailingSpacing: CGFloat, xRange: Range<Int>) throws -> [Int] {
+        let storage = NSTextStorage(string: "citation\nsuite")
+        let quote = (storage.string as NSString).lineRange(for: NSRange(location: 0, length: 0))
+        storage.addAttribute(.mdBlockType, value: BlockType.blockquote, range: quote)
+        StyleRenderer.applyVisualStyle(to: storage)
+        overrideParagraphSpacing(trailingSpacing, in: storage, range: quote)
+
+        return paintedRows(try renderToOffscreenBitmap(storage: storage, width: 200, height: 80), xRange: xRange)
+    }
+
+    /// Item de liste **suivi d'un autre bloc**, même raison que ci-dessus. Le
+    /// paragraphe suivant est lui aussi une citation : son texte est indenté
+    /// (`BlockquoteRuleLayout.textIndent`) et ne peint donc rien dans la
+    /// colonne du marqueur, qui reste mesurable seule.
+    private func paintedRowsForBulletItem(trailingSpacing: CGFloat, xRange: Range<Int>) throws -> [Int] {
+        let storage = NSTextStorage(string: "item\nsuite")
+        let ns = storage.string as NSString
+        let item = ns.lineRange(for: NSRange(location: 0, length: 0))
+        let next = NSRange(location: NSMaxRange(item), length: storage.length - NSMaxRange(item))
+        storage.addAttribute(.mdListInfo, value: ListInfo(kind: .bullet), range: item)
+        storage.addAttribute(.mdBlockType, value: BlockType.blockquote, range: next)
+        StyleRenderer.applyVisualStyle(to: storage)
+        overrideParagraphSpacing(trailingSpacing, in: storage, range: item)
+
+        return paintedRows(try renderToOffscreenBitmap(storage: storage, width: 200, height: 80), xRange: xRange)
+    }
+
+    private func overrideParagraphSpacing(_ spacing: CGFloat, in storage: NSTextStorage, range: NSRange) {
+        let existing = storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+        let style = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        style.paragraphSpacing = spacing
+        storage.addAttribute(.paragraphStyle, value: style, range: range)
+    }
+
     /// Le plus important pour ce chantier, sur le modèle de
     /// `test_listMarkerVisualStyle_doesNotLeakIntoSerializedMarkdown` : le
     /// filet et l'indentation ne sont qu'un effet visuel, jamais du texte ni

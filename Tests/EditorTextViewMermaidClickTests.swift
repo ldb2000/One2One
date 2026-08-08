@@ -159,10 +159,11 @@ final class EditorTextViewMermaidClickTests: XCTestCase {
         attachment.image = image
 
         editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
-        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let textBounds = MermaidSourceLayout.textBounds(
+            forBlockRange: blockRange, layoutManager: layoutManager
+        )
         let staleRect = MermaidSourceLayout.doneButtonRect(
-            above: firstLineRect, containerWidth: container.size.width, previewHeight: 0
+            above: textBounds, containerWidth: container.size.width, previewHeight: 0
         )
         let stalePoint = NSPoint(
             x: staleRect.midX + editor.textContainerInset.width,
@@ -420,13 +421,14 @@ final class EditorTextViewMermaidClickTests: XCTestCase {
         let layoutManager = try XCTUnwrap(editor.layoutManager)
         let container = try XCTUnwrap(editor.textContainer)
         let storage = try XCTUnwrap(editor.textStorage)
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
-        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let textBounds = MermaidSourceLayout.textBounds(
+            forBlockRange: blockRange, layoutManager: layoutManager
+        )
         let previewHeight = MermaidSourceLayout.previewHeight(
             in: storage, blockRange: blockRange, containerWidth: container.size.width
         )
         let buttonRect = MermaidSourceLayout.doneButtonRect(
-            above: firstLineRect, containerWidth: container.size.width, previewHeight: previewHeight
+            above: textBounds, containerWidth: container.size.width, previewHeight: previewHeight
         )
         return NSPoint(
             x: buttonRect.midX + editor.textContainerInset.width,
