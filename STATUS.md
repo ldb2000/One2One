@@ -103,7 +103,7 @@ Point d'esthétique laissé au jugement de l'auteur.
 corrigée (2026-08-08).** Une revue finale a jugé le chantier non fusionnable
 et a cherché plus loin : la cause est un défaut **antérieur au chantier**.
 Fait mesuré (script conservé :
-`.superpowers/sdd/2026-08-08-aeration-blocs-mermaid/mesure-textkit.swift`) :
+`docs/mesures/mesure-textkit.swift`) :
 en TextKit 1, `lineFragmentRect` **inclut** l'espace réservé par
 `paragraphSpacingBefore` et `paragraphSpacing` ; c'est `lineFragmentUsedRect`
 qui commence au sommet du texte. Toute la géométrie de la carte d'un bloc
