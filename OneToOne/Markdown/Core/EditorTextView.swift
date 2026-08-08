@@ -1215,9 +1215,18 @@ final class EditorTextView: NSTextView {
         let textIndent = paragraphStyle?.firstLineHeadIndent ?? ListMarkerLayout.textIndent(for: info)
         guard containerPoint.x < textIndent else { return false }
 
+        // `lineFragmentUsedRect` — le rect du **texte** —, jamais
+        // `lineFragmentRect` : le fragment englobe le `paragraphSpacing` que
+        // `StyleRenderer.applyBlockSpacing` pose sous le dernier item d'une
+        // liste (10 pt, ou 28 pt au voisinage d'une carte). La case, elle, est
+        // peinte centrée sur le rect *used* (voir `MarkdownLayoutManager.
+        // drawMarker`, qui a déjà fait ce choix) : hit-tester le fragment
+        // rendait cliquable une bande de 10 à 28 pt de **vide** sous la case,
+        // et un clic destiné à placer le curseur sous une checklist voisine
+        // d'une carte la cochait.
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: lineStart)
-        let lineFragmentRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-        guard containerPoint.y >= lineFragmentRect.minY, containerPoint.y <= lineFragmentRect.maxY else {
+        let textRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        guard containerPoint.y >= textRect.minY, containerPoint.y <= textRect.maxY else {
             return false
         }
 

@@ -83,6 +83,59 @@ final class EditorTextViewTaskToggleTests: XCTestCase {
         XCTAssertEqual(info.checked, false, "ne doit pas avoir basculé")
     }
 
+    /// La zone cliquable doit suivre le rect du **texte**
+    /// (`lineFragmentUsedRect`), jamais celui du fragment : le fragment
+    /// englobe le `paragraphSpacing` que `StyleRenderer.applyBlockSpacing`
+    /// pose sous le dernier item d'une liste (10 pt, ou 28 pt au voisinage
+    /// d'une carte). La case est peinte en haut de cette zone — centrée sur le
+    /// rect *used*, comme le fait déjà `MarkdownLayoutManager.drawMarker` —
+    /// donc cliquer dans le **vide** en dessous cochait une case qui n'y était
+    /// pas.
+    ///
+    /// Fixture : une checklist suivie d'une carte, pour que l'écart soit le
+    /// plus large (28 pt) et le vide indiscutable.
+    func test_clickingInTheGapBelowTheLastItem_doesNotToggle() throws {
+        let (editor, _) = makeWiredEditor(markdown: "- [ ] à faire\n\n```swift\nprint(1)\n```")
+        let storage = try XCTUnwrap(editor.textStorage)
+        let layoutManager = try XCTUnwrap(editor.layoutManager)
+
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: 0)
+        let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let fragmentRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        XCTAssertGreaterThan(
+            fragmentRect.maxY - usedRect.maxY, 10,
+            "prémisse : l'écart inter-blocs large doit bien vivre dans le fragment, sous le texte"
+        )
+
+        // Plein milieu du vide : sous le texte, toujours dans le fragment.
+        let point = NSPoint(
+            x: try markerPoint(in: editor).x,
+            y: (usedRect.maxY + fragmentRect.maxY) / 2 + editor.textContainerInset.height
+        )
+        let didToggle = editor.toggleTaskMarker(at: point)
+
+        XCTAssertFalse(didToggle, "cliquer sous la case, dans l'écart inter-blocs, ne doit rien basculer")
+        let info = try XCTUnwrap(storage.attribute(.mdListInfo, at: 0, effectiveRange: nil) as? ListInfo)
+        XCTAssertEqual(info.checked, false, "ne doit pas avoir basculé")
+    }
+
+    /// Contrepartie du test précédent : la case elle-même reste cliquable sur
+    /// toute la hauteur de son **texte**, y compris quand un écart large est
+    /// posé sous son item.
+    func test_clickingTheMarkerOfAnItemNextToACard_stillToggles() throws {
+        let (editor, _) = makeWiredEditor(markdown: "- [ ] à faire\n\n```swift\nprint(1)\n```")
+        let layoutManager = try XCTUnwrap(editor.layoutManager)
+        let usedRect = layoutManager.lineFragmentUsedRect(
+            forGlyphAt: layoutManager.glyphIndexForCharacter(at: 0), effectiveRange: nil
+        )
+
+        let point = NSPoint(
+            x: try markerPoint(in: editor).x,
+            y: usedRect.midY + editor.textContainerInset.height
+        )
+        XCTAssertTrue(editor.toggleTaskMarker(at: point))
+    }
+
     /// Une puce n'est pas une tâche : cliquer sur son marqueur ne doit rien
     /// basculer (il n'y a rien à basculer).
     func test_clickingBulletMarker_doesNotToggle() throws {

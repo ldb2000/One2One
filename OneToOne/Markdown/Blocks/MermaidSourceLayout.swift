@@ -140,14 +140,30 @@ enum MermaidSourceLayout {
         return SourceTextBounds(top: first.minY, bottom: last.maxY)
     }
 
+    #if DEBUG
     /// Bornes fabriquées à la main, **réservées aux tests** de géométrie pure
     /// (relations algébriques entre en-tête, aperçu et cadre, sans vue
     /// vivante) — même patron que `StyleRenderer.
-    /// applyOpenMermaidGeometryForTesting`. Le code de production passe
-    /// toujours par `textBounds(forBlockRange:layoutManager:)`.
+    /// applyOpenMermaidGeometryForTesting`.
+    ///
+    /// `#if DEBUG` : c'était la seule porte de sortie de la barrière de type
+    /// que `SourceTextBounds` installe (son initialiseur est `fileprivate`,
+    /// pour qu'aucun appelant ne puisse y glisser un rect de fragment). Une
+    /// porte `internal` en permanence rouvrait exactement le défaut que le
+    /// type existe pour rendre impossible. Elle n'est donc plus compilée dans
+    /// une build **release** — celle que produit `Scripts/bump-and-build.sh
+    /// prod` : un appel de production s'y ajouterait par inadvertance casserait
+    /// la build de l'app livrée, bruyamment. En debug, `swift test` la voit et
+    /// les tests de géométrie pure restent des fonctions pures, rapides et sans
+    /// vue vivante.
+    ///
+    /// Le code de production passe toujours par
+    /// `textBounds(forBlockRange:layoutManager:)`, qui lit
+    /// `lineFragmentUsedRect` : un seul constructeur, une seule provenance.
     static func sourceTextBoundsForTesting(top: CGFloat, bottom: CGFloat) -> SourceTextBounds {
         SourceTextBounds(top: top, bottom: bottom)
     }
+    #endif
 
     // MARK: - Bande d'aperçu figé
 

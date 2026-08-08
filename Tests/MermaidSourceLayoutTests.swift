@@ -279,7 +279,7 @@ final class MermaidSourceLayoutTests: XCTestCase {
     /// vraiment.
     func test_openBlockFrame_neverRisesAboveThePreviousBlock() throws {
         let fixture = try makeLaidOutOpenMermaidBlock()
-        let geometry = openBlockGeometry(fixture)
+        let geometry = try openBlockGeometry(fixture)
 
         XCTAssertGreaterThan(fixture.previewBand, 0, "prémisse : l'attachment porte une image, donc une bande d'aperçu")
         XCTAssertGreaterThanOrEqual(
@@ -294,7 +294,7 @@ final class MermaidSourceLayoutTests: XCTestCase {
     /// l'un ou l'autre.
     func test_openBlockHeaderAndPreview_sitBetweenThePreviousBlockAndTheSource() throws {
         let fixture = try makeLaidOutOpenMermaidBlock()
-        let geometry = openBlockGeometry(fixture)
+        let geometry = try openBlockGeometry(fixture)
 
         XCTAssertEqual(geometry.header.minY, geometry.frame.minY, accuracy: 0.001, "l'en-tête coiffe le cadre")
         XCTAssertGreaterThanOrEqual(
@@ -319,7 +319,7 @@ final class MermaidSourceLayoutTests: XCTestCase {
     /// de vide en bas, écart visible nul en dessous).
     func test_openBlockFrame_keepsTheBlockSpacingOutsideTheCard() throws {
         let fixture = try makeLaidOutOpenMermaidBlock()
-        let geometry = openBlockGeometry(fixture)
+        let geometry = try openBlockGeometry(fixture)
 
         XCTAssertEqual(
             geometry.frame.maxY - fixture.sourceTextBottom,
@@ -351,7 +351,7 @@ final class MermaidSourceLayoutTests: XCTestCase {
     /// lieu de s'y ajouter : 18 pt visibles en dessous contre 28 au-dessus.
     func test_openBlockCard_breathesTheSameAboveAndBelow() throws {
         let fixture = try makeLaidOutOpenMermaidBlock()
-        let geometry = openBlockGeometry(fixture)
+        let geometry = try openBlockGeometry(fixture)
 
         XCTAssertEqual(
             geometry.frame.minY - fixture.previousBlockTextBottom,
@@ -379,10 +379,9 @@ final class MermaidSourceLayoutTests: XCTestCase {
     /// paragraphe de chaque bloc voisin d'une carte.
     private struct LaidOutOpenMermaidBlock {
         let storage: NSTextStorage
-        let layoutManager: NSLayoutManager
+        let layoutManager: MarkdownLayoutManager
         let containerWidth: CGFloat
         let blockRange: NSRange
-        let imageSize: NSSize
         let previewBand: CGFloat
         /// Bas du **texte** du paragraphe qui précède la carte.
         let previousBlockTextBottom: CGFloat
@@ -453,7 +452,6 @@ final class MermaidSourceLayoutTests: XCTestCase {
             layoutManager: layoutManager,
             containerWidth: containerWidth,
             blockRange: blockRange,
-            imageSize: imageSize,
             previewBand: MermaidSourceLayout.previewHeight(
                 in: storage, blockRange: blockRange, containerWidth: containerWidth
             ),
@@ -484,33 +482,18 @@ final class MermaidSourceLayoutTests: XCTestCase {
         return layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
     }
 
-    /// Reproduit **exactement** l'appel que fait le dessin
-    /// (`MarkdownLayoutManager.drawOpenMermaidBackgrounds`). Avant ce
-    /// correctif, ce helper lisait `lineFragmentRect` pour la première et la
-    /// dernière ligne, comme le faisait la production ; c'est la seule chose
-    /// qui a changé ici — les assertions des trois tests ci-dessus sont
-    /// restées mot pour mot les mêmes.
+    /// **Exécute** le calcul de production (`MarkdownLayoutManager.
+    /// openMermaidGeometry(forBlockRange:containerWidth:)`, dont
+    /// `drawOpenMermaidBackgrounds` n'est plus que le peintre) — il ne le
+    /// *reproduit* plus. C'était le défaut de ce helper : tant qu'il rejouait
+    /// les quatre appels de son côté, un retour au rect de fragment dans le
+    /// dessin laissait les tests de mise en page ci-dessus verts.
     private func openBlockGeometry(
         _ fixture: LaidOutOpenMermaidBlock
-    ) -> (frame: NSRect, header: NSRect, preview: NSRect, body: NSRect) {
-        let textBounds = MermaidSourceLayout.textBounds(
-            forBlockRange: fixture.blockRange, layoutManager: fixture.layoutManager
-        )
-
-        return (
-            frame: MermaidSourceLayout.frameRect(
-                textBounds: textBounds,
-                containerWidth: fixture.containerWidth, previewHeight: fixture.previewBand
-            ),
-            header: MermaidSourceLayout.headerRect(
-                above: textBounds, containerWidth: fixture.containerWidth, previewHeight: fixture.previewBand
-            ),
-            preview: MermaidSourceLayout.previewRect(
-                above: textBounds, containerWidth: fixture.containerWidth, imageSize: fixture.imageSize
-            ),
-            body: MermaidSourceLayout.bodyRect(
-                textBounds: textBounds,
-                containerWidth: fixture.containerWidth, previewHeight: fixture.previewBand
+    ) throws -> MarkdownLayoutManager.OpenMermaidGeometry {
+        try XCTUnwrap(
+            fixture.layoutManager.openMermaidGeometry(
+                forBlockRange: fixture.blockRange, containerWidth: fixture.containerWidth
             )
         )
     }

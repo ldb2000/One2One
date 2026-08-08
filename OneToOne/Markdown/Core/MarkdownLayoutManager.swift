@@ -327,6 +327,69 @@ final class MarkdownLayoutManager: NSLayoutManager {
 
     // MARK: - Diagrammes mermaid
 
+    /// Les quatre rectangles peints pour un bloc mermaid **ouvert**, en
+    /// coordonnées **conteneur** (sans le décalage `origin`, que le dessin
+    /// ajoute lui-même — mêmes conventions que
+    /// `TableControlLayout.Placement`).
+    struct OpenMermaidGeometry {
+        let frame: NSRect
+        let header: NSRect
+        /// `NSRect.zero` quand l'attachment ne porte pas encore d'image : rien
+        /// à peindre.
+        let preview: NSRect
+        let body: NSRect
+    }
+
+    /// **Le** calcul de la géométrie d'un bloc mermaid ouvert, extrait de
+    /// `drawOpenMermaidBackgrounds` — qui n'est plus qu'un peintre par-dessus.
+    ///
+    /// `internal` pour être exercée telle quelle par les tests de mise en page
+    /// réelle : tant qu'ils *reproduisaient* ces appels au lieu de les
+    /// exécuter, un retour au rect de fragment côté production les laissait
+    /// verts. Tout part ici des bornes du **texte** du bloc
+    /// (`MermaidSourceLayout.textBounds`, rects *used*), jamais de ses rects de
+    /// fragment : ceux-ci englobent l'espace réservé par
+    /// `paragraphSpacingBefore`/`paragraphSpacing`, et la carte serait peinte
+    /// toute la bande d'aperçu trop haut — voir
+    /// `MermaidSourceLayout.SourceTextBounds`.
+    ///
+    /// Suppose la mise en page assurée pour `blockRange`. `nil` si le bloc ne
+    /// porte pas d'attachment mermaid.
+    func openMermaidGeometry(forBlockRange blockRange: NSRange, containerWidth: CGFloat) -> OpenMermaidGeometry? {
+        guard let storage = textStorage,
+              blockRange.location >= 0, blockRange.location < storage.length,
+              let attachment = storage.attribute(
+                .mdMermaidAttachment, at: blockRange.location, effectiveRange: nil
+              ) as? NSTextAttachment
+        else { return nil }
+
+        let textBounds = MermaidSourceLayout.textBounds(
+            forBlockRange: blockRange, layoutManager: self
+        )
+        // Même calcul que le hit-test de « Terminé » et que la hauteur
+        // réservée par `StyleRenderer.applyOpenMermaidGeometry`.
+        let previewHeight = MermaidSourceLayout.previewHeight(
+            in: storage, blockRange: blockRange, containerWidth: containerWidth
+        )
+
+        return OpenMermaidGeometry(
+            frame: MermaidSourceLayout.frameRect(
+                textBounds: textBounds,
+                containerWidth: containerWidth, previewHeight: previewHeight
+            ),
+            header: MermaidSourceLayout.headerRect(
+                above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight
+            ),
+            preview: MermaidSourceLayout.previewRect(
+                above: textBounds, containerWidth: containerWidth, imageSize: attachment.image?.size
+            ),
+            body: MermaidSourceLayout.bodyRect(
+                textBounds: textBounds,
+                containerWidth: containerWidth, previewHeight: previewHeight
+            )
+        )
+    }
+
     private func drawOpenMermaidBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard let storage = textStorage, glyphsToShow.length > 0,
               let textView = firstTextView, let container = textView.textContainer,
@@ -345,32 +408,13 @@ final class MarkdownLayoutManager: NSLayoutManager {
             else { return }
 
             let containerWidth = container.size.width
-            // Bornes du **texte** du bloc (rects *used*), jamais ses rects de
-            // fragment : ceux-ci englobent l'espace réservé par
-            // `paragraphSpacingBefore`/`paragraphSpacing`, et la carte serait
-            // peinte toute la bande d'aperçu trop haut — voir
-            // `MermaidSourceLayout.SourceTextBounds`.
-            let textBounds = MermaidSourceLayout.textBounds(
-                forBlockRange: blockRange, layoutManager: self
-            )
+            guard let geometry = self.openMermaidGeometry(
+                forBlockRange: blockRange, containerWidth: containerWidth
+            ) else { return }
 
-            // Même calcul que le hit-test de « Terminé » et que la hauteur
-            // réservée par `StyleRenderer.applyOpenMermaidGeometry`.
-            let previewHeight = MermaidSourceLayout.previewHeight(
-                in: storage, blockRange: blockRange, containerWidth: containerWidth
-            )
-
-            let frame = MermaidSourceLayout.frameRect(
-                textBounds: textBounds,
-                containerWidth: containerWidth, previewHeight: previewHeight
-            ).offsetBy(dx: origin.x, dy: origin.y)
-            let header = MermaidSourceLayout.headerRect(
-                above: textBounds, containerWidth: containerWidth, previewHeight: previewHeight
-            ).offsetBy(dx: origin.x, dy: origin.y)
-            let body = MermaidSourceLayout.bodyRect(
-                textBounds: textBounds,
-                containerWidth: containerWidth, previewHeight: previewHeight
-            ).offsetBy(dx: origin.x, dy: origin.y)
+            let frame = geometry.frame.offsetBy(dx: origin.x, dy: origin.y)
+            let header = geometry.header.offsetBy(dx: origin.x, dy: origin.y)
+            let body = geometry.body.offsetBy(dx: origin.x, dy: origin.y)
 
             // `drawBackground(forGlyphRange:at:)` peut fournir un clip limité
             // aux lignes en cours : le cadre et l'aperçu vivent au-dessus de
@@ -404,19 +448,15 @@ final class MarkdownLayoutManager: NSLayoutManager {
             // un rendu relancé (voir `StyleRenderer.applyMermaidAttachment`,
             // branche « bloc ouvert »). Elle date de la dernière fermeture du
             // bloc ; « Terminé » la rafraîchit.
-            if previewHeight > 0, let image = attachment.image {
-                let preview = MermaidSourceLayout.previewRect(
-                    above: textBounds, containerWidth: containerWidth, imageSize: image.size
-                ).offsetBy(dx: origin.x, dy: origin.y)
-                if !preview.isEmpty {
-                    image.draw(in: preview)
-                }
+            let hasPreview = !geometry.preview.isEmpty
+            if hasPreview, let image = attachment.image {
+                image.draw(in: geometry.preview.offsetBy(dx: origin.x, dy: origin.y))
             }
             NSGraphicsContext.current?.restoreGraphicsState()
 
             MermaidSourceLayout.dividerColor.setFill()
             NSRect(x: header.minX, y: header.maxY - 1, width: header.width, height: 1).fill()
-            if previewHeight > 0 {
+            if hasPreview {
                 // Filet entre l'aperçu et le source : c'est lui qui fait lire
                 // les deux comme un seul bloc en deux moitiés, pas comme deux
                 // cadres empilés.
