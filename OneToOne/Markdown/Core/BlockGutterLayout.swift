@@ -36,9 +36,37 @@ enum BlockGutterLayout {
     static let bodyCornerRadius: CGFloat = 6
     /// Épaisseur du cadre de sélection (spec `1.5 px solid #0a6cff`).
     static let selectionBorderWidth: CGFloat = 1.5
-    /// Padding intérieur autour du texte quand le cadre de sélection est
-    /// visible — pour que la bordure ne colle pas aux glyphes.
-    static let bodyPadding = NSEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
+    /// Réserve verticale autour des fragments. Le padding horizontal est porté
+    /// par `NSTextContainer.lineFragmentPadding`, afin que le texte et le cadre
+    /// utilisent réellement la même colonne pleine largeur.
+    static let bodyVerticalPadding: CGFloat = 4
+    static let contentHorizontalPadding: CGFloat = 11
+    /// Espace entre deux blocs logiques. Correspond aux deux paddings
+    /// verticaux de 5 pt du wrapper défini dans le handoff.
+    static let blockSpacing: CGFloat = 10
+    /// Écart vertical sous un bloc qui **dessine un cadre** (mermaid, tableau,
+    /// image, bloc de code) — nettement plus large que `blockSpacing`, qui reste
+    /// l'écart du texte courant. À 10 pt, deux cartes de plusieurs centaines de
+    /// points se touchaient presque : rien ne disait où finissait l'une et où
+    /// commençait l'autre (constat d'écran).
+    static let cardBlockSpacing: CGFloat = 28
+
+    /// `true` si le bloc qui commence à `location` peint un cadre. Fonction
+    /// pure, lue au **début** du bloc — c'est là que le parseur pose
+    /// `.mdBlockType` et que `StyleRenderer` pose `.mdMermaidAttachment`.
+    ///
+    /// `.rawBlock` couvre les tableaux GFM et le HTML brut ; `.mdTableCell` les
+    /// rattrape quand la plage interrogée est celle d'une cellule.
+    static func isCardBlock(in storage: NSTextStorage, at location: Int) -> Bool {
+        guard location >= 0, location < storage.length else { return false }
+        if storage.attribute(.mdMermaidAttachment, at: location, effectiveRange: nil) != nil { return true }
+        if storage.attribute(.mdTableCell, at: location, effectiveRange: nil) != nil { return true }
+        if storage.attribute(.mdImageURL, at: location, effectiveRange: nil) != nil { return true }
+        if let type = storage.attribute(.mdBlockType, at: location, effectiveRange: nil) as? BlockType {
+            return type == .codeBlock || type == .rawBlock
+        }
+        return false
+    }
 
     // MARK: - Couleurs (design tokens du handoff)
 
@@ -46,19 +74,17 @@ enum BlockGutterLayout {
     static let accentColor = NSColor(red: 0x0a/255, green: 0x6c/255, blue: 0xff/255, alpha: 1)
     /// Fond de sélection de bloc (spec `#f4f8ff`).
     static let selectionFillColor = NSColor(red: 0xf4/255, green: 0xf8/255, blue: 0xff/255, alpha: 1)
-    /// Fond de survol (spec `rgba(0,0,0,.018)` — quasi imperceptible mais suffisant à l'œil).
+    /// Fond de survol (spec `rgba(0,0,0,.018)`).
     static let hoverFillColor = NSColor(white: 0, alpha: 0.018)
-    /// Couleur du glyphe `⠿` (spec `rgba(0,0,0,.42)`).
-    static let handleGlyphColor = NSColor(white: 0, alpha: 0.42)
-    /// Couleur du glyphe `+` (spec `rgba(0,0,0,.35)`).
-    static let plusGlyphColor = NSColor(white: 0, alpha: 0.35)
+    static let handleIconColor = NSColor(white: 0, alpha: 0.42)
+    static let plusIconColor = NSColor(white: 0, alpha: 0.35)
     /// Fond des boutons au survol (spec `rgba(0,0,0,.06)`).
     static let iconHoverFillColor = NSColor(white: 0, alpha: 0.06)
 
-    /// Police du glyphe `⠿` (spec `12px/1 ui-monospace`).
-    static var handleGlyphFont: NSFont { NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) }
-    /// Police du glyphe `+` (spec `13px/1` system).
-    static var plusGlyphFont: NSFont { NSFont.systemFont(ofSize: 13) }
+    static let handleSymbolName = "circle.grid.2x3.fill"
+    static let plusSymbolName = "plus"
+    static let handleSymbolPointSize: CGFloat = 10
+    static let plusSymbolPointSize: CGFloat = 11
 
     // MARK: - Zones de clic
 
@@ -72,8 +98,8 @@ enum BlockGutterLayout {
         let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         guard glyphRange.length > 0 else { return nil }
         let bounding = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
-        guard bounding.width > 0, bounding.height > 0 else { return nil }
-        return bounding
+        guard bounding.height > 0 else { return nil }
+        return NSRect(x: 0, y: bounding.minY, width: container.size.width, height: bounding.height)
     }
 
     /// Rectangle où peindre les icônes `+` `⠿` de la gouttière pour le bloc
@@ -99,15 +125,14 @@ enum BlockGutterLayout {
         return (plus, handle)
     }
 
-    /// Cadre étendu autour du corps du bloc pour dessiner le fond+bordure de
-    /// sélection — dépasse légèrement les glyphes via `bodyPadding` pour ne
-    /// pas coller à la première lettre.
+    /// Cadre pleine largeur du bloc. Il ne déborde jamais horizontalement dans
+    /// la gouttière : les 11 px intérieurs sont réservés par le conteneur.
     static func selectionFrame(forBodyRect bodyRect: NSRect) -> NSRect {
         NSRect(
-            x: bodyRect.minX - bodyPadding.left,
-            y: bodyRect.minY - bodyPadding.top,
-            width: bodyRect.width + bodyPadding.left + bodyPadding.right,
-            height: bodyRect.height + bodyPadding.top + bodyPadding.bottom
+            x: bodyRect.minX,
+            y: bodyRect.minY - bodyVerticalPadding,
+            width: bodyRect.width,
+            height: bodyRect.height + bodyVerticalPadding * 2
         )
     }
 

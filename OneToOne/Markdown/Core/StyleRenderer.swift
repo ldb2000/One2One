@@ -37,6 +37,7 @@ enum StyleRenderer {
         storage.removeAttribute(.strikethroughStyle, range: renderRange)
         storage.removeAttribute(.paragraphStyle, range: renderRange)
         storage.removeAttribute(.obliqueness, range: renderRange)
+        storage.removeAttribute(.baselineOffset, range: renderRange)
         storage.removeAttribute(.attachment, range: renderRange)
 
         // Une `NSTextTable` doit être **partagée** par toutes les cellules
@@ -51,6 +52,11 @@ enum StyleRenderer {
         // « toutes les cellules déjà vues » couvre bien tout le tableau et
         // pas seulement une ligne.
         var tableInstances: [UUID: NSTextTable] = [:]
+        var tableMaximumRows: [UUID: Int] = [:]
+        storage.enumerateAttribute(.mdTableCell, in: renderRange) { value, _, _ in
+            guard let cell = value as? TableCellInfo else { return }
+            tableMaximumRows[cell.tableID] = max(tableMaximumRows[cell.tableID] ?? cell.row, cell.row)
+        }
 
         storage.enumerateAttributes(in: renderRange, options: []) { attrs, range, _ in
             let block = attrs[.mdBlockType] as? BlockType ?? .paragraph
@@ -196,6 +202,8 @@ enum StyleRenderer {
                 let table = tableInstances[cellInfo.tableID] ?? {
                     let newTable = NSTextTable()
                     newTable.numberOfColumns = cellInfo.columnCount
+                    newTable.layoutAlgorithm = .fixedLayoutAlgorithm
+                    newTable.collapsesBorders = true
                     tableInstances[cellInfo.tableID] = newTable
                     return newTable
                 }()
@@ -208,13 +216,21 @@ enum StyleRenderer {
                 )
                 cellBlock.setBorderColor(TableLayout.borderColor)
                 cellBlock.setWidth(TableLayout.borderWidth, type: .absoluteValueType, for: .border)
-                cellBlock.setWidth(TableLayout.cellPadding, type: .absoluteValueType, for: .padding)
+                cellBlock.setWidth(TableLayout.cellHorizontalPadding, type: .absoluteValueType, for: .padding, edge: .minX)
+                cellBlock.setWidth(TableLayout.cellHorizontalPadding, type: .absoluteValueType, for: .padding, edge: .maxX)
+                cellBlock.setWidth(TableLayout.cellVerticalPadding, type: .absoluteValueType, for: .padding, edge: .minY)
+                cellBlock.setWidth(TableLayout.cellVerticalPadding, type: .absoluteValueType, for: .padding, edge: .maxY)
                 if cellInfo.row == 0 {
                     cellBlock.backgroundColor = TableLayout.headerBackgroundColor
                 }
                 let para = NSMutableParagraphStyle()
                 para.textBlocks = [cellBlock]
                 para.alignment = TableLayout.textAlignment(for: cellInfo.alignment)
+                para.minimumLineHeight = TableLayout.cellMinimumLineHeight
+                if cellInfo.row == tableMaximumRows[cellInfo.tableID],
+                   cellInfo.column == cellInfo.columnCount - 1 {
+                    para.paragraphSpacing = TableLayout.footerReservedHeight
+                }
                 storage.addAttribute(.paragraphStyle, value: para, range: range)
             }
 
@@ -247,7 +263,62 @@ enum StyleRenderer {
             }
         }
 
+        applyBlockSpacing(to: storage, in: renderRange)
+
         storage.endEditing()
+    }
+
+    /// Pose l'espace sur le dernier paragraphe de chaque bloc logique. Le
+    /// faire à cet endroit préserve les styles spécialisés déjà construits
+    /// pour les listes, citations, tableaux et blocs Mermaid.
+    private static func applyBlockSpacing(to storage: NSTextStorage, in renderRange: NSRange) {
+        let text = storage.string as NSString
+        let renderEnd = min(NSMaxRange(renderRange), storage.length)
+        var location = min(renderRange.location, renderEnd)
+
+        while location < renderEnd {
+            let block = BlockRange.of(in: storage, at: location).range
+            let physicalLine = text.lineRange(for: NSRange(location: location, length: 0))
+            let blockAdvance = block.length > 0 ? NSMaxRange(block) : location
+            let nextLocation = min(
+                renderEnd,
+                max(location + 1, max(blockAdvance + 1, NSMaxRange(physicalLine)))
+            )
+
+            if block.length > 0 {
+                let lastCharacter = NSMaxRange(block) - 1
+                let terminalParagraph = NSIntersectionRange(
+                    text.lineRange(for: NSRange(location: lastCharacter, length: 0)),
+                    block
+                )
+                if terminalParagraph.length > 0 {
+                    // L'écart large dès qu'un des deux voisins dessine un
+                    // cadre : une carte doit avoir la même respiration
+                    // au-dessus qu'en dessous, et seul `paragraphSpacing` la
+                    // porte — poser en plus `paragraphSpacingBefore` sur la
+                    // carte suivante ferait 56 pt (TextKit additionne les
+                    // deux).
+                    let nextBlockStart = NSMaxRange(block) + 1
+                    let touchesACard = BlockGutterLayout.isCardBlock(in: storage, at: block.location)
+                        || BlockGutterLayout.isCardBlock(in: storage, at: nextBlockStart)
+                    let spacing = touchesACard
+                        ? BlockGutterLayout.cardBlockSpacing
+                        : BlockGutterLayout.blockSpacing
+
+                    let existing = storage.attribute(
+                        .paragraphStyle,
+                        at: terminalParagraph.location,
+                        effectiveRange: nil
+                    ) as? NSParagraphStyle
+                    let style = (existing?.mutableCopy() as? NSMutableParagraphStyle)
+                        ?? NSMutableParagraphStyle()
+                    style.paragraphSpacing = max(style.paragraphSpacing, spacing)
+                    storage.addAttribute(.paragraphStyle, value: style, range: terminalParagraph)
+                }
+            }
+
+            location = nextLocation
+        }
     }
 
     /// Pose l'attachment mermaid rendu (`MermaidAttachmentFactory`) sur toute
@@ -287,20 +358,42 @@ enum StyleRenderer {
         // fil principal — `assumeIsolated` rend cette hypothèse explicite
         // plutôt que de propager `@MainActor` à `StyleRenderer` tout entier
         // et, avec lui, à tous ses appelants.
-        let (attachment, selectionLocation) = MainActor.assumeIsolated { () -> (NSTextAttachment, Int) in
-            let attachment = MermaidAttachmentFactory.attachment(for: source, isDark: isDark) {
-                refreshClosedMermaidGeometry(in: storage, range: range)
-            }
-            let location = storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
-            return (attachment, location)
+        let selectionLocation = MainActor.assumeIsolated {
+            storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
         }
-        storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
 
         if allowsOpen, MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) {
+            // Bloc **en édition** : ne jamais relancer de rendu ici. Le
+            // source est en cours de frappe — le plus souvent invalide —
+            // et chaque frappe relançait un rendu (`WKWebView` à chaque
+            // caractère, le natif jetant sur un source incomplet) dont la
+            // completion asynchrone, armée d'une plage capturée avant les
+            // frappes suivantes, refermait la géométrie du bloc en pleine
+            // édition (superposition carte/erreur/source mesurée à
+            // l'écran). L'attachment déjà posé (dernier rendu abouti ou
+            // placeholder) est reposé tel quel sur toute la plage — même
+            // instance, donc un seul run uniforme pour
+            // `longestEffectiveRange`. Le rendu du source final part à la
+            // fermeture (curseur sorti → restylage ciblé, branche fermée
+            // ci-dessous).
+            let existing = storage.attribute(
+                .mdMermaidAttachment, at: range.location, effectiveRange: nil
+            ) as? NSTextAttachment
+            let attachment = existing ?? MainActor.assumeIsolated {
+                MermaidAttachmentFactory.placeholder(for: source)
+            }
+            storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
             applyOpenMermaidGeometry(to: storage, range: range)
-        } else {
-            applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
+            return
         }
+
+        let attachment = MainActor.assumeIsolated {
+            MermaidAttachmentFactory.attachment(for: source, isDark: isDark) { updated in
+                refreshClosedMermaidGeometry(in: storage, attachment: updated)
+            }
+        }
+        storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
+        applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
     }
 
     /// Ré-applique la géométrie **fermée** de `range` d'après la taille
@@ -316,20 +409,38 @@ enum StyleRenderer {
     /// tests avec un attachment dont l'image a été substituée à la main
     /// (simule un rendu terminé sans dépendre du timing d'un vrai
     /// `WKWebView`) — même patron que `EditorTextView.mermaidDoneButtonRange`.
-    static func refreshClosedMermaidGeometry(in storage: NSTextStorage, range: NSRange) {
-        guard range.location >= 0, range.location + range.length <= storage.length else { return }
+    static func refreshClosedMermaidGeometry(in storage: NSTextStorage, attachment: NSTextAttachment) {
+        // Retrouve la plage **actuelle** du bloc par l'identité de son
+        // attachment — jamais une plage capturée au lancement du rendu : le
+        // bloc a pu grandir, se déplacer, être supprimé ou son attachment
+        // remplacé pendant le rendu asynchrone. Une plage périmée faisait
+        // croire le bloc fermé (curseur au-delà de son ancienne borne) et
+        // refermait sa géométrie en pleine édition — la superposition
+        // carte/erreur/source mesurée à l'écran. Attachment absent = rendu
+        // périmé : ne rien faire.
+        var currentRange: NSRange?
+        storage.enumerateAttribute(
+            .mdMermaidAttachment, in: NSRange(location: 0, length: storage.length)
+        ) { value, runRange, stop in
+            guard (value as? NSTextAttachment) === attachment else { return }
+            currentRange = MermaidBlockLayout.blockRange(in: storage, at: runRange.location)
+            stop.pointee = true
+        }
+        guard let range = currentRange else { return }
+
         let selectionLocation = storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
         guard !MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) else { return }
 
-        let attachment = storage.attribute(.mdMermaidAttachment, at: range.location, effectiveRange: nil) as? NSTextAttachment
         storage.beginEditing()
-        applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment?.image?.size)
+        applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
         storage.endEditing()
 
         for layoutManager in storage.layoutManagers {
             layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             layoutManager.invalidateDisplay(forCharacterRange: range)
         }
+        (storage.layoutManagers.first?.firstTextView as? EditorTextView)?
+            .invalidateMermaidPresentation(for: [range])
     }
 
     /// Géométrie **fermée** (état 1/2/4) : tout le bloc devient invisible
@@ -371,22 +482,38 @@ enum StyleRenderer {
     /// `MarkdownLayoutManager.drawMermaidHeader` peint l'étiquette `mermaid`
     /// et le bouton « Terminé ».
     private static func applyOpenMermaidGeometry(to storage: NSTextStorage, range: NSRange) {
+        storage.removeAttribute(.backgroundColor, range: range)
         let ns = storage.string as NSString
         let (firstLine, rest) = MermaidBlockLayout.splitFirstLine(of: range, in: ns)
 
         let firstLineStyle = NSMutableParagraphStyle()
         firstLineStyle.lineHeightMultiple = MermaidSourceLayout.lineHeightMultiple
-        firstLineStyle.headIndent = MermaidSourceLayout.gutterWidth
-        firstLineStyle.firstLineHeadIndent = MermaidSourceLayout.gutterWidth
+        let codeIndent = MermaidSourceLayout.gutterWidth + MermaidSourceLayout.codeHorizontalPadding
+        firstLineStyle.headIndent = codeIndent
+        firstLineStyle.firstLineHeadIndent = codeIndent
+        firstLineStyle.minimumLineHeight = MermaidSourceLayout.sourceLineHeight
         firstLineStyle.paragraphSpacingBefore = MermaidSourceLayout.headerHeight
+            + MermaidSourceLayout.bodyTopPadding
         storage.addAttribute(.paragraphStyle, value: firstLineStyle, range: firstLine)
 
         if rest.length > 0 {
             let restStyle = NSMutableParagraphStyle()
             restStyle.lineHeightMultiple = MermaidSourceLayout.lineHeightMultiple
-            restStyle.headIndent = MermaidSourceLayout.gutterWidth
-            restStyle.firstLineHeadIndent = MermaidSourceLayout.gutterWidth
+            restStyle.headIndent = codeIndent
+            restStyle.firstLineHeadIndent = codeIndent
             storage.addAttribute(.paragraphStyle, value: restStyle, range: rest)
+        }
+
+        let lastLocation = max(range.location, NSMaxRange(range) - 1)
+        let lastLine = NSIntersectionRange(
+            ns.lineRange(for: NSRange(location: lastLocation, length: 0)),
+            range
+        )
+        if lastLine.length > 0,
+           let existing = storage.attribute(.paragraphStyle, at: lastLine.location, effectiveRange: nil) as? NSParagraphStyle,
+           let lastStyle = existing.mutableCopy() as? NSMutableParagraphStyle {
+            lastStyle.paragraphSpacing = MermaidSourceLayout.bodyBottomPadding
+            storage.addAttribute(.paragraphStyle, value: lastStyle, range: lastLine)
         }
     }
 
