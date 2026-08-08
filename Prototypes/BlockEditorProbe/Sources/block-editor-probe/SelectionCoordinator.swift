@@ -211,6 +211,28 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
                 head: ProbePosition(blockIndex: previous, offset: document.blocks[previous].length)))
             return true
 
+        case #selector(NSResponder.insertNewline(_:)):
+            apply { ProbeEditing.insertNewline(in: &$0, selection: self.selection) }
+            return true
+
+        case #selector(NSResponder.deleteBackward(_:)):
+            // `NSTextView` sait très bien effacer à l'intérieur d'un bloc, et
+            // le faire nativement préserve la composition en cours (touches
+            // mortes). On ne reprend la main qu'en tête de bloc, ou dès que la
+            // sélection déborde.
+            guard selection.spansBlocks || (selection.isCollapsed && selection.head.offset == 0) else {
+                return false
+            }
+            apply { ProbeEditing.deleteBackward(in: &$0, selection: self.selection) }
+            return true
+
+        case #selector(NSResponder.deleteForward(_:)):
+            let atBlockEnd = selection.isCollapsed
+                && selection.head.offset == document.blocks[selection.head.blockIndex].length
+            guard selection.spansBlocks || atBlockEnd else { return false }
+            apply { ProbeEditing.deleteForward(in: &$0, selection: self.selection) }
+            return true
+
         default:
             return false
         }
@@ -223,6 +245,31 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
         guard !native else { return false }
         setSelection(ProbeSelection(anchor: selection.anchor, head: head))
         return true
+    }
+
+    // MARK: - Mécanisme 2 : édition destructive
+
+    /// Arbitre entre la voie native et la voie du modèle.
+    ///
+    /// Voie native (retour `true`) : la sélection tient dans un bloc. Le
+    /// `NSTextView` fait son travail — accents, touches mortes, correcteur —
+    /// et `textDidChange` recopiera le résultat dans le modèle.
+    ///
+    /// Voie du modèle (retour `false`) : la sélection déborde du bloc. Aucun
+    /// `NSTextView` ne peut l'honorer ; le coordinateur applique la mutation
+    /// et reconstruit.
+    func textView(_ textView: NSTextView,
+                  shouldChangeTextIn affectedRange: NSRange,
+                  replacementString: String?) -> Bool {
+        guard selection.spansBlocks else {
+            // Voie native, mais l'historique doit quand même voir l'état
+            // d'avant : l'undo est unifié au niveau du conteneur.
+            history.record(ProbeSnapshot(document: document, selection: selection))
+            return true
+        }
+        let inserted = replacementString ?? ""
+        apply { ProbeEditing.insertText(inserted, in: &$0, selection: self.selection) }
+        return false
     }
 
     // MARK: - NSTextViewDelegate
