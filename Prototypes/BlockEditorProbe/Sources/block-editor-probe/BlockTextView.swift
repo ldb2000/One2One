@@ -167,4 +167,26 @@ final class BlockTextView: NSTextView {
     @objc func redo(_ sender: Any?) {
         owner.redoLastEdit()
     }
+
+    // MARK: - Validation des items de menu / raccourcis clavier
+
+    /// `NSTextView.validateUserInterfaceItem` désactive nativement
+    /// `copy:`/`cut:` d'après sa **propre** `selectedRange()` — la part de
+    /// sélection qui vit dans ce seul bloc. Or sur une sélection traversante
+    /// née au clavier, la tête peut tomber en offset 0 du bloc suivant ou en
+    /// fin du bloc précédent : la plage locale du bloc focalisé est alors
+    /// vide (longueur 0) bien que la sélection globale, portée par
+    /// `owner.selection`, ne le soit pas. Le natif désactiverait donc
+    /// `copy:`/`cut:` — et un item de menu désactivé ne répond plus à son
+    /// raccourci clavier, ce qui rend ⌘C/⌘X muets. Piège masqué par ⌘A, qui
+    /// n'est pas concerné par cette validation et fonctionne toujours : la
+    /// seule autorité correcte ici est la sélection du coordinateur.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(copy(_:)), #selector(cut(_:)):
+            return !owner.selection.isCollapsed
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
 }

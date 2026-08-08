@@ -361,8 +361,22 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
         guard !isSynchronising,
               let view = notification.object as? BlockTextView else { return }
         let range = view.selectedRange()
-        selection = ProbeSelection(
-            anchor: ProbePosition(blockIndex: view.blockIndex, offset: range.location),
-            head: ProbePosition(blockIndex: view.blockIndex, offset: NSMaxRange(range)))
+        let lowerBound = ProbePosition(blockIndex: view.blockIndex, offset: range.location)
+        let upperBound = ProbePosition(blockIndex: view.blockIndex, offset: NSMaxRange(range))
+
+        // `selectedRange()` ne rend qu'une plage {location, length} : AppKit a
+        // déjà perdu, à cet instant, le sens du geste qui l'a produite (⇧← qui
+        // recule la tête, ou ⇧→ qui l'avance). La seule façon de retrouver ce
+        // sens est de comparer aux deux bornes de la nouvelle plage l'ancre que
+        // *nous* connaissions déjà avant l'appel : si elle coïncide avec l'une
+        // des deux, c'est qu'elle n'a pas bougé — on la conserve, et on place la
+        // tête à l'autre bout. Si elle ne coïncide avec aucune (clic, ⌘A,
+        // curseur reposé ailleurs), on retombe sur l'hypothèse par défaut :
+        // ancre au début de la plage, tête à la fin.
+        if selection.anchor == upperBound {
+            selection = ProbeSelection(anchor: upperBound, head: lowerBound)
+        } else {
+            selection = ProbeSelection(anchor: lowerBound, head: upperBound)
+        }
     }
 }

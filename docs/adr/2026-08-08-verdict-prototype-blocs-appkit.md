@@ -6,6 +6,9 @@
 **Spec** : [`docs/superpowers/specs/2026-08-08-prototype-editeur-par-blocs-design.md`](../superpowers/specs/2026-08-08-prototype-editeur-par-blocs-design.md)
 **Décision d'origine** : [`docs/adr/2026-08-08-reecriture-editeur-architecture-appflowy.md`](2026-08-08-reecriture-editeur-architecture-appflowy.md)
 **Journal de bord** : `.superpowers/sdd/2026-08-08-prototype-editeur-par-blocs/progress.md`
+(non versionné — `.superpowers/` est dans `.gitignore` et peut disparaître à
+tout moment ; les faits qu'il consignait sont reproduits en clair dans le
+corps de cet ADR et résumés en annexe, « Relevés bruts »)
 
 ## Verdict
 
@@ -14,8 +17,10 @@ lancé `swift run block-editor-probe`, ouvert la fenêtre de la sonde, ni
 regardé un rendu. Tout ce que cet ADR affirme provient de trois sources
 logicielles — les tests unitaires de `ProbeCore`, une sonde qui compile les
 vraies sources de vue et les exerce sans ouvrir de fenêtre, et un harnais de
-mesure d'échelle exécuté avec une fenêtre ouverte mais jamais mise au premier
-plan par un humain. Aucun des quatre critères, aucun des trois critères
+mesure d'échelle exécuté avec une fenêtre ouverte et mise au premier plan par
+le programme lui-même (`activate(ignoringOtherApps:)`,
+`makeKeyAndOrderFront`), mais jamais regardée par un humain. Aucun des quatre
+critères, aucun des trois critères
 d'abandon, n'a reçu sa preuve visuelle. Le verdict ne peut donc pas être
 prononcé maintenant ; cet ADR consigne l'état des preuves et la liste de ce
 qui manque.
@@ -69,7 +74,7 @@ Tant que ces contrôles n'ont pas été faits, tout énoncé de type « tient »
 
 ### 1. Sélection traversante
 
-**Établi** (sonde sans fenêtre, tâche 9, `progress.md` lignes 99-112) : le
+**Établi** (sonde sans fenêtre, tâche 9) : le
 calcul et la répartition de la sélection traversante sur des `NSTextView`
 indépendantes fonctionnent — glissement bloc 1 (offset 3) → bloc 3 (offset
 4) donne la queue du premier bloc (3+14 caractères), les blocs intermédiaires
@@ -93,11 +98,11 @@ peint est une question distincte, entièrement ouverte.
 
 ### 2. Édition destructive
 
-**Établi** (sonde sans fenêtre, tâche 10, `progress.md` lignes 138-142) :
+**Établi** (sonde sans fenêtre, tâche 10) :
 ⌫ en tête de bloc fusionne ; ⌫ au milieu reste natif ; ⌫ sur une sélection
 mono-bloc reste native ; ⌦ en fin de bloc médian fusionne ; ⏎ scinde ;
-frappe sur sélection traversante rend `interceptée = false`(*) côté natif et
-produit `["UXois"]` dans le scénario mesuré ; frappe mono-bloc reste native
+frappe sur sélection traversante rend `natif = false`(*), donc
+`interceptée = true`, et produit `["UXois"]` dans le scénario mesuré ; frappe mono-bloc reste native
 (la voie des accents est donc atteinte) ; un geste structurant = un seul
 instantané d'undo. Deux défauts trouvés par relecture et corrigés
 (commit `dbf561e`) : `replacementString ?? ""` confondait un changement
@@ -116,7 +121,7 @@ réel de l'effacement d'un caractère composé par touche morte.
 ### 3. Copier-coller et undo
 
 **Établi** (mesure directe des méthodes du coordinateur, sans fenêtre,
-tâche 11, `progress.md` lignes 170-184) : trois frappes dans les blocs 1, 3,
+tâche 11) : trois frappes dans les blocs 1, 3,
 0 (dans cet ordre) se défont par ⌘Z dans l'ordre inverse des
 **modifications** (0, puis 3, puis 1) et non de l'ordre de visite —
 l'historique est donc unifiable au niveau du conteneur. Redo correct ; une
@@ -140,7 +145,7 @@ l'historique — voir « Limites assumées »).
 ### 4. Tenue à l'échelle
 
 **Établi** (harnais de mesure, fenêtre ouverte non observée par un humain,
-tâche 12, `progress.md` lignes 198-222) : voir le tableau ci-dessous. 200
+tâche 12) : voir le tableau ci-dessous. 200
 blocs vivants ne s'effondrent pas ; la question du recyclage ne se pose pas
 à cette échelle.
 
@@ -176,7 +181,7 @@ garde-fou de temps ; macOS 26.5.1, Build 25F80) :
 | Frappe 95e centile | 0,20 ms | 0,30 ms | 0,45 ms |
 | Frappe pire cas | 5,80 ms | 3,38 ms | 7,66 ms |
 
-**Trois nuances, indissociables de ce tableau** (relevées à la relecture de
+**Quatre nuances, indissociables de ce tableau** (relevées à la relecture de
 la tâche 12) :
 
 1. **Le « pire cas » de frappe n'est pas un signal de tendance.** C'est un
@@ -195,8 +200,15 @@ la tâche 12) :
    déplacent (nouvelle frame posée par `layout()`) sans que leur
    ré-affichage à la nouvelle position soit forcé dans la fenêtre
    chronométrée. Le coût de disposition, lui, est capturé en entier.
+4. **Chaque frappe native passe par `history.record`, donc par une copie
+   complète du document.** `shouldChangeTextIn` enregistre un instantané
+   avant de rendre la main au natif, y compris sur la voie mono-bloc ; le
+   coût de cette copie croît en O(nombre de blocs) et est inclus dans la
+   latence de frappe mesurée. C'est un coût propre à la sonde — un vrai
+   éditeur à undo par transactions n'aurait pas ce coût — qui participe à la
+   pente linéaire par ailleurs attribuée à la disposition.
 
-Un tableau recopié sans ces trois nuances serait trompeur.
+Un tableau recopié sans ces quatre nuances serait trompeur.
 
 ## Les mesures faites sans fenêtre
 
@@ -342,6 +354,14 @@ pas des défauts en attente de correction :
   visible pendant un glissement de sélection ; le défilement vers le bloc
   focalisé n'a lieu qu'au relâchement, via `synchroniseViews(focusing: true)`.
   Ce constat vient de la lecture du code, pas d'une observation à l'écran.
+- **`pasteFromPasteboard` ne distingue pas un presse-papiers absent d'une
+  chaîne vide.** `NSPasteboard.general.string(forType: .string)` rend `nil`
+  quand il n'y a rien à coller — la garde sort alors sans rien faire — mais
+  rend une chaîne vide (`""`, non `nil`) quand le presse-papiers contient
+  explicitement une chaîne vide : la garde passe, et `apply` empile un
+  instantané d'historique sans aucun effet visible — un ⌘Z inerte de plus. Un
+  presse-papiers **non textuel**, lui, est correctement traité en no-op —
+  c'est mesuré (tâche 11).
 
 ## Ce que cela implique pour les points 1 à 8 de la réécriture
 
@@ -403,3 +423,54 @@ ADR, puisque le verdict lui-même est en attente : le supprimer maintenant
 détruirait la seule sonde permettant de rejouer une mesure sans fenêtre si
 la vérification à l'écran soulevait un doute nécessitant un nouveau contrôle
 de code.
+
+## Annexe — Relevés bruts
+
+Le journal d'exécution qui a servi à consigner les mesures de ce prototype
+au moment où elles ont été prises
+(`.superpowers/sdd/2026-08-08-prototype-editeur-par-blocs/progress.md`)
+**n'est pas versionné** : `.superpowers/` figure dans `.gitignore` et peut
+disparaître sans préavis. Cet ADR ne le cite donc plus par numéro de ligne
+ailleurs dans le corps du document ; cette annexe reproduit, pour qu'ils
+restent lisibles et vérifiables une fois `Prototypes/` supprimé et
+`.superpowers/` absent, les deux relevés bruts déjà présentés plus haut.
+
+### Tableau des mesures d'échelle (50 / 200 / 400 blocs)
+
+Reprise à l'identique du tableau de la section « Les mesures d'échelle » ;
+les quatre nuances qui l'accompagnent dans cette section (pire cas non
+représentatif, montage non linéaire, chiffres de frappe en plancher, coût de
+`history.record` inclus dans la latence) s'y appliquent également et ne sont
+pas répétées ici.
+
+| | 50 blocs | 200 blocs | 400 blocs |
+|---|---|---|---|
+| Montage initial | 18,1 ms | 37,6 ms | 77,5 ms |
+| Défilement médian | 0,02 ms | 0,05 ms | 0,08 ms |
+| Défilement pire pas | 0,09 ms | 0,10 ms | 0,13 ms |
+| Frappe médiane | 0,15 ms | 0,26 ms | 0,38 ms |
+| Frappe 95e centile | 0,20 ms | 0,30 ms | 0,45 ms |
+| Frappe pire cas | 5,80 ms | 3,38 ms | 7,66 ms |
+
+### Liste des mesures faites sans fenêtre (tâches 8 à 11)
+
+Reprise à l'identique du paragraphe « Ce qu'elle a permis d'établir » de la
+section « Les mesures faites sans fenêtre ». Ce qu'une sonde distincte du
+prototype — compilant les vraies sources de vue (`SelectionCoordinator`,
+`BlockStackView`, `BlockTextView`) contre `ProbeCore` et les exerçant en
+appelant directement leurs méthodes, sans `NSApplication.run()` — a permis
+d'établir :
+
+- l'état interne après une mutation ;
+- la convergence de `layout()` en une seule passe ;
+- l'absence de vue orpheline après suppression/scission ;
+- la réaffectation correcte des `blockIndex` ;
+- la position exacte du curseur après `attach`/`apply` ;
+- le contenu et les répartitions de `NSRange` d'une sélection traversante ;
+- le contenu du document après fusion/scission/frappe ;
+- l'ordre des snapshots dans `ProbeHistory`.
+
+Tout cela est vérifiable parce que ce sont des valeurs Swift — des `String`,
+des `NSRange`, des index — lisibles par du code, sans qu'aucun pixel n'ait eu
+besoin d'être peint. Ce que cette même sonde ne peut pas établir reste décrit
+dans le corps du document, section « Les mesures faites sans fenêtre ».

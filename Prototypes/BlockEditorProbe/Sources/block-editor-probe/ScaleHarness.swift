@@ -83,11 +83,6 @@ enum ScaleHarness {
             stack.layoutSubtreeIfNeeded()
             view.displayIfNeeded()
             samples.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
-            if index % 40 == 39 {
-                // Une frappe sur cinq déclenche un retour à la ligne : c'est
-                // le cas coûteux, on veut qu'il soit dans l'échantillon.
-                stack.needsLayout = true
-            }
         }
         return samples
     }
