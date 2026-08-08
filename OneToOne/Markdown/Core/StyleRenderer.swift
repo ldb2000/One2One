@@ -579,7 +579,47 @@ enum StyleRenderer {
         let clamped = NSRange(location: location, length: upperBound - location)
         let nsText = storage.string as NSString
         let lineRange = expandedForTable(nsText.lineRange(for: clamped), in: storage)
-        return expandedForMermaidBlock(lineRange, in: storage)
+        return expandedForPreviousBlock(expandedForMermaidBlock(lineRange, in: storage), in: storage)
+    }
+
+    /// Étend `range` vers le haut jusqu'à englober le **bloc précédent**.
+    ///
+    /// L'écart inter-blocs n'est pas porté par le bloc qui apparaît : il est
+    /// posé par `applyBlockSpacing` sur le **dernier paragraphe du bloc du
+    /// dessus** (`paragraphSpacing`, jamais `paragraphSpacingBefore` — voir sa
+    /// doc). Un restylage ciblé qui s'arrête au bloc courant ne le touche donc
+    /// jamais : après un `/tableau` ou un `/diagramme` inséré sur une ligne
+    /// neuve, la carte recevait bien ses 28 pt en dessous, mais le paragraphe
+    /// au-dessus gardait ses 10 pt jusqu'à ce qu'autre chose le restyle ;
+    /// symétriquement, supprimer une carte y laissait 28 pt périmés.
+    ///
+    /// Étendre la **plage restylée** (et pas seulement celle qu'`applyBlockSpacing`
+    /// balaie) est nécessaire dans les deux sens : le `removeAttribute(
+    /// .paragraphStyle, range: renderRange)` de tête d'`applyVisualStyle` est
+    /// ce qui permet à `max(style.paragraphSpacing, spacing)` de repartir de
+    /// zéro. Sans lui, un écart de 28 pt déjà posé ne pourrait jamais
+    /// redescendre à 10.
+    ///
+    /// Restyler un bloc mermaid voisin ne relance **aucun** rendu :
+    /// `MermaidAttachmentFactory.attachment(for:isDark:onUpdate:)` sert
+    /// l'attachment déjà en cache pour la même clé (source, apparence) sans
+    /// rouvrir de `WKWebView`.
+    private static func expandedForPreviousBlock(_ range: NSRange, in storage: NSTextStorage) -> NSRange {
+        guard range.location > 0 else { return range }
+        let nsText = storage.string as NSString
+
+        // Le séparateur entre deux blocs n'est pas toujours un seul `\n` : le
+        // storage vivant n'est jamais renormalisé (voir le commentaire jumeau
+        // dans `applyBlockSpacing`). On remonte donc les sauts de ligne
+        // jusqu'au dernier caractère réel du bloc précédent.
+        var probe = range.location - 1
+        while probe > 0, nsText.character(at: probe) == 0x0A {
+            probe -= 1
+        }
+
+        let previous = BlockRange.of(in: storage, at: probe).range
+        let start = min(range.location, previous.length > 0 ? previous.location : probe)
+        return NSRange(location: start, length: NSMaxRange(range) - start)
     }
 
     /// Si `lineRange` tombe dans un bloc de code mermaid (`.mdBlockType ==
