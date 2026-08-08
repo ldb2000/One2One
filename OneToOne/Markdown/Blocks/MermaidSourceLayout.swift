@@ -193,6 +193,28 @@ enum MermaidSourceLayout {
         return previewHeight(forAttachmentSize: attachment.image?.size, containerWidth: containerWidth)
     }
 
+    /// Hauteur **totale** réservée au-dessus du **texte** de la première ligne
+    /// d'un bloc ouvert : en-tête + bande d'aperçu + `bodyTopPadding`.
+    ///
+    /// Point d'entrée **unique** de cette somme, et c'est le point : elle est
+    /// lue des deux côtés d'une même égalité —
+    /// `StyleRenderer.applyOpenMermaidGeometry` la pose en
+    /// `paragraphSpacingBefore`, `headerRect` la retranche du sommet du texte
+    /// pour placer le haut du cadre. C'est cette égalité qui fait tomber le
+    /// haut de la carte pile sur le bas du bloc précédent ; si l'un des deux
+    /// calculs dérivait de l'autre, la carte se remettrait à déborder.
+    static func reservedBandHeight(previewHeight: CGFloat) -> CGFloat {
+        headerHeight + previewHeight + bodyTopPadding
+    }
+
+    /// Même hauteur, dérivée directement de la taille de l'image portée par
+    /// l'attachment — la forme qu'utilise `StyleRenderer`.
+    static func reservedBandHeight(forAttachmentSize size: NSSize?, containerWidth: CGFloat) -> CGFloat {
+        reservedBandHeight(
+            previewHeight: previewHeight(forAttachmentSize: size, containerWidth: containerWidth)
+        )
+    }
+
     /// Rectangle où peindre l'image d'aperçu, en coordonnées **conteneur** —
     /// centré horizontalement, juste sous la bande d'en-tête. `NSRect.zero`
     /// quand il n'y a pas d'image : rien à peindre.
@@ -229,15 +251,15 @@ enum MermaidSourceLayout {
     ///
     /// L'espace total ainsi occupé au-dessus du **texte** de la première ligne
     /// est exactement le `paragraphSpacingBefore` que pose
-    /// `StyleRenderer.applyOpenMermaidGeometry` : `headerHeight +
-    /// previewHeight + bodyTopPadding`. D'où l'ancrage sur
-    /// `SourceTextBounds.top` (rect *used*) et non sur le sommet du fragment,
-    /// qui *contient* déjà cette réservation — voir la doc de
-    /// `SourceTextBounds`.
+    /// `StyleRenderer.applyOpenMermaidGeometry` — d'où l'appel commun à
+    /// `reservedBandHeight(previewHeight:)`, seul endroit où cette somme est
+    /// écrite. D'où aussi l'ancrage sur `SourceTextBounds.top` (rect *used*)
+    /// et non sur le sommet du fragment, qui *contient* déjà cette
+    /// réservation — voir la doc de `SourceTextBounds`.
     static func headerRect(above textBounds: SourceTextBounds, containerWidth: CGFloat, previewHeight: CGFloat) -> NSRect {
         NSRect(
             x: 0,
-            y: textBounds.top - bodyTopPadding - previewHeight - headerHeight,
+            y: textBounds.top - reservedBandHeight(previewHeight: previewHeight),
             width: containerWidth,
             height: headerHeight
         )

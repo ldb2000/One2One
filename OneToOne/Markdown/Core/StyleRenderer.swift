@@ -344,7 +344,7 @@ enum StyleRenderer {
     /// que le curseur touche ou non `range` — `allowsOpen` transmis par
     /// l'appelant (voir sa doc dans `applyVisualStyle`). Le rendu proprement
     /// dit est asynchrone (voir `MermaidRenderer`) : `onUpdate` **ré-applique**
-    /// la géométrie fermée (`refreshClosedMermaidGeometry`), pas seulement
+    /// la géométrie fermée (`refreshMermaidGeometry`), pas seulement
     /// n'invalide la mise en page — `NSParagraphStyle.minimumLineHeight` est
     /// une valeur figée dans l'attribut posé ci-dessous, `invalidateLayout`
     /// seul ne la recalcule pas depuis la taille (nouvelle, une fois le rendu
@@ -416,27 +416,42 @@ enum StyleRenderer {
 
         let attachment = MainActor.assumeIsolated {
             MermaidAttachmentFactory.attachment(for: source, isDark: isDark) { updated in
-                refreshClosedMermaidGeometry(in: storage, attachment: updated)
+                refreshMermaidGeometry(in: storage, attachment: updated)
             }
         }
         storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
         applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
     }
 
-    /// Ré-applique la géométrie **fermée** de `range` d'après la taille
-    /// **actuelle** de l'attachment mermaid qui y est posé — appelée depuis
-    /// `onUpdate` (voir sa doc dans `applyMermaidAttachment`) une fois le
-    /// rendu asynchrone terminé (succès ou erreur). Ne fait rien si `range`
-    /// ne pointe plus dans les bornes du storage (bloc retiré entre-temps)
-    /// ou si le bloc est actuellement **ouvert** (curseur dedans) : la
-    /// géométrie ouverte ne dépend pas de la taille de l'image, la rouvrir
-    /// ici écraserait à tort son interligne d'édition.
+    /// Ré-applique la géométrie du bloc d'après la taille **actuelle** de
+    /// l'attachment mermaid qui y est posé — appelée depuis `onUpdate` (voir
+    /// sa doc dans `applyMermaidAttachment`) une fois le rendu asynchrone
+    /// terminé (succès ou erreur). Ne fait rien si l'attachment n'est plus
+    /// dans le storage (bloc retiré, ou attachment remplacé entre-temps :
+    /// completion périmée).
+    ///
+    /// **Réagit** à un rendu qui aboutit ; n'en déclenche jamais.
+    ///
+    /// Bloc **fermé** : `applyClosedMermaidGeometry` recalcule la ligne
+    /// réservée (l'image dessinée à sa taille native déborderait sinon).
+    ///
+    /// Bloc **ouvert** : seule la **réservation** de la bande est recalculée
+    /// (`applyOpenMermaidReservation`), pas toute la géométrie ouverte. Elle
+    /// dépend bien de la taille de l'image (la bande contient l'aperçu figé),
+    /// et le scénario est réel : éditer un bloc, cliquer « Terminé »,
+    /// recliquer dedans avant la fin du rendu — la réservation avait été
+    /// calculée sur le placeholder (960×104, bande 110,3) tandis que le
+    /// dessin relit l'image courante (960×450, bande 254,5), soit 144 pt de
+    /// débord jusqu'à la frappe suivante (mesuré). Rejouer toute la géométrie
+    /// ouverte serait faux dans l'autre sens : elle repose
+    /// `paragraphSpacing = bodyBottomPadding` sur la dernière ligne, écrasant
+    /// l'écart inter-blocs qu'`applyBlockSpacing` y a posé **après** elle.
     ///
     /// `internal` (pas `private`) pour être exercée directement par les
     /// tests avec un attachment dont l'image a été substituée à la main
     /// (simule un rendu terminé sans dépendre du timing d'un vrai
     /// `WKWebView`) — même patron que `EditorTextView.mermaidDoneButtonRange`.
-    static func refreshClosedMermaidGeometry(in storage: NSTextStorage, attachment: NSTextAttachment) {
+    static func refreshMermaidGeometry(in storage: NSTextStorage, attachment: NSTextAttachment) {
         // Retrouve la plage **actuelle** du bloc par l'identité de son
         // attachment — jamais une plage capturée au lancement du rendu : le
         // bloc a pu grandir, se déplacer, être supprimé ou son attachment
@@ -455,11 +470,24 @@ enum StyleRenderer {
         }
         guard let range = currentRange else { return }
 
-        let selectionLocation = storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
-        guard !MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) else { return }
+        let textView = storage.layoutManagers.first?.firstTextView
+        let selectionLocation = textView?.selectedRange().location ?? NSNotFound
 
         storage.beginEditing()
-        applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
+        if MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) {
+            // Même repli que dans `applyMermaidAttachment` : la largeur
+            // réellement affichée, sinon `columnWidth` (cas des tests, aucune
+            // vue attachée). Les deux doivent lire la même largeur, sans quoi
+            // la réservation et le dessin divergent.
+            let containerWidth = textView?.textContainer?.size.width ?? 0
+            applyOpenMermaidReservation(
+                to: storage, range: range,
+                attachmentImageSize: attachment.image?.size,
+                containerWidth: containerWidth > 0 ? containerWidth : MermaidBlockLayout.columnWidth
+            )
+        } else {
+            applyClosedMermaidGeometry(to: storage, range: range, attachmentImageSize: attachment.image?.size)
+        }
         storage.endEditing()
 
         for layoutManager in storage.layoutManagers {
@@ -527,11 +555,9 @@ enum StyleRenderer {
         firstLineStyle.headIndent = codeIndent
         firstLineStyle.firstLineHeadIndent = codeIndent
         firstLineStyle.minimumLineHeight = MermaidSourceLayout.sourceLineHeight
-        firstLineStyle.paragraphSpacingBefore = MermaidSourceLayout.headerHeight
-            + MermaidSourceLayout.previewHeight(
-                forAttachmentSize: attachmentImageSize, containerWidth: containerWidth
-              )
-            + MermaidSourceLayout.bodyTopPadding
+        firstLineStyle.paragraphSpacingBefore = MermaidSourceLayout.reservedBandHeight(
+            forAttachmentSize: attachmentImageSize, containerWidth: containerWidth
+        )
         storage.addAttribute(.paragraphStyle, value: firstLineStyle, range: firstLine)
 
         if rest.length > 0 {
@@ -555,11 +581,39 @@ enum StyleRenderer {
         }
     }
 
+    /// Recalcule la **seule** réservation de bande (`paragraphSpacingBefore`
+    /// sur la première ligne) d'un bloc déjà ouvert, en laissant intact tout
+    /// le reste de son style de paragraphe — c'est ce qui permet à
+    /// `refreshMermaidGeometry` de réagir à un rendu qui aboutit sur un bloc
+    /// en édition sans écraser le `paragraphSpacing` qu'`applyBlockSpacing` a
+    /// posé après coup sur sa dernière ligne (l'écart qui sépare la carte du
+    /// bloc suivant).
+    ///
+    /// La hauteur vient du même point d'entrée que celui posé par
+    /// `applyOpenMermaidGeometry` (`MermaidSourceLayout.reservedBandHeight`) :
+    /// un seul calcul de bande, partagé aussi par le dessin du cadre, celui
+    /// de l'en-tête et le hit-test de « Terminé ».
+    private static func applyOpenMermaidReservation(
+        to storage: NSTextStorage, range: NSRange,
+        attachmentImageSize: NSSize?, containerWidth: CGFloat
+    ) {
+        let (firstLine, _) = MermaidBlockLayout.splitFirstLine(of: range, in: storage.string as NSString)
+        guard firstLine.length > 0 else { return }
+        let existing = storage.attribute(
+            .paragraphStyle, at: firstLine.location, effectiveRange: nil
+        ) as? NSParagraphStyle
+        let style = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        style.paragraphSpacingBefore = MermaidSourceLayout.reservedBandHeight(
+            forAttachmentSize: attachmentImageSize, containerWidth: containerWidth
+        )
+        storage.addAttribute(.paragraphStyle, value: style, range: firstLine)
+    }
+
     /// Point d'entrée `internal` sur `applyOpenMermaidGeometry`, pour les
     /// tests : exercer la géométrie ouverte sans passer par
     /// `applyVisualStyle`, qui déclencherait un vrai `WKWebView` en tâche de
     /// fond (voir la doc de tête de `StyleRendererMermaidTests`). Même patron
-    /// que `refreshClosedMermaidGeometry`/`EditorTextView.mermaidDoneButtonRange`.
+    /// que `refreshMermaidGeometry`/`EditorTextView.mermaidDoneButtonRange`.
     static func applyOpenMermaidGeometryForTesting(
         to storage: NSTextStorage, range: NSRange,
         attachmentImageSize: NSSize?, containerWidth: CGFloat
