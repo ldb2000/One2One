@@ -341,6 +341,30 @@ final class MermaidSourceLayoutTests: XCTestCase {
         )
     }
 
+    /// Objectif de départ du chantier : « une carte doit avoir la même
+    /// respiration au-dessus qu'en dessous ». L'écart **visible** se mesure
+    /// entre le bord du cadre et le texte du bloc voisin — pas entre deux
+    /// fragments, et surtout pas via `paragraphSpacing` seul : sur un bloc
+    /// mermaid **ouvert**, la dernière ligne porte déjà `bodyBottomPadding`,
+    /// qui vit *dans* la carte (le cadre se referme dessous). Un
+    /// `max(paragraphSpacing, cardBlockSpacing)` **absorbait** ce padding au
+    /// lieu de s'y ajouter : 18 pt visibles en dessous contre 28 au-dessus.
+    func test_openBlockCard_breathesTheSameAboveAndBelow() throws {
+        let fixture = try makeLaidOutOpenMermaidBlock()
+        let geometry = openBlockGeometry(fixture)
+
+        XCTAssertEqual(
+            geometry.frame.minY - fixture.previousBlockTextBottom,
+            BlockGutterLayout.cardBlockSpacing, accuracy: 0.001,
+            "écart visible au-dessus de la carte"
+        )
+        XCTAssertEqual(
+            fixture.nextBlockTextTop - geometry.frame.maxY,
+            BlockGutterLayout.cardBlockSpacing, accuracy: 0.001,
+            "écart visible en dessous de la carte : le `max` absorbe `bodyBottomPadding` au lieu de s'y ajouter"
+        )
+    }
+
     // MARK: - Fixture de mise en page
 
     /// Un bloc mermaid **ouvert** (curseur dedans, image d'aperçu livrée),
@@ -411,10 +435,16 @@ final class MermaidSourceLayoutTests: XCTestCase {
 
         // Ce qu'`applyBlockSpacing` pose ensuite : l'écart large sur le dernier
         // paragraphe de tout bloc voisin d'une carte — donc sur « intro » comme
-        // sur la dernière ligne du bloc mermaid lui-même (`max` avec le
-        // `bodyBottomPadding` que la géométrie ouverte vient d'y poser).
+        // sur la dernière ligne du bloc mermaid lui-même. Sur celle-ci, l'écart
+        // s'**ajoute** au `bodyBottomPadding` que la géométrie ouverte vient
+        // d'y poser : ce padding vit *dans* la carte (le cadre se referme
+        // dessous), l'absorber ne laisserait que 18 pt visibles en dessous
+        // contre 28 au-dessus (voir `StyleRenderer.interiorBottomPadding`).
         addParagraphSpacing(BlockGutterLayout.cardBlockSpacing, in: storage, atParagraphContaining: ns.range(of: "intro").location)
-        addParagraphSpacing(BlockGutterLayout.cardBlockSpacing, in: storage, atParagraphContaining: NSMaxRange(blockRange) - 1)
+        addParagraphSpacing(
+            BlockGutterLayout.cardBlockSpacing + MermaidSourceLayout.bodyBottomPadding,
+            in: storage, atParagraphContaining: NSMaxRange(blockRange) - 1
+        )
 
         layoutManager.ensureLayout(for: container)
 
@@ -435,7 +465,9 @@ final class MermaidSourceLayoutTests: XCTestCase {
     }
 
     /// `paragraphSpacing = max(existant, spacing)` sur le paragraphe portant
-    /// `location` — la règle exacte d'`StyleRenderer.applyBlockSpacing`.
+    /// `location` — la règle exacte d'`StyleRenderer.applyBlockSpacing`, à
+    /// laquelle l'appelant ajoute lui-même le padding interne du bloc
+    /// (`interiorBottomPadding`) quand il y en a un.
     private func addParagraphSpacing(_ spacing: CGFloat, in storage: NSTextStorage, atParagraphContaining location: Int) {
         let paragraph = (storage.string as NSString).lineRange(for: NSRange(location: location, length: 0))
         let existing = storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle

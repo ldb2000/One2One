@@ -411,6 +411,58 @@ final class StyleRendererMermaidTests: XCTestCase {
         )
     }
 
+    // MARK: - Écart sous une carte ouverte (symétrie au-dessus / en dessous)
+
+    /// La dernière ligne d'un bloc mermaid **ouvert** porte déjà
+    /// `bodyBottomPadding` : ce padding vit *dans* la carte (le cadre se
+    /// referme dessous). L'écart inter-blocs doit donc s'y **ajouter**, sinon
+    /// le `max(paragraphSpacing, cardBlockSpacing)` l'absorbe et il ne reste
+    /// que 18 pt visibles sous la carte contre 28 au-dessus.
+    ///
+    /// Exercé par le **chemin réel** (`applyVisualStyle` ciblé sur le bloc,
+    /// curseur dedans) : c'est `applyBlockSpacing` qui doit produire la
+    /// somme, pas le test.
+    @MainActor
+    func test_openMermaidBlock_lastLineSpacing_addsTheCardGapToTheInteriorPadding() throws {
+        let (storage, editor) = makeWiredEditor(markdown: "```mermaid\ngraph TD\nA-->B\n```\n\nsuite")
+        let blockRange = try XCTUnwrap(MermaidBlockLayout.blockRange(in: storage, at: 0))
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: blockRange)
+
+        let ns = storage.string as NSString
+        let lastLine = ns.lineRange(for: NSRange(location: NSMaxRange(blockRange) - 1, length: 0))
+        let style = try XCTUnwrap(
+            storage.attribute(.paragraphStyle, at: lastLine.location, effectiveRange: nil) as? NSParagraphStyle
+        )
+        XCTAssertEqual(
+            style.paragraphSpacing,
+            BlockGutterLayout.cardBlockSpacing + MermaidSourceLayout.bodyBottomPadding,
+            accuracy: 0.001,
+            "l'écart inter-blocs a absorbé le padding interne de la carte au lieu de s'y ajouter"
+        )
+    }
+
+    /// … et un bloc mermaid **fermé** n'a aucun padding interne à ajouter :
+    /// son écart reste exactement `cardBlockSpacing`. Garde-fou contre un
+    /// ajout systématique de `bodyBottomPadding`.
+    @MainActor
+    func test_closedMermaidBlock_lastLineSpacing_staysAtTheCardGap() throws {
+        let (storage, editor) = makeWiredEditor(markdown: "intro\n\n```mermaid\ngraph TD\nA-->B\n```\n\nsuite")
+        let start = (storage.string as NSString).range(of: "graph TD").location
+        let blockRange = try XCTUnwrap(MermaidBlockLayout.blockRange(in: storage, at: start))
+        editor.setSelectedRange(NSRange(location: 0, length: 0)) // hors du bloc : fermé
+
+        StyleRenderer.applyVisualStyle(to: storage, affectedRange: blockRange)
+
+        let ns = storage.string as NSString
+        let lastLine = ns.lineRange(for: NSRange(location: NSMaxRange(blockRange) - 1, length: 0))
+        let style = try XCTUnwrap(
+            storage.attribute(.paragraphStyle, at: lastLine.location, effectiveRange: nil) as? NSParagraphStyle
+        )
+        XCTAssertEqual(style.paragraphSpacing, BlockGutterLayout.cardBlockSpacing, accuracy: 0.001)
+    }
+
     /// Un rendu qui aboutit sur un bloc **ouvert** doit y recalculer la
     /// **réservation** (`paragraphSpacingBefore`) d'après l'image désormais
     /// portée par l'attachment.

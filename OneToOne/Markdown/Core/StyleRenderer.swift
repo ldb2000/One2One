@@ -28,6 +28,23 @@ enum StyleRenderer {
         // un document se terminant par un bloc mermaid s'ouvrirait par
         // erreur à chaque chargement.
         let allowsOpenMermaidBlock = affectedRange != nil
+        // Position du curseur, lue **une seule fois** ici et transmise aux
+        // deux endroits qui décident de l'état ouvert/fermé d'un bloc
+        // mermaid : `applyMermaidAttachment` (quelle géométrie poser) et
+        // `applyBlockSpacing` (le bloc ouvert porte un padding interne en bas,
+        // auquel l'écart inter-blocs doit s'ajouter). Deux lectures
+        // indépendantes pourraient diverger — la carte se fermerait d'un côté
+        // et pas de l'autre. `nil` quand aucun bloc ne peut être ouvert
+        // (restylage du document entier, voir ci-dessus).
+        //
+        // `MainActor.assumeIsolated` : `applyVisualStyle` n'est jamais appelée
+        // que depuis le fil d'édition AppKit (même justification que dans
+        // `applyMermaidAttachment`).
+        let openMermaidSelection: Int? = allowsOpenMermaidBlock
+            ? MainActor.assumeIsolated {
+                storage.layoutManagers.first?.firstTextView?.selectedRange().location
+              }
+            : nil
         storage.beginEditing()
         storage.removeAttribute(.font, range: renderRange)
         storage.removeAttribute(.foregroundColor, range: renderRange)
@@ -155,7 +172,7 @@ enum StyleRenderer {
             }
 
             if block == .codeBlock, (attrs[.mdCodeLanguage] as? String) == "mermaid" {
-                applyMermaidAttachment(to: storage, range: range, allowsOpen: allowsOpenMermaidBlock)
+                applyMermaidAttachment(to: storage, range: range, openSelection: openMermaidSelection)
             }
 
             if let info = listInfo {
@@ -263,7 +280,7 @@ enum StyleRenderer {
             }
         }
 
-        applyBlockSpacing(to: storage, in: renderRange)
+        applyBlockSpacing(to: storage, in: renderRange, openMermaidSelection: openMermaidSelection)
 
         storage.endEditing()
     }
@@ -271,7 +288,9 @@ enum StyleRenderer {
     /// Pose l'espace sur le dernier paragraphe de chaque bloc logique. Le
     /// faire à cet endroit préserve les styles spécialisés déjà construits
     /// pour les listes, citations, tableaux et blocs Mermaid.
-    private static func applyBlockSpacing(to storage: NSTextStorage, in renderRange: NSRange) {
+    private static func applyBlockSpacing(
+        to storage: NSTextStorage, in renderRange: NSRange, openMermaidSelection: Int?
+    ) {
         let text = storage.string as NSString
         let renderEnd = min(NSMaxRange(renderRange), storage.length)
         var location = min(renderRange.location, renderEnd)
@@ -326,7 +345,14 @@ enum StyleRenderer {
                     ) as? NSParagraphStyle
                     let style = (existing?.mutableCopy() as? NSMutableParagraphStyle)
                         ?? NSMutableParagraphStyle()
-                    style.paragraphSpacing = max(style.paragraphSpacing, spacing)
+                    // L'écart demandé s'**ajoute** au padding interne que le
+                    // bloc porte déjà en bas (voir `interiorBottomPadding`),
+                    // puis le `max` protège les styles spécialisés qui posent
+                    // déjà davantage (zone de contrôles d'un tableau).
+                    let interior = interiorBottomPadding(
+                        ofBlock: block, in: storage, openMermaidSelection: openMermaidSelection
+                    )
+                    style.paragraphSpacing = max(style.paragraphSpacing, spacing + interior)
                     storage.addAttribute(.paragraphStyle, value: style, range: terminalParagraph)
                 }
             }
@@ -335,14 +361,41 @@ enum StyleRenderer {
         }
     }
 
+    /// Espace que le dernier paragraphe de `block` occupe **à l'intérieur** de
+    /// sa propre carte — celui sous lequel le cadre se referme, par opposition
+    /// à l'écart inter-blocs, qui sépare deux cartes voisines. L'un doit
+    /// s'ajouter à l'autre, sinon l'écart **visible** sous la carte vaut la
+    /// différence des deux : mesuré, 18 pt en dessous contre 28 au-dessus
+    /// (`max(10, 28) = 28`, dont 10 restent dans le cadre).
+    ///
+    /// Seul le bloc mermaid **ouvert** en porte un
+    /// (`MermaidSourceLayout.bodyBottomPadding`, posé par
+    /// `applyOpenMermaidGeometry` sur sa dernière ligne). Le `paragraphSpacing`
+    /// d'un tableau (`TableLayout.footerReservedHeight`) est d'une autre
+    /// nature — une bande réservée **sous** la grille pour ses contrôles, pas
+    /// un padding de cadre : il reste protégé par le `max` de l'appelant,
+    /// jamais additionné. Un bloc mermaid **fermé** n'a rien non plus : sa
+    /// carte est l'image, dessinée à sa taille native.
+    private static func interiorBottomPadding(
+        ofBlock block: NSRange, in storage: NSTextStorage, openMermaidSelection: Int?
+    ) -> CGFloat {
+        guard let selection = openMermaidSelection,
+              block.location < storage.length,
+              storage.attribute(.mdMermaidAttachment, at: block.location, effectiveRange: nil) != nil,
+              MermaidBlockLayout.selectionTouches(selection, blockRange: block)
+        else { return 0 }
+        return MermaidSourceLayout.bodyBottomPadding
+    }
+
     /// Pose l'attachment mermaid rendu (`MermaidAttachmentFactory`) sur toute
     /// la plage `range` d'un bloc de code dont `.mdCodeLanguage == "mermaid"`,
     /// puis bascule sa géométrie entre **fermé** (diagramme peint par
     /// `MarkdownLayoutManager.drawMermaidDiagram`, hauteur suivant l'image —
     /// voir `applyClosedMermaidGeometry`) et **ouverte** (source affiché en
     /// édition, interligne normal — voir `applyOpenMermaidGeometry`), selon
-    /// que le curseur touche ou non `range` — `allowsOpen` transmis par
-    /// l'appelant (voir sa doc dans `applyVisualStyle`). Le rendu proprement
+    /// que le curseur touche ou non `range` — `openSelection` transmis par
+    /// l'appelant (voir sa doc dans `applyVisualStyle`) : la position du
+    /// curseur, ou `nil` quand aucun bloc ne peut être ouvert. Le rendu proprement
     /// dit est asynchrone (voir `MermaidRenderer`) : `onUpdate` **ré-applique**
     /// la géométrie fermée (`refreshMermaidGeometry`), pas seulement
     /// n'invalide la mise en page — `NSParagraphStyle.minimumLineHeight` est
@@ -360,7 +413,7 @@ enum StyleRenderer {
     /// re-sérialisation, jamais une pile d'annulation (voir
     /// `MermaidAttachmentFactoryTests`) : seuls des attributs d'affichage
     /// sont mutés, comme partout ailleurs dans `StyleRenderer`.
-    private static func applyMermaidAttachment(to storage: NSTextStorage, range: NSRange, allowsOpen: Bool) {
+    private static func applyMermaidAttachment(to storage: NSTextStorage, range: NSRange, openSelection: Int?) {
         guard range.length > 0 else { return }
         let source = (storage.string as NSString).substring(with: range)
         let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -372,11 +425,9 @@ enum StyleRenderer {
         // fil principal — `assumeIsolated` rend cette hypothèse explicite
         // plutôt que de propager `@MainActor` à `StyleRenderer` tout entier
         // et, avec lui, à tous ses appelants.
-        let selectionLocation = MainActor.assumeIsolated {
-            storage.layoutManagers.first?.firstTextView?.selectedRange().location ?? NSNotFound
-        }
 
-        if allowsOpen, MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) {
+        if let selectionLocation = openSelection,
+           MermaidBlockLayout.selectionTouches(selectionLocation, blockRange: range) {
             // Bloc **en édition** : ne jamais relancer de rendu ici. Le
             // source est en cours de frappe — le plus souvent invalide —
             // et chaque frappe relançait un rendu (`WKWebView` à chaque
