@@ -393,11 +393,24 @@ enum StyleRenderer {
             let existing = storage.attribute(
                 .mdMermaidAttachment, at: range.location, effectiveRange: nil
             ) as? NSTextAttachment
-            let attachment = existing ?? MainActor.assumeIsolated {
+            let attachment: NSTextAttachment = existing ?? MainActor.assumeIsolated {
                 MermaidAttachmentFactory.placeholder(for: source)
             }
             storage.addAttribute(.mdMermaidAttachment, value: attachment, range: range)
-            applyOpenMermaidGeometry(to: storage, range: range)
+
+            // Largeur de la colonne réellement affichée : la bande d'aperçu
+            // est réduite pour y tenir, et la hauteur réservée ici doit être
+            // calculée sur la **même** largeur que le dessin, sinon un vide
+            // subsiste sous l'aperçu. Repli sur `columnWidth` quand aucune vue
+            // n'est attachée (cas des tests).
+            let containerWidth = MainActor.assumeIsolated {
+                storage.layoutManagers.first?.firstTextView?.textContainer?.size.width
+            } ?? 0
+            applyOpenMermaidGeometry(
+                to: storage, range: range,
+                attachmentImageSize: attachment.image?.size,
+                containerWidth: containerWidth > 0 ? containerWidth : MermaidBlockLayout.columnWidth
+            )
             return
         }
 
@@ -491,11 +504,19 @@ enum StyleRenderer {
     /// comme un autre, juste avec un interligne plus aéré
     /// (`MermaidSourceLayout.lineHeightMultiple`) et une marge à gauche
     /// (`gutterWidth`) pour la gouttière de numéros de ligne peinte par
-    /// `MarkdownLayoutManager.drawMermaidLineNumber`. La première ligne reçoit
-    /// en plus `paragraphSpacingBefore` : l'espace où
-    /// `MarkdownLayoutManager.drawMermaidHeader` peint l'étiquette `mermaid`
-    /// et le bouton « Terminé ».
-    private static func applyOpenMermaidGeometry(to storage: NSTextStorage, range: NSRange) {
+    /// `MarkdownLayoutManager.drawMermaidLineNumber`.
+    ///
+    /// La première ligne reçoit `paragraphSpacingBefore` : l'espace où
+    /// `MarkdownLayoutManager` peint l'étiquette `mermaid`, le bouton
+    /// « Terminé » **et** la bande d'aperçu figé (l'image déjà posée sur
+    /// l'attachment, jamais un rendu relancé — voir `applyMermaidAttachment`).
+    /// Toujours l'espacement de paragraphe, jamais `minimumLineHeight` :
+    /// gonfler la hauteur de la première ligne produirait un curseur vertical
+    /// surdimensionné.
+    private static func applyOpenMermaidGeometry(
+        to storage: NSTextStorage, range: NSRange,
+        attachmentImageSize: NSSize?, containerWidth: CGFloat
+    ) {
         storage.removeAttribute(.backgroundColor, range: range)
         let ns = storage.string as NSString
         let (firstLine, rest) = MermaidBlockLayout.splitFirstLine(of: range, in: ns)
@@ -507,6 +528,9 @@ enum StyleRenderer {
         firstLineStyle.firstLineHeadIndent = codeIndent
         firstLineStyle.minimumLineHeight = MermaidSourceLayout.sourceLineHeight
         firstLineStyle.paragraphSpacingBefore = MermaidSourceLayout.headerHeight
+            + MermaidSourceLayout.previewHeight(
+                forAttachmentSize: attachmentImageSize, containerWidth: containerWidth
+              )
             + MermaidSourceLayout.bodyTopPadding
         storage.addAttribute(.paragraphStyle, value: firstLineStyle, range: firstLine)
 
@@ -529,6 +553,21 @@ enum StyleRenderer {
             lastStyle.paragraphSpacing = MermaidSourceLayout.bodyBottomPadding
             storage.addAttribute(.paragraphStyle, value: lastStyle, range: lastLine)
         }
+    }
+
+    /// Point d'entrée `internal` sur `applyOpenMermaidGeometry`, pour les
+    /// tests : exercer la géométrie ouverte sans passer par
+    /// `applyVisualStyle`, qui déclencherait un vrai `WKWebView` en tâche de
+    /// fond (voir la doc de tête de `StyleRendererMermaidTests`). Même patron
+    /// que `refreshClosedMermaidGeometry`/`EditorTextView.mermaidDoneButtonRange`.
+    static func applyOpenMermaidGeometryForTesting(
+        to storage: NSTextStorage, range: NSRange,
+        attachmentImageSize: NSSize?, containerWidth: CGFloat
+    ) {
+        applyOpenMermaidGeometry(
+            to: storage, range: range,
+            attachmentImageSize: attachmentImageSize, containerWidth: containerWidth
+        )
     }
 
     private static func normalizedRenderRange(_ range: NSRange?, in storage: NSTextStorage) -> NSRange {
