@@ -108,6 +108,70 @@ final class EditorTextViewMermaidClickTests: XCTestCase {
         XCTAssertNil(editor.mermaidDoneButtonRange(at: point))
     }
 
+    /// Avec une bande d'aperçu, le bouton « Terminé » remonte de toute sa
+    /// hauteur. Le hit-test doit suivre — sinon le seul geste qui referme un
+    /// bloc devient incliquable.
+    func test_doneButtonRange_withAPreviewBand_followsTheShiftedHeader() throws {
+        let (editor, blockRange) = try makeWiredEditorWithMermaidBlock(prefix: "intro\n\n")
+        let storage = try XCTUnwrap(editor.textStorage)
+        let container = try XCTUnwrap(editor.textContainer)
+
+        let imageSize = NSSize(width: 300, height: 150)
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: imageSize).fill()
+        image.unlockFocus()
+        let attachment = try XCTUnwrap(
+            storage.attribute(.mdMermaidAttachment, at: blockRange.location, effectiveRange: nil) as? NSTextAttachment
+        )
+        attachment.image = image
+
+        let band = MermaidSourceLayout.previewHeight(
+            in: storage, blockRange: blockRange, containerWidth: container.size.width
+        )
+        XCTAssertGreaterThan(band, 0, "prémisse : l'attachment porte maintenant une image")
+
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+        let point = try pointInDoneButton(forBlockRange: blockRange, in: editor)
+        XCTAssertEqual(editor.mermaidDoneButtonRange(at: point), blockRange)
+    }
+
+    /// Contrôle négatif : l'ancienne position du bouton (celle d'un cadre
+    /// sans aperçu) ne doit plus rien toucher. Sans ce test, un hit-test resté
+    /// à `previewHeight: 0` passerait inaperçu — les deux rectangles se
+    /// chevauchent tant que la bande est plus courte que le bouton.
+    func test_doneButtonRange_withAPreviewBand_ignoresTheOldButtonPosition() throws {
+        let (editor, blockRange) = try makeWiredEditorWithMermaidBlock(prefix: "intro\n\n")
+        let storage = try XCTUnwrap(editor.textStorage)
+        let container = try XCTUnwrap(editor.textContainer)
+        let layoutManager = try XCTUnwrap(editor.layoutManager)
+
+        let imageSize = NSSize(width: 300, height: 150)
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: imageSize).fill()
+        image.unlockFocus()
+        let attachment = try XCTUnwrap(
+            storage.attribute(.mdMermaidAttachment, at: blockRange.location, effectiveRange: nil) as? NSTextAttachment
+        )
+        attachment.image = image
+
+        editor.setSelectedRange(NSRange(location: blockRange.location, length: 0))
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
+        let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let staleRect = MermaidSourceLayout.doneButtonRect(
+            above: firstLineRect, containerWidth: container.size.width, previewHeight: 0
+        )
+        let stalePoint = NSPoint(
+            x: staleRect.midX + editor.textContainerInset.width,
+            y: staleRect.midY + editor.textContainerInset.height
+        )
+
+        XCTAssertNil(editor.mermaidDoneButtonRange(at: stalePoint))
+    }
+
     // MARK: - mermaidErrorActionButtonRange (état 4 — bouton « Ouvrir le source »)
 
     /// Cliquer sur la pastille « Ouvrir le source » d'un cadre d'erreur
@@ -355,9 +419,15 @@ final class EditorTextViewMermaidClickTests: XCTestCase {
     private func pointInDoneButton(forBlockRange blockRange: NSRange, in editor: EditorTextView) throws -> NSPoint {
         let layoutManager = try XCTUnwrap(editor.layoutManager)
         let container = try XCTUnwrap(editor.textContainer)
+        let storage = try XCTUnwrap(editor.textStorage)
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: blockRange.location)
         let firstLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-        let buttonRect = MermaidSourceLayout.doneButtonRect(above: firstLineRect, containerWidth: container.size.width, previewHeight: 0)
+        let previewHeight = MermaidSourceLayout.previewHeight(
+            in: storage, blockRange: blockRange, containerWidth: container.size.width
+        )
+        let buttonRect = MermaidSourceLayout.doneButtonRect(
+            above: firstLineRect, containerWidth: container.size.width, previewHeight: previewHeight
+        )
         return NSPoint(
             x: buttonRect.midX + editor.textContainerInset.width,
             y: buttonRect.midY + editor.textContainerInset.height

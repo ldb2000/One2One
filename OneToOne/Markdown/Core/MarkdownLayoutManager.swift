@@ -395,7 +395,13 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 let lineIndex = self.mermaidSourceLineIndex(forCharacterLocation: charRange.location, blockRange: blockRange, in: ns)
                 self.drawMermaidLineNumber(lineIndex, lineFragmentRect: lineRect, origin: origin)
                 if charRange.location == blockRange.location {
-                    self.drawMermaidHeader(above: lineRect, origin: origin, containerWidth: container.size.width)
+                    let previewHeight = MermaidSourceLayout.previewHeight(
+                        in: storage, blockRange: blockRange, containerWidth: container.size.width
+                    )
+                    self.drawMermaidHeader(
+                        above: lineRect, origin: origin,
+                        containerWidth: container.size.width, previewHeight: previewHeight
+                    )
                 }
                 return
             }
@@ -533,7 +539,10 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// bouton « Terminé » à droite (hit-testé par `EditorTextView.
     /// mermaidDoneButtonRange(at:)`, même géométrie — `MermaidSourceLayout.
     /// doneButtonRect`, un seul calcul partagé).
-    private func drawMermaidHeader(above lineFragmentRect: NSRect, origin: NSPoint, containerWidth: CGFloat) {
+    private func drawMermaidHeader(
+        above lineFragmentRect: NSRect, origin: NSPoint,
+        containerWidth: CGFloat, previewHeight: CGFloat
+    ) {
         // `drawGlyphs(forGlyphRange:)` peut fournir un clip limité à la ligne
         // courante. L'en-tête est volontairement au-dessus de la première
         // ligne : sans élargir temporairement le clip au conteneur, l'en-tête
@@ -550,7 +559,9 @@ final class MarkdownLayoutManager: NSLayoutManager {
             .font: MermaidSourceLayout.headerLabelFont,
             .foregroundColor: MermaidSourceLayout.headerLabelColor
         ]
-        let headerRect = MermaidSourceLayout.headerRect(above: lineFragmentRect, containerWidth: containerWidth, previewHeight: 0)
+        let headerRect = MermaidSourceLayout.headerRect(
+            above: lineFragmentRect, containerWidth: containerWidth, previewHeight: previewHeight
+        )
         let labelText = "mermaid" as NSString
         let labelSize = labelText.size(withAttributes: labelAttrs)
         labelText.draw(
@@ -561,7 +572,9 @@ final class MarkdownLayoutManager: NSLayoutManager {
             withAttributes: labelAttrs
         )
 
-        let buttonRect = MermaidSourceLayout.doneButtonRect(above: lineFragmentRect, containerWidth: containerWidth, previewHeight: 0)
+        let buttonRect = MermaidSourceLayout.doneButtonRect(
+            above: lineFragmentRect, containerWidth: containerWidth, previewHeight: previewHeight
+        )
             .offsetBy(dx: origin.x, dy: origin.y)
         let pill = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
         NSColor.textBackgroundColor.setFill()
