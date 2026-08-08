@@ -1,6 +1,6 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-08
+Dernière mise à jour : 2026-08-08 16:32 CEST
 
 ## Synthèse
 
@@ -8,7 +8,7 @@ Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
 à partir du handoff [`design_handoff_editor_blocs/README.md`](design_handoff_editor_blocs/README.md).
 
 - Branche : `feat/editeur-slash-blocs`
-- Avance sur `master` : 97 commits
+- Avance sur `master` : 113 commits
 - Source de vérité : le Markdown reste le format stocké
 - Moteur d'édition : AppKit / TextKit 1
 - État du worktree : plusieurs changements de l'éditeur sont encore non
@@ -91,17 +91,82 @@ Défauts corrigés :
 - le bloc mermaid **ouvert** affiche son propre diagramme dans son cadre, au-dessus
   du source (bande plafonnée à 240 pt, `MermaidSourceLayout.previewMaximumHeight`) :
   l'image est celle de la dernière fermeture, **jamais** un rendu relancé à la
-  frappe — le correctif de superposition du 2026-08-08 reste intact. L'en-tête
-  passe en haut du cadre et cesse de paraître coiffer la carte du bloc précédent.
+  frappe — le correctif de superposition du 2026-08-08 reste intact.
 
-**Point à vérifier à l'écran (non tranché) : double liseré possible du bloc
-ouvert.** `MermaidAttachmentFactory.placeholder(for:)` renvoie **toujours**
-une image (960×104) : un bloc ouvert a donc toujours un aperçu à peindre,
-même un bloc jamais rendu, qui affiche alors le placeholder « Diagramme… » —
-lequel porte son propre cadre. Le cadre du bloc ouvert et celui du
-placeholder pourraient donc se superposer visuellement (double liseré).
-Conforme à la conception retenue ; ce n'est **pas** un défaut constaté, juste
-un point resté sans vérification à l'écran.
+**Double liseré de l'aperçu.** L'image de l'attachment porte déjà son propre
+cadre arrondi et son liseré, à la largeur de la colonne ; ils tombent donc
+exactement sur ceux de la carte. C'est **systématique**, pour le diagramme
+rendu, le cadre d'erreur et le placeholder — ce n'est pas une hypothèse.
+Point d'esthétique laissé au jugement de l'auteur.
+
+**Cause racine de la carte peinte par-dessus le bloc précédent — trouvée et
+corrigée (2026-08-08).** Une revue finale a jugé le chantier non fusionnable
+et a cherché plus loin : la cause est un défaut **antérieur au chantier**.
+Fait mesuré (script conservé :
+`.superpowers/sdd/2026-08-08-aeration-blocs-mermaid/mesure-textkit.swift`) :
+en TextKit 1, `lineFragmentRect` **inclut** l'espace réservé par
+`paragraphSpacingBefore` et `paragraphSpacing` ; c'est `lineFragmentUsedRect`
+qui commence au sommet du texte. Toute la géométrie de la carte d'un bloc
+mermaid ouvert s'ancrait sur le rect de fragment, et se peignait donc
+au-dessus du bloc précédent, d'un montant égal à la bande réservée. Ce défaut
+précède le chantier : avec l'ancienne bande de 43 pt, l'en-tête remontait
+déjà de 43 pt dans le bloc du dessus. C'est l'explication du constat qui a
+lancé le chantier (« on ne voit pas qui appartient à qui »), que la
+spécification avait mal diagnostiqué comme un simple problème d'écart.
+
+Second fait mesuré (`mesure-f2-leviers.swift`, `mesure-f2-delegue.swift`) :
+TextKit 1 **ignore** `paragraphSpacingBefore` sur le premier paragraphe du
+conteneur. Un bloc mermaid en tête de note ne réservait donc rien : en-tête
+invisible, bouton « Terminé » incliquable — également un défaut préexistant.
+Corrigé par un délégué `paragraphSpacingBeforeGlyphAt` **passe-plat**, qui
+relit l'attribut dans le storage et le renvoie : mesuré neutre partout
+ailleurs. À noter, car contre-intuitif : le délégué **remplace** la valeur de
+l'attribut au lieu de s'y ajouter.
+
+Six correctifs, tous relus :
+
+1. `1ea10a4` — toute la géométrie de la carte ouverte ancrée sur
+   `lineFragmentUsedRect` (cadre, en-tête, aperçu, bouton « Terminé », numéro
+   de ligne de la gouttière). Mesures : distance bas du cadre → bas du
+   source 38 → 10 pt ; écart visible sous la carte −10 → +18 pt. Emporte
+   aussi deux défauts de même cause : la puce du dernier item d'une liste
+   voisine d'une carte décrochait d'environ 9 pt, et le filet de citation
+   courait jusqu'à 28 pt sous sa dernière ligne.
+2. `c009c64` — bande réservée pour un bloc mermaid ouvert en tête de note
+   (délégué ci-dessus).
+3. `72a4bd6` — le restylage inclut désormais le bloc **précédent**, qui
+   porte l'écart inter-blocs : sans cela, `/tableau` et `/diagramme`
+   n'aéraient pas le bloc au-dessus d'eux jusqu'au prochain restylage.
+4. `b5aa506` — la bande réservée est recalculée quand un rendu aboutit sur
+   un bloc **ouvert** : la réservation était calculée sur le placeholder
+   pendant que le dessin utilisait le diagramme livré entre-temps (144 pt de
+   débord).
+5. `96c1119` — l'écart visible sous une carte vaut désormais celui du
+   dessus (28 pt des deux côtés ; auparavant 18 en dessous, le `max`
+   absorbant le padding intérieur).
+6. `8d88197` — quatre points de solidité : le hit-test des cases à cocher
+   s'ancre sur le texte (avant : cliquer dans le **vide** sous le dernier
+   item d'une checklist voisine d'une carte cochait la case) ; la somme
+   `headerHeight + previewHeight + bodyTopPadding` a un point d'entrée
+   unique, `MermaidSourceLayout.reservedBandHeight` ; la fabrique de test de
+   géométrie est refermée derrière `#if DEBUG` ; le test de mise en page
+   passe par le vrai chemin de dessin.
+
+Le test qui manquait, et qui a été ajouté : sur un éditeur réellement mis en
+page (`ensureLayout`), le cadre calculé doit tenir dans l'espace vertical du
+bloc et ne jamais remonter au-dessus du bloc précédent. Les tests antérieurs
+étaient tous algébriquement auto-cohérents et ne mettaient jamais en page un
+storage réel — c'est pour cela que le défaut est passé. Vérifié : en
+revenant au rect de fragment, quatre assertions repassent au rouge.
+
+**La vérification à l'écran n'a pas eu lieu.** L'application n'a pas été
+lancée, aucun rendu n'a été observé. Tout ce chantier repose sur des mesures
+de mise en page. Contrôles restants à l'écran : les deux blocs mermaid
+encadrant un bloc ouvert, un bloc en tête de note, un source invalide (cadre
+d'erreur dans la bande), la frappe longue dans un bloc ouvert sans
+superposition, le clic sur « Terminé », le redimensionnement de fenêtre bloc
+ouvert, la densité générale d'une note enchaînant plusieurs cartes, et le
+confort de lecture d'un diagramme réduit au plafond de 240 pt.
 
 **Superposition carte/source pendant l'édition — cause racine trouvée et
 corrigée (2026-08-08).** Constat d'écran : la carte rendue (ou le cadre
@@ -373,6 +438,33 @@ l'écran.
 
 Dernière mise à jour : 2026-08-08 11:49 CEST.
 
+## Validation du 2026-08-08 (revue finale — cause racine de la bande réservée)
+
+Une revue finale a jugé le chantier non fusionnable et trouvé la cause
+racine décrite dans « Diagrammes Mermaid » ci-dessus. Six correctifs
+(`1ea10a4`, `c009c64`, `72a4bd6`, `b5aa506`, `96c1119`, `8d88197`), tous
+relus.
+
+- `swift test --skip CalendarImportEventTests` : **957 tests exécutés, 1
+  ignoré, 1 seul échec** — `MenuBarStatsTests.test_badge_twelve_compact`,
+  préexistant et dépendant de l'heure (documenté plus haut) ;
+- `swift build -c release` : **réussi**.
+
+**La vérification à l'écran n'a toujours pas eu lieu.** Elle reste entière,
+avec les huit contrôles listés dans la section « Validation du 2026-08-08
+(tâche 6) » ci-dessus, complétés par : la frappe longue dans un bloc ouvert
+sans superposition, le clic sur « Terminé », et la densité générale d'une
+note enchaînant plusieurs cartes.
+
+Prochaine action : construire et lancer l'app de développement
+(`Scripts/bump-and-build.sh dev`), puis mener à l'écran, dans l'ordre, les
+huit contrôles de la section « tâche 6 » et les trois contrôles ajoutés
+ci-dessus. C'est la seule chose qui manque avant de considérer ce chantier
+fusionnable ; tout le reste (géométrie, tests, build release) est déjà
+vérifié.
+
+Dernière mise à jour : 2026-08-08 16:32 CEST.
+
 ## Dette immédiate
 
 1. Vérifier à l'écran, après relance, le scénario exact de la dernière
@@ -406,6 +498,25 @@ Dernière mise à jour : 2026-08-08 11:49 CEST.
   connue **au moment du stylage** : redimensionner la fenêtre pendant qu'un bloc
   est ouvert peut laisser un léger vide (ou un léger recouvrement) sous l'aperçu
   jusqu'au prochain restylage du bloc.
+
+Issus des six correctifs de la revue finale (2026-08-08) :
+
+- `MainActor.assumeIsolated` **élargi** : l'assertion d'isolation s'exécute
+  désormais à chaque restylage ciblé, non plus seulement quand un bloc
+  mermaid figure dans la plage. Aucun appelant actuel n'est hors fil
+  principal, mais la surface d'exposition a grandi ;
+- coût du restylage étendu : chaque frappe restyle aussi le bloc précédent.
+  Sous un tableau, cela reconstruit son `NSTextTable` ; sous un bloc mermaid
+  fermé, cela re-pose l'attachment. Le cache d'attachments évite le rendu,
+  sauf éviction du `NSCache` — auquel cas un rendu peut repartir, pour un
+  bloc **fermé** uniquement ;
+- couverture : le cas tableau de l'écart sous une carte n'a pas de test de
+  garde, et la symétrie 28/28 est prouvée en deux morceaux dont l'un pose la
+  valeur à la main ;
+- état mixte au chargement : ouvrir une note qui se termine par un bloc
+  mermaid le style « fermé » alors que le curseur le touche. Antérieur à ce
+  chantier ; l'effet net des correctifs y est positif (la bande est enfin
+  réservée), mais l'état mérite un passage.
 
 ## Décisions structurantes
 
