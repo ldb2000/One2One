@@ -17,7 +17,24 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
 
     /// Vrai pendant que le coordinateur écrit dans les vues : empêche les
     /// rappels d'AppKit de réécrire l'état qu'on est en train de poser.
+    ///
+    /// `BlockStackView.reload(document:)` écrit directement `.string` sur les
+    /// vues, **hors** de `synchroniseViews` : `attach`/`apply` doivent donc
+    /// lever la garde avant `reload`, et `synchroniseViews` doit pouvoir
+    /// s'imbriquer dedans sans la lever prématurément à sa sortie — d'où une
+    /// garde **ré-entrante** (sauvegarde/restauration de la valeur
+    /// précédente) plutôt qu'un `false` en dur.
     private var isSynchronising = false
+
+    /// Exécute `body` avec la garde levée, en restaurant sa valeur
+    /// précédente en sortie — y compris quand `body` lève elle-même la garde
+    /// (cas de `synchroniseViews` appelée depuis `attach`/`apply`).
+    private func whileSynchronising(_ body: () -> Void) {
+        let previous = isSynchronising
+        isSynchronising = true
+        defer { isSynchronising = previous }
+        body()
+    }
 
     init(document: ProbeDocument) {
         self.document = document
@@ -27,8 +44,10 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
 
     func attach(stack: BlockStackView) {
         self.stack = stack
-        stack.reload(document: document)
-        synchroniseViews(focusing: true)
+        whileSynchronising {
+            stack.reload(document: document)
+            synchroniseViews(focusing: true)
+        }
     }
 
     // MARK: - Application d'une mutation
@@ -39,8 +58,10 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
         history.record(ProbeSnapshot(document: document, selection: selection))
         let caret = mutation(&document)
         selection = ProbeSelection(caret: document.clamped(caret))
-        stack?.reload(document: document)
-        synchroniseViews(focusing: true)
+        whileSynchronising {
+            stack?.reload(document: document)
+            synchroniseViews(focusing: true)
+        }
     }
 
     /// Pose une nouvelle sélection sans toucher au document.
@@ -56,36 +77,35 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
     /// focalisé, surlignage peint pour les autres.
     func synchroniseViews(focusing: Bool) {
         guard let stack else { return }
-        isSynchronising = true
-        defer { isSynchronising = false }
+        whileSynchronising {
+            let ranges = SelectionDistribution.ranges(for: selection, in: document)
+            let focused = selection.head.blockIndex
+            let focusedView = stack.view(at: focused)
 
-        let ranges = SelectionDistribution.ranges(for: selection, in: document)
-        let focused = selection.head.blockIndex
-        let focusedView = stack.view(at: focused)
-
-        // Le premier répondant est repris **avant** de poser les plages :
-        // `makeFirstResponder` fait reprendre à `NSTextView` sa propre
-        // sélection et écraserait celle qu'on vient d'écrire.
-        if focusing, let focusedView, focusedView.window?.firstResponder !== focusedView {
-            focusedView.window?.makeFirstResponder(focusedView)
-        }
-
-        for (index, view) in stack.orderedViews.enumerated() {
-            let range = ranges[index]
-            if index == focused {
-                view.crossBlockSelection = nil
-                view.setSelectedRange(range ?? NSRange(location: selection.head.offset, length: 0))
-            } else {
-                view.crossBlockSelection = range
-                // Sélection native vide : sinon `NSTextView` peindrait sa
-                // propre bande grise d'inactivité sous le surlignage qu'on
-                // peint nous-mêmes.
-                view.setSelectedRange(NSRange(location: range?.location ?? 0, length: 0))
+            // Le premier répondant est repris **avant** de poser les plages :
+            // `makeFirstResponder` fait reprendre à `NSTextView` sa propre
+            // sélection et écraserait celle qu'on vient d'écrire.
+            if focusing, let focusedView, focusedView.window?.firstResponder !== focusedView {
+                focusedView.window?.makeFirstResponder(focusedView)
             }
-        }
 
-        if focusing, let focusedView {
-            focusedView.scrollToVisible(focusedView.bounds)
+            for (index, view) in stack.orderedViews.enumerated() {
+                let range = ranges[index]
+                if index == focused {
+                    view.crossBlockSelection = nil
+                    view.setSelectedRange(range ?? NSRange(location: selection.head.offset, length: 0))
+                } else {
+                    view.crossBlockSelection = range
+                    // Sélection native vide : sinon `NSTextView` peindrait sa
+                    // propre bande grise d'inactivité sous le surlignage qu'on
+                    // peint nous-mêmes.
+                    view.setSelectedRange(NSRange(location: range?.location ?? 0, length: 0))
+                }
+            }
+
+            if focusing, let focusedView {
+                focusedView.scrollToVisible(focusedView.bounds)
+            }
         }
     }
 
