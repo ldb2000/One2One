@@ -1,7 +1,7 @@
 import AppKit
 
-/// Menu minimal. Il existe pour une seule raison : router ⌘Z, ⌘⇧Z, ⌘A, ⌘C et
-/// ⌘V par la chaîne des répondants, comme une vraie application — c'est la
+/// Menu minimal. Il existe pour une seule raison : router ⌘Z, ⌘⇧Z, ⌘A, ⌘X, ⌘C
+/// et ⌘V par la chaîne des répondants, comme une vraie application — c'est la
 /// seule façon honnête de tester si l'undo peut être repris au niveau du
 /// conteneur.
 enum ProbeMenu {
@@ -25,6 +25,7 @@ enum ProbeMenu {
                                     keyEquivalent: "Z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Couper", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copier", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Coller", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Tout sélectionner",
