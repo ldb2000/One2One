@@ -1,175 +1,423 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-07
+Dernière mise à jour : 2026-08-08
 
-## En cours
+## Synthèse
 
-**Branche `feat/editeur-slash-blocs`** — 93 commits (`git rev-list --count
-$(git merge-base master HEAD)..HEAD`), rien de fusionné vers `master`.
+Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
+à partir du handoff [`design_handoff_editor_blocs/README.md`](design_handoff_editor_blocs/README.md).
 
-### Bloc mermaid — 3 défauts corrigés, vérification utilisateur en attente (2026-08-07)
+- Branche : `feat/editeur-slash-blocs`
+- Avance sur `master` : 97 commits
+- Source de vérité : le Markdown reste le format stocké
+- Moteur d'édition : AppKit / TextKit 1
+- État du worktree : plusieurs changements de l'éditeur sont encore non
+  commités ; ils ne doivent pas être mélangés avec les changements de
+  migration de `OneToOneApp.swift`
 
-Trois défauts constatés par l'utilisateur sur le bloc mermaid (capture à
-l'appui) : tiret transformé en tiret cadratin par la substitution
-automatique AppKit (`-->` devenait `—>`, mermaid refusait le diagramme),
-cadre d'erreur qui déborde sur le source masqué, bouton « Ouvrir le
-source » non cliquable.
+## Éditeur de blocs
 
-Trois correctifs commités, chacun avec tests dédiés (géométrie pure +
-hit-test comme fonction, jamais de `mouseDown` réel piloté) et vérification
-par mutation :
+### Diagrammes Mermaid
 
-- `33f7027` — `isAutomaticDashSubstitutionEnabled = false` (propriété
-  distincte d'`isAutomaticTextReplacementEnabled`, qui ne couvrait pas la
-  substitution des tirets malgré ce que prétendait le commentaire existant).
-- `6e77b6c` — la géométrie fermée (hauteur réservée) ne se remettait jamais
-  à jour après l'arrivée du rendu asynchrone ; `onUpdate` ne faisait
-  qu'invalider l'affichage, jamais recalculer `minimumLineHeight` depuis la
-  taille réelle de l'image. Le cadre d'erreur (132pt) est systématiquement
-  plus haut que le placeholder (104pt) réservé au départ → débordement
-  systématique sur les lignes de source suivantes.
-- `be7c5e3` — `EditorTextView.mermaidErrorActionButtonRange(at:)` ajouté,
-  câblé dans `mouseDown`, même patron que `mermaidDoneButtonRange`.
+Le cycle complet est implémenté :
 
-Build propre, suite complète au vert (`swift test --skip
-CalendarImportEventTests` : 847 tests XCTest + 138 Swift Testing, seul
-échec = `MenuBarStatsTests.test_badge_twelve_compact`, préexistant et
-sensible à l'heure — voir plus bas).
+1. placeholder de chargement compact ;
+2. diagramme rendu dans une carte sobre ;
+3. barre d'actions au survol avec modification et duplication ;
+4. source ouvert dans un cadre avec en-tête, numéros de ligne et bouton
+   « Terminé » ;
+5. carte d'erreur avec message et bouton « Ouvrir le source ».
 
-**Aucun retour utilisateur reçu depuis ces trois correctifs.** L'app est
-reconstruite (build 569, postérieur aux trois commits) et attend une
-vérification à l'écran. Ce paragraphe corrige une version précédente de
-cette entrée, écrite par un sous-agent, qui **attribuait à l'utilisateur un
-retour « Encore pas bon » et une consigne « Je verrais plus tard » — ni
-l'un ni l'autre n'ont jamais été dits.**
+Le rendu Mermaid a été repris pour un résultat plus professionnel : thème
+clair/sombre dédié, espacements cohérents, libellés SVG natifs compatibles
+avec `NSImage`, connecteurs fins et pointes de flèche stables dans AppKit.
 
-**Limite de la preuve sur le tiret** : la substitution n'a pas pu être
-reproduite en direct. Le service de correction AppKit ne se déclenche pas
-dans un process de test headless, ni par `insertText`, ni par un `keyDown`
-réel dans une `NSWindow`. La preuve tient en deux temps — le flag était
-activé sur une instance fraîche, et les trois étapes storage → markdown →
-`WKWebView` transmettent `U+002D U+002D U+003E` fidèlement, donc la
-corruption est en amont de toutes. C'est l'essai à l'écran qui tranchera.
+Le chemin principal utilise désormais une copie locale modifiable de
+BeautifulMermaidSwift 1.0.4 (`Vendor/BeautifulMermaidSwift`, licence MIT,
+commit amont documenté dans son `README.md`) et ELK Swift 1.0.2. Le rendu est
+natif AppKit/CoreGraphics, sans WebView pour les six familles prises en
+charge. Le moteur Mermaid JavaScript emballé reste le fallback des syntaxes
+non reconnues par le parseur natif. Une correction locale retourne le
+contexte bitmap AppKit : l'amont produisait sinon une image verticalement
+inversée sur macOS.
 
-**Prochaine action sur ce chantier** : vérification à l'écran. Pistes
-**non couvertes** par les tests de ce chantier (à vérifier en premier si un
-défaut persiste) :
-le câblage `mouseDown` → `mermaidErrorActionButtonRange`/
-`mermaidBlockRange` lui-même (les fonctions sont testées, pas leur
-déclenchement réel au clic) et le câblage `onUpdate` →
-`refreshClosedMermaidGeometry` dans `StyleRenderer.applyMermaidAttachment`
-(idem, la fonction est testée directement, pas son déclenchement par le
-rendu asynchrone réel).
+Défauts corrigés :
 
-Refonte de l'éditeur markdown en s'inspirant d'AppFlowy. Voir
-`docs/superpowers/specs/2026-08-06-editeur-appflowy-cap.md` pour l'écart mesuré
-avec AppFlowy et le classement par effort.
+- `-->` n'est plus transformé en tiret cadratin par AppKit ;
+- le source est masqué pendant l'aperçu ;
+- seule la première ligne réserve la hauteur de l'image ;
+- la hauteur est recalculée après le rendu asynchrone ;
+- l'ancien cadre est invalidé immédiatement puis au cycle AppKit suivant
+  lors du passage aperçu/source ;
+- le hit-test suit maintenant le rectangle réellement peint au lieu du
+  caractère TextKit sous la souris. Le bouton « Ouvrir le source » reste donc
+  cliquable même lorsque l'image déborde encore de sa ligne réservée ;
+- la borne de fin d'un bloc ouvert est désormais **incluse**
+  (`MermaidBlockLayout.selectionTouches`) : flèche droite, Fin ou un clic en
+  bout de ligne laissent le bloc en édition et une frappe s'ajoute à la fin
+  du source ; « Terminé » place le curseur au-delà du séparateur (un `\n`
+  est inséré si le bloc clôt le document) et reste le seul geste qui
+  referme le bloc — l'ancien contournement souris (`openSelectionLocation`)
+  est supprimé, devenu inutile ;
+- la carte Mermaid terminée, le placeholder et l'erreur utilisent désormais
+  la largeur de colonne commune (960 pt) et le SVG est centré à l'intérieur ;
+- la première ligne du source Mermaid utilise une hauteur TextKit normale :
+  l'en-tête est réservé par l'espacement de paragraphe, ce qui évite un
+  curseur vertical surdimensionné ;
+- l'en-tête d'un bloc Mermaid ouvert élargit temporairement le clip de dessin
+  au conteneur TextKit : celui du second bloc reste visible lorsqu'il suit une
+  carte Mermaid haute ;
+- les parseurs natifs vendored (flowchart/state, sequence, class, er,
+  xychart) **jettent** désormais sur toute ligne non consommée
+  (`autonumber`, `activate` seul, `click`, notes, `style`…, commentaires
+  `%%` exceptés) au lieu de l'ignorer en silence : le rendu natif échoue et
+  `MermaidRenderer` retombe sur le moteur JavaScript compatible — plus
+  d'image incomplète mise en cache (patch local documenté dans
+  `Vendor/BeautifulMermaidSwift/README.md`) ;
+- la barre d'actions du diagramme fermé expose « Modifier » et « Dupliquer » ;
+  la duplication conserve le bloc Markdown complet et ses attributs visuels ;
+- `/diagramme` insère un squelette complet et valide :
 
-### Livré
+  ```mermaid
+  flowchart TD
+      A[Début] --> B[Fin]
+  ```
+- le squelette inséré n'est plus sélectionné en entier : le curseur est placé
+  après le bloc, qui se rend immédiatement, et une première frappe ne peut
+  plus effacer tout le source ;
+- les frappes caractère par caractère, le remplacement d'une sélection
+  interne et l'édition près du dernier caractère conservent désormais
+  strictement le reste du source et le Markdown sérialisé ;
+- le bloc mermaid **ouvert** affiche son propre diagramme dans son cadre, au-dessus
+  du source (bande plafonnée à 240 pt, `MermaidSourceLayout.previewMaximumHeight`) :
+  l'image est celle de la dernière fermeture, **jamais** un rendu relancé à la
+  frappe — le correctif de superposition du 2026-08-08 reste intact. L'en-tête
+  passe en haut du cadre et cesse de paraître coiffer la carte du bloc précédent.
 
-| | |
+**Point à vérifier à l'écran (non tranché) : double liseré possible du bloc
+ouvert.** `MermaidAttachmentFactory.placeholder(for:)` renvoie **toujours**
+une image (960×104) : un bloc ouvert a donc toujours un aperçu à peindre,
+même un bloc jamais rendu, qui affiche alors le placeholder « Diagramme… » —
+lequel porte son propre cadre. Le cadre du bloc ouvert et celui du
+placeholder pourraient donc se superposer visuellement (double liseré).
+Conforme à la conception retenue ; ce n'est **pas** un défaut constaté, juste
+un point resté sans vérification à l'écran.
+
+**Superposition carte/source pendant l'édition — cause racine trouvée et
+corrigée (2026-08-08).** Constat d'écran : la carte rendue (ou le cadre
+d'erreur « Parse error ») se peignait par-dessus/sous le source ouvert
+pendant la frappe, sans laisser le temps de cliquer « Terminé ». Mécanisme
+mesuré : chaque frappe dans un bloc ouvert relançait un rendu du source
+**incomplet** (le natif strict jette → `WKWebView` à chaque caractère) et
+chaque completion en vol rejouait `refreshClosedMermaidGeometry` avec une
+plage **capturée au lancement** — périmée dès que le bloc avait grandi, la
+garde « bloc encore ouvert ? » échouait et la géométrie fermée s'appliquait
+sur le bloc en édition. Double correctif :
+
+1. `StyleRenderer.applyMermaidAttachment` ne crée plus d'attachment ni ne
+   lance de rendu tant que le bloc est ouvert — l'attachment existant est
+   reposé tel quel (même instance, run uniforme) et le rendu du source
+   final part à la fermeture ;
+2. `refreshClosedMermaidGeometry` retrouve le bloc par l'**identité** de
+   son attachment au moment où le rendu aboutit (attachment absent = rendu
+   périmé, no-op) — plus jamais par une plage figée.
+
+Trois tests de régression dans `StyleRendererMermaidTests` (identité de
+l'attachment pendant l'édition, completion périmée après croissance du
+bloc, attachment remplacé). L'effacement visuel de l'ancienne carte doit
+encore être confirmé à l'écran après relance complète de l'application.
+
+### Tableaux
+
+`/tableau` insère une grille de trois colonnes, une rangée d'en-tête et deux
+rangées de corps. Les libellés `Colonne 1`, `Colonne 2`, `Colonne 3` sont des
+placeholders visuels et ne sont pas sérialisés.
+
+Fonctions disponibles :
+
+- grille `NSTextTable` à colonnes fixes et cellules de hauteur stable ;
+- curseur placé dans la première cellule ;
+- ajout d'une ligne sous la ligne active ;
+- suppression de la ligne active ; si l'en-tête est sélectionné, suppression
+  de la dernière ligne de corps ;
+- ajout d'une colonne à gauche ou à droite ;
+- suppression d'une colonne avec garde sur la dernière colonne ;
+- permutation de lignes et colonnes avec annulation/rétablissement ;
+- barre de pied `+` / `-`, compteur lignes/colonnes et action d'ajout de
+  colonne ;
+- menu de colonne depuis l'en-tête.
+
+Le tri ascendant et descendant apparaît dans le menu, mais reste un `TODO`
+dans `EditorTextView`.
+
+En lecture seule (`.markdownReadOnly(true)`), les contrôles de tableau sont
+entièrement inertes : `activeTableInView` (point d'entrée partagé
+dessin/interaction) refuse un éditeur non éditable — ni pied `+`/`−`, ni
+menu de colonne — et `keyDown` écarte les raccourcis ⌘⌥/⌘⌥⇧/⌘⌥⌃ + flèche
+avant d'atteindre les handlers (P2 revue Codex).
+
+### Manipulation des blocs
+
+La gouttière gauche appartient désormais au bloc et ne recouvre plus ses
+contrôles internes.
+
+Implémenté dans le worktree :
+
+- apparition au survol des boutons d'insertion et de poignée ;
+- clic sur `+` : insertion d'une ligne `/` au-dessus du bloc ;
+- clic sur la poignée : sélection du bloc et menu contextuel ;
+- menu Monter, Descendre, Dupliquer, Modifier le source et Supprimer ;
+- clic droit routé par le menu contextuel natif AppKit, ancré au point du
+  clic même lorsque l'éditeur est décalé dans sa fenêtre ;
+- déplacement clavier avec `⌥↑` / `⌥↓` ;
+- glisser-déposer avec bloc atténué et trait bleu entre les blocs ;
+- cadre bleu distinct de la sélection textuelle.
+- espacement vertical de 10 pt à la fin de chaque bloc logique, porté à 28 pt
+  (`BlockGutterLayout.cardBlockSpacing`) dès qu'un des deux blocs voisins dessine
+  un cadre — mermaid, tableau, image, bloc de code. Seul `paragraphSpacing` le
+  porte : y ajouter `paragraphSpacingBefore` doublerait l'écart, TextKit
+  additionnant les deux.
+
+Correctifs issus de la revue Codex du 2026-08-08 (P1) :
+
+- la réécriture du glisser-déposer est extraite en fonction pure
+  (`BlockMoveCommands.dragRewrite`) qui normalise le séparateur : déplacer
+  le **dernier** bloc (sans `\n` final) ou déposer **en fin** de document
+  ne colle plus deux blocs sur la même ligne (`"A\nB"` → `"BA\n"`, corrigé
+  et couvert par 5 tests) ;
+- le constat « pas d'undo sur les mutations de bloc » est **réfuté par
+  l'expérience** : le bracket `shouldChangeText`(remplacement non
+  nil)/`didChangeText` avec `allowsUndo` enregistre nativement l'inverse
+  **attribué** (`md*` compris) — suppression, duplication, insertion `/` et
+  drag avaient déjà un ⌘Z fonctionnel. Mesuré et verrouillé par
+  `EditorTextViewBlockMutationUndoTests` (6 tests) ; le patron est
+  centralisé dans `EditorTextView.replaceBlockCharactersRegisteringUndo`,
+  dont la doc explique pourquoi il ne faut **pas** ajouter de
+  `registerUndo` manuel par-dessus (inverse enregistré en double, mesuré).
+  `swapAdjacentBlocks`/`applyTaskToggle` restent des cas différents : ils
+  n'appellent pas le bracket.
+
+Correctifs P2 de la même revue (lecture seule) :
+
+- clic droit : menu natif d'AppKit, jamais le menu de bloc mutable ;
+- gouttière : `blockGutterHit` refuse un éditeur non éditable (poignée `⠿`
+  et `+` inertes) et le survol ne peint plus les affordances d'édition ;
+- `BlockMoveCommands.moveUp/moveDown` portent la garde d'éditabilité
+  (couvre ⌥↑/⌥↓ **et** Monter/Descendre du menu, qui mutent sans bracket
+  `shouldChangeText`).
+
+Côté images (P2) : `ImageAttachmentFactory.maxWidth` revient à **480 pt**
+(limite des images ordinaires, jamais réajustées au conteneur par TextKit)
+et la colonne mermaid a sa propre constante
+`MermaidBlockLayout.columnWidth = 960` consommée par
+`MermaidAttachmentFactory` — le passage global à 960 clippait les images
+dans les éditeurs de 300–600 pt et cassait
+`ImageAttachmentFactoryTests.test_scaledHeight_isRoundedToWholeNumber`
+(reverdi par ce découplage).
+
+Le déplacement clavier est couvert par les tests existants. Le glisser-déposer
+réel et le menu de bloc doivent encore être vérifiés dans une fenêtre AppKit,
+notamment le dépôt après le dernier bloc et la conservation de la sélection.
+
+## Fonctions Markdown déjà livrées
+
+| Fonction | État |
 |---|---|
-| Menu `/` | 17 commandes, panneau défilant plafonné à 8 lignes |
+| Menu `/` | 17 commandes, panneau limité à huit lignes visibles |
 | Raccourcis à la frappe | `# `, `- `, `1. `, `> `, `[] `, `---` |
-| Clavier des listes | ⏎, ⏎ sur item vide, Tab, ⇧Tab, ⌫ |
-| Mentions `@` | recherche, création d'un inconnu, clic ouvre la fiche |
-| Tableaux | rendus en vraies grilles (`NSTextTable`), ajout/suppression ligne et colonne, permutation, contrôles visibles au curseur |
-| Blocs | déplacement `⌥↑`/`⌥↓` |
-| Listes | marqueurs dessinés, cases à cocher cliquables |
+| Listes | marqueurs, cases cliquables, ⏎, Tab, ⇧Tab et ⌫ |
+| Mentions `@` | recherche, création et ouverture de la fiche |
 | Citations | filet vertical |
-| Images | affichées, collables, glissables |
-| Liens | cliquables, internes routés en app |
-| Dates | popover calendrier avec heure |
+| Images | affichage, collage et déplacement |
+| Liens | liens externes et routage interne injecté |
+| Dates | popover avec date et heure |
+| Blocs | sélection, menu, clavier et drag en cours de validation |
 
-### Aller-retour markdown
+L'aller-retour Markdown a été vérifié auparavant sur 119 notes réelles,
+sauvegardées dans `~/Documents/OneToOne-sauvegarde-notes-2026-08-05/`.
 
-Une vingtaine de défauts corrigés, dont plusieurs détruisaient des données :
-tableaux et blocs HTML effacés, imbrication de listes aplatie, état des cases
-falsifié, images corrompues à chaque enregistrement, texte tapé supprimé.
+## Validation du 2026-08-08
 
-Vérifié sur les 119 notes réelles de l'utilisateur, sauvegardées dans
-`~/Documents/OneToOne-sauvegarde-notes-2026-08-05/`.
+Commandes passées sur le code actuel :
+
+- `swift build` : **réussi** ;
+- vérification ad hoc temporaire : **code de sortie 0**, script supprimé
+  automatiquement ;
+- `swift test --filter MermaidBlockLayoutTests/test_openSelectionLocation_atExclusiveEnd_isMovedBackInsideBlock` :
+  **1 test, 0 échec** ;
+- `swift test --filter MermaidSourceLayoutTests` : **8 tests, 0 échec** ;
+- `swift test --filter Mermaid` : **82 tests, 0 échec** ;
+- `swift test --filter Mermaid` après intégration native : **88 tests,
+  0 échec**, dont 3 scénarios d'édition sans perte et le rendu bitmap natif ;
+- `swift test --filter EditorTextViewMermaidClickTests` : **11 tests,
+  0 échec** ;
+- `swift test --filter SlashControllerTests` : **81 tests, 0 échec**, dont
+  le nouveau test du squelette `/diagramme` ;
+- `swift test --filter BlockGutterLayoutTests` : **4 tests, 0 échec**, dont
+  le menu contextuel dans une fenêtre décalée ;
+- `swift test --filter BlockGutterLayoutTests --filter StyleRendererTests
+  --filter MarkdownTableRenderingTests --filter TableControlLayoutTests
+  --filter SlashControllerTests` : **158 tests, 0 échec** ;
+- capture native générée et inspectée : orientation corrigée, « Début » au-
+  dessus de « Fin », flèche descendante, texte lisible ;
+- `BuiltInTemplatesTests` : **4 tests, 0 échec** lorsqu'ils sont lancés avec
+  la suite Slash.
+
+Prochaine action : vérifier visuellement dans l'application la visibilité de
+l'en-tête du second bloc et le clic sur le dernier caractère sans passage au
+rendu ; « Terminé » doit rester l'action explicite.
+
+## Validation du 2026-08-08 (correctifs P1 revue Codex)
+
+- `swift test --filter Mermaid --filter BlockMoveCommandsTests
+  --filter BlockGutterLayoutTests --filter EditorTextViewBlockMutationUndoTests` :
+  **139 tests, 0 échec** (dont 5 `dragRewrite`, 6 undo, 7 parseurs stricts,
+  4 `openBlockRange`, 2 `doneCaretPlacement`) ;
+- balayage éditeur large (`SlashControllerTests`, `StyleRendererTests`,
+  `TableControlLayoutTests`, `TableEditCommandsTests`,
+  `MarkdownTableRenderingTests`, `ListEditingCommandsTests`,
+  `EditorTextView*`, `EditorRepresentable*`, `BlockRangeTests`) :
+  **312 tests, 0 échec** ;
+- `swift test --skip CalendarImportEventTests` : la partie Swift Testing
+  passe (**138 tests, 24 suites**) et, contrairement au constat précédent,
+  l'exécution globale XCTest est allée au bout (pas de signal 6) avec
+  **2 échecs préexistants étrangers aux correctifs** :
+  `ImageAttachmentFactoryTests.test_scaledHeight_isRoundedToWholeNumber`
+  (échec introduit par le changement **non commité** de `maxWidth` dans
+  `ImageAttachmentFactory.swift` — vérifié : le test passe sur HEAD une
+  fois le worktree remisé) et `MenuBarStatsTests.test_badge_twelve_compact`
+  (test de barre de menu dépendant de l'heure, limite déjà connue).
+
+## Validation du 2026-08-08 (correctifs P2 revue Codex)
+
+- suites lecture seule et largeurs (`TableControlLayoutTests`,
+  `TableEditCommandsTests`, `BlockGutterLayoutTests`,
+  `BlockMoveCommandsTests`, `MermaidAttachmentFactoryTests`,
+  `ImageAttachmentFactoryTests`, `StyleRendererTests`) : **0 échec**, dont
+  6 nouveaux tests lecture seule et le `test_scaledHeight` reverdi ;
+- balayage éditeur large (mêmes suites que la validation P1) :
+  **325 tests, 0 échec** ;
+- `swift test --skip CalendarImportEventTests` : exécution globale au bout,
+  **un seul échec restant**, `MenuBarStatsTests.test_badge_twelve_compact`
+  (dépendant de l'heure, limite connue hors chantier).
+
+Séparation du hunk de migration (P2) : le retrait du
+`OneToOneMigrationPlan` explicite dans `OneToOneApp.swift` reste dans le
+worktree mais ne doit **pas** partir avec la PR éditeur — au moment du
+commit, exclure `OneToOneApp.swift` (et le porter ensuite sur une branche
+dédiée, ex. `git stash push -- OneToOne/OneToOneApp.swift` puis pop sur la
+nouvelle branche). Une PR = une intention.
+
+Prochaine action : vérifier en fenêtre réelle le nouveau geste « Terminé »
+(curseur au-delà du séparateur, insertion du `\n` en fin de document), la
+frappe en fin de source d'un bloc ouvert, et l'apparence d'une note en
+lecture seule (aucune affordance de bloc/tableau) ; puis découper les
+commits de la branche en excluant `OneToOneApp.swift`.
+
+Correctif superposition/rendu en cours de frappe : validé par
+`StyleRendererMermaidTests` (17 tests) et un balayage éditeur de 311 tests,
+0 échec ; app dev reconstruite et installée (build 573) pour vérification à
+l'écran du scénario exact (frappe longue dans un bloc ouvert, puis
+« Terminé »).
+
+Dernière mise à jour : 2026-08-08 09:14 CEST.
+
+La commande globale `swift test` ne fournit pas actuellement un verdict
+exploitable : le processus `xctest` termine avec le signal 6 pendant
+l'exécution globale, sans assertion en échec dans les suites de l'éditeur.
+Le phénomène est reproductible hors sandbox. Les suites voisines
+`BuiltInTemplatesTests`, `SlashControllerTests` et toutes les suites Mermaid
+passent lorsqu'elles sont lancées séparément.
+
+Autres limites historiques du harnais :
+
+- `CalendarImportEventTests` peut planter dans l'environnement de test
+  (`bundleProxyForCurrentProcess is nil`) ;
+- certains tests de statistiques de barre de menu dépendent de l'heure ;
+- un test de montage de transcription est intermittent.
+
+## Validation du 2026-08-08 (tâche 6 — aération des blocs-cartes et aperçu figé du bloc mermaid ouvert)
+
+- `swift test --skip CalendarImportEventTests` : suite Swift Testing —
+  **138 tests, 24 suites, 0 échec** ; suite XCTest — **940 tests, 1 test
+  ignoré, 1 seul échec**, `MenuBarStatsTests.test_badge_twelve_compact`
+  (dépendant de l'heure, préexistant, déjà documenté ci-dessus). Aucune
+  régression du chantier.
+
+**Étape 2 (`Scripts/bump-and-build.sh dev`) et étape 3 (vérification à
+l'écran) n'ont pas été exécutées dans cette session** : elles demandent une
+session graphique et un œil humain. Le chantier n'est donc **pas** validé
+visuellement. Reste à faire, dans une note contenant, dans l'ordre, un
+paragraphe, un bloc mermaid valide, un second bloc mermaid valide, un
+tableau, après rendu des deux diagrammes puis clic dans le source du
+**second** bloc :
+
+1. les deux cartes rendues et le tableau sont nettement séparés (28 pt) ;
+   deux paragraphes de texte restent serrés ;
+2. le bloc ouvert affiche, dans son propre cadre : en-tête `mermaid` +
+   « Terminé » en haut, puis son diagramme, puis un filet, puis le source
+   numéroté ;
+3. l'en-tête ne touche plus le cadre du bloc précédent ;
+4. frapper plusieurs caractères dans le source : l'aperçu ne bouge pas et
+   aucune carte ne se superpose au source ;
+5. cliquer « Terminé » : le bloc se referme et le diagramme se met à jour ;
+6. répéter avec un bloc mermaid placé en tout début de document ;
+7. répéter avec un source volontairement invalide (`flowchart TD` puis
+   `((((`) : le cadre d'erreur doit s'afficher dans la bande d'aperçu ;
+8. redimensionner la fenêtre pendant qu'un bloc est ouvert et noter le
+   comportement (limite connue ci-dessus).
+
+Prochaine action : construire et lancer l'app de développement
+(`Scripts/bump-and-build.sh dev`), puis mener les huit contrôles ci-dessus à
+l'écran.
+
+Dernière mise à jour : 2026-08-08 11:49 CEST.
 
 ## Dette immédiate
 
-**`/sommaire` est livré sans tests** (commit `1818820`). Le code compile et ne
-casse rien — 80 tests des suites `Slash` au vert, aucune régression — mais
-aucun test dédié n'existe. Trois sous-agents consécutifs ont calé avant d'en
-écrire un.
+1. Vérifier à l'écran, après relance, le scénario exact de la dernière
+   capture : carte d'erreur, clic sur « Ouvrir le source », disparition de la
+   carte et édition du source.
+2. Tester le glisser-déposer réel de blocs dans une `NSWindow`, y compris les
+   première et dernière positions.
+3. Implémenter ou retirer les commandes de tri du menu de colonne.
+4. Ajouter les tests manquants de `/sommaire` : document sans titre, doublons,
+   niveaux, aller-retour et héritage des attributs de frappe.
+5. Stabiliser l'exécution globale XCTest + Swift Testing avant de considérer
+   la suite complète comme verte.
+6. Tester les diagrammes Mermaid hors des six familles natives (ou utilisant
+   HTML, callbacks, tooltips et styles avancés) pour confirmer visuellement
+   le fallback JavaScript sur un corpus de notes réelles.
 
-À couvrir : document sans titre, titres en double, indentation par niveau,
-aller-retour, absence d'héritage des attributs de frappe, et le fait qu'un
-sommaire inséré au milieu d'un texte reste un bloc distinct. Avec vérification
-par mutation — l'implémentation n'ayant jamais été éprouvée, les tests
-devront chercher à la casser plutôt qu'à la confirmer.
+## Défauts connus hors chantier
 
-## Prochaine action
-
-**En cours au moment de la rédaction** : faire survivre le rappel de date.
-Aujourd'hui le popover fait choisir un rappel qui est **jeté** — ni écrit, ni
-stocké, ni déclenché. Trois étapes : date en lien structuré, rendu distinct des
-liens internes, puis mesure de ce que sait déjà faire
-`Services/MeetingNotificationService.swift` avant de décider si les rappels
-peuvent réellement sonner.
-
-## Défauts connus, non traités
-
-- **Rappel de date jeté** — en cours de traitement.
-- **Mentions et dates s'affichent comme des liens ordinaires** — pas de rendu
-  distinct. Court.
-- **`InlineHTML` absent du parser** — un `<br>` serait silencieusement effacé.
-  Lu dans le code, jamais mesuré.
-- **Emphase imbriquée** (`*a **b** c*`) ne fait pas l'aller-retour — le
-  délimiteur de fermeture échoue la règle de flanking CommonMark. Trois notes
-  réelles concernées, sans perte de contenu.
-- **Poignées de bloc au survol** — `EditorTextView` n'a aucun `NSTrackingArea`
-  ni `mouseMoved`. Chantier moyen, préalable au glisser-déposer.
-- **Glisser-déposer** — lourd, et sa moitié « déposer à droite → colonnes »
-  n'a pas d'équivalent markdown.
+- le rappel choisi dans le popover de date n'est pas encore persisté ni
+  déclenché ;
+- mentions et dates utilisent encore largement le rendu des liens ordinaires ;
+- `InlineHTML` n'est pas pris en charge par le parser ;
+- l'emphase imbriquée complexe ne fait pas toujours un aller-retour strict ;
+- le dépôt « à droite pour créer des colonnes de blocs » n'a pas d'équivalent
+  Markdown et n'est pas prévu ;
+- la poignée de gouttière d'un bloc mermaid **ouvert** s'aligne sur la première
+  ligne de source, donc à côté du source et non en haut du cadre : elle se cale
+  sur les rects de ligne, et la bande en-tête/aperçu vit dans l'espacement de
+  paragraphe, hors ligne ;
+- la hauteur réservée à la bande d'aperçu est calculée avec la largeur de colonne
+  connue **au moment du stylage** : redimensionner la fenêtre pendant qu'un bloc
+  est ouvert peut laisser un léger vide (ou un léger recouvrement) sous l'aperçu
+  jusqu'au prochain restylage du bloc.
 
 ## Décisions structurantes
 
-Prises pendant la session, **non encore consignées en ADR** (`docs/adr/`
-n'existe pas) :
-
-1. **Le markdown reste la source de vérité**, pas un modèle de blocs. Écarté :
-   l'architecture d'AppFlowy — plusieurs mois, migration de toutes les notes,
-   réécriture des exports et du lien avec l'IA, pour une app locale
-   mono-utilisateur.
-2. **Pas de couleurs libres.** Le markdown n'a pas de syntaxe de couleur, et
-   l'export markdown d'AppFlowy les perd lui aussi — mesuré. Écarté : le HTML
-   inline, qui salirait les fichiers pour un gain sémantique nul.
-3. **TextKit 1 conservé.** `NSTextList` ne peint rien sur cette pile — mesuré ;
-   les marqueurs sont dessinés par une sous-classe de `NSLayoutManager`.
-   `NSTextTable` fonctionne.
-4. **Aucun code d'AppFlowy repris.** Dart/Flutter et React/Slate, sous AGPL-3.0,
-   incompatible avec cette app. Seules la conception et les bibliothèques MIT
-   qu'il utilise sont reprises.
-5. **Liens internes routés par closure injectée**, pas par le schéma d'URL
-   système. `Info.plist` n'a aucun `CFBundleURLTypes` et rien ne traite les URL
-   entrantes — l'enregistrer serait un chantier à part, inutile pour un clic
-   dans notre propre éditeur.
-
-## Écarts entre `CLAUDE.md` et le dépôt
-
-- ~~**`task test` n'existe pas**~~ — corrigé le 2026-08-07 : la règle 3 cite
-  désormais `swift test --skip CalendarImportEventTests`, vérifiée en la
-  lançant.
-- ~~**`## Conventions` apparaît deux fois**~~ — corrigé le 2026-08-07, les
-  deux sections sont fusionnées. La section `## Éditeur` avait aussi orphelin
-  `### Cache HuggingFace`, remis sous le provider IA, et « pas de commit sur
-  `main` » disait une branche qui n'existe pas (c'est `master`).
-- **`docs/adr/` n'existe pas** — les décisions ci-dessus attendent d'y être
-  consignées. Seul écart restant.
-
-## Échecs de test préexistants
-
-À ne pas traiter, sans rapport avec ce chantier :
-
-- `MenuBarStatsTests.test_badge_twelve_compact` — badge ⚠ vs ●
-- `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` — sensible à
-  l'heure du jour
-- `CalendarImportEventTests` — crash environnemental
-  (`bundleProxyForCurrentProcess is nil`), d'où le `--skip`
-- `TranscriptEditServiceTests.test_delete_shiftsLaterSegmentsByRemovedDuration`
-  — flaky
+1. Le Markdown reste la source de vérité ; aucun modèle de blocs persistant
+   séparé n'est introduit.
+2. TextKit 1 est conservé. Les marqueurs de liste et les contrôles sont
+   dessinés par les composants AppKit existants.
+3. Les couleurs libres ne sont pas sérialisées : pas de HTML inline ajouté
+   uniquement pour la présentation.
+4. Aucun code AppFlowy n'est repris ; la référence sert uniquement au design
+   et aux comportements.
+5. Les liens internes restent routés par une closure injectée dans l'éditeur.
+6. BeautifulMermaidSwift est vendored comme cible SwiftPM locale afin de
+   permettre les correctifs macOS et l'évolution du style dans ce dépôt ;
+   ELK Swift reste une dépendance distante verrouillée en 1.0.2.
