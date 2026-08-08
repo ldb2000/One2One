@@ -99,6 +99,13 @@ final class BlockTextView: NSTextView {
 
     /// Le clic ne pose pas la sélection lui-même : il la demande au
     /// coordinateur, qui seul sait ce qu'est une sélection traversante.
+    ///
+    /// Limite assumée (prototype) : `super` n'est pas appelé et
+    /// `event.clickCount` / `event.modifierFlags` sont ignorés — le
+    /// double-clic (mot), le triple-clic (paragraphe) et le clic-⇧
+    /// (extension) sont donc perdus. Le clic simple de positionnement reste
+    /// correct : `characterIndexForInsertion` est la même primitive que
+    /// celle qu'utiliserait `NSTextView` en interne.
     override func mouseDown(with event: NSEvent) {
         owner.beginSelectionDrag(from: self, event: event)
     }

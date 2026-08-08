@@ -185,9 +185,19 @@ final class SelectionCoordinator: NSObject, NSTextViewDelegate {
                                    whenNativeWouldSuffice: !selection.spansBlocks
                                        && selection.head.offset > 0)
 
+        // Limite assumée (prototype) : l'extension verticale saute au bloc
+        // entier suivant/précédent dès que la sélection déborde déjà, sans
+        // vérifier que la tête est réellement sur la dernière/première ligne
+        // du bloc courant — sur un bloc multi-lignes, cela peut sauter des
+        // lignes intermédiaires. L'extension horizontale ⇧←/⇧→, elle, reste
+        // précise caractère par caractère.
         case #selector(NSResponder.moveDownAndModifySelection(_:)):
             guard selection.spansBlocks || view.isOnLastLine(offset: selection.head.offset) else { return false }
-            let next = min(selection.head.blockIndex + 1, document.blocks.count - 1)
+            // Garde de borne symétrique de `moveUp` : pas de bloc suivant,
+            // on rend la main plutôt que de clamper sur le bloc courant (ce
+            // qui ferait sauter la tête en arrière et inverserait la sélection).
+            guard selection.head.blockIndex + 1 < document.blocks.count else { return false }
+            let next = selection.head.blockIndex + 1
             setSelection(ProbeSelection(anchor: selection.anchor,
                                         head: ProbePosition(blockIndex: next, offset: 0)))
             return true
