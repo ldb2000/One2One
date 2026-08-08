@@ -45,19 +45,24 @@ final class MarkdownLayoutManager: NSLayoutManager {
         // superposent au calque de couleur.
         drawBlockSelectionBackground(at: origin)
         drawBlockHoverBackground(at: origin)
+        drawOpenMermaidBackgrounds(forGlyphRange: glyphsToShow, at: origin)
 
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
 
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
         drawBlockquoteRules(forGlyphRange: glyphsToShow, at: origin)
-        drawTableControls(at: origin)
+
+        drawTablePlaceholders(forGlyphRange: glyphsToShow, at: origin)
         drawMermaidDiagrams(forGlyphRange: glyphsToShow, at: origin)
 
-        // Cadre de sélection + icônes gouttière : APRÈS super, pour rester
-        // au-dessus du contenu (une bordure sous les glyphes serait invisible
-        // sur les lignes hautes).
+        // Cadre de sélection : APRÈS super, pour rester au-dessus du contenu.
+        // Les icônes de gouttière (⠿/+) sont peintes par `EditorTextView.draw`
+        // et pas ici : `NSLayoutManager.drawGlyphs` est clippé au rect du
+        // `NSTextContainer` (x ≥ textContainerOrigin.x), donc dessiner à
+        // x < 58 (dans la gouttière réservée par `textContainerInset`) est
+        // silencieusement ignoré. La bordure de sélection, elle, dépasse
+        // seulement de quelques pixels (bodyPadding) et reste rendue.
         drawBlockSelectionBorder(at: origin)
-        drawBlockGutterIcons(at: origin)
     }
 
     // MARK: - Gouttière de bloc + sélection (step 1 handoff `editeur_blocs`)
@@ -66,7 +71,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// (`containerRect` + `origin`, où `origin` est déjà le
     /// `textContainerOrigin` de la vue courante). Retourne `nil` si la plage
     /// est vide ou si le container n'est pas disponible.
-    private func viewBodyRect(for range: NSRange, origin: NSPoint) -> NSRect? {
+    func viewBodyRect(for range: NSRange, origin: NSPoint) -> NSRect? {
         guard let container = firstTextView?.textContainer,
               let container2 = textContainers.first,
               let rect = BlockGutterLayout.containerRect(
@@ -120,39 +125,15 @@ final class MarkdownLayoutManager: NSLayoutManager {
         path.stroke()
     }
 
-    /// Peint `+` et `⠿` dans la gouttière du bloc survolé (ou sélectionné, qui
-    /// prend le pas). L'utilisateur qui glisse la souris sur un bloc voit
-    /// apparaître ces deux boutons ; les autres blocs restent nus.
-    private func drawBlockGutterIcons(at origin: NSPoint) {
-        let rangeToShow = selectedBlockRange ?? hoveredBlockRange
-        guard let range = rangeToShow,
-              let bodyRect = viewBodyRect(for: range, origin: origin)
-        else { return }
-        let icons = BlockGutterLayout.iconsFrame(forBodyRect: bodyRect)
-
-        // ⠿ — poignée de glissement, priorité visuelle.
-        let handleAttrs: [NSAttributedString.Key: Any] = [
-            .font: BlockGutterLayout.handleGlyphFont,
-            .foregroundColor: BlockGutterLayout.handleGlyphColor
-        ]
-        drawCenteredGlyph("⠿", in: icons.handle, attributes: handleAttrs)
-
-        // + — insertion (comportement au step 4).
-        let plusAttrs: [NSAttributedString.Key: Any] = [
-            .font: BlockGutterLayout.plusGlyphFont,
-            .foregroundColor: BlockGutterLayout.plusGlyphColor
-        ]
-        drawCenteredGlyph("+", in: icons.plus, attributes: plusAttrs)
-    }
-
-    private func drawCenteredGlyph(_ glyph: String, in rect: NSRect, attributes: [NSAttributedString.Key: Any]) {
-        let text = glyph as NSString
-        let size = text.size(withAttributes: attributes)
-        let origin = NSPoint(
-            x: rect.midX - size.width / 2,
-            y: rect.midY - size.height / 2
-        )
-        text.draw(at: origin, withAttributes: attributes)
+    /// Rect du corps du bloc `range` en coordonnées **vue**, exposé pour
+    /// `EditorTextView.draw` qui peint les icônes de gouttière hors du
+    /// container (zone clippée par `NSLayoutManager.drawGlyphs`). Reproduit
+    /// exactement le calcul utilisé par les draw internes de cette classe
+    /// (`drawBlockSelectionBackground`, etc.) — un seul chemin de géométrie.
+    func viewBodyRect(for range: NSRange) -> NSRect? {
+        guard let textView = firstTextView else { return nil }
+        let origin = textView.textContainerOrigin
+        return viewBodyRect(for: range, origin: origin)
     }
 
     /// Parcourt les fragments de ligne du rendu en cours et dessine un
@@ -268,94 +249,107 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// (peintes potentiellement pour chaque ligne du `glyphsToShow` reçu) :
     /// `TableControlLayout.placementForCursor` fait sa propre mesure via
     /// `boundingRect(forGlyphRange:in:)`, indépendante de la portion en cours
-    /// de rafraîchissement — dessiner en dehors du rectangle actuellement
-    /// redessiné est sans effet visible (AppKit borne le clip courant), pas
-    /// une erreur.
-    private func drawTableControls(at origin: NSPoint) {
-        guard let storage = textStorage, storage.length > 0,
-              let textView = firstTextView, let container = textView.textContainer
-        else { return }
-        let location = min(textView.selectedRange().location, storage.length - 1)
-        guard location >= 0,
-              let placement = TableControlLayout.placementForCursor(
-                in: storage, at: location, layoutManager: self, container: container
-              )
-        else { return }
+    /// Peint les placeholders "Colonne 1", "Colonne 2" etc. dans les cellules
+    /// d'en-tête vides.
+    private func drawTablePlaceholders(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, glyphsToShow.length > 0 else { return }
+        let ns = storage.string as NSString
 
-        drawTableControl(placement.addRow, symbol: .plus, iconColor: TableControlLayout.addIconColor, origin: origin)
-        drawTableControl(placement.addColumn, symbol: .plus, iconColor: TableControlLayout.addIconColor, origin: origin)
-        if let deleteRow = placement.deleteRow {
-            drawTableControl(deleteRow, symbol: .minus, iconColor: TableControlLayout.deleteIconColor, origin: origin)
-        }
-        if let deleteColumn = placement.deleteColumn {
-            drawTableControl(deleteColumn, symbol: .minus, iconColor: TableControlLayout.deleteIconColor, origin: origin)
-        }
-    }
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { [weak self] lineRect, _, _, lineGlyphRange, _ in
+            guard let self else { return }
+            let charRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+            guard charRange.location < ns.length else { return }
 
-    private enum TableControlSymbol {
-        case plus
-        case minus
+            guard let info = storage.attribute(.mdTableCell, at: charRange.location, effectiveRange: nil) as? TableCellInfo,
+                  info.row == 0 else { return }
 
-        /// Nom SF Symbols — `"plus"`/`"minus"`, disponibles depuis macOS 11
-        /// (déploiement de l'app : macOS 15, cf. `CLAUDE.md`).
-        var systemSymbolName: String {
-            switch self {
-            case .plus: return "plus"
-            case .minus: return "minus"
-            }
+            // Une cellule est vide si elle ne contient que son caractère \n de fin
+            let cellLineRange = ns.lineRange(for: NSRange(location: charRange.location, length: 0))
+            guard cellLineRange.length == 1, ns.character(at: cellLineRange.location) == 0x0A else { return }
+
+            let placeholderText = "Colonne \(info.column + 1)" as NSString
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: NSColor.labelColor.withAlphaComponent(0.3)
+            ]
+            let size = placeholderText.size(withAttributes: attrs)
+            let drawPoint = NSPoint(
+                x: origin.x + lineRect.minX,
+                y: origin.y + lineRect.minY + (lineRect.height - size.height) / 2
+            )
+            placeholderText.draw(at: drawPoint, withAttributes: attrs)
         }
     }
 
-    /// Une pastille de fond neutre (`TableControlLayout.
-    /// controlBackgroundColor`, bordure fine `controlBorderColor` — le
-    /// patron « bouton +/– » natif macOS, cf. Mail/Réglages Système/
-    /// Trousseaux) surmontée d'une icône SF Symbols (`+`/`–`) teintée
-    /// `iconColor` — remplace un premier essai (disque de couleur saturée,
-    /// croix dessinée au trait) jugé peu soigné, voir la doc de tête de
-    /// `TableControlLayout`. `rect` en coordonnées conteneur (voir
-    /// `TableControlLayout.Placement`), décalé par `origin` comme
-    /// `drawMarker`/`drawBlockquoteRule`.
-    ///
-    /// Teinte l'icône par le patron `.sourceAtop` (dessiner l'image
-    /// « template », puis remplir son propre rectangle avec `iconColor` en
-    /// mode `.sourceAtop` — ne colore que les pixels déjà opaques de
-    /// l'icône) : `NSImage.isTemplate` seul ne suffit pas à forcer une
-    /// couleur arbitraire au dessin direct, `.sourceAtop` est le patron
-    /// standard AppKit pour teindre un glyphe SF Symbols hors `NSButton`/
-    /// `NSImageView` (qui, eux, teignent via `contentTintColor`).
-    private func drawTableControl(_ rect: NSRect, symbol: TableControlSymbol, iconColor: NSColor, origin: NSPoint) {
-        let viewRect = rect.offsetBy(dx: origin.x, dy: origin.y)
 
-        let background = NSBezierPath(ovalIn: viewRect.insetBy(dx: 0.5, dy: 0.5))
-        TableControlLayout.controlBackgroundColor.setFill()
-        background.fill()
-        TableControlLayout.controlBorderColor.setStroke()
-        background.lineWidth = TableControlLayout.controlBorderWidth
-        background.stroke()
-
-        guard let symbolImage = NSImage(
-            systemSymbolName: symbol.systemSymbolName, accessibilityDescription: nil
-        )?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: viewRect.width * 0.5, weight: .semibold))
-        else { return }
-
-        let tinted = NSImage(size: symbolImage.size, flipped: false) { imageRect in
-            symbolImage.draw(in: imageRect)
-            iconColor.set()
-            imageRect.fill(using: .sourceAtop)
-            return true
-        }
-
-        let iconSize = symbolImage.size
-        let iconRect = NSRect(
-            x: viewRect.midX - iconSize.width / 2,
-            y: viewRect.midY - iconSize.height / 2,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        tinted.draw(in: iconRect)
-    }
 
     // MARK: - Diagrammes mermaid
+
+    private func drawOpenMermaidBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, glyphsToShow.length > 0,
+              let textView = firstTextView, let container = textView.textContainer,
+              storage.length > 0
+        else { return }
+
+        let visibleCharacters = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        let selectedLocation = textView.selectedRange().location
+        var drawnStarts = Set<Int>()
+
+        storage.enumerateAttribute(.mdMermaidAttachment, in: visibleCharacters) { value, range, _ in
+            guard value != nil,
+                  let blockRange = MermaidBlockLayout.blockRange(in: storage, at: range.location),
+                  MermaidBlockLayout.selectionTouches(selectedLocation, blockRange: blockRange),
+                  drawnStarts.insert(blockRange.location).inserted
+            else { return }
+
+            let firstGlyph = self.glyphIndexForCharacter(at: blockRange.location)
+            let lastCharacter = max(blockRange.location, NSMaxRange(blockRange) - 1)
+            let lastGlyph = self.glyphIndexForCharacter(at: lastCharacter)
+            let firstLine = self.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
+            let lastLine = self.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+            let frame = MermaidSourceLayout.frameRect(
+                firstLineRect: firstLine,
+                lastLineRect: lastLine,
+                containerWidth: container.size.width,
+                previewHeight: 0
+            ).offsetBy(dx: origin.x, dy: origin.y)
+            let header = MermaidSourceLayout.headerRect(
+                above: firstLine,
+                containerWidth: container.size.width,
+                previewHeight: 0
+            ).offsetBy(dx: origin.x, dy: origin.y)
+            let body = MermaidSourceLayout.bodyRect(
+                firstLineRect: firstLine,
+                lastLineRect: lastLine,
+                containerWidth: container.size.width,
+                previewHeight: 0
+            ).offsetBy(dx: origin.x, dy: origin.y)
+
+            let card = NSBezierPath(
+                roundedRect: frame.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: MermaidSourceLayout.cornerRadius,
+                yRadius: MermaidSourceLayout.cornerRadius
+            )
+            MermaidSourceLayout.frameBackgroundColor.setFill()
+            card.fill()
+
+            NSGraphicsContext.current?.saveGraphicsState()
+            card.addClip()
+            MermaidSourceLayout.headerBackgroundColor.setFill()
+            header.fill()
+            MermaidSourceLayout.gutterBackgroundColor.setFill()
+            NSRect(x: body.minX, y: body.minY, width: MermaidSourceLayout.gutterWidth, height: body.height).fill()
+            NSGraphicsContext.current?.restoreGraphicsState()
+
+            MermaidSourceLayout.dividerColor.setFill()
+            NSRect(x: header.minX, y: header.maxY - 1, width: header.width, height: 1).fill()
+            NSRect(x: body.minX + MermaidSourceLayout.gutterWidth, y: body.minY, width: 1, height: body.height).fill()
+
+            MermaidSourceLayout.borderColor.setStroke()
+            card.lineWidth = MermaidSourceLayout.borderWidth
+            card.stroke()
+        }
+    }
 
     /// Peint chaque bloc mermaid (`.mdMermaidAttachment`, posé par
     /// `StyleRenderer.applyMermaidAttachment`) selon qu'il est **fermé**
@@ -447,6 +441,60 @@ final class MarkdownLayoutManager: NSLayoutManager {
         let rect = NSRect(x: firstLineRect.minX, y: firstLineRect.minY, width: drawSize.width, height: drawSize.height)
             .offsetBy(dx: origin.x, dy: origin.y)
         image.draw(in: rect)
+
+        if blockRange == hoveredBlockRange {
+            drawMermaidActionBar(in: rect)
+        }
+    }
+
+    private func drawMermaidActionBar(in drawnRect: NSRect) {
+        let geo = MermaidBlockLayout.actionBarGeometry(forDrawnRect: drawnRect)
+
+        let path = NSBezierPath(roundedRect: geo.barRect, xRadius: MermaidBlockLayout.actionBarCornerRadius, yRadius: MermaidBlockLayout.actionBarCornerRadius)
+
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(white: 0, alpha: 0.07)
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.shadowBlurRadius = 3
+
+        NSGraphicsContext.current?.saveGraphicsState()
+        shadow.set()
+        MermaidBlockLayout.actionBarBackgroundColor.setFill()
+        path.fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        MermaidBlockLayout.actionBarBorderColor.setStroke()
+        path.lineWidth = MermaidBlockLayout.actionBarBorderWidth
+        path.stroke()
+
+        let editAttrs: [NSAttributedString.Key: Any] = [
+            .font: MermaidBlockLayout.actionButtonFont,
+            .foregroundColor: MermaidBlockLayout.actionButtonTextColor
+        ]
+        let editLabel = MermaidBlockLayout.editButtonLabel as NSString
+        let editSize = editLabel.size(withAttributes: editAttrs)
+        let editOrigin = NSPoint(
+            x: geo.editButtonRect.minX + (geo.editButtonRect.width - editSize.width) / 2,
+            y: geo.editButtonRect.minY + (geo.editButtonRect.height - editSize.height) / 2
+        )
+        editLabel.draw(at: editOrigin, withAttributes: editAttrs)
+
+        MermaidBlockLayout.separatorColor.setFill()
+        geo.separatorRect.fill()
+
+        let duplicateAttrs: [NSAttributedString.Key: Any] = [
+            .font: MermaidBlockLayout.actionButtonFont,
+            .foregroundColor: MermaidBlockLayout.actionButtonTextColor
+        ]
+        let duplicateLabel = "Dupliquer" as NSString
+        let duplicateSize = duplicateLabel.size(withAttributes: duplicateAttrs)
+        duplicateLabel.draw(
+            at: NSPoint(
+                x: geo.copyButtonRect.minX + (geo.copyButtonRect.width - duplicateSize.width) / 2,
+                y: geo.copyButtonRect.minY + (geo.copyButtonRect.height - duplicateSize.height) / 2
+            ),
+            withAttributes: duplicateAttrs
+        )
     }
 
     // MARK: - Source mermaid ouvert (gouttière + en-tête)
@@ -475,7 +523,8 @@ final class MarkdownLayoutManager: NSLayoutManager {
             .foregroundColor: MermaidSourceLayout.gutterColor
         ]
         let size = text.size(withAttributes: attrs)
-        let point = MermaidSourceLayout.lineNumberOrigin(lineRect: lineFragmentRect, numberSize: size)
+        let sourceLineRect = MermaidSourceLayout.sourceLineRect(for: index, lineFragmentRect: lineFragmentRect)
+        let point = MermaidSourceLayout.lineNumberOrigin(lineRect: sourceLineRect, numberSize: size)
         text.draw(at: NSPoint(x: point.x + origin.x, y: point.y + origin.y), withAttributes: attrs)
     }
 
@@ -485,27 +534,39 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// mermaidDoneButtonRange(at:)`, même géométrie — `MermaidSourceLayout.
     /// doneButtonRect`, un seul calcul partagé).
     private func drawMermaidHeader(above lineFragmentRect: NSRect, origin: NSPoint, containerWidth: CGFloat) {
+        // `drawGlyphs(forGlyphRange:)` peut fournir un clip limité à la ligne
+        // courante. L'en-tête est volontairement au-dessus de la première
+        // ligne : sans élargir temporairement le clip au conteneur, l'en-tête
+        // du bloc Mermaid suivant est peint hors clip et disparaît derrière
+        // le cadre du bloc précédent.
+        NSGraphicsContext.current?.saveGraphicsState()
+        defer { NSGraphicsContext.current?.restoreGraphicsState() }
+        let clipHeight = firstTextView?.bounds.height ?? containerWidth
+        NSBezierPath(
+            rect: NSRect(x: origin.x, y: 0, width: containerWidth, height: clipHeight)
+        ).addClip()
+
         let labelAttrs: [NSAttributedString.Key: Any] = [
             .font: MermaidSourceLayout.headerLabelFont,
             .foregroundColor: MermaidSourceLayout.headerLabelColor
         ]
-        let headerRect = MermaidSourceLayout.headerRect(above: lineFragmentRect, containerWidth: containerWidth)
+        let headerRect = MermaidSourceLayout.headerRect(above: lineFragmentRect, containerWidth: containerWidth, previewHeight: 0)
         let labelText = "mermaid" as NSString
         let labelSize = labelText.size(withAttributes: labelAttrs)
         labelText.draw(
             at: NSPoint(
-                x: origin.x + MermaidSourceLayout.gutterWidth,
+                x: origin.x + 12,
                 y: origin.y + headerRect.minY + (headerRect.height - labelSize.height) / 2
             ),
             withAttributes: labelAttrs
         )
 
-        let buttonRect = MermaidSourceLayout.doneButtonRect(above: lineFragmentRect, containerWidth: containerWidth)
+        let buttonRect = MermaidSourceLayout.doneButtonRect(above: lineFragmentRect, containerWidth: containerWidth, previewHeight: 0)
             .offsetBy(dx: origin.x, dy: origin.y)
-        let pill = NSBezierPath(roundedRect: buttonRect, xRadius: buttonRect.height / 2, yRadius: buttonRect.height / 2)
-        NSColor.controlBackgroundColor.setFill()
+        let pill = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
+        NSColor.textBackgroundColor.setFill()
         pill.fill()
-        NSColor.separatorColor.setStroke()
+        MermaidSourceLayout.borderColor.setStroke()
         pill.lineWidth = 1
         pill.stroke()
 
