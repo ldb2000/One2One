@@ -26,6 +26,21 @@ import AppKit
 /// l'item, jamais par-dessus.
 final class MarkdownLayoutManager: NSLayoutManager {
 
+    override init() {
+        super.init()
+        // Son propre délégué : voir `layoutManager(_:paragraphSpacingBeforeGlyphAt:
+        // withProposedLineFragmentRect:)`. `NSLayoutManager.delegate` est une
+        // référence faible — aucun cycle de rétention. Personne d'autre ne pose
+        // de délégué sur ce layout manager (vérifié : `EditorRepresentable` ne
+        // câble que `NSTextView.delegate`), donc rien n'est écrasé ici.
+        delegate = self
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        delegate = self
+    }
+
     /// Plage du bloc **actuellement survolé** par la souris — mis à jour par
     /// `EditorTextView.mouseMoved` (via un `NSTrackingArea`), consommé ici pour
     /// peindre la gouttière (`⠿`/`+`) et un léger fond de survol sur ce bloc.
@@ -662,5 +677,56 @@ final class MarkdownLayoutManager: NSLayoutManager {
             at: NSPoint(x: buttonRect.midX - textSize.width / 2, y: buttonRect.midY - textSize.height / 2),
             withAttributes: buttonAttrs
         )
+    }
+}
+
+// MARK: - Espace réservé au-dessus du premier paragraphe
+
+/// TextKit 1 **ignore** `NSParagraphStyle.paragraphSpacingBefore` sur le
+/// premier paragraphe d'un conteneur. Conséquence pour l'éditeur : un bloc
+/// mermaid **ouvert** placé en toute première position d'une note ne réservait
+/// rien au-dessus de son source — l'en-tête (« mermaid » + bouton
+/// « Terminé ») et la bande d'aperçu étaient calculés à des `y` négatifs,
+/// donc peints hors clip (invisibles) et surtout **incliquables** : « Terminé »
+/// est le seul geste qui referme un bloc.
+///
+/// Ce délégué comble ce trou, et **rien d'autre** : il relit le
+/// `paragraphSpacingBefore` déjà posé sur le storage par
+/// `StyleRenderer.applyOpenMermaidGeometry` et le renvoie tel quel. Ce
+/// passe-plat suffit parce que la valeur du délégué **remplace** celle du
+/// style (documentation Apple : « the value returned overrides the paragraph
+/// spacing specified by the paragraph style »), elle ne s'y ajoute pas —
+/// mesuré sur cette pile, bande de référence 307 pt :
+///
+///     bloc en tête, attribut seul .................. réservé =   0
+///     bloc en tête, attribut + ce délégué .......... réservé = 307
+///     bloc précédé d'un ¶, attribut seul ........... réservé = 307
+///     bloc précédé d'un ¶, attribut + ce délégué ... réservé = 307
+///
+/// Deux conséquences qui ont dicté ce choix plutôt que « recalculer la bande
+/// ici » :
+///
+/// - **Aucune double réservation possible** : la valeur renvoyée *est* celle
+///   de l'attribut, elle ne peut pas s'y ajouter ni en diverger. Le calcul de
+///   la hauteur de bande reste unique (`StyleRenderer` la pose,
+///   `MermaidSourceLayout` la redonne au dessin et au hit-test).
+/// - Une fois le délégué installé, il devient responsable de **tous** les
+///   paragraphes : renvoyer `0` « partout ailleurs » supprimerait la
+///   réservation de tous les blocs mermaid qui ne sont pas en tête (mesuré :
+///   réservé = 0 au lieu de 307). D'où le passe-plat, et non une réponse
+///   ciblée sur le seul bloc de tête.
+extension MarkdownLayoutManager: NSLayoutManagerDelegate {
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        paragraphSpacingBeforeGlyphAt glyphIndex: Int,
+        withProposedLineFragmentRect rect: NSRect
+    ) -> CGFloat {
+        guard let storage = textStorage, storage.length > 0 else { return 0 }
+        let characterIndex = characterIndexForGlyph(at: glyphIndex)
+        guard characterIndex >= 0, characterIndex < storage.length else { return 0 }
+        let style = storage.attribute(
+            .paragraphStyle, at: characterIndex, effectiveRange: nil
+        ) as? NSParagraphStyle
+        return style?.paragraphSpacingBefore ?? 0
     }
 }
