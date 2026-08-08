@@ -1,8 +1,21 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-08 16:32 CEST
+Dernière mise à jour : 2026-08-08 23:45 CEST
 
 ## Synthèse
+
+**Réécriture de l'éditeur — décidée, verdict du prototype en attente.** La
+réécriture de l'éditeur en reprenant l'architecture d'appflowy-editor
+(AGPL-3.0 acceptée) est décidée, voir
+[l'ADR de licence](docs/adr/2026-08-08-reecriture-editeur-architecture-appflowy.md).
+Un prototype jetable (`Prototypes/BlockEditorProbe/`) a sondé le risque
+central — une vue éditable par bloc en AppKit — et existe toujours ; son
+verdict est **en attente** de la vérification à l'écran, qui n'a pas eu
+lieu, voir [l'ADR de verdict](docs/adr/2026-08-08-verdict-prototype-blocs-appkit.md).
+Le chantier ci-dessous (`feat/editeur-slash-blocs`) reste **en l'état** :
+ni fusionné, ni abandonné ; sa propre vérification à l'écran reste due,
+indépendamment du prototype. Prochaine action : la session de vérification
+à l'écran du prototype.
 
 Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
 à partir du handoff [`design_handoff_editor_blocs/README.md`](design_handoff_editor_blocs/README.md).
@@ -520,14 +533,17 @@ Issus des six correctifs de la revue finale (2026-08-08) :
 
 ## Décisions structurantes
 
-1. Le Markdown reste la source de vérité ; aucun modèle de blocs persistant
-   séparé n'est introduit.
-2. TextKit 1 est conservé. Les marqueurs de liste et les contrôles sont
-   dessinés par les composants AppKit existants.
+1. ~~Le Markdown reste la source de vérité ; aucun modèle de blocs persistant
+   séparé n'est introduit.~~ **Annulée le 2026-08-08** par
+   [l'ADR de réécriture](docs/adr/2026-08-08-reecriture-editeur-architecture-appflowy.md).
+2. ~~TextKit 1 est conservé. Les marqueurs de liste et les contrôles sont
+   dessinés par les composants AppKit existants.~~ **Annulée le 2026-08-08**
+   par [l'ADR de réécriture](docs/adr/2026-08-08-reecriture-editeur-architecture-appflowy.md).
 3. Les couleurs libres ne sont pas sérialisées : pas de HTML inline ajouté
    uniquement pour la présentation.
-4. Aucun code AppFlowy n'est repris ; la référence sert uniquement au design
-   et aux comportements.
+4. ~~Aucun code AppFlowy n'est repris ; la référence sert uniquement au design
+   et aux comportements.~~ **Annulée le 2026-08-08** par
+   [l'ADR de réécriture](docs/adr/2026-08-08-reecriture-editeur-architecture-appflowy.md).
 5. Les liens internes restent routés par une closure injectée dans l'éditeur.
 6. BeautifulMermaidSwift est vendored comme cible SwiftPM locale afin de
    permettre les correctifs macOS et l'évolution du style dans ce dépôt ;
