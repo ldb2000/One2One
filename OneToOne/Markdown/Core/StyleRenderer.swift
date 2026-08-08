@@ -298,7 +298,21 @@ enum StyleRenderer {
                     // porte — poser en plus `paragraphSpacingBefore` sur la
                     // carte suivante ferait 56 pt (TextKit additionne les
                     // deux).
-                    let nextBlockStart = NSMaxRange(block) + 1
+                    // Le séparateur entre deux blocs logiques n'est pas
+                    // toujours un seul caractère : `MarkdownParser.parse`
+                    // normalise à un unique `\n`, mais le storage **vivant**
+                    // ne l'est jamais renormalisé — un utilisateur qui tape
+                    // deux fois Retour insère une vraie ligne vide, donc un
+                    // second `\n` avant le début réel du bloc suivant.
+                    // `NSMaxRange(block) + 1` retomberait alors sur ce `\n`
+                    // de la ligne vide (qui porte `.mdBlockType == .paragraph`,
+                    // donc `isCardBlock` répondrait `false` à tort) au lieu
+                    // du prochain bloc : on avance donc tant qu'on lit un
+                    // saut de ligne, borné par la fin du storage.
+                    var nextBlockStart = NSMaxRange(block)
+                    while nextBlockStart < storage.length, text.character(at: nextBlockStart) == 0x0A {
+                        nextBlockStart += 1
+                    }
                     let touchesACard = BlockGutterLayout.isCardBlock(in: storage, at: block.location)
                         || BlockGutterLayout.isCardBlock(in: storage, at: nextBlockStart)
                     let spacing = touchesACard
