@@ -534,13 +534,16 @@ struct CollaboratorPickerOptions: View {
 ///   retard / aujourd'hui / sous 48 h / à venir / sans date ; sa *couleur* vient
 ///   de la règle d'urgence partagée `Urgence.pour` / `AppTheme.couleur`, seuil de
 ///   7 jours, la même que celle de l'échéance affichée à droite) + titre éditable
-///   en double-clic + sous-titre (date de création) + métadonnées alignées à
-///   droite (code projet, avatar du porteur, échéance colorée par l'urgence) +
-///   compteur de commentaires + chevron de dépliage + suppression.
+///   en double-clic + métadonnées alignées à droite (code projet, avatar du
+///   porteur, échéance colorée par l'urgence) + menu `⋮` (visible au survol,
+///   voir `ligneMenu`) donnant accès à Modifier / Commentaires / Supprimer.
+///   Le sous-titre (date de création) et les contrôles permanents de
+///   dépliage/suppression de la maquette d'origine ont quitté la ligne au
+///   repos (voir `ligneMenu` pour où leurs actions vivent désormais).
 /// - Terminée : rendue en bloc façon note (porteur, dates, commentaires, projet).
-/// - Le dépliage (chevron ou tap sur la ligne) affiche le fil de commentaires,
-///   le champ d'ajout, et les sélecteurs projet / assigné / échéance modifiables
-///   en place.
+/// - Le dépliage (tap sur la ligne, ou « Commentaires » depuis le menu `⋮`)
+///   affiche le fil de commentaires, le champ d'ajout, et les sélecteurs
+///   projet / assigné / échéance modifiables en place.
 struct ActionTaskRow: View {
     @Bindable var task: ActionTask
     /// Parité de la ligne dans la liste affichée, pour la teinte alternée.
@@ -616,28 +619,13 @@ struct ActionTaskRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    sousTitre
                 }
 
                 Spacer(minLength: 8)
 
                 metadonneesADroite
 
-                if !task.comments.isEmpty {
-                    Label("\(task.comments.count)", systemImage: "bubble.left")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Button { expanded.toggle() } label: {
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                Button(action: onDelete) {
-                    Image(systemName: "trash").foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
+                ligneMenu
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
@@ -673,20 +661,6 @@ struct ActionTaskRow: View {
         .onHover { isHovering = $0 }
     }
 
-    /// Sous-titre gris sous le titre : seule métadonnée qui reste alignée à
-    /// gauche après le déplacement du reste vers `metadonneesADroite`.
-    private var sousTitre: some View {
-        Group {
-            if let createdAt = task.createdAt {
-                Text("ouverte le \(Self.dateFmt.string(from: createdAt))")
-            } else {
-                Text("")
-            }
-        }
-        .font(AppTheme.sousTitre)
-        .foregroundStyle(AppTheme.texteSecondaire)
-    }
-
     /// Métadonnées alignées à droite, dans l'ordre de la capture 3 :
     /// code projet, avatar du porteur, échéance colorée par l'urgence.
     private var metadonneesADroite: some View {
@@ -705,6 +679,35 @@ struct ActionTaskRow: View {
             MetaValue(texte: libelleEcheance, urgence: urgence)
                 .help(task.dueDate.map { Self.dateFmt.string(from: $0) } ?? "Sans échéance")
         }
+    }
+
+    /// Menu `⋮` de fin de ligne — regroupe les trois gestes retirés de la
+    /// ligne au repos (Modifier, Commentaires, Supprimer). Visible
+    /// uniquement au survol (`isHovering`, déjà porté par `rowBackground`),
+    /// mais toujours monté : seule son opacité (et son interactivité) varie,
+    /// pour que sa largeur reste réservée en permanence et que les colonnes
+    /// de `metadonneesADroite` ne sautent pas quand la souris entre/sort.
+    ///
+    /// `.onTapGesture {}` (no-op) est posé sur le menu lui-même : sans lui,
+    /// le clic qui ouvre le `Menu` remonte aussi au `.onTapGesture` du
+    /// `HStack` parent (celui qui déplie/replie la ligne) et déclenche les
+    /// deux à la fois — un `Button` ne fuit pas comme ça, un `Menu` si.
+    private var ligneMenu: some View {
+        Menu {
+            Button("Modifier") { isEditingTitle = true }
+            Button(task.comments.isEmpty ? "Commentaires" : "Commentaires (\(task.comments.count))") {
+                expanded = true
+            }
+            Button("Supprimer") { onDelete() }
+        } label: {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(AppTheme.texteSecondaire)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .opacity(isHovering ? 1 : 0)
+        .allowsHitTesting(isHovering)
+        .onTapGesture {}
     }
 
     private var urgence: Urgence {
