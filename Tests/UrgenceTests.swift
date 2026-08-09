@@ -64,4 +64,31 @@ final class UrgenceTests: XCTestCase {
         let ceMatin = Calendar(identifier: .gregorian).date(from: m)!
         XCTAssertEqual(Urgence.pour(hierSoir, maintenant: ceMatin), .moyenne)
     }
+
+    /// Preuve que `calendrier:` est bien pris en compte, et pas seulement accepté
+    /// en façade : pour les deux mêmes instants, un fuseau UTC+14 et un fuseau
+    /// UTC-11 (25 h d'écart) ne placent pas le même nombre de minuits entre les
+    /// deux dates, ce qui fait basculer le résultat de part et d'autre du seuil
+    /// des sept jours. Si l'implémentation ignorait ce paramètre au profit de
+    /// `Calendar.current`, les deux appels retourneraient la même urgence.
+    func test_leCalendrierExpliciteEstReellementUtilise() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+
+        var eC = DateComponents()
+        eC.year = 2026; eC.month = 1; eC.day = 1; eC.hour = 0
+        let echeance = utc.date(from: eC)!
+
+        var mC = DateComponents()
+        mC.year = 2026; mC.month = 1; mC.day = 8; mC.hour = 10
+        let maintenant = utc.date(from: mC)!
+
+        var kiritimati = Calendar(identifier: .gregorian)
+        kiritimati.timeZone = TimeZone(identifier: "Pacific/Kiritimati")!
+        var midway = Calendar(identifier: .gregorian)
+        midway.timeZone = TimeZone(identifier: "Pacific/Midway")!
+
+        XCTAssertEqual(Urgence.pour(echeance, maintenant: maintenant, calendrier: kiritimati), .forte)
+        XCTAssertEqual(Urgence.pour(echeance, maintenant: maintenant, calendrier: midway), .moyenne)
+    }
 }
