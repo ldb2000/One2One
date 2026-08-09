@@ -19,6 +19,24 @@ struct AudioFileEditor {
 
 extension AudioFileEditor {
 
+    /// Alloue le tampon de lecture, ou échoue proprement.
+    ///
+    /// `AVAudioPCMBuffer(pcmFormat:frameCapacity:)` renvoie un **optionnel** : il vaut
+    /// `nil` si l'allocation échoue ou si le format et la capacité ne s'accordent pas.
+    /// Les trois opérations d'édition le déverrouillaient de force, ce qui faisait
+    /// planter l'application au lieu de remonter une erreur à l'utilisateur.
+    private static func tamponDeLecture(format: AVAudioFormat,
+                                        capacite: AVAudioFrameCount,
+                                        operation: String) throws -> AVAudioPCMBuffer {
+        guard let tampon = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacite) else {
+            throw NSError(
+                domain: "AudioFileEditor.\(operation)", code: 10,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Impossible d'allouer le tampon audio (\(Int(format.sampleRate)) Hz, \(format.channelCount) canaux)."])
+        }
+        return tampon
+    }
+
     /// Rewrite `url` keeping samples in [`fromSec`, `toSec`). Either bound
     /// can be nil → unbounded. Atomic via `.tmp.wav` + `replaceItemAt`.
     /// Throws if the resulting range is empty or invalid.
@@ -42,7 +60,7 @@ extension AudioFileEditor {
             let endFrame = AVAudioFramePosition(hi * format.sampleRate)
             src.framePosition = startFrame
             let chunk: AVAudioFrameCount = 8192
-            let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
+            let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "trim")
             while src.framePosition < endFrame {
                 try Task.checkCancellation()
                 let remaining = AVAudioFrameCount(endFrame - src.framePosition)
@@ -82,7 +100,7 @@ extension AudioFileEditor {
                 let format = src.processingFormat
                 let cutFrame = AVAudioFramePosition(cutSec * format.sampleRate)
                 let chunk: AVAudioFrameCount = 8192
-                let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
+                let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "split")
 
                 // Part A: 0 ..< cutFrame
                 let dstA = try AVAudioFile(forWriting: urlA, settings: src.fileFormat.settings)
@@ -142,7 +160,7 @@ extension AudioFileEditor {
             let format = src.processingFormat
             let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
             let chunk: AVAudioFrameCount = 8192
-            let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
+            let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "cut")
 
             // Head : [0, fromSec)
             if lo > 0 {
