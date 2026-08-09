@@ -375,6 +375,20 @@ struct ContentView: View {
                         fetch: FetchDescriptor<SlideCapture>(),
                         get: { $0.id }, set: { $0.id = $1 })
 
+            // TranscriptChunk.chunkId : UUID non optionnel sans défaut — les lignes
+            // migrées depuis un store antérieur à ce champ partagent toutes le même
+            // identifiant. `IdentifierRepair` isole la règle de dédoublonnage (testée
+            // sans SwiftData) ; on ne fait ici que la brancher sur le store.
+            let allChunks = try context.fetch(FetchDescriptor<TranscriptChunk>())
+            let chunksToFix = IdentifierRepair.duplicates(in: allChunks, identifier: \.chunkId)
+            for chunk in chunksToFix {
+                chunk.chunkId = UUID()
+            }
+            if !chunksToFix.isEmpty {
+                try context.save()
+                print("Reparation SwiftData: \(chunksToFix.count) TranscriptChunk.chunkId dedoublonnes.")
+            }
+
             BuiltInTemplates.seedIfNeeded(in: context)
             try context.save()
         } catch {
