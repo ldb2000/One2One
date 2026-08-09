@@ -27,6 +27,11 @@ struct ActionsListView: View {
     @State private var filterDueDate: DueDateFilter = .any
     @State private var viewMode: ActionsViewMode = .liste
     @State private var kanbanGrouping: ActionGrouping = .destinataire
+    /// Même clé, même réglage que `CollaboratorPickerOptions` : lu ici pour
+    /// que le sous-menu « Assigné à » de `filtresMenu` applique la même
+    /// partition (pastilles en tête) que les `Picker` ailleurs dans
+    /// l'application, via `CollaboratorPreference.partition`.
+    @AppStorage(CollaboratorPreference.appStorageKey) private var collabsFilter: String = "both"
 
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
@@ -315,6 +320,10 @@ struct ActionsListView: View {
 
             projectFilterMenu
 
+            // Même partition que le Picker « Assigné à » ailleurs dans
+            // l'application (ActionTaskRow, QuickActionPopover) : pastilles
+            // épinglées/favorites en tête, puis le reste — pas un simple
+            // tri A→Z. Règle unique : `CollaboratorPreference.partition`.
             Menu("Assigné à : \(filterCollaborator?.name ?? "Tous")") {
                 Button {
                     filterCollaborator = nil
@@ -326,19 +335,15 @@ struct ActionsListView: View {
                     }
                 }
                 Divider()
-                let sortedCollaborators = collaborators.sorted {
-                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                let groupes = CollaboratorPreference.partition(collaborators, preference: collabsFilter)
+                ForEach(groupes.top) { c in
+                    collaborateurMenuButton(c, pastille: true)
                 }
-                ForEach(sortedCollaborators) { c in
-                    Button {
-                        filterCollaborator = c
-                    } label: {
-                        if filterCollaborator?.persistentModelID == c.persistentModelID {
-                            Label(c.name, systemImage: "checkmark")
-                        } else {
-                            Text(c.name)
-                        }
-                    }
+                if !groupes.top.isEmpty && !groupes.rest.isEmpty {
+                    Divider()
+                }
+                ForEach(groupes.rest) { c in
+                    collaborateurMenuButton(c, pastille: false)
                 }
             }
 
@@ -357,6 +362,26 @@ struct ActionsListView: View {
             }
         } label: {
             Label("Filtres", systemImage: "line.3.horizontal.decrease.circle")
+        }
+    }
+
+    /// Un `Button` du sous-menu « Assigné à » : coche si c'est la sélection
+    /// courante, sinon pastille (pin/étoile/silhouette via
+    /// `CollaboratorPreference.pillIcon`) pour le groupe en tête, texte nu
+    /// pour le reste — même signal visuel que `CollaboratorPickerOptions`,
+    /// juste porté en `Button` puisqu'on est dans un `Menu`, pas un `Picker`.
+    @ViewBuilder
+    private func collaborateurMenuButton(_ c: Collaborator, pastille: Bool) -> some View {
+        Button {
+            filterCollaborator = c
+        } label: {
+            if filterCollaborator?.persistentModelID == c.persistentModelID {
+                Label(c.name, systemImage: "checkmark")
+            } else if pastille {
+                Label(c.name, systemImage: CollaboratorPreference.pillIcon(for: c))
+            } else {
+                Text(c.name)
+            }
         }
     }
 
@@ -425,37 +450,36 @@ struct ActionsListView: View {
     }
 }
 
-/// Renders Collaborator picker options groupés selon le filtre de la sidebar
-/// (clé `@AppStorage("sidebar.collabsFilter")`, valeurs `"pinned"` / `"favourites"`
-/// / `"both"`, défaut `"both"`) :
+/// Règle de partition des collaborateurs selon la préférence persistée de la
+/// sidebar (clé `@AppStorage`, valeurs `"pinned"` / `"favourites"` / `"both"`,
+/// défaut `"both"`) :
 /// - `pinned`     → épinglés au top, divider, le reste A–Z
 /// - `favourites` → favoris au top, divider, le reste A–Z
 /// - `both`       → épinglés ET favoris au top (alpha mixé), divider, le reste A–Z
 /// Inclut tous les collaborateurs non-archivés pour ne pas masquer un favori.
-struct CollaboratorPickerOptions: View {
-    let collaborators: [Collaborator]
-    @AppStorage("sidebar.collabsFilter") private var collabsFilter: String = "both"
+///
+/// Seul endroit qui lit ce réglage et décide de l'ordre qui en résulte —
+/// extrait de `CollaboratorPickerOptions` (tâche 2, ronde de correctif 1)
+/// pour que le sous-menu « Assigné à » de la barre d'outils (`ActionsListView.filtresMenu`)
+/// partage exactement la même règle plutôt que d'en recopier une variante.
+/// `CollaboratorPickerOptions` continue de porter son propre `@AppStorage`
+/// (nécessaire à sa réactivité SwiftUI) mais délègue le calcul ici ; ne pas
+/// dupliquer le `switch` ci-dessous ailleurs.
+///
+/// Distinct de `Sidebar.filteredActiveCollaborators`, qui lit la même clé
+/// mais pour un usage différent (un *filtre* qui exclut, pas une
+/// *partition* qui garde tout en réordonnant) — non concerné par cette
+/// extraction.
+enum CollaboratorPreference {
+    /// Clé `@AppStorage` partagée par les deux lecteurs, pour qu'ils pointent
+    /// sans ambiguïté sur la même valeur persistée.
+    static let appStorageKey = "sidebar.collabsFilter"
 
-    var body: some View {
-        let groups = partitioned()
-        Group {
-            ForEach(groups.top) { c in
-                Label(c.name, systemImage: pillIcon(for: c)).tag(c as Collaborator?)
-            }
-            if !groups.top.isEmpty && !groups.rest.isEmpty {
-                Divider()
-            }
-            ForEach(groups.rest) { c in
-                Text(c.name).tag(c as Collaborator?)
-            }
-        }
-    }
-
-    private func partitioned() -> (top: [Collaborator], rest: [Collaborator]) {
+    static func partition(_ collaborators: [Collaborator], preference: String) -> (top: [Collaborator], rest: [Collaborator]) {
         let active = collaborators
             .filter { !$0.isArchived }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        switch collabsFilter {
+        switch preference {
         case "pinned":
             return (active.filter { $0.pinLevel == 2 },
                     active.filter { $0.pinLevel != 2 })
@@ -468,11 +492,39 @@ struct CollaboratorPickerOptions: View {
         }
     }
 
-    private func pillIcon(for c: Collaborator) -> String {
+    /// Icône de pastille associée au niveau d'épinglage — partagée par les
+    /// deux rendus (`Picker` et sous-menu « Assigné à ») pour rester
+    /// visuellement cohérents.
+    static func pillIcon(for c: Collaborator) -> String {
         switch c.pinLevel {
         case 2:  return "pin.fill"
         case 1:  return "star.fill"
         default: return "person"
+        }
+    }
+}
+
+/// Renders Collaborator picker options groupés selon `CollaboratorPreference`.
+/// Rendu inchangé depuis avant l'extraction (même `Label`/`Text`/`tag`/
+/// `Divider`) — seul le calcul de la partition a été délégué. Utilisé dans
+/// des `Picker` ailleurs dans l'application (`ActionTaskRow.expandedDetails`,
+/// `QuickActionPopover`) : ne pas modifier son rendu.
+struct CollaboratorPickerOptions: View {
+    let collaborators: [Collaborator]
+    @AppStorage(CollaboratorPreference.appStorageKey) private var collabsFilter: String = "both"
+
+    var body: some View {
+        let groups = CollaboratorPreference.partition(collaborators, preference: collabsFilter)
+        Group {
+            ForEach(groups.top) { c in
+                Label(c.name, systemImage: CollaboratorPreference.pillIcon(for: c)).tag(c as Collaborator?)
+            }
+            if !groups.top.isEmpty && !groups.rest.isEmpty {
+                Divider()
+            }
+            ForEach(groups.rest) { c in
+                Text(c.name).tag(c as Collaborator?)
+            }
         }
     }
 }
