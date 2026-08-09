@@ -38,8 +38,9 @@ enum TranscriptEditService {
     /// Throw si le splice audio échoue : transcript intact dans ce cas, seule cette
     /// première étape est sans risque. Throw aussi (`TranscriptEditError
     /// .saveFailedAfterAudioCut`) si la sauvegarde finale échoue une fois la coupe audio
-    /// déjà effectuée sur disque : dans ce cas l'audio et la transcription ne
-    /// correspondent plus.
+    /// déjà effectuée sur disque : dans ce cas la suppression et le shift en mémoire sont
+    /// annulés (`context.rollback()`), donc la transcription reste intacte — mais l'audio,
+    /// lui, reste coupé sur disque. L'audio et la transcription ne correspondent plus.
     static func deleteSegment(_ seg: TranscriptSegment,
                                in meeting: Meeting,
                                context: ModelContext) async throws {
@@ -68,6 +69,16 @@ enum TranscriptEditService {
         do {
             try context.save()
         } catch {
+            // La suppression et le shift des timestamps ci-dessus ne sont encore
+            // qu'en mémoire : on les annule pour que la transcription revienne
+            // exactement à son état d'avant l'appel. C'est un choix assumé — l'audio,
+            // lui, reste coupé sur disque, ce que le message d'erreur annonce.
+            // L'alternative (garder la suppression en mémoire sans la sauvegarder)
+            // laisserait l'écran afficher une suppression réussie qui ne l'est pas,
+            // et une sauvegarde ultérieure sans rapport pourrait la persister par
+            // accident. Mieux vaut une transcription intacte face à un audio coupé
+            // qu'une suppression fantôme.
+            context.rollback()
             throw TranscriptEditError.saveFailedAfterAudioCut(underlying: error)
         }
     }

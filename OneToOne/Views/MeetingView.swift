@@ -116,6 +116,7 @@ struct MeetingView: View {
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var wavImportError: String?
+    @State private var segmentDeleteError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
     @State private var saveDebounceTask: Task<Void, Never>?
@@ -237,7 +238,8 @@ struct MeetingView: View {
                     captureService.lastError,
                     attachmentError,
                     calendarImportError,
-                    wavImportError
+                    wavImportError,
+                    segmentDeleteError
                 ].compactMap { $0 }.filter { !$0.isEmpty },
                 onDismissErrors: {
                     recorder.lastError = nil
@@ -247,6 +249,7 @@ struct MeetingView: View {
                     attachmentError = nil
                     calendarImportError = nil
                     wavImportError = nil
+                    segmentDeleteError = nil
                 }
             )
             .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
@@ -2151,7 +2154,7 @@ struct MeetingView: View {
                             target, in: meeting, context: context
                         )
                     } catch {
-                        print("[MeetingView] deleteSegment failed: \(error)")
+                        segmentDeleteError = error.localizedDescription
                     }
                 }
             }

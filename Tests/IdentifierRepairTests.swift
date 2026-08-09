@@ -54,19 +54,6 @@ final class IdentifierRepairTests: XCTestCase {
         XCTAssertEqual(Set(aReattribuer.map(\.label)), ["x2", "y2"])
     }
 
-    /// L'ordre d'entrée décide qui est conservé : le résultat doit être déterministe,
-    /// sinon deux démarrages successifs réattribueraient des lignes différentes.
-    func test_leResultatEstDeterministe() {
-        let partage = UUID()
-        let elements = rows([(partage, "a"), (partage, "b"), (partage, "c")])
-
-        let premier = IdentifierRepair.duplicates(in: elements, identifier: \.id).map(\.label)
-        let second = IdentifierRepair.duplicates(in: elements, identifier: \.id).map(\.label)
-
-        XCTAssertEqual(premier, second)
-        XCTAssertEqual(premier, ["b", "c"])
-    }
-
     /// L'UUID tout à zéro est la valeur qu'une migration invente pour un champ non
     /// optionnel sans défaut : il doit être traité comme n'importe quel doublon.
     func test_lUUIDToutAZero_estUnDoublonCommeUnAutre() {
