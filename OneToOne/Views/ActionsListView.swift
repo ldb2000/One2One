@@ -34,13 +34,17 @@ struct ActionsListView: View {
         var id: String { rawValue }
     }
 
-    /// Applique successivement les filtres actifs à `allTasks` (statut, puis
-    /// projet/entité, collaborateur, échéance, recherche). L'ordre de tri par
-    /// échéance vient de la `@Query` ; le filtrage ne le modifie pas.
-    private var filteredTasks: [ActionTask] {
+    /// Applique successivement les filtres actifs à `allTasks` pour un statut
+    /// donné (statut, puis projet/entité, collaborateur, échéance, recherche).
+    /// `statut` est paramétrable indépendamment de `filterStatus` pour que
+    /// `nombreDActions(pour:)` puisse simuler chaque statut sans dupliquer la
+    /// chaîne de filtres — `filteredTasks` et le compteur des pilules
+    /// partagent ainsi la même logique et ne peuvent plus diverger. L'ordre de
+    /// tri par échéance vient de la `@Query` ; le filtrage ne le modifie pas.
+    private func actionsFiltrees(statut: FilterStatus) -> [ActionTask] {
         var tasks = allTasks
 
-        switch filterStatus {
+        switch statut {
         case .pending:
             tasks = tasks.filter { !$0.isCompleted }
         case .completed:
@@ -78,28 +82,18 @@ struct ActionsListView: View {
         return tasks
     }
 
+    /// Liste réellement affichée : la chaîne de filtres actifs appliquée au
+    /// statut actuellement sélectionné.
+    private var filteredTasks: [ActionTask] {
+        actionsFiltrees(statut: filterStatus)
+    }
+
     /// Nombre d'actions que donnerait un statut, **les autres filtres restant
     /// appliqués** : le compteur doit refléter ce qu'on obtiendra en cliquant,
-    /// pas un total abstrait.
+    /// pas un total abstrait. Réutilise `actionsFiltrees(statut:)` — jamais de
+    /// second endroit qui recalcule la même chaîne de filtres.
     private func nombreDActions(pour statut: FilterStatus) -> Int {
-        var tasks = allTasks
-        switch statut {
-        case .pending: tasks = tasks.filter { !$0.isCompleted }
-        case .completed: tasks = tasks.filter { $0.isCompleted }
-        case .all: break
-        }
-        if let project = filterProject {
-            tasks = tasks.filter { $0.project?.persistentModelID == project.persistentModelID }
-        } else if let entity = filterEntity {
-            tasks = tasks.filter { $0.project?.entity?.persistentModelID == entity.persistentModelID }
-        }
-        if let collaborator = filterCollaborator {
-            tasks = tasks.filter { $0.collaborator?.persistentModelID == collaborator.persistentModelID }
-        }
-        if !searchText.isEmpty {
-            tasks = tasks.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
-        }
-        return tasks.count
+        actionsFiltrees(statut: statut).count
     }
 
     var body: some View {
