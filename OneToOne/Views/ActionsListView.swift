@@ -17,8 +17,9 @@ struct ActionsListView: View {
     @State private var filterStatus: FilterStatus = .pending
     /// Filtre principal de la capture 3 : trois pilules (en retard / cette
     /// semaine / toutes). Distinct du filtre de statut, qui reste disponible
-    /// (tâche 2 le déplacera en barre d'outils) — voir `Portee` pour la règle
-    /// de date, à ne pas confondre avec `Urgence` (règle de couleur).
+    /// — déplacé par la tâche 2 dans le menu « Filtres » de la barre d'outils
+    /// — voir `Portee` pour la règle de date, à ne pas confondre avec
+    /// `Urgence` (règle de couleur).
     @State private var portee: Portee = .enRetard
     @State private var filterProject: Project?
     @State private var filterEntity: Entity?
@@ -129,31 +130,6 @@ struct ActionsListView: View {
                                 libelle: { $0.libelle },
                                 compteur: { nombreDActions(pour: $0) })
 
-                // Filtre de statut : quitte la place principale (remplacée
-                // ci-dessus par la portée) mais reste présent et fonctionnel
-                // ici — la tâche 2 le déplacera en barre d'outils.
-                SegmentedFilter(options: FilterStatus.allCases,
-                                selection: $filterStatus,
-                                libelle: { $0.rawValue },
-                                compteur: { nombreDActions(pour: $0) })
-
-                projectFilterMenu
-
-                Picker("Assigné à", selection: $filterCollaborator) {
-                    Text("Tous").tag(nil as Collaborator?)
-                    CollaboratorPickerOptions(collaborators: collaborators)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 180)
-
-                Picker("Échéance", selection: $filterDueDate) {
-                    ForEach(DueDateFilter.allCases) { f in
-                        Text(f.rawValue).tag(f)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 170)
-
                 Spacer()
 
                 // « Grouper par : <valeur> », comme la capture 3 le montre,
@@ -165,22 +141,14 @@ struct ActionsListView: View {
                 // le réglage est exposé tel que la capture le présente, en
                 // attendant qu'une tâche ultérieure le branche sur le tri
                 // de la liste.
+                //
+                // Tâche 2 : le sélecteur de statut, le filtre projet/entité,
+                // le filtre collaborateur, le filtre échéance, le sélecteur
+                // de vue et « Nouvelle action » ont quitté cette barre —
+                // ils sont désormais dans la barre d'outils de la fenêtre
+                // (voir `.toolbar` plus bas). La barre principale ne garde
+                // que la capture : les trois pilules de portée et ce menu.
                 grouperParMenu
-
-                Picker("", selection: $viewMode) {
-                    ForEach(ActionsViewMode.allCases, id: \.self) { mode in
-                        Image(systemName: mode.systemImage).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .help("Changer de vue")
-
-                Button(action: addAction) {
-                    Label("Nouvelle action", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
             }
             .padding()
             .background(Color(nsColor: .controlBackgroundColor))
@@ -265,6 +233,33 @@ struct ActionsListView: View {
         }
         .searchable(text: $searchText, prompt: "Rechercher une action...")
         .navigationTitle("Actions")
+        // Tâche 2 : les cinq contrôles chassés de la barre principale par la
+        // maquette (capture 3) atterrissent ici, dans la barre d'outils de
+        // la fenêtre. Le sélecteur de vue et « Nouvelle action » restent des
+        // éléments de premier niveau ; les trois filtres secondaires
+        // (statut, projet/entité, collaborateur) — plus le filtre échéance,
+        // qui n'est pas l'un des cinq contrôles mais devait tout de même
+        // quitter la barre principale — sont regroupés sous un seul menu
+        // « Filtres » pour ne pas la saturer.
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                filtresMenu
+
+                Picker("", selection: $viewMode) {
+                    ForEach(ActionsViewMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Changer de vue")
+
+                Button(action: addAction) {
+                    Label("Nouvelle action", systemImage: "plus")
+                }
+            }
+        }
     }
 
     private func saveContext() {
@@ -287,10 +282,91 @@ struct ActionsListView: View {
         .fixedSize()
     }
 
+    /// Menu « Filtres » de la barre d'outils (tâche 2) : regroupe les trois
+    /// filtres secondaires chassés de la barre principale — statut, projet/
+    /// entité, collaborateur — plus le filtre échéance (pas un des cinq
+    /// contrôles du brief, mais qui devait tout de même déménager). Chaque
+    /// sous-menu affiche la sélection courante dans son titre et coche
+    /// l'option active.
+    ///
+    /// Écart documenté : à l'intérieur d'un `Menu`, un `Picker` imbriqué est
+    /// connu pour se comporter de façon peu fiable sous AppKit (le sous-menu
+    /// ne s'ouvre pas toujours, ou la sélection ne se répercute pas). Comme
+    /// on ne peut pas vérifier à l'écran ici, ces trois filtres (statut,
+    /// collaborateur, échéance) sont exposés en `Button` + coche plutôt qu'en
+    /// `Picker`, conformément à la consigne de repli. Seul `projectFilterMenu`
+    /// reste un `Menu` imbriqué (il l'était déjà nativement, sans `Picker`).
+    private var filtresMenu: some View {
+        Menu {
+            Menu("Statut : \(filterStatus.rawValue)") {
+                ForEach(FilterStatus.allCases, id: \.self) { statut in
+                    Button {
+                        filterStatus = statut
+                    } label: {
+                        let libelle = "\(statut.rawValue) (\(nombreDActions(pour: statut)))"
+                        if filterStatus == statut {
+                            Label(libelle, systemImage: "checkmark")
+                        } else {
+                            Text(libelle)
+                        }
+                    }
+                }
+            }
+
+            projectFilterMenu
+
+            Menu("Assigné à : \(filterCollaborator?.name ?? "Tous")") {
+                Button {
+                    filterCollaborator = nil
+                } label: {
+                    if filterCollaborator == nil {
+                        Label("Tous", systemImage: "checkmark")
+                    } else {
+                        Text("Tous")
+                    }
+                }
+                Divider()
+                let sortedCollaborators = collaborators.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                ForEach(sortedCollaborators) { c in
+                    Button {
+                        filterCollaborator = c
+                    } label: {
+                        if filterCollaborator?.persistentModelID == c.persistentModelID {
+                            Label(c.name, systemImage: "checkmark")
+                        } else {
+                            Text(c.name)
+                        }
+                    }
+                }
+            }
+
+            Menu("Échéance : \(filterDueDate.rawValue)") {
+                ForEach(DueDateFilter.allCases) { f in
+                    Button {
+                        filterDueDate = f
+                    } label: {
+                        if filterDueDate == f {
+                            Label(f.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(f.rawValue)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Filtres", systemImage: "line.3.horizontal.decrease.circle")
+        }
+    }
+
     /// Hierarchical project filter: Entities at the top level, each opens
     /// a submenu of its projects. "Sans entité" groups orphan projects.
+    /// Vit désormais comme sous-menu imbriqué dans `filtresMenu` (tâche 2) —
+    /// le libellé est un simple `String` (plus l'icône/chevron/fond du pilule
+    /// autonome d'avant) pour un rendu fiable en sous-menu AppKit.
     private var projectFilterMenu: some View {
-        Menu {
+        Menu(currentProjectFilterLabel) {
             Button("Tous les projets") {
                 filterProject = nil
                 filterEntity = nil
@@ -331,18 +407,7 @@ struct ActionsListView: View {
                     }
                 }
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "folder")
-                Text(currentProjectFilterLabel).lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption2)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 
     private var currentProjectFilterLabel: String {
