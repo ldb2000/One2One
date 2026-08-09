@@ -35,8 +35,23 @@ enum TranscriptEditService {
     /// Si `meeting.audioAvailability != .original`, le splice audio est skippé
     /// (texte supprimé seul).
     ///
+    /// `context` est le `ModelContext` **partagé** de la vue appelante (pas un contexte
+    /// dédié à cette suppression) : il peut porter des changements en attente qui n'ont
+    /// rien à voir avec cette suppression (ex. la saisie en cours dans un champ texte lié
+    /// au modèle, via une sauvegarde différée). C'est pourquoi la toute première étape
+    /// sauvegarde ce contexte **avant** de toucher à l'audio :
+    ///
+    /// - Si cette sauvegarde échoue, elle échoue avant toute coupe audio : rien n'a
+    ///   encore été rendu irréversible, l'erreur remonte telle quelle (pas de
+    ///   `TranscriptEditError.saveFailedAfterAudioCut`, qui mentirait puisque l'audio
+    ///   n'a pas été touché).
+    /// - Si elle réussit, le contexte n'a plus, au moment du `context.rollback()` de fin
+    ///   (étape 3), que les changements faits par cette fonction elle-même à annuler :
+    ///   un rollback là ne peut plus emporter avec lui une saisie de l'utilisateur sans
+    ///   rapport avec cette suppression.
+    ///
     /// Throw si le splice audio échoue : transcript intact dans ce cas, seule cette
-    /// première étape est sans risque. Throw aussi (`TranscriptEditError
+    /// étape est sans risque. Throw aussi (`TranscriptEditError
     /// .saveFailedAfterAudioCut`) si la sauvegarde finale échoue une fois la coupe audio
     /// déjà effectuée sur disque : dans ce cas la suppression et le shift en mémoire sont
     /// annulés (`context.rollback()`), donc la transcription reste intacte — mais l'audio,
@@ -47,6 +62,12 @@ enum TranscriptEditService {
         let removedDuration = seg.endSeconds - seg.startSeconds
         let cutFrom = seg.startSeconds
         let cutTo = seg.endSeconds
+
+        // 0. Vider ce qui est en attente dans le contexte partagé AVANT toute coupe
+        // audio irréversible. Si ça échoue (store non inscriptible…), on le découvre
+        // ici, sans avoir rien coupé — d'où l'absence volontaire de tout enrobage de
+        // l'erreur : à ce stade rien n'a encore changé sur disque.
+        try context.save()
 
         // 1. Splice audio first (sans risque seulement à cette étape : si throw ici,
         // transcript intact). Au-delà, l'échec de la sauvegarde finale laisse l'audio
