@@ -78,18 +78,60 @@ struct ActionsListView: View {
         return tasks
     }
 
+    /// Nombre d'actions que donnerait un statut, **les autres filtres restant
+    /// appliqués** : le compteur doit refléter ce qu'on obtiendra en cliquant,
+    /// pas un total abstrait.
+    private func nombreDActions(pour statut: FilterStatus) -> Int {
+        var tasks = allTasks
+        switch statut {
+        case .pending: tasks = tasks.filter { !$0.isCompleted }
+        case .completed: tasks = tasks.filter { $0.isCompleted }
+        case .all: break
+        }
+        if let project = filterProject {
+            tasks = tasks.filter { $0.project?.persistentModelID == project.persistentModelID }
+        } else if let entity = filterEntity {
+            tasks = tasks.filter { $0.project?.entity?.persistentModelID == entity.persistentModelID }
+        }
+        if let collaborator = filterCollaborator {
+            tasks = tasks.filter { $0.collaborator?.persistentModelID == collaborator.persistentModelID }
+        }
+        if !searchText.isEmpty {
+            tasks = tasks.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+        }
+        return tasks.count
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Filters bar
             HStack(spacing: 12) {
-                Picker("Statut", selection: $filterStatus) {
-                    ForEach(FilterStatus.allCases, id: \.self) { s in
-                        Text(s.rawValue).tag(s)
+                HStack(spacing: 8) {
+                    ForEach(FilterStatus.allCases, id: \.self) { statut in
+                        Button {
+                            filterStatus = statut
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(statut.rawValue)
+                                Text("\(nombreDActions(pour: statut))")
+                                    .foregroundStyle(filterStatus == statut ? .white.opacity(0.7) : AppTheme.texteSecondaire)
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(filterStatus == statut ? Color.white : AppTheme.textePrincipal)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: AppTheme.rayonPilule)
+                                    .fill(filterStatus == statut ? Color.black : Color.clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: AppTheme.rayonPilule)
+                                    .stroke(filterStatus == statut ? Color.clear : AppTheme.separateur, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 250)
 
                 projectFilterMenu
 
@@ -133,10 +175,6 @@ struct ActionsListView: View {
                     Label("Nouvelle action", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
-
-                Text("\(filteredTasks.count) action(s)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             .padding()
             .background(Color(nsColor: .controlBackgroundColor))
