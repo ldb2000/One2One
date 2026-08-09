@@ -454,11 +454,11 @@ struct ActionTaskRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    metaLine
                 }
 
                 Spacer(minLength: 8)
+
+                metadonneesADroite
 
                 if !task.comments.isEmpty {
                     Label("\(task.comments.count)", systemImage: "bubble.left")
@@ -507,36 +507,46 @@ struct ActionTaskRow: View {
             .onHover { isHovering = $0 }
     }
 
-    private var metaLine: some View {
-        HStack(spacing: 4) {
-            // ID technique gardé en très discret (caption2 tertiary) pour
-            // ne pas saturer la ligne.
-            Text("#\(task.persistentModelID.hashValue & 0xFFFF, specifier: "%X")")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            if let createdAt = task.createdAt {
-                Text("·").foregroundStyle(.tertiary)
-                Text("ouverte le \(Self.dateFmt.string(from: createdAt))")
-            }
-            // "ouverte (date inconnue)" supprimé : pas d'info utile, juste du bruit.
-            if let project = task.project {
-                Text("·").foregroundStyle(.tertiary)
-                Label(project.name, systemImage: "folder")
-            }
+    /// Métadonnées alignées à droite, dans l'ordre de la capture 3 :
+    /// code projet, avatar du porteur, échéance colorée par l'urgence.
+    private var metadonneesADroite: some View {
+        HStack(spacing: 12) {
+            Text(task.project?.code ?? "—")
+                .font(AppTheme.chasseFixe)
+                .foregroundStyle(AppTheme.texteSecondaire)
+                .frame(minWidth: 64, alignment: .trailing)
+
             if let collab = task.collaborator {
-                Text("·").foregroundStyle(.tertiary)
-                Label(collab.name, systemImage: "person.fill")
+                Avatar(nom: collab.name)
+            } else {
+                Color.clear.frame(width: 22, height: 22)
             }
-            if let due = task.dueDate {
-                Text("·").foregroundStyle(.tertiary)
-                Label(Self.relativeDueLabel(due), systemImage: "calendar")
-                    .foregroundStyle(Self.dueColor(due))
-                    .help(Self.dateFmt.string(from: due))
-            }
+
+            Text(libelleEcheance)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(AppTheme.couleur(urgence))
+                .frame(minWidth: 52, alignment: .trailing)
+                .help(task.dueDate.map { Self.dateFmt.string(from: $0) } ?? "Sans échéance")
         }
-        .font(.caption)
-        .foregroundColor(.secondary)
     }
+
+    private var urgence: Urgence {
+        Urgence.pour(task.dueDate, maintenant: Date())
+    }
+
+    /// Format court de la capture : « 27/07 ». Un tiret cadratin si aucune
+    /// échéance — jamais une case vide.
+    private var libelleEcheance: String {
+        guard let due = task.dueDate else { return "—" }
+        return Self.echeanceFmt.string(from: due)
+    }
+
+    private static let echeanceFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.dateFormat = "dd/MM"
+        return f
+    }()
 
     // MARK: - Status visuals
 
@@ -601,12 +611,7 @@ struct ActionTaskRow: View {
     }
 
     static func dueColor(_ due: Date) -> Color {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let in48h = cal.date(byAdding: .day, value: 2, to: today) ?? today
-        if due < today { return .red }
-        if due < in48h { return .orange }
-        return .secondary
+        AppTheme.couleur(Urgence.pour(due, maintenant: Date()))
     }
 
     private var expandedDetails: some View {
