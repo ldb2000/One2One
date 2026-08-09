@@ -58,6 +58,23 @@ struct ActionsListView: View {
     /// et les compteurs des deux jeux de pilules partagent ainsi la même
     /// logique et ne peuvent plus diverger. L'ordre de tri par échéance vient
     /// de la `@Query` ; le filtrage ne le modifie pas.
+    ///
+    /// **La portée ne s'applique jamais aux actions terminées.** Les trois
+    /// pilules filtrent par conception « parmi les actions non terminées »
+    /// (voir le commentaire de `portee`) ; l'accès aux terminées passe par le
+    /// filtre de statut. Sans cette exception, une terminée sans échéance ou
+    /// à échéance future devenait invisible dès que la portée par défaut
+    /// (`.enRetard`) était active — et le compteur « Terminées » du sous-menu
+    /// Statut affirmait alors qu'il n'y en avait aucune.
+    ///
+    /// Cas `statut == .all` (ambigu, choix assumé ici) : il mélange
+    /// terminées et non-terminées. On applique la portée seulement au
+    /// sous-ensemble non terminé et on laisse passer toutes les terminées
+    /// sans condition — chaque sous-ensemble garde exactement la règle qu'il
+    /// aurait s'il était seul sélectionné (`.pending` filtré par portée,
+    /// `.completed` jamais filtré). L'alternative — appliquer la portée à
+    /// l'ensemble mélangé — reproduirait le bug corrigé ci-dessus pour
+    /// « Toutes », juste caché derrière un statut différent.
     private func actionsFiltrees(statut: FilterStatus, portee: Portee) -> [ActionTask] {
         var tasks = allTasks
 
@@ -70,8 +87,15 @@ struct ActionsListView: View {
             break
         }
 
+        // Un seul instant pour toute la fonction : consommé ici et par le
+        // cas `filterDueDate == .overdue` plus bas, pour ne jamais raisonner
+        // sur deux « maintenant » légèrement différents au sein d'un même
+        // calcul.
         let maintenant = Date()
-        tasks = tasks.filter { Portee.contient($0.dueDate, portee: portee, maintenant: maintenant) }
+
+        if statut != .completed {
+            tasks = tasks.filter { $0.isCompleted || Portee.contient($0.dueDate, portee: portee, maintenant: maintenant) }
+        }
 
         if let project = filterProject {
             tasks = tasks.filter { $0.project?.persistentModelID == project.persistentModelID }
@@ -91,7 +115,7 @@ struct ActionsListView: View {
         case .withoutDate:
             tasks = tasks.filter { $0.dueDate == nil }
         case .overdue:
-            let startOfToday = Calendar.current.startOfDay(for: Date())
+            let startOfToday = Calendar.current.startOfDay(for: maintenant)
             tasks = tasks.filter { ($0.dueDate ?? .distantFuture) < startOfToday }
         }
 
@@ -108,13 +132,16 @@ struct ActionsListView: View {
         actionsFiltrees(statut: filterStatus, portee: portee)
     }
 
-    /// Nombre d'actions que donnerait un statut, **les autres filtres
-    /// (portée comprise) restant appliqués** : le compteur doit refléter ce
-    /// qu'on obtiendra en cliquant, pas un total abstrait. Réutilise
-    /// `actionsFiltrees(statut:portee:)` — jamais de second endroit qui
-    /// recalcule la même chaîne de filtres.
+    /// Nombre d'actions que donnerait un statut — pour le sous-menu
+    /// « Statut ». Compte volontairement avec la portée `.toutes`, **jamais**
+    /// avec la portée actuellement sélectionnée : sinon ce compteur mentirait
+    /// exactement comme avant ce correctif (« Terminées (0) » alors que la
+    /// portée par défaut est `.enRetard`), puisque la portée ne filtre plus
+    /// les terminées mais continuerait de faire varier le total affiché ici
+    /// selon la pilule du moment. Réutilise `actionsFiltrees(statut:portee:)`
+    /// — jamais de second endroit qui recalcule la même chaîne de filtres.
     private func nombreDActions(pour statut: FilterStatus) -> Int {
-        actionsFiltrees(statut: statut, portee: portee).count
+        actionsFiltrees(statut: statut, portee: .toutes).count
     }
 
     /// Nombre d'actions que donnerait une portée, **les autres filtres
@@ -318,6 +345,9 @@ struct ActionsListView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        // Tooltip porté par l'ancien sélecteur de regroupement ; à conserver
+        // (règle du chantier : rien n'est supprimé) même si ce menu l'a remplacé.
+        .help("Regrouper par…")
     }
 
     /// Menu « Filtres » de la barre d'outils (tâche 2) : regroupe les trois
@@ -483,60 +513,6 @@ struct ActionsListView: View {
     }
 }
 
-/// Règle de partition des collaborateurs selon la préférence persistée de la
-/// sidebar (clé `@AppStorage`, valeurs `"pinned"` / `"favourites"` / `"both"`,
-/// défaut `"both"`) :
-/// - `pinned`     → épinglés au top, divider, le reste A–Z
-/// - `favourites` → favoris au top, divider, le reste A–Z
-/// - `both`       → épinglés ET favoris au top (alpha mixé), divider, le reste A–Z
-/// Inclut tous les collaborateurs non-archivés pour ne pas masquer un favori.
-///
-/// Seul endroit qui lit ce réglage et décide de l'ordre qui en résulte —
-/// extrait de `CollaboratorPickerOptions` (tâche 2, ronde de correctif 1)
-/// pour que le sous-menu « Assigné à » de la barre d'outils (`ActionsListView.filtresMenu`)
-/// partage exactement la même règle plutôt que d'en recopier une variante.
-/// `CollaboratorPickerOptions` continue de porter son propre `@AppStorage`
-/// (nécessaire à sa réactivité SwiftUI) mais délègue le calcul ici ; ne pas
-/// dupliquer le `switch` ci-dessous ailleurs.
-///
-/// Distinct de `Sidebar.filteredActiveCollaborators`, qui lit la même clé
-/// mais pour un usage différent (un *filtre* qui exclut, pas une
-/// *partition* qui garde tout en réordonnant) — non concerné par cette
-/// extraction.
-enum CollaboratorPreference {
-    /// Clé `@AppStorage` partagée par les deux lecteurs, pour qu'ils pointent
-    /// sans ambiguïté sur la même valeur persistée.
-    static let appStorageKey = "sidebar.collabsFilter"
-
-    static func partition(_ collaborators: [Collaborator], preference: String) -> (top: [Collaborator], rest: [Collaborator]) {
-        let active = collaborators
-            .filter { !$0.isArchived }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        switch preference {
-        case "pinned":
-            return (active.filter { $0.pinLevel == 2 },
-                    active.filter { $0.pinLevel != 2 })
-        case "favourites":
-            return (active.filter { $0.pinLevel == 1 },
-                    active.filter { $0.pinLevel != 1 })
-        default:  // both
-            return (active.filter { $0.pinLevel >= 1 },
-                    active.filter { $0.pinLevel == 0 })
-        }
-    }
-
-    /// Icône de pastille associée au niveau d'épinglage — partagée par les
-    /// deux rendus (`Picker` et sous-menu « Assigné à ») pour rester
-    /// visuellement cohérents.
-    static func pillIcon(for c: Collaborator) -> String {
-        switch c.pinLevel {
-        case 2:  return "pin.fill"
-        case 1:  return "star.fill"
-        default: return "person"
-        }
-    }
-}
-
 /// Renders Collaborator picker options groupés selon `CollaboratorPreference`.
 /// Rendu inchangé depuis avant l'extraction (même `Label`/`Text`/`tag`/
 /// `Divider`) — seul le calcul de la partition a été délégué. Utilisé dans
@@ -698,7 +674,7 @@ struct ActionTaskRow: View {
     /// code projet, avatar du porteur, échéance colorée par l'urgence.
     private var metadonneesADroite: some View {
         HStack(spacing: 12) {
-            Text(task.project?.code ?? "—")
+            Text(libelleCodeProjet)
                 .font(AppTheme.chasseFixe)
                 .foregroundStyle(AppTheme.texteSecondaire)
                 .frame(minWidth: 64, alignment: .trailing)
@@ -714,6 +690,14 @@ struct ActionTaskRow: View {
         }
     }
 
+    /// Code projet affiché dans la colonne : couvre le projet absent **et**
+    /// le projet présent avec un code vide — un tiret cadratin dans les deux
+    /// cas, jamais une case vide.
+    private var libelleCodeProjet: String {
+        guard let code = task.project?.code, !code.isEmpty else { return "—" }
+        return code
+    }
+
     /// Menu `⋮` de fin de ligne — regroupe les trois gestes retirés de la
     /// ligne au repos (Modifier, Commentaires, Supprimer). Visible
     /// uniquement au survol (`isHovering`, déjà porté par `rowBackground`),
@@ -725,6 +709,21 @@ struct ActionTaskRow: View {
     /// le clic qui ouvre le `Menu` remonte aussi au `.onTapGesture` du
     /// `HStack` parent (celui qui déplie/replie la ligne) et déclenche les
     /// deux à la fois — un `Button` ne fuit pas comme ça, un `Menu` si.
+    ///
+    /// L'ordre des modificateurs compte : posé *avant* `.opacity`/
+    /// `.allowsHitTesting`, le no-op fait partie de la sous-vue dont
+    /// `.allowsHitTesting(isHovering)` désactive le hit-testing — il devient
+    /// donc inerte exactement quand le menu l'est (souris pas au survol), au
+    /// lieu de rester vivant en permanence et d'avaler le clic destiné au
+    /// dépliage de la ligne.
+    ///
+    /// ⚠️ Non vérifié à l'écran (impossible de lancer l'app dans ce
+    /// contexte) : on ne sait pas si ce no-op est réellement nécessaire,
+    /// inoffensif, ou s'il empêche le `Menu` de s'ouvrir au clic. Symptôme à
+    /// surveiller lors d'un premier essai manuel : le menu `⋮` ne s'ouvre pas
+    /// au clic (au survol, une fois `isHovering` vrai). Si c'est le cas,
+    /// commencer par retirer `.onTapGesture {}` et vérifier si le dépliage
+    /// intempestif de la ligne revient.
     private var ligneMenu: some View {
         Menu {
             Button("Modifier") { isEditingTitle = true }
@@ -738,9 +737,9 @@ struct ActionTaskRow: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .onTapGesture {}
         .opacity(isHovering ? 1 : 0)
         .allowsHitTesting(isHovering)
-        .onTapGesture {}
     }
 
     private var urgence: Urgence {

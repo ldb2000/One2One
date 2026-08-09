@@ -38,7 +38,7 @@ struct MainSidebarView: View {
     /// - `pinned`     : pinLevel == 2 uniquement
     /// - `favourites` : pinLevel == 1 uniquement
     /// - `both`       : pinLevel >= 1 (favoris + épinglés)
-    @AppStorage("sidebar.collabsFilter") private var collabsFilter: String = "both"
+    @AppStorage(CollaboratorPreference.appStorageKey) private var collabsFilter: String = "both"
 
     // MARK: - Filtered data
 
