@@ -77,6 +77,51 @@ Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
   commités ; ils ne doivent pas être mélangés avec les changements de
   migration de `OneToOneApp.swift`
 
+## Sûreté des données — axe 1 de la revue de mai appliqué (2026-08-09)
+
+Six commits sur `master` (`8401536..d806a4b`), suite verte vérifiée par le coordinateur :
+990 tests XCTest (1 ignoré, `CalendarImportEventTests`, crash d'environnement connu)
++ 138 tests Swift Testing, aucun échec.
+
+Applique les trois correctifs de l'axe « sûreté des données » de la
+[spec de reprise](docs/superpowers/specs/2026-08-09-revue-code-data-safety-perf-design.md),
+issue de la branche `fix/code-review-data-safety-perf` jamais fusionnée :
+
+1. **Dédoublonnage d'identifiants UUID au démarrage.** La règle vit dans
+   `Services/IdentifierRepair.swift` (testée hors SwiftData) ; `repairStoreIfNeeded()`
+   n'en est que le branchement. `TranscriptChunk.chunkId` est désormais couvert ;
+   `SlideCapture.id` l'était déjà.
+2. **La désynchronisation audio/transcription est nommée et affichée.**
+   `TranscriptEditError.saveFailedAfterAudioCut` remonte jusqu'au bandeau d'erreurs de
+   `MeetingView`. Auparavant l'erreur mourait dans un `print`.
+3. **Le fichier temporaire est nettoyé sur échec** dans `AudioFileEditor.trim` et `.cut`,
+   sur le modèle du `catch` que `split` avait déjà.
+
+**Trois points à connaître, tous relevés en revue :**
+
+**La réparation des identifiants arrive à temps par circonstance, pas par construction.**
+`repairStoreIfNeeded()` tourne dans le `onAppear` de `ContentView`, donc après
+`applicationDidFinishLaunching`. Elle tient parce qu'aucun code de démarrage ne lit ces
+identifiants aujourd'hui. **Le premier qui le fera cassera l'invariant en silence, sans
+qu'aucun test ne s'en aperçoive.**
+
+**`deleteSegment` sauvegarde le contexte partagé avant de couper l'audio.** C'est
+volontaire et cela fait deux choses : le `rollback()` de fin ne peut plus emporter la
+saisie en cours d'un autre champ (`MeetingView` a une sauvegarde différée de 0,6 s sur
+`summary`, `referencedAbsent`, `nextDeadline`), et un store non inscriptible est découvert
+**avant** la coupe irréversible.
+
+**Le chemin d'échec de `context.save()` n'est couvert par aucun test.** Un test sur store
+fichier rendu non inscriptible serait possible mais fragile (WAL SQLite). Le comportement
+du `rollback` n'est vérifié que par lecture de code.
+
+**Reste dû :** les huit autres correctifs de la spec (axes « fil principal » et
+« robustesse des entrées »), volontairement non traités. La branche
+`fix/code-review-data-safety-perf` n'a jamais été poussée ; elle reste la seule copie du
+code des huit correctifs restants et ne doit pas être supprimée avant qu'ils soient repris.
+
+---
+
 ## Éditeur de blocs
 
 ### Diagrammes Mermaid
