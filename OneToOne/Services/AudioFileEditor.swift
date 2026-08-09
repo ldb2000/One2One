@@ -52,25 +52,30 @@ extension AudioFileEditor {
             .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".tmp.wav")
         try? FileManager.default.removeItem(at: tmp)
 
-        try await Task.detached(priority: .userInitiated) {
-            let src = try AVAudioFile(forReading: url)
-            let format = src.processingFormat
-            let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
-            let startFrame = AVAudioFramePosition(lo * format.sampleRate)
-            let endFrame = AVAudioFramePosition(hi * format.sampleRate)
-            src.framePosition = startFrame
-            let chunk: AVAudioFrameCount = 8192
-            let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "trim")
-            while src.framePosition < endFrame {
-                try Task.checkCancellation()
-                let remaining = AVAudioFrameCount(endFrame - src.framePosition)
-                try src.read(into: buf, frameCount: min(chunk, remaining))
-                if buf.frameLength == 0 { break }
-                try dst.write(from: buf)
-            }
-        }.value
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                let src = try AVAudioFile(forReading: url)
+                let format = src.processingFormat
+                let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
+                let startFrame = AVAudioFramePosition(lo * format.sampleRate)
+                let endFrame = AVAudioFramePosition(hi * format.sampleRate)
+                src.framePosition = startFrame
+                let chunk: AVAudioFrameCount = 8192
+                let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "trim")
+                while src.framePosition < endFrame {
+                    try Task.checkCancellation()
+                    let remaining = AVAudioFrameCount(endFrame - src.framePosition)
+                    try src.read(into: buf, frameCount: min(chunk, remaining))
+                    if buf.frameLength == 0 { break }
+                    try dst.write(from: buf)
+                }
+            }.value
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            throw error
+        }
 
-        _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
         editorLog.info("trim done from=\(lo)s to=\(hi)s total=\(total)s")
     }
 
@@ -155,40 +160,45 @@ extension AudioFileEditor {
             .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".cut.tmp.wav")
         try? FileManager.default.removeItem(at: tmp)
 
-        try await Task.detached(priority: .userInitiated) {
-            let src = try AVAudioFile(forReading: url)
-            let format = src.processingFormat
-            let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
-            let chunk: AVAudioFrameCount = 8192
-            let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "cut")
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                let src = try AVAudioFile(forReading: url)
+                let format = src.processingFormat
+                let dst = try AVAudioFile(forWriting: tmp, settings: src.fileFormat.settings)
+                let chunk: AVAudioFrameCount = 8192
+                let buf = try AudioFileEditor.tamponDeLecture(format: format, capacite: chunk, operation: "cut")
 
-            // Head : [0, fromSec)
-            if lo > 0 {
-                let headEnd = AVAudioFramePosition(lo * format.sampleRate)
-                src.framePosition = 0
-                while src.framePosition < headEnd {
-                    try Task.checkCancellation()
-                    let remaining = AVAudioFrameCount(headEnd - src.framePosition)
-                    try src.read(into: buf, frameCount: min(chunk, remaining))
-                    if buf.frameLength == 0 { break }
-                    try dst.write(from: buf)
+                // Head : [0, fromSec)
+                if lo > 0 {
+                    let headEnd = AVAudioFramePosition(lo * format.sampleRate)
+                    src.framePosition = 0
+                    while src.framePosition < headEnd {
+                        try Task.checkCancellation()
+                        let remaining = AVAudioFrameCount(headEnd - src.framePosition)
+                        try src.read(into: buf, frameCount: min(chunk, remaining))
+                        if buf.frameLength == 0 { break }
+                        try dst.write(from: buf)
+                    }
                 }
-            }
 
-            // Tail : [toSec, duration)
-            let tailStart = AVAudioFramePosition(hi * format.sampleRate)
-            if tailStart < src.length {
-                src.framePosition = tailStart
-                while src.framePosition < src.length {
-                    try Task.checkCancellation()
-                    try src.read(into: buf)
-                    if buf.frameLength == 0 { break }
-                    try dst.write(from: buf)
+                // Tail : [toSec, duration)
+                let tailStart = AVAudioFramePosition(hi * format.sampleRate)
+                if tailStart < src.length {
+                    src.framePosition = tailStart
+                    while src.framePosition < src.length {
+                        try Task.checkCancellation()
+                        try src.read(into: buf)
+                        if buf.frameLength == 0 { break }
+                        try dst.write(from: buf)
+                    }
                 }
-            }
-        }.value
+            }.value
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            throw error
+        }
 
-        _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
         editorLog.info("cut done from=\(lo)s to=\(hi)s total=\(total)s")
     }
 }

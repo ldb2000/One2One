@@ -106,4 +106,71 @@ final class AudioFileEditorTests: XCTestCase {
         let d = AudioFileEditor.duration(url: url)
         XCTAssertEqual(d, 5.0, accuracy: 0.05)
     }
+
+    /// `trim` doit retirer son fichier temporaire même quand l'écriture échoue.
+    ///
+    /// Note d'implémentation (écart assumé par rapport au plan initial) : placer un
+    /// **répertoire** à l'emplacement du temporaire ne provoque *pas* d'échec ici, car
+    /// `trim` fait déjà `try? FileManager.default.removeItem(at: tmp)` avant d'écrire —
+    /// ce nettoyage préalable supprime silencieusement l'obstacle (`removeItem` sur un
+    /// répertoire vide réussit), et `AVAudioFile(forWriting:)` écrit alors normalement.
+    /// Vérifié empiriquement avant d'écrire ce test.
+    ///
+    /// L'échec réel est provoqué autrement : on rend la **source** immuable
+    /// (`FileAttributeKey.immutable`). L'écriture du temporaire réussit (fichier
+    /// distinct, répertoire toujours accessible en écriture), mais le remplacement
+    /// atomique final (`replaceItemAt`) échoue car il doit pouvoir supprimer/renommer
+    /// l'original immuable. Le temporaire existe alors bel et bien sur le disque au
+    /// moment de l'échec — exactement le scénario que le nettoyage doit couvrir.
+    func test_trim_nettoieLeTemporaireQuandLEcritureEchoue() async throws {
+        let source = try makeSyntheticWAV(seconds: 3)
+        let tmp = source.deletingLastPathComponent()
+            .appendingPathComponent(source.deletingPathExtension().lastPathComponent + ".tmp.wav")
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: source.path)
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: tmp)
+        }
+
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: source.path)
+
+        do {
+            try await AudioFileEditor.trim(url: source, from: 0, to: 2)
+            XCTFail("le remplacement atomique aurait dû échouer sur une source immuable")
+        } catch {
+            // attendu
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmp.path),
+                       "le temporaire doit avoir été nettoyé après l'échec")
+    }
+
+    /// `cut` doit retirer son fichier temporaire même quand l'écriture échoue.
+    ///
+    /// Même mécanisme et même écart assumé que pour `trim` (voir le commentaire de
+    /// `test_trim_nettoieLeTemporaireQuandLEcritureEchoue`) : source rendue immuable,
+    /// ce qui fait échouer le `replaceItemAt` final après une écriture réussie du
+    /// `.cut.tmp.wav`.
+    func test_cut_nettoieLeTemporaireQuandLEcritureEchoue() async throws {
+        let source = try makeSyntheticWAV(seconds: 3)
+        let tmp = source.deletingLastPathComponent()
+            .appendingPathComponent(source.deletingPathExtension().lastPathComponent + ".cut.tmp.wav")
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: source.path)
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: tmp)
+        }
+
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: source.path)
+
+        do {
+            try await AudioFileEditor.cut(url: source, from: 0.5, to: 1.5)
+            XCTFail("le remplacement atomique aurait dû échouer sur une source immuable")
+        } catch {
+            // attendu
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmp.path),
+                       "le temporaire doit avoir été nettoyé après l'échec")
+    }
 }
