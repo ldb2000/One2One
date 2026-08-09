@@ -100,32 +100,10 @@ struct ActionsListView: View {
         VStack(spacing: 0) {
             // Filters bar
             HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    ForEach(FilterStatus.allCases, id: \.self) { statut in
-                        Button {
-                            filterStatus = statut
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text(statut.rawValue)
-                                Text("\(nombreDActions(pour: statut))")
-                                    .foregroundStyle(filterStatus == statut ? .white.opacity(0.7) : AppTheme.texteSecondaire)
-                            }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(filterStatus == statut ? Color.white : AppTheme.textePrincipal)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                RoundedRectangle(cornerRadius: AppTheme.rayonPilule)
-                                    .fill(filterStatus == statut ? Color.black : Color.clear)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: AppTheme.rayonPilule)
-                                    .stroke(filterStatus == statut ? Color.clear : AppTheme.separateur, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                SegmentedFilter(options: FilterStatus.allCases,
+                                selection: $filterStatus,
+                                libelle: { $0.rawValue },
+                                compteur: { nombreDActions(pour: $0) })
 
                 projectFilterMenu
 
@@ -541,10 +519,7 @@ struct ActionTaskRow: View {
                 Color.clear.frame(width: 22, height: 22)
             }
 
-            Text(libelleEcheance)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(AppTheme.couleur(urgence))
-                .frame(minWidth: 52, alignment: .trailing)
+            MetaValue(texte: libelleEcheance, urgence: urgence)
                 .help(task.dueDate.map { Self.dateFmt.string(from: $0) } ?? "Sans échéance")
         }
     }
