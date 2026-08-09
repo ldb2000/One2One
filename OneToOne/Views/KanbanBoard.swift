@@ -4,12 +4,13 @@ import UniformTypeIdentifiers
 
 /// Dimension de regroupement des colonnes Kanban.
 enum ActionGrouping: String, CaseIterable {
-    case destinataire, projet, collaborateur
+    case destinataire, projet, collaborateur, echeance
     var label: String {
         switch self {
         case .destinataire: return "Destinataire"
         case .projet: return "Projet"
         case .collaborateur: return "Collaborateur"
+        case .echeance: return "Échéance"
         }
     }
 }
@@ -76,6 +77,34 @@ struct KanbanBoard: View {
             cols.append(KanbanColumn(id: "col-none", title: "Non assigné", systemImage: "person",
                                      contains: { $0.collaborator == nil }, assign: { $0.collaborator = nil }))
             return cols
+        case .echeance:
+            // Réutilise la même règle de date que les pilules de portée de
+            // `ActionsListView` (`Portee.contient`) : aucune nouvelle règle de
+            // date n'est écrite ici. Les quatre groupes sont mutuellement
+            // exclusifs et couvrent tous les cas, dans cet ordre.
+            let maintenant = Date()
+            return [
+                KanbanColumn(id: "ech-enRetard", title: "En retard", systemImage: "exclamationmark.circle.fill",
+                             contains: { Portee.contient($0.dueDate, portee: .enRetard, maintenant: maintenant) },
+                             assign: { _ in
+                                 // No-op : déposer une action « dans le retard » n'est pas
+                                 // un geste qui a un sens (le retard se constate, il ne
+                                 // s'assigne pas).
+                             }),
+                KanbanColumn(id: "ech-cetteSemaine", title: "Cette semaine", systemImage: "calendar",
+                             contains: { Portee.contient($0.dueDate, portee: .cetteSemaine, maintenant: maintenant) },
+                             assign: { $0.dueDate = maintenant }),
+                KanbanColumn(id: "ech-plusTard", title: "Plus tard", systemImage: "clock",
+                             contains: { task in
+                                 guard task.dueDate != nil else { return false }
+                                 return !Portee.contient(task.dueDate, portee: .enRetard, maintenant: maintenant)
+                                     && !Portee.contient(task.dueDate, portee: .cetteSemaine, maintenant: maintenant)
+                             },
+                             assign: { $0.dueDate = Calendar.current.date(byAdding: .day, value: 8, to: maintenant) }),
+                KanbanColumn(id: "ech-sansEcheance", title: "Sans échéance", systemImage: "circle.dashed",
+                             contains: { $0.dueDate == nil },
+                             assign: { $0.dueDate = nil })
+            ]
         }
     }
 

@@ -26,7 +26,9 @@ struct ActionsListView: View {
     @State private var filterCollaborator: Collaborator?
     @State private var filterDueDate: DueDateFilter = .any
     @State private var viewMode: ActionsViewMode = .liste
-    @State private var kanbanGrouping: ActionGrouping = .destinataire
+    /// Défaut `.echeance` (maquette de référence) : en liste comme en kanban,
+    /// c'est le premier regroupement qu'on voit à l'ouverture de l'écran.
+    @State private var kanbanGrouping: ActionGrouping = .echeance
     /// Même clé, même réglage que `CollaboratorPickerOptions` : lu ici pour
     /// que le sous-menu « Assigné à » de `filtresMenu` applique la même
     /// partition (pastilles en tête) que les `Picker` ailleurs dans
@@ -139,13 +141,10 @@ struct ActionsListView: View {
 
                 // « Grouper par : <valeur> », comme la capture 3 le montre,
                 // toujours visible en barre principale (pas seulement en
-                // kanban/sticky comme avant). En vue liste, ce réglage n'a
-                // à ce stade aucun effet sur le tri affiché — seuls le
-                // kanban et le mode sticky consomment `kanbanGrouping` via
-                // `KanbanBoard.columns(for:tasks:)`. Ce n'est PAS un oubli :
-                // le réglage est exposé tel que la capture le présente, en
-                // attendant qu'une tâche ultérieure le branche sur le tri
-                // de la liste.
+                // kanban/sticky comme avant). En vue liste, ce réglage
+                // détermine désormais les sections affichées — même
+                // `KanbanBoard.columns(for:tasks:)` que le kanban et le
+                // mode sticky, voir la vue liste plus bas.
                 //
                 // Tâche 2 : le sélecteur de statut, le filtre projet/entité,
                 // le filtre collaborateur, le filtre échéance, le sélecteur
@@ -219,17 +218,30 @@ struct ActionsListView: View {
                     .padding()
                 }
             } else {
+                // Mêmes colonnes que le kanban et le mode sticky — une seule
+                // règle de groupement (`KanbanBoard.columns(for:tasks:)`),
+                // rendue ici en sections plutôt qu'en colonnes. Les colonnes
+                // vides ne produisent pas de section (une colonne kanban vide
+                // est légitime — on y dépose — une section de liste vide
+                // serait du bruit).
+                let colonnes = KanbanBoard.columns(for: kanbanGrouping, tasks: filteredTasks)
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(filteredTasks.enumerated()), id: \.element.persistentModelID) { index, task in
-                            ActionTaskRow(
-                                task: task,
-                                estPaire: index.isMultiple(of: 2),
-                                projects: projects,
-                                collaborators: collaborators,
-                                onSave: saveContext,
-                                onDelete: { context.delete(task); saveContext() }
-                            )
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(colonnes) { colonne in
+                            let items = filteredTasks.filter(colonne.contains)
+                            if !items.isEmpty {
+                                sectionHeader(colonne, count: items.count)
+                                ForEach(Array(items.enumerated()), id: \.element.persistentModelID) { index, task in
+                                    ActionTaskRow(
+                                        task: task,
+                                        estPaire: index.isMultiple(of: 2),
+                                        projects: projects,
+                                        collaborators: collaborators,
+                                        onSave: saveContext,
+                                        onDelete: { context.delete(task); saveContext() }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -271,12 +283,33 @@ struct ActionsListView: View {
         do { try context.save() } catch { print("Save error: \(error)") }
     }
 
+    /// En-tête d'une section de liste groupée : titre de la colonne (langage
+    /// visuel des intitulés de section — petites capitales grises) et, en
+    /// discret, le nombre d'actions du groupe.
+    private func sectionHeader(_ colonne: KanbanColumn, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(colonne.title)
+                .font(AppTheme.intituleSection)
+                .foregroundStyle(AppTheme.texteSecondaire)
+            Text("\(count)")
+                .font(AppTheme.intituleSection)
+                .foregroundStyle(AppTheme.texteSecondaire.opacity(0.6))
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// « Grouper par : <valeur> » — expose `kanbanGrouping` (`ActionGrouping`,
     /// existant, utilisé par le kanban) en barre principale, comme la
     /// capture 3 le montre. Remplace l'ancien picker qui n'apparaissait qu'en
     /// vue kanban/sticky : même état lié (`kanbanGrouping`), donc aucun
     /// comportement de regroupement du kanban n'est perdu, et le réglage est
     /// désormais visible dans tous les modes de vue, comme sur la capture.
+    /// Consommé aussi par la vue liste (voir plus bas), avec exactement la
+    /// même fonction `KanbanBoard.columns(for:tasks:)` — une seule règle de
+    /// groupement, deux rendus.
     private var grouperParMenu: some View {
         Menu("Grouper par : \(kanbanGrouping.label)") {
             ForEach(ActionGrouping.allCases, id: \.self) { g in
