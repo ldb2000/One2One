@@ -378,16 +378,11 @@ struct ContentView: View {
             // TranscriptChunk.chunkId : UUID non optionnel sans défaut — les lignes
             // migrées depuis un store antérieur à ce champ partagent toutes le même
             // identifiant. `IdentifierRepair` isole la règle de dédoublonnage (testée
-            // sans SwiftData) ; on ne fait ici que la brancher sur le store.
-            let allChunks = try context.fetch(FetchDescriptor<TranscriptChunk>())
-            let chunksToFix = IdentifierRepair.duplicates(in: allChunks, identifier: \.chunkId)
-            for chunk in chunksToFix {
-                chunk.chunkId = UUID()
-            }
-            if !chunksToFix.isEmpty {
-                try context.save()
-                print("Reparation SwiftData: \(chunksToFix.count) TranscriptChunk.chunkId dedoublonnes.")
-            }
+            // sans SwiftData) ; `deduplicate` ci-dessous ne fait que la brancher sur
+            // le store, comme pour SlideCapture.
+            deduplicate(context: context, label: "TranscriptChunk",
+                        fetch: FetchDescriptor<TranscriptChunk>(),
+                        get: { $0.chunkId }, set: { $0.chunkId = $1 })
 
             BuiltInTemplates.seedIfNeeded(in: context)
             try context.save()
@@ -398,6 +393,12 @@ struct ContentView: View {
 
     /// Same as `deduplicate` but for Optional UUID fields — nil rows are
     /// also backfilled.
+    ///
+    /// Reste volontairement distinct de `IdentifierRepair.duplicates` : cette
+    /// dernière ne connaît que des `UUID` non optionnels, alors qu'ici un champ
+    /// `nil` (jamais encore backfillé) doit lui aussi être réattribué. C'est un
+    /// backfill (nil OU doublon), pas un simple dédoublonnage — deux règles
+    /// différentes, qui ne doivent pas être forcées à converger.
     private func deduplicateOptional<T: PersistentModel>(
         context: ModelContext,
         label: String,
@@ -422,6 +423,10 @@ struct ContentView: View {
     /// Scans a SwiftData entity for rows whose UUID identifier collides
     /// with another, and reassigns each duplicate a fresh UUID. Saves
     /// once when any change is made. Quiet on no-op.
+    ///
+    /// Délègue la règle de dédoublonnage à `IdentifierRepair.duplicates`, seule
+    /// version testée (sans dépendance à SwiftData) ; cette fonction ne fait que
+    /// la brancher sur le store : fetch, mutation, sauvegarde unique, log.
     private func deduplicate<T: PersistentModel>(
         context: ModelContext,
         label: String,
@@ -430,17 +435,13 @@ struct ContentView: View {
         set: (T, UUID) -> Void
     ) {
         guard let all = try? context.fetch(fetch) else { return }
-        var seen = Set<UUID>()
-        var fixed = 0
-        for row in all {
-            let id = get(row)
-            if seen.insert(id).inserted { continue }
+        let toFix = IdentifierRepair.duplicates(in: all, identifier: get)
+        for row in toFix {
             set(row, UUID())
-            fixed += 1
         }
-        if fixed > 0 {
+        if !toFix.isEmpty {
             try? context.save()
-            print("Reparation SwiftData: \(fixed) \(label) UUID dedoublonnes.")
+            print("Reparation SwiftData: \(toFix.count) \(label) UUID dedoublonnes.")
         }
     }
 }
