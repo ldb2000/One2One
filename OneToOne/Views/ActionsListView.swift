@@ -236,9 +236,10 @@ struct ActionsListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(filteredTasks) { task in
+                        ForEach(Array(filteredTasks.enumerated()), id: \.element.persistentModelID) { index, task in
                             ActionTaskRow(
                                 task: task,
+                                estPaire: index.isMultiple(of: 2),
                                 projects: projects,
                                 collaborators: collaborators,
                                 onSave: saveContext,
@@ -391,6 +392,8 @@ struct CollaboratorPickerOptions: View {
 ///   its icon and colour encode due-date urgency (overdue, today, soon, upcoming, undated).
 struct ActionTaskRow: View {
     @Bindable var task: ActionTask
+    /// Parité de la ligne dans la liste affichée, pour la teinte alternée.
+    let estPaire: Bool
     let projects: [Project]
     let collaborators: [Collaborator]
     let onSave: () -> Void
@@ -454,6 +457,8 @@ struct ActionTaskRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                    sousTitre
                 }
 
                 Spacer(minLength: 8)
@@ -493,7 +498,7 @@ struct ActionTaskRow: View {
         .background(rowBackground)
         .overlay(
             Rectangle().frame(height: 1)
-                .foregroundColor(Color.secondary.opacity(0.15)),
+                .foregroundColor(AppTheme.separateur),
             alignment: .bottom
         )
     }
@@ -502,9 +507,23 @@ struct ActionTaskRow: View {
     @State private var isHovering: Bool = false
 
     private var rowBackground: some View {
-        Color(nsColor: .textBackgroundColor)
-            .opacity(isHovering ? 0.6 : 1.0)
+        (isHovering ? AppTheme.separateur.opacity(0.35)
+                    : (estPaire ? AppTheme.fondContenu : AppTheme.ligneAlternee))
             .onHover { isHovering = $0 }
+    }
+
+    /// Sous-titre gris sous le titre : seule métadonnée qui reste alignée à
+    /// gauche après le déplacement du reste vers `metadonneesADroite`.
+    private var sousTitre: some View {
+        Group {
+            if let createdAt = task.createdAt {
+                Text("ouverte le \(Self.dateFmt.string(from: createdAt))")
+            } else {
+                Text("")
+            }
+        }
+        .font(AppTheme.sousTitre)
+        .foregroundStyle(AppTheme.texteSecondaire)
     }
 
     /// Métadonnées alignées à droite, dans l'ordre de la capture 3 :
