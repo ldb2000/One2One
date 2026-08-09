@@ -460,7 +460,15 @@ Autres limites historiques du harnais :
 
 - `CalendarImportEventTests` peut planter dans l'environnement de test
   (`bundleProxyForCurrentProcess is nil`) ;
-- certains tests de statistiques de barre de menu dépendent de l'heure ;
+- `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` dépend de l'heure :
+  il place un créneau entre +2 h et +3 h après minuit et échoue donc si la suite
+  est lancée entre minuit et 3 h du matin ;
+- `MenuBarStatsTests.test_badge_twelve_compact` **a été supprimé le 2026-08-09**.
+  Il était décrit ici comme dépendant de l'heure : c'était faux. Il affirmait
+  `" ●12"` pour `hasOverdue: true`, alors que `MenubarBadgeText.suffix` rend
+  volontairement `" ⚠12"` — son commentaire de code documente ce choix. Attente
+  périmée, pas problème d'horloge. Conséquence à connaître : le glyphe `⚠` du cas
+  « au moins une action en retard » n'a plus aucun test ;
 - un test de montage de transcription est intermittent.
 
 ## Validation du 2026-08-08 (tâche 6 — aération des blocs-cartes et aperçu figé du bloc mermaid ouvert)

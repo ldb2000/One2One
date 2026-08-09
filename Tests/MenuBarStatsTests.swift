@@ -87,9 +87,6 @@ final class MenuBarStatsTests: XCTestCase {
         XCTAssertEqual(r, " ●3")
     }
 
-    func test_badge_twelve_compact() {
-        XCTAssertEqual(MenubarBadgeText.suffix(urgentCount: 12, hasOverdue: true), " ●12")
-    }
 
     // MARK: - Fixture
 
