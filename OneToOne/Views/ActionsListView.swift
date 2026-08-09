@@ -2,8 +2,10 @@ import SwiftUI
 import SwiftData
 
 /// Liste des actions à traiter, triées par échéance. Offre un filtrage combiné
-/// par statut (en cours / terminées / toutes), projet ou entité, collaborateur
-/// assigné, échéance, plus une recherche plein-texte sur le titre.
+/// par portée d'échéance (en retard / cette semaine / toutes — le filtre
+/// principal de la capture 3), statut (en cours / terminées / toutes), projet
+/// ou entité, collaborateur assigné, échéance, plus une recherche plein-texte
+/// sur le titre.
 struct ActionsListView: View {
     @Query(sort: \ActionTask.dueDate) private var allTasks: [ActionTask]
     @Query private var projects: [Project]
@@ -13,6 +15,11 @@ struct ActionsListView: View {
 
     @State private var searchText = ""
     @State private var filterStatus: FilterStatus = .pending
+    /// Filtre principal de la capture 3 : trois pilules (en retard / cette
+    /// semaine / toutes). Distinct du filtre de statut, qui reste disponible
+    /// (tâche 2 le déplacera en barre d'outils) — voir `Portee` pour la règle
+    /// de date, à ne pas confondre avec `Urgence` (règle de couleur).
+    @State private var portee: Portee = .enRetard
     @State private var filterProject: Project?
     @State private var filterEntity: Entity?
     @State private var filterCollaborator: Collaborator?
@@ -35,13 +42,15 @@ struct ActionsListView: View {
     }
 
     /// Applique successivement les filtres actifs à `allTasks` pour un statut
-    /// donné (statut, puis projet/entité, collaborateur, échéance, recherche).
-    /// `statut` est paramétrable indépendamment de `filterStatus` pour que
-    /// `nombreDActions(pour:)` puisse simuler chaque statut sans dupliquer la
-    /// chaîne de filtres — `filteredTasks` et le compteur des pilules
-    /// partagent ainsi la même logique et ne peuvent plus diverger. L'ordre de
-    /// tri par échéance vient de la `@Query` ; le filtrage ne le modifie pas.
-    private func actionsFiltrees(statut: FilterStatus) -> [ActionTask] {
+    /// et une portée donnés (statut, puis portée d'échéance, puis
+    /// projet/entité, collaborateur, échéance, recherche). `statut` et
+    /// `portee` sont paramétrables indépendamment de `filterStatus` et de
+    /// `portee` (l'état) pour que `nombreDActions(pour:)` puisse simuler
+    /// chaque valeur sans dupliquer la chaîne de filtres — `filteredTasks`
+    /// et les compteurs des deux jeux de pilules partagent ainsi la même
+    /// logique et ne peuvent plus diverger. L'ordre de tri par échéance vient
+    /// de la `@Query` ; le filtrage ne le modifie pas.
+    private func actionsFiltrees(statut: FilterStatus, portee: Portee) -> [ActionTask] {
         var tasks = allTasks
 
         switch statut {
@@ -52,6 +61,9 @@ struct ActionsListView: View {
         case .all:
             break
         }
+
+        let maintenant = Date()
+        tasks = tasks.filter { Portee.contient($0.dueDate, portee: portee, maintenant: maintenant) }
 
         if let project = filterProject {
             tasks = tasks.filter { $0.project?.persistentModelID == project.persistentModelID }
@@ -83,23 +95,43 @@ struct ActionsListView: View {
     }
 
     /// Liste réellement affichée : la chaîne de filtres actifs appliquée au
-    /// statut actuellement sélectionné.
+    /// statut et à la portée actuellement sélectionnés.
     private var filteredTasks: [ActionTask] {
-        actionsFiltrees(statut: filterStatus)
+        actionsFiltrees(statut: filterStatus, portee: portee)
     }
 
-    /// Nombre d'actions que donnerait un statut, **les autres filtres restant
-    /// appliqués** : le compteur doit refléter ce qu'on obtiendra en cliquant,
-    /// pas un total abstrait. Réutilise `actionsFiltrees(statut:)` — jamais de
-    /// second endroit qui recalcule la même chaîne de filtres.
+    /// Nombre d'actions que donnerait un statut, **les autres filtres
+    /// (portée comprise) restant appliqués** : le compteur doit refléter ce
+    /// qu'on obtiendra en cliquant, pas un total abstrait. Réutilise
+    /// `actionsFiltrees(statut:portee:)` — jamais de second endroit qui
+    /// recalcule la même chaîne de filtres.
     private func nombreDActions(pour statut: FilterStatus) -> Int {
-        actionsFiltrees(statut: statut).count
+        actionsFiltrees(statut: statut, portee: portee).count
+    }
+
+    /// Nombre d'actions que donnerait une portée, **les autres filtres
+    /// (statut compris) restant appliqués** — même contrat que la surcharge
+    /// ci-dessus pour `FilterStatus`, pour le même motif : c'est ce qu'on
+    /// obtient en cliquant une pilule de portée, jamais un total abstrait.
+    /// Réutilise la même chaîne unique `actionsFiltrees(statut:portee:)`.
+    private func nombreDActions(pour portee: Portee) -> Int {
+        actionsFiltrees(statut: filterStatus, portee: portee).count
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Filters bar
             HStack(spacing: 12) {
+                // Filtre principal de la capture 3 : trois pilules de portée
+                // d'échéance (En retard / Cette semaine / Toutes).
+                SegmentedFilter(options: Portee.allCases,
+                                selection: $portee,
+                                libelle: { $0.libelle },
+                                compteur: { nombreDActions(pour: $0) })
+
+                // Filtre de statut : quitte la place principale (remplacée
+                // ci-dessus par la portée) mais reste présent et fonctionnel
+                // ici — la tâche 2 le déplacera en barre d'outils.
                 SegmentedFilter(options: FilterStatus.allCases,
                                 selection: $filterStatus,
                                 libelle: { $0.rawValue },
@@ -124,14 +156,16 @@ struct ActionsListView: View {
 
                 Spacer()
 
-                if viewMode == .kanban || viewMode == .sticky {
-                    Picker("", selection: $kanbanGrouping) {
-                        ForEach(ActionGrouping.allCases, id: \.self) { g in Text(g.label).tag(g) }
-                    }
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                    .help("Regrouper par…")
-                }
+                // « Grouper par : <valeur> », comme la capture 3 le montre,
+                // toujours visible en barre principale (pas seulement en
+                // kanban/sticky comme avant). En vue liste, ce réglage n'a
+                // à ce stade aucun effet sur le tri affiché — seuls le
+                // kanban et le mode sticky consomment `kanbanGrouping` via
+                // `KanbanBoard.columns(for:tasks:)`. Ce n'est PAS un oubli :
+                // le réglage est exposé tel que la capture le présente, en
+                // attendant qu'une tâche ultérieure le branche sur le tri
+                // de la liste.
+                grouperParMenu
 
                 Picker("", selection: $viewMode) {
                     ForEach(ActionsViewMode.allCases, id: \.self) { mode in
@@ -235,6 +269,22 @@ struct ActionsListView: View {
 
     private func saveContext() {
         do { try context.save() } catch { print("Save error: \(error)") }
+    }
+
+    /// « Grouper par : <valeur> » — expose `kanbanGrouping` (`ActionGrouping`,
+    /// existant, utilisé par le kanban) en barre principale, comme la
+    /// capture 3 le montre. Remplace l'ancien picker qui n'apparaissait qu'en
+    /// vue kanban/sticky : même état lié (`kanbanGrouping`), donc aucun
+    /// comportement de regroupement du kanban n'est perdu, et le réglage est
+    /// désormais visible dans tous les modes de vue, comme sur la capture.
+    private var grouperParMenu: some View {
+        Menu("Grouper par : \(kanbanGrouping.label)") {
+            ForEach(ActionGrouping.allCases, id: \.self) { g in
+                Button(g.label) { kanbanGrouping = g }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     /// Hierarchical project filter: Entities at the top level, each opens
