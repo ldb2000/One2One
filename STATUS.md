@@ -1,6 +1,6 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-08 23:45 CEST
+Dernière mise à jour : 2026-08-09 CEST
 
 ## Synthèse
 
@@ -16,6 +16,44 @@ Le chantier ci-dessous (`feat/editeur-slash-blocs`) reste **en l'état** :
 ni fusionné, ni abandonné ; sa propre vérification à l'écran reste due,
 indépendamment du prototype. Prochaine action : la session de vérification
 à l'écran du prototype.
+
+**Habillage visuel — vitrine `ActionsListView` livrée, écran dû.** Un chantier
+distinct, ouvert à partir de huit captures de design : appliquer aux vues
+existantes un langage visuel commun, **à fonctions strictement constantes**.
+Voir la [spec](docs/superpowers/specs/2026-08-09-habillage-visuel-design.md) et le
+[plan](docs/superpowers/plans/2026-08-09-habillage-vitrine-actions.md).
+Branche `feat/habillage-vitrine-actions`, 9 commits.
+
+Livré : les jetons (`OneToOne/Views/DesignSystem/AppTheme.swift`), la règle
+d'urgence partagée (`Urgence`, seuil de sept jours, 8 tests), trois composants
+(`Avatar`, `SegmentedFilter`, `MetaValue`, 7 tests), et `ActionsListView`
+restylée. Parité fonctionnelle vérifiée à chaque étape : les quatre filtres, les
+cinq modes de vue, la recherche, la création, le dépliage, les commentaires, la
+suppression et l'édition en ligne du titre sont tous intacts.
+
+**Rien n'a été vérifié à l'écran.** L'application n'a pas été lancée sur cette
+branche ; une vingtaine de contrôles visuels restent dus (conformité à la capture,
+alternance des teintes, sens du survol, alignement des colonnes).
+
+Deux arbitrages sont dus à l'auteur, tous deux issus d'omissions du plan :
+
+1. **`ListRow`** — la spec le nomme parmi les composants que cet écran devait faire
+   émerger ; le plan l'a oublié. Le chrome de ligne reste enfermé dans
+   `ActionTaskRow` et devra être réécrit à la première vue propagée.
+2. **« Grouper par : échéance »** — demandé par la spec, absent du plan. La spec se
+   contredit elle-même sur ce point : le livrer serait une fonction nouvelle, qu'elle
+   interdit par ailleurs. À trancher par écrit.
+
+Dette consignée : `CLAUDE.md` ligne 99 (« symboles/code en anglais ») est désormais
+contredite par `Views/DesignSystem/`, dont les symboles sont en français par décision
+explicite. La correction est impossible tant que `CLAUDE.md` porte des changements non
+commités du chantier éditeur. Autres dettes mineures : valeurs de couleur à confronter
+aux fichiers sources de Claude Design avant d'être figées ; `completedNoteView` reçoit
+le chrome mais pas les composants ; `statusHelp` dérive encore d'un seuil à 48 h alors
+que la couleur suit la règle à sept jours.
+
+Prochaine action de ce chantier : la session de vérification à l'écran, puis les deux
+arbitrages ci-dessus, avant toute propagation aux autres vues.
 
 Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
 à partir du handoff [`design_handoff_editor_blocs/README.md`](design_handoff_editor_blocs/README.md).
