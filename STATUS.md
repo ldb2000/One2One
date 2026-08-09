@@ -17,43 +17,54 @@ ni fusionné, ni abandonné ; sa propre vérification à l'écran reste due,
 indépendamment du prototype. Prochaine action : la session de vérification
 à l'écran du prototype.
 
-**Habillage visuel — vitrine `ActionsListView` livrée, écran dû.** Un chantier
-distinct, ouvert à partir de huit captures de design : appliquer aux vues
-existantes un langage visuel commun, **à fonctions strictement constantes**.
-Voir la [spec](docs/superpowers/specs/2026-08-09-habillage-visuel-design.md) et le
-[plan](docs/superpowers/plans/2026-08-09-habillage-vitrine-actions.md).
-Branche `feat/habillage-vitrine-actions`, 9 commits.
+**Vitrine `ActionsListView` — mise en page de la capture adoptée, écran dû.** Chantier
+ouvert à partir de huit captures de design. Voir la
+[spec](docs/superpowers/specs/2026-08-09-habillage-visuel-design.md), le
+[plan d'habillage](docs/superpowers/plans/2026-08-09-habillage-vitrine-actions.md) et le
+[plan correctif](docs/superpowers/plans/2026-08-09-vitrine-actions-mise-en-page-capture.md).
+Branche `feat/habillage-vitrine-actions`, 17 commits.
 
-Livré : les jetons (`OneToOne/Views/DesignSystem/AppTheme.swift`), la règle
-d'urgence partagée (`Urgence`, seuil de sept jours, 8 tests), trois composants
-(`Avatar`, `SegmentedFilter`, `MetaValue`, 7 tests), et `ActionsListView`
-restylée. Parité fonctionnelle vérifiée à chaque étape : les quatre filtres, les
-cinq modes de vue, la recherche, la création, le dépliage, les commentaires, la
-suppression et l'édition en ligne du titre sont tous intacts.
+**Correction de cap en cours de route.** Le premier plan a appliqué le *vocabulaire visuel*
+de la capture aux informations existantes sans adopter sa *mise en page* : à l'écran, la
+maquette n'était pas reconnaissable. Erreur d'interprétation, pas d'exécution — toutes les
+revues étaient vertes. Le second plan corrige : la barre principale est devenue celle de la
+capture, les contrôles secondaires sont montés en barre d'outils, la ligne s'est réduite à
+cinq éléments avec un menu `⋮` au survol.
 
-**Rien n'a été vérifié à l'écran.** L'application n'a pas été lancée sur cette
-branche ; une vingtaine de contrôles visuels restent dus (conformité à la capture,
-alternance des teintes, sens du survol, alignement des colonnes).
+Livré : jetons `AppTheme` ; deux règles de date testées — `Urgence` (couleur, seuil sept
+jours, 8 tests) et `Portee` (filtrage, 9 tests) ; composants `Avatar`, `MetaValue`,
+`SegmentedFilter` (7 tests) ; « Grouper par » branché sur la vue liste avec un axe
+« Échéance », les sections réutilisant la même fonction que le kanban.
 
-Deux arbitrages sont dus à l'auteur, tous deux issus d'omissions du plan :
+**Rien n'a été vérifié à l'écran, sauf un survol de l'auteur qui a révélé deux défauts** —
+« Grouper par » inopérant en liste (corrigé) et, trouvé dans la foulée par la revue, les
+actions terminées rendues invisibles par la portée (corrigé). Une vingtaine de contrôles
+restent dus. Trois sont prioritaires :
 
-1. **`ListRow`** — la spec le nomme parmi les composants que cet écran devait faire
-   émerger ; le plan l'a oublié. Le chrome de ligne reste enfermé dans
-   `ActionTaskRow` et devra être réécrit à la première vue propagée.
-2. **« Grouper par : échéance »** — demandé par la spec, absent du plan. La spec se
-   contredit elle-même sur ce point : le livrer serait une fonction nouvelle, qu'elle
-   interdit par ailleurs. À trancher par écrit.
+1. **cliquer `⋮`** — le mécanisme censé l'empêcher de déplier aussi la ligne n'a jamais été
+   vérifié ; s'il bloque l'ouverture du menu, Modifier, Commentaires et Supprimer deviennent
+   inatteignables sur les actions ouvertes ;
+2. **survoler le titre et la case à cocher** — l'apparition de `⋮` dépend d'un `onHover`
+   posé sur une vue de fond ; si le suivi ne porte pas au-dessus des sous-vues, même
+   conséquence ;
+3. **« Filtres → Terminées »** — vérifier que les actions terminées apparaissent bien.
 
-Dette consignée : `CLAUDE.md` ligne 99 (« symboles/code en anglais ») est désormais
-contredite par `Views/DesignSystem/`, dont les symboles sont en français par décision
-explicite. La correction est impossible tant que `CLAUDE.md` porte des changements non
-commités du chantier éditeur. Autres dettes mineures : valeurs de couleur à confronter
-aux fichiers sources de Claude Design avant d'être figées ; `completedNoteView` reçoit
-le chrome mais pas les composants ; `statusHelp` dérive encore d'un seuil à 48 h alors
-que la couleur suit la règle à sept jours.
+Trois règles de date coexistent : `Urgence` (couleur), `Portee` (filtrage) et les seuils
+propres de `taskStatus` (forme de la puce et infobulle, aujourd'hui/demain/48 h). Une action
+due demain porte donc une puce « imminente » coloriée en gris « à venir ».
 
-Prochaine action de ce chantier : la session de vérification à l'écran, puis les deux
-arbitrages ci-dessus, avant toute propagation aux autres vues.
+Dettes et arbitrages dus : `ListRow`, nommé par la spec, jamais extrait ; la spec interdit
+toute fonction nouvelle alors que le filtre de portée et le groupement en liste en sont ;
+l'axe « Échéance » ajouté à `ActionGrouping` fait apparaître un quatrième segment dans
+`ActionsPanel`, écran non visé ; onze des vingt jetons d'`AppTheme` n'ont aucun consommateur
+(catalogue publié d'avance pour la propagation) ; `CLAUDE.md` ligne 99 impose l'anglais pour
+les symboles alors que `Views/DesignSystem/` est en français par décision explicite —
+correction impossible tant que `CLAUDE.md` porte des changements non commités du chantier
+éditeur ; et **aucun test n'exerce la chaîne de filtres**, où trois défauts ont pourtant été
+trouvés.
+
+Prochaine action de ce chantier : la session de vérification à l'écran, en commençant par
+les trois contrôles prioritaires ci-dessus.
 
 Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
 à partir du handoff [`design_handoff_editor_blocs/README.md`](design_handoff_editor_blocs/README.md).
