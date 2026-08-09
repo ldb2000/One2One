@@ -46,10 +46,13 @@ public enum AppTheme {
     // MARK: - Typographie
 
     public static let titreEcran = Font.system(size: 28, weight: .semibold)
-    /// Intitulé de section : petites capitales grises, interlettrage élargi.
-    /// C'est le marqueur le plus caractéristique du jeu visuel.
-    public static let intituleSection = Font.system(size: 11, weight: .semibold)
-    public static let titreLigne = Font.system(size: 15, weight: .medium)
+    /// Intitulé de section : petites capitales.
+    /// L'interlettrage élargi n'est pas descriptible sur un `Font` — c'est un
+    /// réglage de `Text`/`View` (`.tracking(_:)`), pas une propriété de police ;
+    /// il devra être appliqué au site d'usage le jour où ce jeton sera consommé.
+    /// Couleur grise : à la charge du consommateur (`AppTheme.texteSecondaire`).
+    public static let intituleSection = Font.system(size: 11, weight: .semibold).smallCaps()
+    public static let titreLigne = Font.system(size: 15, weight: .semibold)
     public static let sousTitre = Font.system(size: 12)
     /// Codes projet, horaires, noms de commande.
     public static let chasseFixe = Font.system(size: 12, design: .monospaced)

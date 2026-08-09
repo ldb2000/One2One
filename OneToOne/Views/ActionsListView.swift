@@ -362,12 +362,18 @@ struct CollaboratorPickerOptions: View {
     }
 }
 
-/// GitHub-style action row.
-/// - Open: checkbox + title (bold) + meta line (created date, project, assignee, comments).
-/// - Completed: rendered as a note-style block (owner, dates, comments, project).
-/// - Expand (chevron / tap) to show comments thread + add-comment input + editable
-///   project / assignee pickers and due date. The status checkbox toggles completion;
-///   its icon and colour encode due-date urgency (overdue, today, soon, upcoming, undated).
+/// Ligne d'action façon liste GitHub.
+/// - Ouverte : case à cocher (la *forme* de l'icône vient de `taskStatus` — en
+///   retard / aujourd'hui / sous 48 h / à venir / sans date ; sa *couleur* vient
+///   de la règle d'urgence partagée `Urgence.pour` / `AppTheme.couleur`, seuil de
+///   7 jours, la même que celle de l'échéance affichée à droite) + titre éditable
+///   en double-clic + sous-titre (date de création) + métadonnées alignées à
+///   droite (code projet, avatar du porteur, échéance colorée par l'urgence) +
+///   compteur de commentaires + chevron de dépliage + suppression.
+/// - Terminée : rendue en bloc façon note (porteur, dates, commentaires, projet).
+/// - Le dépliage (chevron ou tap sur la ligne) affiche le fil de commentaires,
+///   le champ d'ajout, et les sélecteurs projet / assigné / échéance modifiables
+///   en place.
 struct ActionTaskRow: View {
     @Bindable var task: ActionTask
     /// Parité de la ligne dans la liste affichée, pour la teinte alternée.
@@ -389,11 +395,19 @@ struct ActionTaskRow: View {
     }()
 
     var body: some View {
-        if task.isCompleted {
-            completedNoteView
-        } else {
-            openTaskView
+        Group {
+            if task.isCompleted {
+                completedNoteView
+            } else {
+                openTaskView
+            }
         }
+        .background(rowBackground)
+        .overlay(
+            Rectangle().frame(height: 1)
+                .foregroundColor(AppTheme.separateur),
+            alignment: .bottom
+        )
     }
 
     // MARK: - Open (GitHub-style)
@@ -417,10 +431,10 @@ struct ActionTaskRow: View {
                                 onSave()
                             })
                             .textFieldStyle(.plain)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(AppTheme.titreLigne)
                         } else {
                             Text(task.title.isEmpty ? "Sans titre" : task.title)
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(AppTheme.titreLigne)
                                 .foregroundColor(task.title.isEmpty ? .secondary : .primary)
                                 .onTapGesture(count: 2) { isEditingTitle = true }
                         }
@@ -473,21 +487,23 @@ struct ActionTaskRow: View {
                     .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
             }
         }
-        .background(rowBackground)
-        .overlay(
-            Rectangle().frame(height: 1)
-                .foregroundColor(AppTheme.separateur),
-            alignment: .bottom
-        )
     }
 
     @State private var isEditingTitle: Bool = false
     @State private var isHovering: Bool = false
 
+    /// Le fond de base (teinte alternée) reste toujours posé ; le survol
+    /// superpose un voile par-dessus au lieu de le remplacer, pour assombrir
+    /// la ligne dans les deux parités au lieu d'inverser le sens visuel sur
+    /// les lignes impaires.
     private var rowBackground: some View {
-        (isHovering ? AppTheme.separateur.opacity(0.35)
-                    : (estPaire ? AppTheme.fondContenu : AppTheme.ligneAlternee))
-            .onHover { isHovering = $0 }
+        ZStack {
+            estPaire ? AppTheme.fondContenu : AppTheme.ligneAlternee
+            if isHovering {
+                AppTheme.separateur.opacity(0.35)
+            }
+        }
+        .onHover { isHovering = $0 }
     }
 
     /// Sous-titre gris sous le titre : seule métadonnée qui reste alignée à
@@ -570,14 +586,12 @@ struct ActionTaskRow: View {
         }
     }
 
+    /// Dérive **toujours** de la règle d'urgence partagée (`Urgence.pour`, seuil
+    /// 7 jours), la même que celle qui colore la date via `MetaValue` — jamais
+    /// des seuils de `taskStatus` (aujourd'hui / demain / 48 h), pour que la
+    /// puce et la date ne puissent plus se contredire sur une même ligne.
     private var statusColor: Color {
-        switch taskStatus {
-        case .overdue:  return .red
-        case .dueToday: return .orange
-        case .dueSoon:  return .blue
-        case .upcoming: return .secondary
-        case .undated:  return .secondary.opacity(0.6)
-        }
+        AppTheme.couleur(urgence)
     }
 
     private var statusHelp: String {
@@ -588,24 +602,6 @@ struct ActionTaskRow: View {
         case .upcoming: return "À venir"
         case .undated:  return "Sans date"
         }
-    }
-
-    static func relativeDueLabel(_ due: Date) -> String {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let dueDay = cal.startOfDay(for: due)
-        let days = cal.dateComponents([.day], from: today, to: dueDay).day ?? 0
-        switch days {
-        case ..<0:  return "En retard de \(-days)j"
-        case 0:     return "Aujourd'hui"
-        case 1:     return "Demain"
-        case 2...7: return "Dans \(days)j"
-        default:    return dateFmt.string(from: due)
-        }
-    }
-
-    static func dueColor(_ due: Date) -> Color {
-        AppTheme.couleur(Urgence.pour(due, maintenant: Date()))
     }
 
     private var expandedDetails: some View {
