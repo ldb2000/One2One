@@ -92,3 +92,40 @@ final class TranscriptEditServiceTests: XCTestCase {
         XCTAssertEqual(m.transcriptSegments.count, 0)
     }
 }
+
+/// L'erreur qui signale que l'audio a été modifié mais pas la transcription.
+///
+/// On ne peut pas provoquer un échec de `context.save()` de façon fiable en test ; ce
+/// qui est vérifiable, et ce qui compte pour l'utilisateur, c'est que l'erreur **existe**,
+/// qu'elle **transporte** la cause d'origine, et que son message **nomme** la
+/// désynchronisation au lieu d'un échec générique.
+final class TranscriptEditErrorTests: XCTestCase {
+
+    private struct CauseFactice: Error, LocalizedError {
+        var errorDescription: String? { "disque plein" }
+    }
+
+    func test_lErreurTransporteLaCauseDOrigine() {
+        let erreur = TranscriptEditError.saveFailedAfterAudioCut(underlying: CauseFactice())
+        guard case .saveFailedAfterAudioCut(let cause) = erreur else {
+            return XCTFail("cas d'erreur inattendu")
+        }
+        XCTAssertEqual((cause as? LocalizedError)?.errorDescription, "disque plein")
+    }
+
+    /// Le message doit dire que l'audio a changé : c'est la seule information qui permet
+    /// à l'utilisateur de comprendre que son enregistrement et son texte ne correspondent
+    /// plus.
+    func test_leMessageNommeLaDesynchronisation() {
+        let message = TranscriptEditError
+            .saveFailedAfterAudioCut(underlying: CauseFactice())
+            .errorDescription ?? ""
+
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("audio"),
+                      "le message doit mentionner l'audio : \(message)")
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("transcription"),
+                      "le message doit mentionner la transcription : \(message)")
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("disque plein"),
+                      "le message doit reprendre la cause d'origine : \(message)")
+    }
+}
