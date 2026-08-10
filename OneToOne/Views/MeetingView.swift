@@ -362,6 +362,7 @@ struct MeetingView: View {
             }
         }
         .onAppear {
+            MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
             applyActionDraftDefaultsIfNeeded()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
             didAutoStart = true
@@ -371,26 +372,40 @@ struct MeetingView: View {
         // Indexation Spotlight à la fermeture, pas à la sauvegarde : l'éditeur
         // de notes live appelle saveContext() à chaque frappe, ce qui
         // martèlerait CoreSpotlight si on indexait à chaque save.
-        // Court-circuité pendant une suppression : voir isBeingDeleted.
+        // Court-circuité pendant une suppression : voir isBeingDeleted, et
+        // MeetingScreenRegistry pour celle prononcée par un autre écran.
         .onDisappear {
-            guard !isBeingDeleted else { return }
+            let id = meeting.persistentModelID
+            // En dernier, une fois les lectures faites : jusque-là, l'écran
+            // qui interroge se compte lui-même.
+            defer { MeetingScreenRegistry.shared.screenDisappeared(id) }
+            guard !isBeingDeleted, !MeetingScreenRegistry.shared.isDeleted(id) else { return }
             guard !discardEmptyNoteIfNeeded() else { return }
             SpotlightIndexService.shared.index(meeting: meeting)
         }
     }
 
-    /// Reprend une note créée puis quittée sans rien y saisir : les cinq
-    /// chemins de création insèrent, sauvegardent et indexent d'emblée, donc un
-    /// clic malheureux laisserait sinon une note vide persistée **et** dans
-    /// l'index Spotlight.
+    /// Reprend une note fermée sans qu'elle porte rien : les chemins de
+    /// création insèrent, sauvegardent et indexent d'emblée, donc un clic
+    /// malheureux laisserait sinon une note vide persistée **et** dans l'index
+    /// Spotlight. Ce que « ne porte rien » recouvre exactement, et pourquoi ce
+    /// n'est pas « ce que l'écran d'une note permet de remplir », est établi
+    /// par `NoteFactory.isDiscardableEmptyNote` — la portée réelle du
+    /// nettoyage y est décrite, elle est plus étroite que ces cinq chemins.
     ///
     /// Articulation avec le reste du cycle de vie :
+    /// - ne supprime rien tant qu'un **autre** écran est monté sur la même
+    ///   réunion (`MeetingScreenRegistry`) : la même note s'ouvre dans la pile
+    ///   de navigation et dans la fenêtre autonome `1to1-meeting`, et
+    ///   supprimer le modèle pendant que l'autre l'observe fait crasher
+    ///   SwiftData — différer d'un tour de boucle n'y suffit pas, l'autre
+    ///   écran ne se démonte pas ;
     /// - pose `isBeingDeleted` **avant** de supprimer, comme `deleteMeeting()` :
     ///   c'est ce drapeau qui empêche un second `.onDisappear` de réindexer —
-    ///   ou de re-supprimer — un modèle disparu. Portée limitée : c'est un
-    ///   `@State`, donc il ne protège que **cette instance de vue**. Deux
-    ///   fenêtres ouvertes sur la même note ont chacune le sien, et la seconde
-    ///   réindexerait ce que la première vient de supprimer ;
+    ///   ou de re-supprimer — un modèle disparu. C'est un `@State`, donc il ne
+    ///   vaut que pour cette instance de vue ; la suppression est en plus
+    ///   consignée dans `MeetingScreenRegistry`, que les autres écrans lisent
+    ///   à leur fermeture ;
     /// - renvoie `true` pour que l'appelant saute l'indexation : réindexer ici
     ///   laisserait l'orphelin permanent que la tâche 4 a justement supprimé ;
     /// - annule la sauvegarde différée de l'éditeur, devenue sans objet ;
@@ -399,8 +414,11 @@ struct MeetingView: View {
     ///   SwiftData.
     /// - Returns: `true` si la note a été reprise.
     private func discardEmptyNoteIfNeeded() -> Bool {
+        let id = meeting.persistentModelID
+        guard !MeetingScreenRegistry.shared.isPresentedElsewhere(id) else { return false }
         guard NoteFactory.isDiscardableEmptyNote(meeting) else { return false }
         isBeingDeleted = true
+        MeetingScreenRegistry.shared.markDeleted(id)
         saveDebounceTask?.cancel()
         let target = meeting
         let ctx = context
@@ -2718,7 +2736,10 @@ struct MeetingView: View {
     private func deleteMeeting() {
         // Posé avant tout le reste : coupe court à la réindexation par
         // .onDisappear, qui sinon se déclenche via dismiss() juste en dessous.
+        // Consigné aussi dans le registre, pour l'écran resté ouvert sur la
+        // même réunion dans l'autre fenêtre.
         isBeingDeleted = true
+        MeetingScreenRegistry.shared.markDeleted(meeting.persistentModelID)
         if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
             _ = recorder.stop()
             // recorder.stop() clôt le flux audio : end() peut drainer sans
