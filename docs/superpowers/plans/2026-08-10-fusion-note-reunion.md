@@ -25,6 +25,10 @@ et XCTest.
 - Branche `feat/fusion-note-reunion`. **Aucun commit sur `master`.** Commits conventionnels.
 - Commentaires et libellés d'interface **en français** ; symboles et code en anglais.
 - Aucune dépendance nouvelle.
+- **Jamais `git commit -a` ni `git add -A`.** L'arbre de travail porte un chantier éditeur en
+  cours, sans rapport avec celui-ci (`Package.swift`, `Vendor/`, `OneToOne/Markdown/…`). Chaque
+  commit énumère ses chemins explicitement. Vérifier avec `git status --short` avant de committer
+  que rien d'étranger n'est indexé.
 - Tests neufs en **Swift Testing** (`import Testing`, `@Suite`, `@Test`, `#expect`), libellés en
   français. Les conteneurs de test neufs se construisent avec
   `Schema(CurrentSchema.models)` + `ModelConfiguration(isStoredInMemoryOnly: true)`.
@@ -1513,8 +1517,11 @@ Expected: compile ; aucune régression.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A OneToOne/Models OneToOne/Views/ChatbotView.swift \
-           OneToOne/Views/MeetingsListView.swift Tests/
+git add OneToOne/Models/Note.swift OneToOne/Models/Project.swift \
+        OneToOne/Models/OtherModels.swift OneToOne/Models/SchemaVersions.swift \
+        OneToOne/Views/ChatbotView.swift OneToOne/Views/MeetingsListView.swift \
+        Tests/ManagerCRGeneratorTests.swift Tests/ManagerReportServiceTests.swift
+git status --short   # rien d'etranger ne doit etre indexe
 git commit -m "refactor(modele): supprime Note et NoteAttachment, remplaces par le kind note"
 ```
 
@@ -1867,7 +1874,9 @@ Expected: aucune régression.
 - [ ] **Step 4: Commit**
 
 ```bash
-git commit -am "refactor(projet): retire les sections d'entrees datees de la fiche projet"
+git add OneToOne/Views/DetailsViews.swift
+git status --short   # rien d'etranger ne doit etre indexe
+git commit -m "refactor(projet): retire les sections d'entrees datees de la fiche projet"
 ```
 
 ---
@@ -2129,7 +2138,11 @@ Expected: compile ; aucune régression.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A OneToOne Tests
+git add OneToOne/Models/Project.swift OneToOne/Models/SchemaVersions.swift \
+        OneToOne/Services/BackupService.swift OneToOne/Services/SpotlightIndexService.swift \
+        Tests/ManagerCRGeneratorTests.swift Tests/ManagerReportServiceTests.swift \
+        Tests/QuickLaunchRouterTests.swift Tests/QuickLaunchURLHandlerTests.swift
+git status --short   # rien d'etranger ne doit etre indexe
 git commit -m "refactor(modele): supprime les entrees datees projet, vides et remplacees par les notes"
 ```
 
