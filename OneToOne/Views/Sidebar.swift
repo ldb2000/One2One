@@ -995,7 +995,7 @@ struct DashboardView: View {
 
         let ruleIndex = AgendaProjectResolver.makeIndex(context: context)
         let meetingsByEventID = Dictionary(
-            meetings.filter { !$0.calendarEventID.isEmpty }.map { ($0.calendarEventID, $0) },
+            MeetingStatsScope.held(meetings).filter { !$0.calendarEventID.isEmpty }.map { ($0.calendarEventID, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
