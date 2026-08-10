@@ -97,6 +97,44 @@ struct NoteFactoryTests {
         #expect(NoteFactory.isDiscardableEmptyNote(note))
     }
 
+    @Test("Un thème retient la note, même sans titre ni corps")
+    func tagKeepsIt() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make()
+        context.insert(note)
+        let tag = MeetingTag(name: "Recrutement")
+        context.insert(tag)
+        note.tags.append(tag)
+        try context.save()
+        // `MeetingTagEditor` est rendu hors de la garde de kind du chrome :
+        // poser un thème est la seule saisie possible sur une note sans écrire
+        // une ligne. La supprimer emporterait le lien vers le thème.
+        #expect(!NoteFactory.isDiscardableEmptyNote(note))
+    }
+
+    @Test("Un prompt spécifique retient la note")
+    func customPromptKeepsIt() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make()
+        context.insert(note)
+        // Atteint par « ⋯ → Détails de la réunion… » : le TextEditor de
+        // `MeetingDetailsBlock` n'est sous aucune garde de kind.
+        note.customPrompt = "Insister sur les risques"
+        #expect(!NoteFactory.isDiscardableEmptyNote(note))
+    }
+
+    @Test("Un événement calendrier importé retient la note, même sans titre")
+    func calendarLinkKeepsIt() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make()
+        context.insert(note)
+        // « ⋯ → Importer Calendrier » reste actif sur une note (cf.
+        // `MeetingMenuActions`). L'import recopie le titre de l'événement,
+        // mais un événement sans titre laisserait la note vide en apparence.
+        note.calendarEventID = "EVT-123"
+        #expect(!NoteFactory.isDiscardableEmptyNote(note))
+    }
+
     @Test("Une pièce jointe retient la note, même sans titre ni corps")
     func attachmentKeepsIt() throws {
         let context = try makeContext()
