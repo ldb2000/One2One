@@ -237,8 +237,10 @@ son nom fusionne transcription et notes live d'une réunion, sans rapport avec l
 
 Aucun refactor gratuit : uniquement là où la logique devient partagée.
 
-- `MeetingStatsScope.held(_:)` — filtre `kind != .note`. Trois appelants : `MenuBarStats` et les
-  deux montages de `MeetingHeatmapView` (`DetailsViews:53` et `:902`).
+- `MeetingStatsScope.held(_:)` — filtre `kind != .note`. Quatre appelants : `MenuBarStats`, les
+  deux montages de `MeetingHeatmapView` (`DetailsViews:53` et `:902`), et le décompte
+  hebdomadaire « Temps passé en réunions » de la barre latérale (`Sidebar:1024`), trouvé en
+  cours d'implémentation.
 - `NoteFactory.make(body:title:project:collaborator:)` → `Meeting`. Cinq appelants :
   `QuickNotePopover`, la liste « Notes », `NotesSection`, deux commandes du chatbot.
 - `MeetingView.visibleTabs(for:)` — statique et pure, pour tester le masquage sans instancier la vue.

@@ -133,8 +133,9 @@ import Foundation
 /// Une note est un `Meeting` de kind `.note` — une réunion avec soi-même. Elle
 /// ne représente aucun temps passé, ne doit pas noircir la heatmap d'activité,
 /// ni apparaître dans la liste des réunions d'un collaborateur (elle a sa
-/// propre section). Trois appelants partagent donc cette règle : le calcul des
-/// stats du jour et les deux montages de `MeetingHeatmapView`.
+/// propre section). Quatre appelants partagent donc cette règle : le calcul des
+/// stats du jour, les deux montages de `MeetingHeatmapView`, et le décompte
+/// hebdomadaire « Temps passé en réunions » de la barre latérale.
 enum MeetingStatsScope {
 
     /// Ne conserve que les réunions réellement tenues, dans l'ordre d'entrée.
@@ -161,6 +162,13 @@ par :
 
 ```swift
         let all = MeetingStatsScope.held((try? context.fetch(descriptor)) ?? [])
+```
+
+Dans `OneToOne/Views/Sidebar.swift`, `weeklyTimeBreakdown` (~ligne 1024), la boucle
+« 2. Réunions ad hoc » alimente le widget « Temps passé en réunions » — une note y compterait :
+
+```swift
+        for meeting in MeetingStatsScope.held(meetings) where meeting.date >= weekStart && meeting.date < weekEnd {
 ```
 
 Dans `OneToOne/Views/DetailsViews.swift`, fiche projet (~ligne 52) :
