@@ -17,15 +17,18 @@ import SwiftData
 /// **nested** des modèles (sinon CoreData ne voit pas de diff — les types
 /// Swift top-level sont partagés) puis ajouter un `MigrationStage` custom.
 ///
-/// Écart assumé : la suppression de `Note`/`NoteAttachment` (fusion note/réunion,
-/// tâche 8) n'a **pas** créé de `SchemaV2` malgré l'avertissement ci-dessus. Ce
-/// snapshot nested n'a de valeur que pour préserver des données existantes lors
-/// de la migration ; le store réel a été vérifié vide sur ces deux tables juste
-/// avant la suppression (`ZNOTE = 0`, `ZNOTEATTACHMENT = 0`, aucune note rattachée
-/// à un collaborateur). Sans données à migrer, un `SchemaV2` n'aurait rien à
-/// préserver — il n'a donc pas été créé. Si ce raisonnement ne tient plus (une
-/// autre suppression de type sur des données non vides), revenir à la procédure
-/// `SchemaV2` standard.
+/// ⚠️ Quatre types ont été retirés le 2026-08-10 (`Note`, `NoteAttachment`,
+/// `ProjectInfoEntry`, `ProjectCollaboratorEntry`) **sans** créer de `SchemaV2`
+/// malgré l'avertissement ci-dessus. Voir
+/// `docs/superpowers/specs/2026-08-10-fusion-note-reunion-design.md`. Ce
+/// snapshot nested n'a de valeur que pour préserver des données existantes
+/// lors de la migration ; le store réel a été vérifié vide sur les quatre
+/// tables juste avant chaque suppression (`ZNOTE = 0`, `ZNOTEATTACHMENT = 0`,
+/// `ZPROJECTINFOENTRY = 0`, `ZPROJECTCOLLABORATORENTRY = 0`, aucune note
+/// rattachée à un collaborateur). Sans données à migrer, un `SchemaV2` n'aurait
+/// rien à préserver — il n'a donc pas été créé. Si ce raisonnement ne tient
+/// plus (une autre suppression de type sur des données non vides), revenir à
+/// la procédure `SchemaV2` standard.
 enum SchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
 
@@ -36,8 +39,6 @@ enum SchemaV1: VersionedSchema {
             ProjectMailAttachment.self,
             MailIndexSuggestion.self,
             MailScanRecord.self,
-            ProjectInfoEntry.self,
-            ProjectCollaboratorEntry.self,
             ProjectAttachment.self,
             Collaborator.self,
             Interview.self,

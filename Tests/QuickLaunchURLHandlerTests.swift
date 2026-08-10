@@ -12,7 +12,7 @@ struct QuickLaunchURLHandlerTests {
         let schema = Schema([
             Collaborator.self, Meeting.self, Project.self,
             Interview.self, ActionTask.self, AppSettings.self, Entity.self,
-            ProjectAlert.self, ProjectInfoEntry.self, ProjectCollaboratorEntry.self,
+            ProjectAlert.self,
             ProjectAttachment.self, MeetingAttachment.self, TranscriptChunk.self,
             SlideCapture.self, InterviewAttachment.self
         ])

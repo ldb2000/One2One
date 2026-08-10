@@ -7,6 +7,11 @@ import AppKit
 /// d'un unique fichier JSON. Sérialise SwiftData vers des DTO `Codable`
 /// auto-contenus (données binaires des pièces jointes/WAV/slides incluses) puis
 /// reconstruit le graphe d'objets lors de la restauration.
+///
+/// Les sauvegardes écrites avant la fusion Note/Réunion contiennent encore des
+/// clés `infoEntries` et `collaboratorEntries` : `JSONDecoder` ignore les clés
+/// qu'aucune propriété ne réclame, elles restent donc lisibles. Ces tableaux
+/// étaient vides dans toutes les bases connues.
 final class BackupService {
     struct BackupPayload: Codable {
         var exportedAt: Date
@@ -56,20 +61,6 @@ final class BackupService {
         var importedAt: Date
     }
 
-    struct ProjectInfoEntryDTO: Codable {
-        var date: Date
-        var content: String
-        var category: String
-    }
-
-    struct ProjectCollaboratorEntryDTO: Codable {
-        var date: Date
-        var content: String
-        var kind: String
-        var isCompleted: Bool
-        var collaboratorName: String?
-    }
-
     struct ProjectDTO: Codable {
         var code: String
         var name: String
@@ -107,8 +98,6 @@ final class BackupService {
         var hasDIT: Bool
         var ditLink: String?
         var entityName: String?
-        var infoEntries: [ProjectInfoEntryDTO]
-        var collaboratorEntries: [ProjectCollaboratorEntryDTO]
         var attachments: [ProjectAttachmentDTO]
     }
 
@@ -341,18 +330,6 @@ final class BackupService {
                     hasDIT: project.hasDIT,
                     ditLink: project.ditLink?.absoluteString,
                     entityName: project.entity?.name,
-                    infoEntries: project.infoEntries.map {
-                        ProjectInfoEntryDTO(date: $0.date, content: $0.content, category: $0.category)
-                    },
-                    collaboratorEntries: project.collaboratorEntries.map {
-                        ProjectCollaboratorEntryDTO(
-                            date: $0.date,
-                            content: $0.content,
-                            kind: $0.kind,
-                            isCompleted: $0.isCompleted,
-                            collaboratorName: $0.collaborator?.name
-                        )
-                    },
                     attachments: project.attachments.map {
                         ProjectAttachmentDTO(
                             fileName: $0.fileName,
@@ -600,7 +577,6 @@ final class BackupService {
         }
 
         var projectMap: [String: Project] = [:]
-        var pendingCollaboratorEntries: [(ProjectCollaboratorEntry, String?)] = []
         for projectDTO in payload.projects {
             let project = Project(
                 code: projectDTO.code,
@@ -641,24 +617,6 @@ final class BackupService {
             project.ditLink = projectDTO.ditLink.flatMap(URL.init(string:))
             project.entity = projectDTO.entityName.flatMap { entityMap[$0] }
             context.insert(project)
-
-            for infoDTO in projectDTO.infoEntries {
-                let entry = ProjectInfoEntry(date: infoDTO.date, content: infoDTO.content, category: infoDTO.category)
-                entry.project = project
-                context.insert(entry)
-            }
-
-            for collaboratorEntryDTO in projectDTO.collaboratorEntries {
-                let entry = ProjectCollaboratorEntry(
-                    date: collaboratorEntryDTO.date,
-                    content: collaboratorEntryDTO.content,
-                    kind: collaboratorEntryDTO.kind,
-                    isCompleted: collaboratorEntryDTO.isCompleted
-                )
-                entry.project = project
-                context.insert(entry)
-                pendingCollaboratorEntries.append((entry, collaboratorEntryDTO.collaboratorName))
-            }
 
             for attachmentDTO in projectDTO.attachments {
                 let restoredURL = try restoredFileURL(
@@ -703,10 +661,6 @@ final class BackupService {
             collaborator.photoBookmarkData = collaboratorDTO.photoBookmarkData
             context.insert(collaborator)
             collaboratorMap[collaborator.name] = collaborator
-        }
-
-        for (entry, collaboratorName) in pendingCollaboratorEntries {
-            entry.collaborator = collaboratorName.flatMap { collaboratorMap[$0] }
         }
 
         for interviewDTO in payload.interviews {

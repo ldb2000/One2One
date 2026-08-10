@@ -102,12 +102,6 @@ final class Project {
     @Relationship(deleteRule: .cascade, inverse: \ProjectAttachment.project)
     var attachments: [ProjectAttachment] = []
 
-    @Relationship(deleteRule: .cascade, inverse: \ProjectInfoEntry.project)
-    var infoEntries: [ProjectInfoEntry] = []
-
-    @Relationship(deleteRule: .cascade, inverse: \ProjectCollaboratorEntry.project)
-    var collaboratorEntries: [ProjectCollaboratorEntry] = []
-
     @Relationship(deleteRule: .cascade, inverse: \ProjectMail.project)
     var mails: [ProjectMail] = []
 
@@ -134,45 +128,6 @@ final class Project {
         self.stableID = new
         try? modelContext?.save()
         return new
-    }
-}
-
-/// Entrée du journal d'informations d'un projet (note datée).
-/// `category` est une chaîne libre servant au filtrage/affichage : valeurs
-/// usuelles "Information" (défaut) et "REX" (retour d'expérience, surligné en
-/// orange et exploité par le chatbot).
-@Model
-final class ProjectInfoEntry {
-    var date: Date
-    var content: String
-    var category: String
-    var project: Project?
-
-    init(date: Date = Date(), content: String = "", category: String = "Information") {
-        self.date = date
-        self.content = content
-        self.category = category
-    }
-}
-
-/// Note ou action liée à un collaborateur dans le contexte d'un projet.
-/// `kind` est une chaîne libre distinguant les deux types saisis dans l'UI :
-/// "Information collaborateur" (note) et "Action collaborateur" (tâche, suivie
-/// via `isCompleted`).
-@Model
-final class ProjectCollaboratorEntry {
-    var date: Date
-    var content: String
-    var kind: String
-    var isCompleted: Bool
-    var collaborator: Collaborator?
-    var project: Project?
-
-    init(date: Date = Date(), content: String = "", kind: String = "Information collaborateur", isCompleted: Bool = false) {
-        self.date = date
-        self.content = content
-        self.kind = kind
-        self.isCompleted = isCompleted
     }
 }
 

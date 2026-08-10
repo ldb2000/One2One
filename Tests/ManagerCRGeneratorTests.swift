@@ -18,7 +18,6 @@ struct ManagerCRGeneratorTests {
             Project.self, Collaborator.self, Interview.self, ActionTask.self,
             AppSettings.self, Entity.self, Meeting.self, MeetingAttachment.self,
             TranscriptChunk.self, SlideCapture.self, ProjectAlert.self,
-            ProjectInfoEntry.self, ProjectCollaboratorEntry.self,
             ProjectAttachment.self, ProjectMail.self, ProjectMailAttachment.self,
             InterviewAttachment.self, SavedPrompt.self,
             ManagerReportItem.self, ManagerMeetingReport.self
