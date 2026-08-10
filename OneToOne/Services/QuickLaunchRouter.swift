@@ -100,6 +100,12 @@ final class QuickLaunchRouter: ObservableObject {
         return meeting
     }
 
+    /// Ouvre une réunion existante (clic sur un résultat Spotlight, par
+    /// exemple). N'enregistre pas : on vient consulter, pas capter.
+    func openMeeting(_ meeting: Meeting) {
+        launchWith(meetingID: meeting.ensuredStableID, autoStartRecording: false)
+    }
+
     /// Consommé par la vue qui ouvre la fenêtre — reset le token pour ne
     /// pas re-tirer.
     func consumePendingToken() -> OneToOneLaunchToken? {

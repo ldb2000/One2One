@@ -64,4 +64,55 @@ struct QuickLaunchURLHandlerTests {
 
         #expect(router.pendingToken == nil)
     }
+
+    @Test("Activity with meeting-<uuid> id opens the existing meeting without recording")
+    func meetingActivityOpensMeeting() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "Point hebdo", date: Date())
+        context.insert(meeting)
+        try context.save()
+
+        let activity = NSUserActivity(activityType: CSSearchableItemActionType)
+        activity.userInfo = [
+            CSSearchableItemActivityIdentifier: "meeting-\(meeting.ensuredStableID.uuidString)"
+        ]
+
+        let router = QuickLaunchRouter.testInstance()
+        QuickLaunchURLHandler.handle(activity: activity, router: router, context: context)
+
+        #expect(router.pendingToken?.meetingID == meeting.ensuredStableID)
+        #expect(router.pendingToken?.autoStartRecording == false)
+    }
+
+    @Test("Activity with unknown meeting-<uuid> id is a no-op")
+    func unknownMeetingIdentifierNoOp() throws {
+        let context = try makeContext()
+
+        let activity = NSUserActivity(activityType: CSSearchableItemActionType)
+        activity.userInfo = [CSSearchableItemActivityIdentifier: "meeting-deadbeef-dead-dead-dead-deaddeaddead"]
+
+        let router = QuickLaunchRouter.testInstance()
+        QuickLaunchURLHandler.handle(activity: activity, router: router, context: context)
+
+        #expect(router.pendingToken == nil)
+    }
+
+    @Test("Activity with meeting-<uuid> id opens an existing note without recording")
+    func noteActivityOpensNote() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make(body: "Idée archi")
+        context.insert(note)
+        try context.save()
+
+        let activity = NSUserActivity(activityType: CSSearchableItemActionType)
+        activity.userInfo = [
+            CSSearchableItemActivityIdentifier: "meeting-\(note.ensuredStableID.uuidString)"
+        ]
+
+        let router = QuickLaunchRouter.testInstance()
+        QuickLaunchURLHandler.handle(activity: activity, router: router, context: context)
+
+        #expect(router.pendingToken?.meetingID == note.ensuredStableID)
+        #expect(router.pendingToken?.autoStartRecording == false)
+    }
 }
