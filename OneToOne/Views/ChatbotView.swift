@@ -828,16 +828,10 @@ struct ChatbotView: View {
             func check(_ label: String, _ text: String) {
                 if let s = snippet(text, around: needle) { matches.append((label, s)) }
             }
-            check("titre", m.title)
-            check("rapport", m.summary)
-            for kp in m.keyPoints { check("point clé", kp) }
-            for d in m.decisions { check("décision", d) }
-            for q in m.openQuestions { check("question", q) }
-            check("notes", m.notes)
-            check("notes live", m.liveNotes)
-            check("transcription", m.mergedTranscript.isEmpty ? m.rawTranscript : m.mergedTranscript)
-            check("prompt", m.customPrompt)
-            check("calendrier", m.calendarEventTitle)
+            // Énumération partagée avec `NoteFactory.isDiscardableEmptyNote`
+            // (cf. `Meeting.textualContent`) : les deux listes séparées
+            // avaient divergé.
+            for entry in m.textualContent { check(entry.label, entry.text) }
             for p in m.participants where p.name.localizedCaseInsensitiveContains(needle) {
                 matches.append(("participant", p.name))
             }

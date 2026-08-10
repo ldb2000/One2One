@@ -500,6 +500,40 @@ final class Meeting {
     // Façades typées au-dessus des colonnes `*JSON` (array de String encodé).
     // Le stockage reste JSON pour rester migration-safe côté SwiftData.
 
+    /// Tout le texte libre que porte cette réunion, étiqueté.
+    ///
+    /// **Énumération unique.** Deux lecteurs doivent rester en phase : la
+    /// recherche `/cherche` de l'assistant, qui affiche l'étiquette de chaque
+    /// occurrence, et `NoteFactory.isDiscardableEmptyNote`, qui n'en lit que
+    /// le texte pour décider si une note ne porte rien. Deux listes séparées
+    /// avaient déjà divergé — un champ oublié dans l'une rend un texte
+    /// introuvable, oublié dans l'autre le fait supprimer sans confirmation.
+    /// Un champ texte ajouté à `Meeting` se déclare **ici**, une fois.
+    ///
+    /// La transcription n'y figure qu'une fois — la fusionnée, ou la brute à
+    /// défaut : `/cherche` n'en affiche qu'une, et « la fusionnée sinon la
+    /// brute » n'est vide que si les deux le sont, ce dont le prédicat se
+    /// contente.
+    var textualContent: [(label: String, text: String)] {
+        var content: [(label: String, text: String)] = [
+            ("titre", title),
+            ("rapport", summary),
+            ("résumé court", shortSummary),
+            ("notes", notes),
+            ("notes live", liveNotes),
+            ("transcription", mergedTranscript.isEmpty ? rawTranscript : mergedTranscript),
+            ("prompt", customPrompt),
+            ("calendrier", calendarEventTitle),
+            ("préparation", prepNotes),
+            ("absents cités", referencedAbsent),
+            ("prochaine échéance", nextDeadline)
+        ]
+        content += keyPoints.map { ("point clé", $0) }
+        content += decisions.map { ("décision", $0) }
+        content += openQuestions.map { ("question", $0) }
+        return content
+    }
+
     /// Points clés du rapport, vue tableau au-dessus de `keyPointsJSON`.
     var keyPoints: [String] {
         get { (try? JSONDecoder().decode([String].self, from: Data(keyPointsJSON.utf8))) ?? [] }

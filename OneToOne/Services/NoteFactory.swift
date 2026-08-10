@@ -85,15 +85,11 @@ enum NoteFactory {
         // coût du premier « non », jamais la réponse.
 
         // 1. Attributs. Tout le texte libre que `Meeting` peut porter, quel
-        // que soit l'écran qui l'a rempli avant la conversion en note.
-        let freeText = [
-            meeting.title, meeting.liveNotes, meeting.notes, meeting.customPrompt,
-            meeting.rawTranscript, meeting.mergedTranscript,
-            meeting.summary, meeting.shortSummary,
-            meeting.prepNotes, meeting.referencedAbsent, meeting.nextDeadline
-        ]
-        guard freeText.allSatisfy({
-            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // que soit l'écran qui l'a rempli avant la conversion en note —
+        // énuméré une seule fois, sur le modèle, et partagé avec la recherche
+        // `/cherche` de l'assistant.
+        guard meeting.textualContent.allSatisfy({
+            $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) else { return false }
 
         // Audio, et lien calendrier. Non vide ⇒ un événement a été importé :
