@@ -1021,7 +1021,7 @@ struct DashboardView: View {
         }
 
         // 2. Réunions ad hoc (hors calendrier, ou événement absent du fetch).
-        for meeting in meetings where meeting.date >= weekStart && meeting.date < weekEnd {
+        for meeting in MeetingStatsScope.held(meetings) where meeting.date >= weekStart && meeting.date < weekEnd {
             if !meeting.calendarEventID.isEmpty && countedEventIDs.contains(meeting.calendarEventID) { continue }
             let secs = meetingTrackedSeconds(meeting)
             guard secs > 0 else { continue }
