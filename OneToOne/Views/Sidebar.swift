@@ -983,8 +983,9 @@ struct DashboardView: View {
     /// 1. Les événements calendrier sont la source principale. Classement par
     ///    événement : règle manuelle (projet ou Ignoré → exclu) > réunion
     ///    importée (`calendarEventID`) > suggestion fuzzy > « Sans projet ».
-    /// 2. Les réunions ad hoc (sans événement calendrier compté en 1) sont
-    ///    ajoutées avec la logique historique — c'est la déduplication.
+    /// 2. Les réunions ad hoc (sans événement calendrier compté en 1), hors
+    ///    notes, sont ajoutées avec la logique historique — c'est la
+    ///    déduplication.
     private func weeklyTimeBreakdown(weekStart: Date) -> [(name: String, seconds: Int, symbol: String)] {
         let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
         var totals: [String: (seconds: Int, symbol: String)] = [:]
@@ -995,9 +996,16 @@ struct DashboardView: View {
 
         let ruleIndex = AgendaProjectResolver.makeIndex(context: context)
         let meetingsByEventID = Dictionary(
-            MeetingStatsScope.held(meetings).filter { !$0.calendarEventID.isEmpty }.map { ($0.calendarEventID, $0) },
+            meetings.filter { !$0.calendarEventID.isEmpty }.map { ($0.calendarEventID, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+
+        // Les notes sont traitées différemment selon la source du temps :
+        // — boucle 1, le temps vient de l'ÉVÉNEMENT d'agenda. Ce créneau a
+        //   occupé du temps réel, il compte donc, et il est étiqueté par ce
+        //   qu'il est devenu (« Note »). Pour l'exclure, la règle « Ignoré ».
+        // — boucle 2, le temps vient de la RÉUNION. Une note n'a pas de durée
+        //   propre : elle ne compte pas (cf. MeetingStatsScope).
 
         // 1. Événements agenda de la semaine.
         var countedEventIDs = Set<String>()
