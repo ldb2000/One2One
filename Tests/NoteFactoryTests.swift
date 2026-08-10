@@ -195,8 +195,9 @@ struct NoteFactoryTests {
     }
 
     /// Chaque champ hérité d'une vraie réunion retient la note **à lui seul**,
-    /// tous les autres restant vides. Verrouille l'absence de trou dans la
-    /// liste des gardes.
+    /// tous les autres restant vides. Verrouille les gardes **scalaires** ;
+    /// les relations et les rattachements sans inverse ont leurs propres
+    /// tables plus bas.
     @Test("Chaque trace d'une vraie réunion retient la note à elle seule")
     func eachLeftoverFieldAloneKeepsIt() throws {
         let context = try makeContext()
@@ -371,5 +372,56 @@ struct NoteFactoryTests {
 
         #expect(!NoteFactory.isDiscardableEmptyNote(withAdhoc))
         #expect(!NoteFactory.isDiscardableEmptyNote(withStatuses))
+    }
+
+    /// Les quatre relations en cascade que le prédicat garde en plus des
+    /// pièces jointes, des thèmes et des actions. Elles n'apparaissaient dans
+    /// aucun test : les retirer — mouvement plausible, `.isEmpty` sur ces
+    /// relations faute le store — laissait la suite verte et rendait une
+    /// réunion diarisée convertie en note supprimable sans confirmation.
+    @Test("Chaque relation en cascade retient la note à elle seule")
+    func eachCascadeRelationAloneKeepsIt() throws {
+        let context = try makeContext()
+
+        func convertedNote(_ attach: (Meeting) -> Void) throws -> Meeting {
+            let m = Meeting(title: "", date: Date(), notes: "")
+            context.insert(m)
+            attach(m)
+            m.kind = .note
+            try context.save()
+            return m
+        }
+
+        let cases: [(String, (Meeting) -> Void)] = [
+            ("transcriptChunks", { m in
+                let chunk = TranscriptChunk(text: "On démarre le point budget.", orderIndex: 0)
+                chunk.meeting = m
+                context.insert(chunk)
+            }),
+            ("transcriptSegments", { m in
+                let segment = TranscriptSegment(orderIndex: 0,
+                                                startSeconds: 0,
+                                                endSeconds: 4.2,
+                                                text: "On démarre le point budget.")
+                segment.meeting = m
+                context.insert(segment)
+            }),
+            ("reportRevisions", { m in
+                let revision = ReportRevision(meeting: m, version: 1)
+                revision.body = "## Décisions\n- Reporter la mise en production."
+                context.insert(revision)
+            }),
+            ("meetingAlerts", { m in
+                let alert = ProjectAlert(title: "Budget dépassé", detail: "+12%", severity: "Élevé")
+                context.insert(alert)
+                m.meetingAlerts = [alert]
+            })
+        ]
+
+        for (name, attach) in cases {
+            let note = try convertedNote(attach)
+            #expect(!NoteFactory.isDiscardableEmptyNote(note),
+                    "\(name) seul devrait retenir la note")
+        }
     }
 }
