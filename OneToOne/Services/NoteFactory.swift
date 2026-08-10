@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// Fabrique la même note quel que soit le point d'entrée : note rapide du
 /// menubar, écran « Notes », section Notes d'une fiche, commandes `/ajout-*`
@@ -71,6 +72,11 @@ enum NoteFactory {
     static func isDiscardableEmptyNote(_ meeting: Meeting) -> Bool {
         guard meeting.kind == .note else { return false }
 
+        // Sans contexte, les rattachements sans inverse (ci-dessous) sont
+        // hors de portée : on ne peut pas conclure que la note ne porte
+        // rien, donc on la retient.
+        guard let context = meeting.modelContext else { return false }
+
         // Relations : toutes en `.cascade`, donc toute collection non vide est
         // du contenu qu'une suppression emporterait avec elle.
         guard meeting.attachments.isEmpty,
@@ -101,9 +107,51 @@ enum NoteFactory {
             meeting.summary, meeting.shortSummary,
             meeting.prepNotes, meeting.referencedAbsent, meeting.nextDeadline
         ]
-        return freeText.allSatisfy {
+        guard freeText.allSatisfy({
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else { return false }
+
+        // Dernier bloc parce que le seul à toucher le store : le contenu que
+        // le 1:1 manager rattache à la réunion depuis **son** côté.
+        return !hasAttachedContentWithoutInverse(meeting, in: context)
+    }
+
+    /// Vrai quand un objet référence `meeting` par une relation qui ne déclare
+    /// **aucun tableau inverse** sur `Meeting` : lire les collections du modèle
+    /// ne les voit pas, il faut les chercher depuis leur propre côté.
+    ///
+    /// Les quatre appartiennent au 1:1 manager, dont le contenu ne passe pas
+    /// par les champs d'une réunion ordinaire — `ManagerCRGenerator` écrit le
+    /// CR dans `ManagerMeetingReport.generatedSummary`, archive les points
+    /// avec `archivedInMeeting` et matérialise les actions sur
+    /// `ActionTask.managerMeeting` (jamais `ActionTask.meeting`). Un 1:1
+    /// manager tenu et rapporté a donc `summary`, `rawTranscript`, `tasks` et
+    /// `reportRevisions` vides.
+    ///
+    /// Le jour où une relation vers `Meeting` gagne un inverse, la garde
+    /// correspondante peut redescendre dans le bloc des collections ci-dessus,
+    /// qui ne touche pas le store. `grep -n "Meeting?" OneToOne/Models` donne
+    /// la liste des références à vérifier.
+    private static func hasAttachedContentWithoutInverse(_ meeting: Meeting,
+                                                         in context: ModelContext) -> Bool {
+        let id = meeting.persistentModelID
+
+        func exists<T: PersistentModel>(_ predicate: Predicate<T>) -> Bool {
+            var descriptor = FetchDescriptor<T>(predicate: predicate)
+            descriptor.fetchLimit = 1
+            // Une erreur de fetch ne prouve pas l'absence : on retient la note.
+            guard let found = try? context.fetch(descriptor) else { return true }
+            return !found.isEmpty
         }
+
+        return exists(#Predicate<ManagerMeetingReport> {
+            $0.meeting?.persistentModelID == id
+        }) || exists(#Predicate<ManagerReportItem> {
+            $0.sourceMeeting?.persistentModelID == id
+                || $0.archivedInMeeting?.persistentModelID == id
+        }) || exists(#Predicate<ActionTask> {
+            $0.managerMeeting?.persistentModelID == id
+        })
     }
 
 }

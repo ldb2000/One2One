@@ -241,4 +241,70 @@ struct NoteFactoryTests {
         // Relation en cascade : supprimer la note emporterait l'action.
         #expect(!NoteFactory.isDiscardableEmptyNote(note))
     }
+
+    // MARK: - Le contenu rattaché sans relation inverse sur Meeting
+
+    /// Le 1:1 manager range son contenu dans quatre références à `Meeting` qui
+    /// ne déclarent **aucun tableau inverse** : `ManagerMeetingReport.meeting`,
+    /// `ManagerReportItem.sourceMeeting`, `ManagerReportItem.archivedInMeeting`
+    /// et `ActionTask.managerMeeting`. Lire les collections de `Meeting` ne les
+    /// voit donc pas — il faut les chercher depuis leur propre côté. Une
+    /// réunion tenue via l'agenda manager n'a rien dans `summary`,
+    /// `rawTranscript`, `tasks` ni `reportRevisions` : sans ces gardes, la
+    /// basculer sur « Note » puis fermer l'écran la supprimerait avec son CR.
+    @Test("Chaque rattachement du 1:1 manager retient la note à lui seul")
+    func managerAttachmentAloneKeepsIt() throws {
+        let context = try makeContext()
+
+        func convertedNote(_ attach: (Meeting) -> Void) throws -> Meeting {
+            let m = Meeting(title: "", date: Date(), notes: "")
+            context.insert(m)
+            attach(m)
+            m.kind = .note
+            try context.save()
+            return m
+        }
+
+        let cases: [(String, (Meeting) -> Void)] = [
+            ("ManagerMeetingReport.meeting", { m in
+                let report = ManagerMeetingReport(meeting: m)
+                report.generatedSummary = "## Points\n- Budget à arbitrer"
+                context.insert(report)
+            }),
+            ("ManagerReportItem.sourceMeeting", { m in
+                let item = ManagerReportItem(rawSnippet: "Le budget dérape",
+                                             sourceField: "manual",
+                                             sourceRangeStart: 0,
+                                             sourceRangeLength: 0,
+                                             sourceMeeting: m)
+                context.insert(item)
+            }),
+            ("ManagerReportItem.archivedInMeeting", { m in
+                let item = ManagerReportItem(manualSnippet: "Point clos", category: "Information")
+                item.archivedInMeeting = m
+                context.insert(item)
+            }),
+            ("ActionTask.managerMeeting", { m in
+                let task = ActionTask(title: "Relancer la DSI")
+                task.fromManager = true
+                task.managerMeeting = m
+                context.insert(task)
+            })
+        ]
+
+        for (name, attach) in cases {
+            let note = try convertedNote(attach)
+            #expect(!NoteFactory.isDiscardableEmptyNote(note),
+                    "\(name) seul devrait retenir la note")
+        }
+    }
+
+    /// Sans contexte, le prédicat ne peut pas chercher les rattachements sans
+    /// inverse : il ne peut donc pas conclure que la note ne porte rien.
+    /// L'asymétrie du risque commande alors de la retenir.
+    @Test("Une note hors de tout contexte n'est jamais jetable")
+    func noteWithoutContextIsNotDiscardable() throws {
+        let orphan = NoteFactory.make()
+        #expect(!NoteFactory.isDiscardableEmptyNote(orphan))
+    }
 }
