@@ -5,11 +5,12 @@ import UniformTypeIdentifiers
 final class SpotlightIndexService {
     static let shared = SpotlightIndexService()
 
-    /// Ré-indexe tous les projets + collaborateurs en un seul lot.
-    /// À appeler au démarrage de l'app (pas pendant la synchro courante) :
-    /// les écritures incrémentales passent par `index(project:)` / `index(collaborator:)`.
+    /// Ré-indexe tous les projets + collaborateurs + réunions (notes comprises)
+    /// en un seul lot. À appeler au démarrage de l'app (pas pendant la synchro
+    /// courante) : les écritures incrémentales passent par `index(project:)` /
+    /// `index(collaborator:)` / `index(meeting:)`.
     /// Les collaborateurs archivés sont ignorés. No-op si rien à indexer.
-    func indexAll(projects: [Project], collaborators: [Collaborator]) {
+    func indexAll(projects: [Project], collaborators: [Collaborator], meetings: [Meeting]) {
         var items: [CSSearchableItem] = []
         for project in projects {
             items.append(makeProjectItem(project))
@@ -19,13 +20,14 @@ final class SpotlightIndexService {
         for collab in collaborators where !collab.isArchived {
             items.append(makeCollaboratorItem(collab))
         }
+        items.append(contentsOf: meetings.map { makeMeetingItem($0) })
         guard !items.isEmpty else { return }
 
         CSSearchableIndex.default().indexSearchableItems(items) { error in
             if let error {
                 print("[Spotlight] Bulk indexing failed: \(error)")
             } else {
-                print("[Spotlight] Indexed \(items.count) items (\(projects.count) projects, \(collaborators.count) collaborators)")
+                print("[Spotlight] Indexed \(items.count) items (\(projects.count) projects, \(collaborators.count) collaborators, \(meetings.count) meetings)")
             }
         }
     }
@@ -37,7 +39,7 @@ final class SpotlightIndexService {
     func fetchIndexedItemCount(completion: @escaping (Int) -> Void) {
         let queryContext = CSSearchQueryContext()
         queryContext.fetchAttributes = ["displayName"]
-        let query = CSSearchQuery(queryString: "domainIdentifier == 'projects' || domainIdentifier == 'project-info' || domainIdentifier == 'project-collaborator-info' || domainIdentifier == 'collaborators'", queryContext: queryContext)
+        let query = CSSearchQuery(queryString: "domainIdentifier == 'projects' || domainIdentifier == 'project-info' || domainIdentifier == 'project-collaborator-info' || domainIdentifier == 'collaborators' || domainIdentifier == 'meetings'", queryContext: queryContext)
         var count = 0
         query.foundItemsHandler = { items in
             count += items.count
@@ -191,5 +193,61 @@ final class SpotlightIndexService {
         CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: [collaboratorIdentifier(collaborator)]) { error in
             if let error { print("[Spotlight] Delete collaborator failed: \(error)") }
         }
+    }
+
+    /// Item Spotlight d'une réunion — notes comprises, puisqu'une note est une
+    /// réunion de kind `.note`. Les transcriptions (`rawTranscript`,
+    /// `mergedTranscript`) sont **volontairement exclues** : elles pèsent des
+    /// heures de texte et sont déjà interrogeables par le RAG.
+    private func makeMeetingItem(_ meeting: Meeting) -> CSSearchableItem {
+        let attributes = CSSearchableItemAttributeSet(contentType: .text)
+        let isNote = meeting.kind == .note
+        let fallback = isNote ? "Note sans titre" : "Réunion sans titre"
+        let displayName = meeting.title.isEmpty ? fallback : meeting.title
+
+        attributes.title = "OneToOne — \(displayName)"
+        attributes.displayName = displayName
+        attributes.contentDescription = [
+            meeting.date.formatted(date: .abbreviated, time: .omitted),
+            meeting.shortSummary,
+            meeting.liveNotes,
+            meeting.notes
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " | ")
+
+        var keywords = ["OneToOne", meeting.kind.label]
+        if isNote { keywords.append("note") }
+        if let projectName = meeting.project?.name, !projectName.isEmpty {
+            keywords.append(projectName)
+        }
+        keywords.append(contentsOf: meeting.participants.map(\.name))
+        attributes.keywords = keywords.filter { !$0.isEmpty }
+
+        return CSSearchableItem(uniqueIdentifier: meetingIdentifier(meeting),
+                                domainIdentifier: "meetings",
+                                attributeSet: attributes)
+    }
+
+    private func meetingIdentifier(_ meeting: Meeting) -> String {
+        "meeting-\(meeting.ensuredStableID.uuidString)"
+    }
+
+    /// Test hook only.
+    func makeMeetingItemForTesting(_ meeting: Meeting) -> CSSearchableItem {
+        makeMeetingItem(meeting)
+    }
+
+    func index(meeting: Meeting) {
+        CSSearchableIndex.default().indexSearchableItems([makeMeetingItem(meeting)]) { error in
+            if let error { print("[Spotlight] Indexing meeting failed: \(error)") }
+        }
+    }
+
+    func remove(meeting: Meeting) {
+        CSSearchableIndex.default()
+            .deleteSearchableItems(withIdentifiers: [meetingIdentifier(meeting)]) { error in
+                if let error { print("[Spotlight] Delete meeting failed: \(error)") }
+            }
     }
 }

@@ -1098,12 +1098,12 @@ struct SettingsView: View {
         try? context.save()
     }
 
-    /// Réindexe projets et collaborateurs dans Spotlight, puis affiche le nombre
-    /// d'éléments indexés dans `spotlightStatus`.
+    /// Réindexe projets, collaborateurs et réunions (notes comprises) dans
+    /// Spotlight, puis affiche le nombre d'éléments indexés dans `spotlightStatus`.
     private func reindexSpotlight() {
         isReindexing = true
         spotlightStatus = ""
-        SpotlightIndexService.shared.indexAll(projects: projects, collaborators: collaborators)
+        SpotlightIndexService.shared.indexAll(projects: projects, collaborators: collaborators, meetings: meetings)
         SpotlightIndexService.shared.fetchIndexedItemCount { count in
             isReindexing = false
             spotlightStatus = "\(count) éléments indexés — OK"

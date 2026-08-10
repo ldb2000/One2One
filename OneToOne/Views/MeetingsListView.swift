@@ -467,6 +467,7 @@ struct MeetingsListView: View {
     private func deleteMeetings(offsets: IndexSet) {
         let sorted = filteredMeetings
         for index in offsets {
+            SpotlightIndexService.shared.remove(meeting: sorted[index])
             context.delete(sorted[index])
         }
         saveContext()

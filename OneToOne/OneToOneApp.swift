@@ -256,12 +256,16 @@ struct ContentView: View {
         }
     }
 
-    /// Réindexe tous les projets et collaborateurs dans Spotlight.
+    /// Réindexe tous les projets, collaborateurs et réunions (notes comprises)
+    /// dans Spotlight.
     private func reindexSpotlight() {
         do {
             let allProjects = try context.fetch(FetchDescriptor<Project>())
             let allCollabs = try context.fetch(FetchDescriptor<Collaborator>())
-            SpotlightIndexService.shared.indexAll(projects: allProjects, collaborators: allCollabs)
+            let allMeetings = try context.fetch(FetchDescriptor<Meeting>())
+            SpotlightIndexService.shared.indexAll(projects: allProjects,
+                                                  collaborators: allCollabs,
+                                                  meetings: allMeetings)
         } catch {
             print("[Spotlight] Failed to fetch for indexing: \(error)")
         }

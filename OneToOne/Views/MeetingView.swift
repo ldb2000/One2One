@@ -361,6 +361,12 @@ struct MeetingView: View {
             Task { await startRecording() }
         }
         .focusedSceneValue(\.meetingMenu, makeMenuActions())
+        // Indexation Spotlight à la fermeture, pas à la sauvegarde : l'éditeur
+        // de notes live appelle saveContext() à chaque frappe, ce qui
+        // martèlerait CoreSpotlight si on indexait à chaque save.
+        .onDisappear {
+            SpotlightIndexService.shared.index(meeting: meeting)
+        }
     }
 
     /// Construit la source d'actions partagée par le « ⋯ » et les menus natifs
@@ -2679,6 +2685,7 @@ struct MeetingView: View {
         let ctx = context
         dismiss()
         Task { @MainActor in
+            SpotlightIndexService.shared.remove(meeting: target)
             ctx.delete(target)
             do { try ctx.save() } catch { print("[MeetingView] delete FAILED: \(error)") }
         }
