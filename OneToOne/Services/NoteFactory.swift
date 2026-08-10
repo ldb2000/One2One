@@ -63,8 +63,10 @@ enum NoteFactory {
     /// fermée, pas seulement à celle qu'on vient de créer.
     ///
     /// **Ne comptent pas**, parce qu'ils viennent du geste de création et non
-    /// d'une saisie : le projet, les participants (y compris ad hoc), la date,
-    /// le gabarit de rapport. **Couverts indirectement** : les slides (ce sont
+    /// d'une saisie : le projet, la date, le gabarit de rapport, et les
+    /// participants **de l'annuaire** — c'est le bouton cliqué qui les pose.
+    /// Comptent en revanche les participants **ad hoc**, tapés à la main dans
+    /// la feuille des participants, et les statuts de présence. **Couverts indirectement** : les slides (ce sont
     /// des `MeetingAttachment` de kind « slides »), les métadonnées calendrier
     /// (toutes écrites par les chemins qui posent `calendarEventID`), les
     /// assignations de locuteur (sans objet sans segments) et les drapeaux de
@@ -93,10 +95,22 @@ enum NoteFactory {
         // événement sans titre laisserait le reste du prédicat vide.
         guard (meeting.wavFilePath ?? "").isEmpty, meeting.calendarEventID.isEmpty else { return false }
 
-        // Champs structurés du rapport (façades JSON).
-        guard meeting.keyPoints.isEmpty,
-              meeting.decisions.isEmpty,
-              meeting.openQuestions.isEmpty
+        // Champs structurés du rapport. On lit la **colonne**, pas la façade
+        // calculée : son getter avale toute erreur de décodage en `[]`
+        // (`OtherModels.swift:503-518`), donc un JSON écrit par un schéma plus
+        // ancien ou tronqué à la restauration se lirait « vide » alors qu'il
+        // porte le rapport.
+        guard carriesNoJSONContent(meeting.keyPointsJSON),
+              carriesNoJSONContent(meeting.decisionsJSON),
+              carriesNoJSONContent(meeting.openQuestionsJSON)
+        else { return false }
+
+        // Présence saisie à la main sur l'écran de réunion. Un participant ad
+        // hoc est tapé dans la feuille des participants ; son `Collaborator`
+        // n'existe que pour cette réunion et n'est ramassé que par
+        // `MeetingView.removeAllParticipants`, jamais par cette suppression.
+        guard !meeting.participants.contains(where: { $0.isAdhoc }),
+              carriesNoJSONContent(meeting.participantStatusesJSON)
         else { return false }
 
         // Tout le texte libre que `Meeting` peut porter, quel que soit l'écran
@@ -114,6 +128,15 @@ enum NoteFactory {
         // Dernier bloc parce que le seul à toucher le store : le contenu que
         // le 1:1 manager rattache à la réunion depuis **son** côté.
         return !hasAttachedContentWithoutInverse(meeting, in: context)
+    }
+
+    /// Vrai quand une colonne JSON ne porte aucun élément : vide, ou réduite à
+    /// son littéral par défaut. Tout le reste compte comme du contenu, y
+    /// compris un JSON que le décodeur refuserait — c'est précisément le cas
+    /// que les façades calculées effacent.
+    private static func carriesNoJSONContent(_ json: String) -> Bool {
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "[]" || trimmed == "{}"
     }
 
     /// Vrai quand un objet référence `meeting` par une relation qui ne déclare

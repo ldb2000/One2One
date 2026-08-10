@@ -307,4 +307,69 @@ struct NoteFactoryTests {
         let orphan = NoteFactory.make()
         #expect(!NoteFactory.isDiscardableEmptyNote(orphan))
     }
+
+    // MARK: - Ce que les façades calculées cachent
+
+    /// Les trois champs structurés du rapport sont des façades au-dessus de
+    /// colonnes JSON, et leur getter avale **toute** erreur de décodage en
+    /// `[]` (`OtherModels.swift:503-518`). Un JSON écrit par un schéma plus
+    /// ancien, ou tronqué à la restauration, se lit donc « vide » alors que la
+    /// colonne porte le rapport. Le prédicat lit la colonne, comme il le fait
+    /// déjà pour `wavFilePath` et `calendarEventID`.
+    @Test("Un rapport dont le JSON ne se décode pas retient quand même la note")
+    func undecodableReportJSONKeepsIt() throws {
+        let context = try makeContext()
+
+        func convertedNote(_ fill: (Meeting) -> Void) -> Meeting {
+            let m = Meeting(title: "", date: Date(), notes: "")
+            context.insert(m)
+            fill(m)
+            m.kind = .note
+            return m
+        }
+
+        let cases: [(String, (Meeting) -> Void)] = [
+            ("keyPointsJSON", { $0.keyPointsJSON = "[{\"text\": \"Le budget dérape\"}]" }),
+            ("decisionsJSON", { $0.decisionsJSON = "[\"Reporter la mise en produ" }),
+            ("openQuestionsJSON", { $0.openQuestionsJSON = "{\"question\": \"Qui arbitre ?\"}" })
+        ]
+        for (name, fill) in cases {
+            let note = convertedNote(fill)
+            #expect(note.keyPoints.isEmpty && note.decisions.isEmpty && note.openQuestions.isEmpty,
+                    "\(name) : la façade doit bien se lire vide, sinon le test ne prouve rien")
+            #expect(!NoteFactory.isDiscardableEmptyNote(note),
+                    "\(name) illisible seul devrait retenir la note")
+        }
+    }
+
+    // MARK: - Ce que l'utilisateur a saisi lui-même sur l'écran de réunion
+
+    /// Un participant ad hoc est **tapé à la main** dans la feuille des
+    /// participants, il ne vient pas du bouton cliqué à la création. Les
+    /// statuts de présence non plus. Les perdre sans confirmation est une
+    /// perte de saisie ; et le `Collaborator` ad hoc, créé pour cette réunion
+    /// seule, n'est ramassé que par `MeetingView.removeAllParticipants` — il
+    /// survivrait à la suppression, rattaché à rien.
+    @Test("Un participant ad hoc ou un statut de présence retient la note")
+    func handTypedAttendanceKeepsIt() throws {
+        let context = try makeContext()
+
+        let withAdhoc = Meeting(title: "", date: Date(), notes: "")
+        context.insert(withAdhoc)
+        let walkIn = Collaborator(name: "Intervenant externe")
+        walkIn.isAdhoc = true
+        context.insert(walkIn)
+        withAdhoc.participants = [walkIn]
+        withAdhoc.kind = .note
+
+        let withStatuses = Meeting(title: "", date: Date(), notes: "")
+        context.insert(withStatuses)
+        withStatuses.participantStatusesJSON = "{\"Alice\": \"present\"}"
+        withStatuses.kind = .note
+
+        try context.save()
+
+        #expect(!NoteFactory.isDiscardableEmptyNote(withAdhoc))
+        #expect(!NoteFactory.isDiscardableEmptyNote(withStatuses))
+    }
 }
