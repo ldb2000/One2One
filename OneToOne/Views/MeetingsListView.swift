@@ -100,7 +100,9 @@ struct MeetingsListView: View {
     }
 
     private var filteredMeetings: [Meeting] {
-        var result = meetings
+        // Les notes ont leur propre écran ; les mêler aux réunions rendrait le
+        // compteur et les filtres de cette liste ambigus.
+        var result = MeetingStatsScope.held(meetings)
 
         if let kind = filterKind {
             result = result.filter { $0.kind == kind }
@@ -162,7 +164,7 @@ struct MeetingsListView: View {
                         Label("Tous types", systemImage: filterKind == nil ? "checkmark" : "circle")
                     }
                     Divider()
-                    ForEach(MeetingKind.allCases) { kind in
+                    ForEach(MeetingKind.allCases.filter { $0 != .note }) { kind in
                         Button {
                             filterKind = kind
                         } label: {

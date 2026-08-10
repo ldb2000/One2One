@@ -13,7 +13,7 @@ struct ManagerReportServiceTests {
             TranscriptChunk.self, SlideCapture.self, ProjectAlert.self,
             ProjectInfoEntry.self, ProjectCollaboratorEntry.self,
             ProjectAttachment.self, ProjectMail.self, ProjectMailAttachment.self,
-            InterviewAttachment.self, SavedPrompt.self, Note.self,
+            InterviewAttachment.self, SavedPrompt.self,
             ManagerReportItem.self, ManagerMeetingReport.self
         ])
         return try ModelContainer(for: schema, configurations: [

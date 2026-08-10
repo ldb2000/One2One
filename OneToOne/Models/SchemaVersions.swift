@@ -16,6 +16,16 @@ import SwiftData
 /// de type, transformation de données) : créer un `SchemaV2` avec un snapshot
 /// **nested** des modèles (sinon CoreData ne voit pas de diff — les types
 /// Swift top-level sont partagés) puis ajouter un `MigrationStage` custom.
+///
+/// Écart assumé : la suppression de `Note`/`NoteAttachment` (fusion note/réunion,
+/// tâche 8) n'a **pas** créé de `SchemaV2` malgré l'avertissement ci-dessus. Ce
+/// snapshot nested n'a de valeur que pour préserver des données existantes lors
+/// de la migration ; le store réel a été vérifié vide sur ces deux tables juste
+/// avant la suppression (`ZNOTE = 0`, `ZNOTEATTACHMENT = 0`, aucune note rattachée
+/// à un collaborateur). Sans données à migrer, un `SchemaV2` n'aurait rien à
+/// préserver — il n'a donc pas été créé. Si ce raisonnement ne tient plus (une
+/// autre suppression de type sur des données non vides), revenir à la procédure
+/// `SchemaV2` standard.
 enum SchemaV1: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(1, 0, 0) }
 
@@ -43,8 +53,6 @@ enum SchemaV1: VersionedSchema {
             TranscriptChunk.self,
             SlideCapture.self,
             SavedPrompt.self,
-            Note.self,
-            NoteAttachment.self,
             ManagerReportItem.self,
             ManagerMeetingReport.self,
             TranscriptSegment.self,

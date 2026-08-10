@@ -111,9 +111,6 @@ final class Project {
     @Relationship(deleteRule: .cascade, inverse: \ProjectMail.project)
     var mails: [ProjectMail] = []
 
-    @Relationship(deleteRule: .cascade, inverse: \Note.project)
-    var notes: [Note] = []
-
     /// Règles d'affectation agenda → projet : supprimées avec le projet.
     @Relationship(deleteRule: .cascade, inverse: \AgendaProjectRule.project)
     var agendaRules: [AgendaProjectRule] = []

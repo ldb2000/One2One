@@ -72,9 +72,6 @@ final class Collaborator {
     @Relationship(deleteRule: .nullify, inverse: \Meeting.participants)
     var meetings: [Meeting] = []
 
-    @Relationship(deleteRule: .cascade, inverse: \Note.collaborator)
-    var notes: [Note] = []
-
     /// Projets où ce collab est désigné Chef de projet (reverse query).
     @Relationship(inverse: \Project.projectManager)
     var projectsAsManager: [Project] = []
