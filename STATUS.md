@@ -130,11 +130,56 @@ moitié « texte » de la dérive est fermée par `Meeting.textualContent` et so
 `CalendarImportEventTests`, crash d'environnement connu) **+ 301 tests Swift Testing, aucun
 échec**.
 
-**Non vérifié.** Rien n'a été vu à l'écran. La tâche 13 du plan reste entière : sauvegarde du
-store, contrôle `ZNOTE = 0`, build sur la version **commitée** (l'arbre porte une modification
-non commitée de `OneToOneApp.swift` qui retire `migrationPlan`), puis dix contrôles — dont
-deux ajoutés par ces correctifs : la fermeture immédiatement après la frappe, et la même note
+### Tâche 13 — données réelles (2026-08-10, soir)
+
+**Étapes 1, 2, 3 et 5 faites. L'étape 4 — les dix contrôles à l'écran — n'a pas eu lieu.**
+
+**Sauvegarde.** `~/Library/Application Support/OneToOne.backup-2026-08-10-fusion-note`
+(`.store` de 33 Mo, dossier complet de 8,7 Go avec enregistrements et pièces jointes).
+
+**La migration avait déjà eu lieu, sans témoin.** Le store réel ne portait plus les quatre
+tables au moment du contrôle : `ZNOTE`, `ZNOTEATTACHMENT`, `ZPROJECTINFOENTRY` et
+`ZPROJECTCOLLABORATORENTRY` sont **absentes** de `sqlite_master` et de `Z_PRIMARYKEY`, et
+`ZMEETING` porte déjà une réunion de kind `note`. L'app avait donc été lancée sur le schéma
+de la branche avant cette session (mtime du store : 19:08). Le contrôle de l'étape 2, prévu
+comme un préalable, est devenu **rétrospectif**.
+
+**La prémisse tient, établie sur trois instantanés antérieurs à la fusion :**
+
+| Instantané | `ZNOTE` | `ZNOTEATTACHMENT` | `ZPROJECTINFOENTRY` | `ZPROJECTCOLLABORATORENTRY` | `ZMEETING` |
+|---|---|---|---|---|---|
+| `~/Documents/OneToOne-sauvegarde-notes-2026-08-05` | 0 | 0 | 0 | 0 | 162 |
+| `OneToOne.backup-2026-06-06` | 0 | — | 0 | 0 | 108 |
+| `OneToOne.backup-2026-04-24` | table absente | — | 0 | 0 | 5 |
+| store actuel | table supprimée | table supprimée | table supprimée | table supprimée | 164 |
+
+La sauvegarde du 5 août précède le chantier de cinq jours : les quatre tables étaient vides,
+il n'y avait donc **rien à perdre**, et les 162 réunions d'alors sont devenues 164 sans perte.
+C'est ce que la note de `SchemaVersions.swift` affirmait ; c'est vérifié indépendamment.
+
+**Étape 3 — la version commitée ouvre le store réel.** `Scripts/bump-and-build.sh dev`,
+build 690, lancé après avoir mis de côté la modification non commitée de `OneToOneApp.swift`
+(celle qui retire `migrationPlan`), et **restituée aussitôt après**. L'app démarre et tient :
+aucune trace de migration ni d'erreur CoreData dans `log show`, le store n'a pas été mis de
+côté par la récupération destructive, et les 164 réunions sont toujours là après ouverture.
+Effet de bord du script : `Info.plist` passe de `629` à `690` — c'est un fichier que porte
+déjà le chantier étranger.
+
+**Étape 5 — suite de tests.** 997 XCTest (1 ignoré) + 301 Swift Testing. **Un échec, horaire
+et préexistant** : `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` construit une
+réunion à `now + 1h` et la compte dans « aujourd'hui » ; lancé après 23 h, ce `+1h` tombe le
+lendemain et le décompte passe de 2 à 1. La même commande passait à 22 h sur le même code, et
+aucun commit de la branche ne touche `TodayStatsCalculator`. À corriger un jour en injectant
+l'horloge — c'est le second test horaire du fichier après `test_badge_twelve_compact`.
+
+**Reste dû : les dix contrôles à l'écran (étape 4).** Ils exigent quelqu'un devant l'écran.
+Deux d'entre eux sont nés des correctifs de revue : la fermeture immédiatement après la
+frappe (elle seule tranche l'ordre `.onDisappear` / `dismantleNSView`) et la même note
 ouverte dans les deux fenêtres.
+
+**Ce qui reste ouvert par ailleurs**, laissé tel quel par la spec : le sort de `Meeting.notes`
+(champ distinct de `liveNotes`, encore lu par les gabarits de rapport) et le renommage
+éventuel de `liveNotes`, dont le nom est un héritage des réunions enregistrées.
 
 **Arbre de travail.** Il porte un chantier étranger non commité (éditeur de blocs, Mermaid
 natif, `Services/Agent/`, `Vendor/`) : tous les commits de cette branche sont faits à chemins
