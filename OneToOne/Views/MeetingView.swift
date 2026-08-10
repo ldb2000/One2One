@@ -380,6 +380,7 @@ struct MeetingView: View {
             // qui interroge se compte lui-même.
             defer { MeetingScreenRegistry.shared.screenDisappeared(id) }
             guard !isBeingDeleted, !MeetingScreenRegistry.shared.isDeleted(id) else { return }
+            adoptPendingLiveNotes()
             guard !discardEmptyNoteIfNeeded() else { return }
             SpotlightIndexService.shared.index(meeting: meeting)
         }
@@ -413,6 +414,34 @@ struct MeetingView: View {
     ///   supprimer le modèle pendant que la vue l'observe encore fait crasher
     ///   SwiftData.
     /// - Returns: `true` si la note a été reprise.
+    /// Identifiant d'enregistrement de l'éditeur du corps dans
+    /// `MarkdownEditorRegistry`, **propre à cette réunion** : deux fenêtres
+    /// ouvertes sur deux réunions différentes s'y écraseraient sinon l'une
+    /// l'autre, et la reprise ci-dessous écrirait le corps de l'une dans
+    /// l'autre.
+    private var liveNotesEditorID: String {
+        "meetingLiveNotes-\(meeting.persistentModelID)"
+    }
+
+    /// Reprend le texte encore à l'écran que l'éditeur n'a pas eu le temps de
+    /// pousser dans le modèle : il écrit après un débounce de 0,3 s, annulé et
+    /// reprogrammé à chaque touche, et son démontage ne vide pas l'écriture en
+    /// attente. Fermer la fenêtre dans la foulée d'une frappe laisse donc
+    /// `meeting.liveNotes` en retard d'une phrase — que
+    /// `discardEmptyNoteIfNeeded` prendrait pour une note vide.
+    ///
+    /// Repose sur l'ordre de démontage : `.onDisappear` de cet écran avant le
+    /// `dismantleNSView` de l'éditeur, faute de quoi il n'y a plus rien à
+    /// reprendre dans le registre. SwiftUI ne le documente pas — c'est un des
+    /// contrôles à dérouler à l'écran.
+    private func adoptPendingLiveNotes() {
+        guard let onScreen = PendingEditorText.onScreen(editorID: liveNotesEditorID),
+              onScreen != meeting.liveNotes
+        else { return }
+        meeting.liveNotes = onScreen
+        try? context.save()
+    }
+
     private func discardEmptyNoteIfNeeded() -> Bool {
         let id = meeting.persistentModelID
         guard !MeetingScreenRegistry.shared.isPresentedElsewhere(id) else { return false }
@@ -665,7 +694,7 @@ struct MeetingView: View {
                     get: { meeting.liveNotes },
                     set: { meeting.liveNotes = $0; saveContext() }
                 ),
-                editorID: "meetingLiveNotes"
+                editorID: liveNotesEditorID
             )
         case .transcript:
             transcriptView
