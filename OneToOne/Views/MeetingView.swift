@@ -124,6 +124,13 @@ struct MeetingView: View {
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
     @State private var showDeleteConfirm = false
+    /// Vrai dès l'entrée dans `deleteMeeting()`, avant `dismiss()`. Empêche
+    /// `.onDisappear` de réindexer une réunion que l'on est en train de
+    /// supprimer : `indexAll`/`index(meeting:)` n'élaguent jamais l'index,
+    /// donc un réindexage après suppression laisserait un orphelin définitif
+    /// (aucun chemin ne rappelle `remove(meeting:)` pour un modèle qui n'existe
+    /// plus).
+    @State private var isBeingDeleted = false
     @State private var showParticipantsSheet = false
     @State private var isEditingLayout = false
     /// Thèmes proposés par l'IA (chips « fantômes ») — éphémères, non persistés :
@@ -364,7 +371,9 @@ struct MeetingView: View {
         // Indexation Spotlight à la fermeture, pas à la sauvegarde : l'éditeur
         // de notes live appelle saveContext() à chaque frappe, ce qui
         // martèlerait CoreSpotlight si on indexait à chaque save.
+        // Court-circuité pendant une suppression : voir isBeingDeleted.
         .onDisappear {
+            guard !isBeingDeleted else { return }
             SpotlightIndexService.shared.index(meeting: meeting)
         }
     }
@@ -2671,6 +2680,9 @@ struct MeetingView: View {
     /// Le fichier audio sur disque est conservé (récupérable via l'import des
     /// WAV orphelins).
     private func deleteMeeting() {
+        // Posé avant tout le reste : coupe court à la réindexation par
+        // .onDisappear, qui sinon se déclenche via dismiss() juste en dessous.
+        isBeingDeleted = true
         if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
             _ = recorder.stop()
             // recorder.stop() clôt le flux audio : end() peut drainer sans
@@ -2683,9 +2695,13 @@ struct MeetingView: View {
         }
         let target = meeting
         let ctx = context
+        // Retrait de l'index Spotlight synchrone et avant dismiss() : au-delà
+        // de ce point, .onDisappear peut se déclencher n'importe quand, et une
+        // réindexation après le remove() ci-dessous laisserait un orphelin
+        // permanent (voir commentaire sur isBeingDeleted).
+        SpotlightIndexService.shared.remove(meeting: target)
         dismiss()
         Task { @MainActor in
-            SpotlightIndexService.shared.remove(meeting: target)
             ctx.delete(target)
             do { try ctx.save() } catch { print("[MeetingView] delete FAILED: \(error)") }
         }

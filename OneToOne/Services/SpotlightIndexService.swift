@@ -199,6 +199,13 @@ final class SpotlightIndexService {
     /// réunion de kind `.note`. Les transcriptions (`rawTranscript`,
     /// `mergedTranscript`) sont **volontairement exclues** : elles pèsent des
     /// heures de texte et sont déjà interrogeables par le RAG.
+    ///
+    /// Appelle `meeting.ensuredStableID`, qui **sauvegarde** le contexte si
+    /// l'identifiant était nil (backfill de migration). Sans danger tel
+    /// qu'appelé aujourd'hui : `OneToOneApp.reindexSpotlight()` tourne juste
+    /// après `repairStoreIfNeeded()`, qui a déjà backfillé tous les `stableID`
+    /// nil — mais rien ici ne garantit cet ordre. Un futur appelant qui
+    /// indexerait avant ce backfill déclencherait une sauvegarde par réunion.
     private func makeMeetingItem(_ meeting: Meeting) -> CSSearchableItem {
         let attributes = CSSearchableItemAttributeSet(contentType: .text)
         let isNote = meeting.kind == .note

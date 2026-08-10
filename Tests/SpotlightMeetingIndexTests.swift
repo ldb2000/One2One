@@ -27,10 +27,13 @@ struct SpotlightMeetingIndexTests {
         let meeting = Meeting(title: "1:1 Alice", date: Date())
         meeting.kind = .oneToOne
         meeting.shortSummary = "Montée en charge sur le socle"
+        let alice = Collaborator(name: "Alice")
+        meeting.participants = [alice]
 
         let item = SpotlightIndexService.shared.makeMeetingItemForTesting(meeting)
         #expect((item.attributeSet.contentDescription ?? "").contains("Montée en charge sur le socle"))
         #expect((item.attributeSet.keywords ?? []).contains("OneToOne"))
+        #expect((item.attributeSet.keywords ?? []).contains("Alice"))
     }
 
     @Test("Une réunion sans titre reste identifiable")
