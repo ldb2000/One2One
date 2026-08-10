@@ -25,10 +25,18 @@ et XCTest.
 - Branche `feat/fusion-note-reunion`. **Aucun commit sur `master`.** Commits conventionnels.
 - Commentaires et libellés d'interface **en français** ; symboles et code en anglais.
 - Aucune dépendance nouvelle.
-- **Jamais `git commit -a` ni `git add -A`.** L'arbre de travail porte un chantier éditeur en
-  cours, sans rapport avec celui-ci (`Package.swift`, `Vendor/`, `OneToOne/Markdown/…`). Chaque
-  commit énumère ses chemins explicitement. Vérifier avec `git status --short` avant de committer
-  que rien d'étranger n'est indexé.
+- **Jamais `git commit -a` ni `git add -A`.** L'arbre de travail porte un chantier en cours qui
+  n'appartient pas à ce plan (`Package.swift`, `Vendor/`, `OneToOne/Markdown/…`,
+  `OneToOne/OneToOneApp.swift`, et des fichiers `Agent*` laissés par une autre session). Chaque
+  commit énumère ses chemins explicitement, et `git status --short` se relit avant de committer.
+- **Indexer par morceaux dès qu'un fichier porte déjà des modifications étrangères.** Les chemins
+  explicites ne suffisent pas : ils protègent contre l'ajout d'un fichier étranger, pas contre
+  l'emport d'une modification étrangère **dans un fichier légitime**. Avant d'indexer, lancer
+  `git diff --stat -- <fichier>` ; s'il porte déjà quelque chose, passer par `git add -p` et
+  n'accepter que ses propres morceaux. Leçon de la tâche 8, où le retrait local et non commité
+  de `migrationPlan: OneToOneMigrationPlan.self` a été emporté par un `git add` de fichier
+  entier — sur le fichier qui construit le `ModelContainer`, c'est-à-dire au cœur de la
+  migration de données que ce chantier doit précisément préserver.
 - Tests neufs en **Swift Testing** (`import Testing`, `@Suite`, `@Test`, `#expect`), libellés en
   français. Les conteneurs de test neufs se construisent avec
   `Schema(CurrentSchema.models)` + `ModelConfiguration(isStoredInMemoryOnly: true)`.
