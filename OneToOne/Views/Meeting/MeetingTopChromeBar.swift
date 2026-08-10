@@ -49,10 +49,12 @@ struct MeetingTopChromeBar: View {
             HStack(spacing: 10) {
                 breadcrumb
                 Spacer()
-                recorderPill
-                captureButton
-                templatePickerButton
-                reportButton
+                if meeting.kind != .note {
+                    recorderPill
+                    captureButton
+                    templatePickerButton
+                    reportButton
+                }
                 moreMenu
             }
             // Rangée des thèmes, sous le fil d'Ariane : elle a besoin de toute

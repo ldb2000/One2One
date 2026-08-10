@@ -168,6 +168,20 @@ struct MeetingView: View {
         case report = "Rapport"
         case documents = "Documents"
         var id: String { rawValue }
+
+        /// Libellé affiché. Pour une note, « Notes live » n'a pas de sens :
+        /// l'onglet du corps s'appelle simplement « Note ».
+        func label(for kind: MeetingKind) -> String {
+            if self == .liveNotes && kind == .note { return "Note" }
+            return rawValue
+        }
+    }
+
+    /// Onglets visibles pour un kind donné. Une note n'a ni préparation, ni
+    /// transcription, ni rapport, ni vue d'ensemble : seulement son corps et
+    /// ses pièces jointes.
+    static func visibleSections(for kind: MeetingKind) -> [MeetingSection] {
+        kind == .note ? [.liveNotes, .documents] : MeetingSection.allCases
     }
 
     /// Vrai si l'enregistrement en cours est celui **de cette réunion**.
@@ -260,7 +274,9 @@ struct MeetingView: View {
 
             mainPanel
         }
-        .navigationTitle(meeting.title.isEmpty ? "Réunion" : meeting.title)
+        .navigationTitle(meeting.title.isEmpty
+                         ? (meeting.kind == .note ? "Note" : "Réunion")
+                         : meeting.title)
         .textSelection(.enabled)
         .sheet(isPresented: $showCalendarImporter) {
             CalendarEventImportSheet(anchorDate: meeting.date) { event in
@@ -416,6 +432,8 @@ struct MeetingView: View {
             // (ouverte via le menu « … »).
             MeetingTabsUnderline(
                 selection: $activeSection,
+                sections: Self.visibleSections(for: meeting.kind),
+                kind: meeting.kind,
                 attachmentsCount: meeting.attachments.count,
                 hasReport: !meeting.summary.isEmpty,
                 date: meeting.date,
@@ -427,6 +445,18 @@ struct MeetingView: View {
                 .padding(.bottom, 16)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            let visible = Self.visibleSections(for: meeting.kind)
+            if !visible.contains(activeSection) {
+                activeSection = visible[0]
+            }
+        }
+        .onChange(of: meeting.kind) { _, newKind in
+            let visible = Self.visibleSections(for: newKind)
+            if !visible.contains(activeSection) {
+                activeSection = visible[0]
+            }
+        }
     }
 
     private func togglePlay(url: URL) {

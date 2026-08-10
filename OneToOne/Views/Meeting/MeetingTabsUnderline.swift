@@ -4,6 +4,10 @@ import SwiftUI
 /// Les cases disponibles sont définies par ``MeetingView/MeetingSection``.
 struct MeetingTabsUnderline: View {
     @Binding var selection: MeetingView.MeetingSection
+    /// Onglets à afficher, fournis par l'appelant (`MeetingView.visibleSections(for:)`).
+    let sections: [MeetingView.MeetingSection]
+    /// Kind de la réunion : pilote le libellé de l'onglet du corps.
+    let kind: MeetingKind
     /// Nombre de pièces jointes, affiché en badge sur l'onglet Documents quand > 0.
     let attachmentsCount: Int
     /// Vrai si un rapport existe, affiche une coche sur l'onglet Rapport.
@@ -16,7 +20,7 @@ struct MeetingTabsUnderline: View {
 
     var body: some View {
         HStack(spacing: 28) {
-            ForEach(MeetingView.MeetingSection.allCases) { section in
+            ForEach(sections) { section in
                 tab(section)
             }
             Spacer()
@@ -47,7 +51,7 @@ struct MeetingTabsUnderline: View {
         } label: {
             VStack(spacing: 6) {
                 HStack(spacing: 4) {
-                    Text(section.rawValue)
+                    Text(section.label(for: kind))
                         .font(isActive ? .body.weight(.semibold) : .body)
                         .foregroundColor(isActive ? .primary : .secondary)
                     badge(for: section)
