@@ -59,26 +59,27 @@ struct QuickNotePopover: View {
         .frame(width: 400)
     }
 
-    /// Crée une `Note` à partir du texte saisi (ignorée si vide après trim),
-    /// la rattache au projet ou collaborateur sélectionné le cas échéant,
-    /// persiste, puis ferme le popover.
+    /// Crée une note (`Meeting` de kind `.note`) à partir du texte saisi
+    /// (ignorée si vide après trim), la rattache au projet ou au collaborateur
+    /// sélectionné le cas échéant, persiste, indexe, puis ferme le popover.
     private func save() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let note = Note(body: trimmed)
-        context.insert(note)
+
+        var project: Project?
+        var collaborator: Collaborator?
         switch linkTarget {
         case .none: break
         case .project(let pid):
-            if let p = projects.first(where: { $0.persistentModelID == pid }) {
-                note.project = p
-            }
+            project = projects.first(where: { $0.persistentModelID == pid })
         case .collaborator(let cid):
-            if let c = collaborators.first(where: { $0.persistentModelID == cid }) {
-                note.collaborator = c
-            }
+            collaborator = collaborators.first(where: { $0.persistentModelID == cid })
         }
+
+        let note = NoteFactory.make(body: trimmed, project: project, collaborator: collaborator)
+        context.insert(note)
         try? context.save()
+        SpotlightIndexService.shared.index(meeting: note)
         onDismiss()
     }
 }

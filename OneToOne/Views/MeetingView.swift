@@ -1208,13 +1208,14 @@ struct MeetingView: View {
     }
 
     /// `true` si le collaborateur ne porte aucune donnée en dehors de la réunion
-    /// courante : aucune autre réunion, ni entretien, note, action, projet (CP/AT),
-    /// empreinte vocale ou épinglage sidebar.
+    /// courante : aucune autre réunion, ni entretien, action, projet (CP/AT),
+    /// empreinte vocale ou épinglage sidebar. Une note est un `Meeting` de kind
+    /// `.note` : elle est déjà couverte par `otherMeetings`, pas de vérification
+    /// séparée à faire.
     private func isThrowawayCollaborator(_ c: Collaborator) -> Bool {
         let otherMeetings = c.meetings.filter { $0.persistentModelID != meeting.persistentModelID }
         return otherMeetings.isEmpty
             && c.interviews.isEmpty
-            && c.notes.isEmpty
             && c.assignedTasks.isEmpty
             && c.projectsAsManager.isEmpty
             && c.projectsAsArchitect.isEmpty

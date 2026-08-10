@@ -36,8 +36,11 @@ struct ChatbotView: View {
     @Query private var collaborators: [Collaborator]
     @Query private var interviews: [Interview]
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
-    @Query(sort: \Note.updatedAt, order: .reverse) private var notes: [Note]
     @Query private var settingsList: [AppSettings]
+
+    /// Notes = sous-ensemble de `meetings` de kind `.note` (voir `NoteFactory`).
+    /// Pas de `@Query` dédiée : `meetings` charge déjà toutes les réunions.
+    private var notes: [Meeting] { meetings.filter { $0.kind == .note } }
 
     @State private var messages: [ChatMessage] = [
         ChatMessage(role: .assistant, content: "Je peux repondre a partir des projets, collaborateurs, entretiens, actions, alertes, rapports et transcriptions de reunion.\n\nTapez / pour voir les commandes (notamment /cherche pour fouiller les rapports & transcriptions).")
@@ -649,17 +652,17 @@ struct ChatbotView: View {
             return block
         }
 
-        // Notes (last 20 par updatedAt desc, body tronqué à 400 chars)
+        // Notes (last 20 par date desc, corps tronqué à 400 caractères)
         let noteLines: [String] = notes.prefix(20).map { n in
             let target: String
             if let p = n.project { target = "Projet \(p.name)" }
-            else if let c = n.collaborator { target = "Collab \(c.name)" }
+            else if let c = n.participants.first { target = "Collab \(c.name)" }
             else { target = "—" }
             let title = n.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let titlePart = title.isEmpty ? "" : "« \(title) » "
-            let body = n.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = n.liveNotes.trimmingCharacters(in: .whitespacesAndNewlines)
             let truncated = body.count > 400 ? body.prefix(400) + "…" : body[...]
-            return "- [\(target)] \(titlePart)(\(n.updatedAt.formatted(date: .abbreviated, time: .omitted))) : \(truncated)"
+            return "- [\(target)] \(titlePart)(\(n.date.formatted(date: .abbreviated, time: .omitted))) : \(truncated)"
         }
 
         return """

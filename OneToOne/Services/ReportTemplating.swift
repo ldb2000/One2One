@@ -180,13 +180,23 @@ enum TemplateVariableResolver {
     @MainActor
     private static func collabNotes(for collab: Collaborator?, in context: ModelContext) -> String {
         guard let collab else { return "" }
-        let cid = collab.persistentModelID
-        let descriptor = FetchDescriptor<Note>(
-            predicate: #Predicate { $0.collaborator?.persistentModelID == cid },
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        // Une note est un `Meeting` de kind `.note` dont le collaborateur est
+        // participant. `#Predicate` ne sait pas traverser une relation
+        // to-many : on filtre le kind côté base, le participant en mémoire.
+        let descriptor = FetchDescriptor<Meeting>(
+            predicate: #Predicate { $0.kindRaw == "note" },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
-        let notes = (try? context.fetch(descriptor)) ?? []
-        return notes.prefix(5).map { "- \(Self.truncate($0.body, to: 200))" }.joined(separator: "\n")
+        let notes = ((try? context.fetch(descriptor)) ?? []).filter { note in
+            note.participants.contains { $0.persistentModelID == collab.persistentModelID }
+        }
+        return notes.prefix(5).map { "- \(Self.truncate($0.liveNotes, to: 200))" }.joined(separator: "\n")
+    }
+
+    /// Test hook only.
+    @MainActor
+    static func collabNotesForTesting(for collab: Collaborator, in context: ModelContext) -> String {
+        collabNotes(for: collab, in: context)
     }
 
     @MainActor

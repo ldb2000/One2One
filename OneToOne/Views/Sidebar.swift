@@ -21,6 +21,11 @@ struct MainSidebarView: View {
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
     @Query private var entities: [Entity]
+    /// Notes pour la recherche latérale : une note est un `Meeting` de kind
+    /// `.note` (voir `NoteFactory`). `kindRaw` car `#Predicate` travaille sur
+    /// la colonne stockée, pas sur le wrapper calculé `kind`.
+    @Query(filter: #Predicate<Meeting> { $0.kindRaw == "note" })
+    private var allNotes: [Meeting]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var router: QuickLaunchRouter
     @State private var searchText: String = ""
@@ -134,18 +139,28 @@ struct MainSidebarView: View {
         p.name.localizedCaseInsensitiveContains(q) ||
         p.code.localizedCaseInsensitiveContains(q) ||
         p.domain.localizedCaseInsensitiveContains(q) ||
-        p.notes.contains(where: { noteMatches($0, q) })
+        notes(ofProject: p).contains(where: { noteMatches($0, q) })
     }
 
     private func collabMatches(_ c: Collaborator, _ q: String) -> Bool {
         c.name.localizedCaseInsensitiveContains(q) ||
         c.role.localizedCaseInsensitiveContains(q) ||
-        c.notes.contains(where: { noteMatches($0, q) })
+        notes(ofCollaborator: c).contains(where: { noteMatches($0, q) })
     }
 
-    private func noteMatches(_ n: Note, _ q: String) -> Bool {
+    private func notes(ofProject p: Project) -> [Meeting] {
+        allNotes.filter { $0.project?.persistentModelID == p.persistentModelID }
+    }
+
+    private func notes(ofCollaborator c: Collaborator) -> [Meeting] {
+        allNotes.filter { note in
+            note.participants.contains { $0.persistentModelID == c.persistentModelID }
+        }
+    }
+
+    private func noteMatches(_ n: Meeting, _ q: String) -> Bool {
         n.title.localizedCaseInsensitiveContains(q) ||
-        n.body.localizedCaseInsensitiveContains(q)
+        n.liveNotes.localizedCaseInsensitiveContains(q)
     }
 
     // MARK: - Body
