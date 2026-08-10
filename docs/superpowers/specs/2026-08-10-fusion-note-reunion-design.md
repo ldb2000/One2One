@@ -222,7 +222,16 @@ sont vides. **Gain net** : les notes entrent dans la sauvegarde, ce qu'elles n'o
 
 Les deux `index(project:)` de `ChatbotView` (`:933`, `:974`) deviennent des `index(meeting:)`.
 
-Effet net : l'index passe d'environ zéro item de contenu à environ 163.
+**Ouvrir depuis Spotlight.** `QuickLaunchURLHandler` ne reconnaissait que les identifiants
+préfixés `collaborator-` : un clic sur un résultat `meeting-…` était silencieusement ignoré.
+Trouver sans pouvoir ouvrir n'étant qu'une demi-fonction, le handler apprend le préfixe
+`meeting-` et `QuickLaunchRouter` gagne un `openMeeting(_:)` qui ouvre une réunion **existante**
+sans démarrer d'enregistrement. Manque découvert en revue, ajout arbitré en cours de route.
+
+Les **projets** souffrent du même manque depuis toujours — cliquer un projet dans Spotlight
+n'ouvre rien non plus. C'est un trou préexistant, explicitement laissé hors périmètre.
+
+Effet net : l'index passe d'environ zéro item de contenu à environ 163, et ces items s'ouvrent.
 
 ### Inchangés
 
