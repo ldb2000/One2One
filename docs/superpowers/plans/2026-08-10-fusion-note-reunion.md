@@ -2293,7 +2293,17 @@ puis reprendre avec un `SchemaV2` (snapshot nested + `MigrationStage`).
    qui peut trancher la cohabitation `NavigationLink` + `navigationDestination(item:)` ; si elle
    se révèle fautive, le repli est de retirer ce modificateur et de laisser la note nouvellement
    créée apparaître en tête de liste ;
-8. sauvegarder puis restaurer via `BackupService` → la note survit.
+8. sauvegarder puis restaurer via `BackupService` → la note survit ;
+9. **taper une phrase dans une note et fermer la fenêtre dans la foulée** (moins de 0,3 s
+   après la dernière touche) → le texte est là au rouvrir, la note n'a pas disparu. C'est le
+   seul contrôle qui tranche l'ordre de démontage dont dépend `adoptPendingLiveNotes` :
+   `.onDisappear` de `MeetingView` doit passer **avant** le `dismantleNSView` de l'éditeur,
+   ce que SwiftUI ne documente pas. Si le texte est perdu, le repli est de vider l'écriture
+   en attente depuis l'éditeur lui-même ;
+10. **ouvrir la même note deux fois** — pile de navigation de la fenêtre principale *et*
+   fenêtre autonome `1to1-meeting` — puis fermer l'une : pas de crash SwiftData, la note
+   reste ouverte dans l'autre, et elle n'est ni supprimée ni laissée dans Spotlight comme
+   résultat mort.
 
 Noter dans `STATUS.md` chaque contrôle **réellement effectué**, et lesquels restent dus. Ne pas
 écrire qu'un contrôle est passé sans l'avoir vu à l'écran.
