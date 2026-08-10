@@ -2242,11 +2242,27 @@ sqlite3 ~/Library/Application\ Support/OneToOne.backup-2026-08-10-fusion-note/On
 Expected: `163` puis `0`. Si `ZNOTE` n'est plus à zéro, **arrêter** : la prémisse de la
 suppression sans `SchemaV2` ne tient plus, il faut un `SchemaV2` avec un stage de migration.
 
-- [ ] **Step 3: Construire et lancer**
+- [ ] **Step 3: Construire et lancer — sur le code qui sera fusionné**
+
+⚠️ `bump-and-build.sh` compile **l'arbre de travail**, pas le commit. Or l'arbre porte une
+modification non commitée du propriétaire dans `OneToOne/OneToOneApp.swift` : le retrait de
+`migrationPlan: OneToOneMigrationPlan.self` des deux constructions de `ModelContainer`. Lancer
+tel quel vérifierait donc une configuration **différente de celle de la branche** — et c'est
+précisément la migration qu'on veut éprouver.
+
+Arbitrage rendu : **on teste la version commitée.** Mettre la modification de côté avant le
+build, la remettre après :
 
 ```bash
+cp OneToOne/OneToOneApp.swift /tmp/OneToOneApp.swift.wip-proprietaire   # sauvegarde
+git checkout -- OneToOne/OneToOneApp.swift                             # version commitée
 Scripts/bump-and-build.sh dev
+# … dérouler les contrôles ci-dessous …
+cp /tmp/OneToOneApp.swift.wip-proprietaire OneToOne/OneToOneApp.swift   # restitution
+git status --short -- OneToOne/OneToOneApp.swift                        # doit remontrer « M »
 ```
+
+Ne pas oublier la restitution : cette modification n'appartient pas à la branche.
 
 Expected: l'app démarre sans erreur de migration. En cas d'échec CoreData :
 

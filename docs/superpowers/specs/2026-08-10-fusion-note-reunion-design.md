@@ -51,7 +51,8 @@ chaque geste qu'ils portaient est reporté sur le modèle qui lui correspond nat
 
 - Renommer `Meeting.liveNotes` (traverse `BackupService`, `ReportTemplating`, les gabarits).
 - Toute évolution du format de stockage des notes (voir l'étude
-  `2026-08-10-json-canonique-notes-design.md`, sans rapport avec ce document).
+  `2026-08-10-json-canonique-notes-design.md` — document non suivi par git à ce jour, sans
+  rapport avec celui-ci).
 - Indexer les transcriptions dans Spotlight.
 
 ---
@@ -92,7 +93,10 @@ itère `collaborator.meetings` et ferait donc remonter les notes **en double**, 
 `SchemaVersions.swift` prévient qu'une suppression de type demande un `SchemaV2` avec un snapshot
 *nested* des trente modèles. **Ce n'est pas fait ici, et c'est un écart assumé** : le snapshot
 nested existe pour préserver des données, et les quatre tables en sont dépourvues. Les types sont
-retirés de `SchemaV1.models` et la migration légère supprime les entités orphelines.
+retirés de `SchemaV1.models`, la migration légère devant supprimer les entités orphelines.
+**Rien ne l'établit à ce stade** : aucun store existant n'a été ouvert par ce build, la suite de
+tests n'exerce pas CoreData sur un fichier, et `SchemaV1.versionIdentifier` reste `1.0.0` malgré
+un jeu de modèles modifié. C'est le contrôle manuel de fin de chantier qui tranchera.
 
 Garantie associée, manuelle : **copier `~/Library/Application Support/OneToOne/` en entier avant
 le premier lancement du nouveau build**. Si CoreData refuse la suppression d'entité, cela se voit
@@ -105,8 +109,12 @@ au premier lancement et on bascule sur un `SchemaV2` complet.
 **Entrée « Notes »** (`AllNotesView`, 349 l.) — conservée dans la barre latérale, mais alimentée
 par un `@Query` sur `Meeting` filtré `.note`. Recherche, portée (Toutes / Projet / Collaborateur)
 et création inchangées. Ouvrir une note ouvre `MeetingView` au lieu d'une feuille markdown. Le
-tunnel « ajouter au rapport manager » dupliqué ici (~100 l.) **disparaît** : `MeetingView` porte
-déjà `ManagerClassificationSheet` (`:271`).
+tunnel « ajouter au rapport manager » dupliqué ici (~100 l.) est **remplacé**, pas supprimé.
+La première rédaction de ce document justifiait son retrait en affirmant que `MeetingView`
+portait déjà ce flux : c'était faux en pratique — le sheet n'y est atteignable que depuis
+l'onglet Transcription, masqué pour une note et vide de toute façon. La revue finale l'a établi.
+L'action est donc rebranchée sur le **menu contextuel** des lignes de note, dans les deux
+écrans, en réutilisant `ManagerClassificationSheet` sans dupliquer son état.
 
 **`NotesSection`** (355 l., montée dans les deux fiches) — conservée aux deux endroits, réécrite
 sur `Meeting` `.note` : côté projet `meeting.project == project`, côté collaborateur
@@ -135,7 +143,10 @@ et les filtres ambigus.
 `liveNotes` ; `projectMatches` et `collabMatches` suivent les nouvelles relations.
 
 **`RAGChatView:110`** — le filtre par kind gagne « Note » sans une ligne de code (il itère
-`allCases`). Souhaitable ici : interroger ses notes par l'IA.
+`allCases`). **Attention à ne pas en attendre trop** : `RAGIndexer` n'indexe que les
+transcriptions, jamais `liveNotes`. Le filtre « Note » ne remontera donc que les fragments issus
+des pièces jointes d'une note, pas son corps. Indexer le texte d'une note pour la recherche
+sémantique n'est pas fait, et n'est pas dans ce périmètre.
 
 ---
 
@@ -231,7 +242,10 @@ sans démarrer d'enregistrement. Manque découvert en revue, ajout arbitré en c
 Les **projets** souffrent du même manque depuis toujours — cliquer un projet dans Spotlight
 n'ouvre rien non plus. C'est un trou préexistant, explicitement laissé hors périmètre.
 
-Effet net : l'index passe d'environ zéro item de contenu à environ 163, et ces items s'ouvrent.
+Effet net : l'index passe d'environ zéro item de contenu à environ 163. Le **routage** du clic
+(`meeting-<UUID>` → token d'ouverture) est couvert par des tests ; l'aller-retour réel — macOS
+indexe, l'utilisateur clique, la fenêtre s'ouvre — n'est établi par rien et relève du contrôle à
+l'écran.
 
 ### Inchangés
 
@@ -246,10 +260,12 @@ son nom fusionne transcription et notes live d'une réunion, sans rapport avec l
 
 Aucun refactor gratuit : uniquement là où la logique devient partagée.
 
-- `MeetingStatsScope.held(_:)` — filtre `kind != .note`. Quatre appelants : `MenuBarStats`, les
-  deux montages de `MeetingHeatmapView` (`DetailsViews:53` et `:902`), et le décompte
-  hebdomadaire « Temps passé en réunions » de la barre latérale (`Sidebar:1024`), trouvé en
-  cours d'implémentation.
+- `MeetingStatsScope.held(_:)` — filtre `kind != .note`. **Ne pas se fier à une énumération :
+  chercher les appelants.** Ce document en a annoncé deux, puis quatre ; la revue finale en a
+  trouvé huit — `MenuBarStats`, le décompte hebdomadaire de la barre latérale, les **quatre**
+  montages de `MeetingHeatmapView` (deux dans les fiches, deux au tableau de bord), la liste
+  « Réunions récentes » du tableau de bord, et le contexte de prompt « Dernières réunions du
+  projet ». Deux fois de suite, une liste écrite comme exhaustive ne l'était pas.
 - `NoteFactory.make(body:title:project:collaborator:)` → `Meeting`. Cinq appelants :
   `QuickNotePopover`, la liste « Notes », `NotesSection`, deux commandes du chatbot.
 - `MeetingView.visibleTabs(for:)` — statique et pure, pour tester le masquage sans instancier la vue.
