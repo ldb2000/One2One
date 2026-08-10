@@ -50,17 +50,16 @@ enum NoteFactory {
     ///
     /// Les chemins de création insèrent, sauvegardent et indexent immédiatement :
     /// sans nettoyage, un clic malheureux laisserait une note vide persistée
-    /// **et** indexée dans Spotlight. Portée réelle du nettoyage, à ne pas
-    /// surestimer — il n'a lieu qu'à la fermeture de `MeetingView` :
-    /// - `AllNotesView` est le **seul** chemin qui ouvre la note qu'il crée ;
-    ///   c'est celui que ce prédicat protège ;
-    /// - les deux chemins de `NotesSection` n'ouvrent plus rien (arbitrage de
-    ///   la correction D) : leurs notes vides s'accumulent en liste, sans perte ;
-    /// - le popover du menubar et les commandes `/ajout-*` créent la note avec
-    ///   un corps déjà saisi, donc jamais vide, et n'ouvrent aucun écran.
+    /// **et** indexée dans Spotlight.
     ///
-    /// Le nettoyage s'applique par ailleurs à **toute** note ouverte puis
-    /// fermée, pas seulement à celle qu'on vient de créer.
+    /// **Portée réelle, à ne pas surestimer** : le nettoyage n'a lieu qu'à la
+    /// fermeture de `MeetingView`. Il ne rattrape donc qu'une note **ouverte**
+    /// — et il rattrape *toute* note ouverte puis fermée, pas seulement celle
+    /// qu'on vient de créer. Une note créée sans être ouverte s'accumule en
+    /// liste, vide, sans perte de données. Ne pas énumérer ici les chemins de
+    /// création ni lesquels ouvrent leur note : la phrase serait démentie par
+    /// le premier chemin ajouté sans qu'aucun test n'échoue.
+    /// `grep -rn "NoteFactory.make" OneToOne` donne la liste à jour.
     ///
     /// **Ne comptent pas**, parce qu'ils viennent du geste de création et non
     /// d'une saisie : le projet, la date, le gabarit de rapport, et les
