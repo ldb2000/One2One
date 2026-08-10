@@ -60,7 +60,15 @@ struct AudioEditorSheet: View {
     @State private var splitTarget: SplitTarget = .newMeeting
     @State private var existingTargetID: PersistentIdentifier?
     @State private var showOverwriteTargetConfirm: Bool = false
-    @Query(sort: \Meeting.date, order: .reverse) private var allMeetings: [Meeting]
+    /// Cibles possibles d'une division audio : les notes en sont exclues (une
+    /// note n'a pas d'audio, cf. `MeetingStatsScope`). Filtre côté base pour
+    /// qu'aucun chemin de cette feuille — liste de candidates comme résolution
+    /// par identifiant — ne puisse retomber sur une note. `kindRaw` car
+    /// `#Predicate` travaille sur la colonne stockée ; le littéral "note" est
+    /// la `rawValue` de `MeetingKind.note`.
+    @Query(filter: #Predicate<Meeting> { $0.kindRaw != "note" },
+           sort: \Meeting.date, order: .reverse)
+    private var allMeetings: [Meeting]
 
     /// Étapes du flux de division : choix du point de coupe puis choix de la
     /// réunion qui recevra le second morceau.

@@ -49,6 +49,13 @@ struct MeetingTopChromeBar: View {
             HStack(spacing: 10) {
                 breadcrumb
                 Spacer()
+                // Une note n'a ni audio, ni transcription, ni rapport : ses
+                // onglets Transcription et Rapport sont masqués par
+                // `MeetingView.visibleSections(for:)`. Laisser ces contrôles
+                // produirait un enregistrement et un rapport invisibles et
+                // ingérables. Même règle côté actions partagées : le menu natif
+                // « Réunion » et `moreMenu` lisent `MeetingMenuActions`, dont
+                // `isEnabled(_:)` grise les mêmes items quand `isNote`.
                 if meeting.kind != .note {
                     recorderPill
                     captureButton
@@ -494,16 +501,24 @@ struct MeetingTopChromeBar: View {
 
             Divider()
             Button(action: actions.toggleCustomPrompt) { Label("Détails de la réunion…", systemImage: "slider.horizontal.3") }
+            // Une note n'a pas d'audio : l'import WAV et tout le sous-menu
+            // Audio disparaissent (cf. `MeetingMenuActions.isEnabled`, qui
+            // grise les mêmes items côté menu natif). L'import Calendrier
+            // reste : dater une note sur un événement a un sens.
             Menu {
                 Button(action: actions.importCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
-                Button(action: actions.importExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
+                if !actions.isNote {
+                    Button(action: actions.importExistingWAV) { Label("Importer un WAV existant", systemImage: "waveform.badge.plus") }
+                }
             } label: { Label("Importer", systemImage: "square.and.arrow.down") }
-            Menu {
-                Button(action: actions.editAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
-                    .disabled(!actions.hasPlayableAudio)
-                Button(action: actions.revealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
-                    .disabled(!actions.hasPlayableAudio)
-            } label: { Label("Audio", systemImage: "waveform") }
+            if !actions.isNote {
+                Menu {
+                    Button(action: actions.editAudio) { Label("Éditer l'audio…", systemImage: "scissors") }
+                        .disabled(!actions.hasPlayableAudio)
+                    Button(action: actions.revealWAV) { Label("Révéler le WAV dans Finder", systemImage: "folder") }
+                        .disabled(!actions.hasPlayableAudio)
+                } label: { Label("Audio", systemImage: "waveform") }
+            }
 
             Divider()
             Button(role: .destructive, action: actions.deleteMeeting) {

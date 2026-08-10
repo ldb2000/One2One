@@ -926,7 +926,7 @@ struct DashboardView: View {
             Text("Activité réunions")
                 .font(.headline)
 
-            MeetingHeatmapView(meetings: meetings, title: "Total")
+            MeetingHeatmapView(meetings: MeetingStatsScope.held(meetings), title: "Total")
 
             HStack {
                 Text("Par entité")
@@ -942,7 +942,9 @@ struct DashboardView: View {
                 .fixedSize()
             }
             if let entity = heatmapSelectedEntity {
-                let filtered = meetings.filter { $0.project?.entity?.persistentModelID == entity.persistentModelID }
+                let filtered = MeetingStatsScope.held(
+                    meetings.filter { $0.project?.entity?.persistentModelID == entity.persistentModelID }
+                )
                 MeetingHeatmapView(meetings: filtered, title: entity.name)
             } else {
                 Text("Sélectionnez une entité pour afficher sa heatmap.")
@@ -1412,8 +1414,10 @@ struct DashboardView: View {
                     }
                 }
 
-                // Recent meetings
-                let recentMeetings = meetings.filter {
+                // Recent meetings — les notes en sont exclues (cf.
+                // `MeetingStatsScope`) : elles ont leur propre écran, et une
+                // note sans titre s'afficherait ici sous « Réunion sans titre ».
+                let recentMeetings = MeetingStatsScope.held(meetings).filter {
                     $0.date >= (Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date())
                 }.sorted(by: { $0.date > $1.date })
 

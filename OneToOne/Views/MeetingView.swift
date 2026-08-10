@@ -374,8 +374,39 @@ struct MeetingView: View {
         // Court-circuité pendant une suppression : voir isBeingDeleted.
         .onDisappear {
             guard !isBeingDeleted else { return }
+            guard !discardEmptyNoteIfNeeded() else { return }
             SpotlightIndexService.shared.index(meeting: meeting)
         }
+    }
+
+    /// Reprend une note créée puis quittée sans rien y saisir : les cinq
+    /// chemins de création insèrent, sauvegardent et indexent d'emblée, donc un
+    /// clic malheureux laisserait sinon une note vide persistée **et** dans
+    /// l'index Spotlight.
+    ///
+    /// Articulation avec le reste du cycle de vie :
+    /// - pose `isBeingDeleted` **avant** de supprimer, comme `deleteMeeting()` :
+    ///   c'est ce drapeau qui empêche un second `.onDisappear` de réindexer —
+    ///   ou de re-supprimer — un modèle disparu ;
+    /// - renvoie `true` pour que l'appelant saute l'indexation : réindexer ici
+    ///   laisserait l'orphelin permanent que la tâche 4 a justement supprimé ;
+    /// - annule la sauvegarde différée de l'éditeur, devenue sans objet ;
+    /// - diffère le `delete` d'un tour de boucle, comme `deleteMeeting()` :
+    ///   supprimer le modèle pendant que la vue l'observe encore fait crasher
+    ///   SwiftData.
+    /// - Returns: `true` si la note a été reprise.
+    private func discardEmptyNoteIfNeeded() -> Bool {
+        guard NoteFactory.isDiscardableEmptyNote(meeting) else { return false }
+        isBeingDeleted = true
+        saveDebounceTask?.cancel()
+        let target = meeting
+        let ctx = context
+        SpotlightIndexService.shared.remove(meeting: target)
+        Task { @MainActor in
+            ctx.delete(target)
+            do { try ctx.save() } catch { print("[MeetingView] discard empty note FAILED: \(error)") }
+        }
+        return true
     }
 
     /// Construit la source d'actions partagée par le « ⋯ » et les menus natifs
@@ -383,6 +414,7 @@ struct MeetingView: View {
     private func makeMenuActions() -> MeetingMenuActions {
         MeetingMenuActions(
             meetingTitle: meeting.title,
+            kind: meeting.kind,
             isRecording: isRecordingThisMeeting,
             isPaused: recorder.isPaused,
             isTranscribing: stt.isTranscribing,

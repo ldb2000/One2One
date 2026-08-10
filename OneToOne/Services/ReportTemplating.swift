@@ -282,7 +282,10 @@ enum TemplateVariableResolver {
             predicate: #Predicate { $0.project?.persistentModelID == projectID },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
-        let recent = (try? context.fetch(recentDescriptor)) ?? []
+        // `held` écarte les notes du projet : ce bloc alimente un contexte de
+        // prompt IA, et une note présentée comme une réunion tenue induirait
+        // le modèle en erreur (cf. `MeetingStatsScope`).
+        let recent = MeetingStatsScope.held((try? context.fetch(recentDescriptor)) ?? [])
         let recentOthers = recent.filter { $0.persistentModelID != meeting.persistentModelID }.prefix(3)
         let recentText = recentOthers.isEmpty
             ? "(aucune)"

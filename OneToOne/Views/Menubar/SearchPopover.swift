@@ -126,8 +126,15 @@ struct SearchPopover: View {
             meetings = []; collaborators = []; projects = []; return
         }
 
+        // Les notes sont écartées de la section « Réunions » (cf.
+        // `MeetingStatsScope`) : elles ne sont pas des réunions tenues. Filtre
+        // côté base et non après coup, sinon `fetchLimit` ramènerait moins de
+        // 5 réunions. `kindRaw` car `#Predicate` travaille sur la colonne
+        // stockée ; le littéral "note" est la `rawValue` de `MeetingKind.note`.
         var meetingDescriptor = FetchDescriptor<Meeting>(
-            predicate: #Predicate<Meeting> { $0.title.localizedStandardContains(q) },
+            predicate: #Predicate<Meeting> {
+                $0.kindRaw != "note" && $0.title.localizedStandardContains(q)
+            },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
         meetingDescriptor.fetchLimit = 5

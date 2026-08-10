@@ -68,4 +68,66 @@ struct NoteFactoryTests {
         context.insert(note)
         #expect(note.participants.isEmpty)
     }
+
+    // MARK: - isDiscardableEmptyNote
+
+    @Test("Une note fraîchement fabriquée est jetable")
+    func freshNoteIsDiscardable() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make()
+        context.insert(note)
+        #expect(NoteFactory.isDiscardableEmptyNote(note))
+    }
+
+    @Test("Un titre ou un corps, même réduit à des espaces autour, la retient")
+    func titleOrBodyKeepsIt() throws {
+        let context = try makeContext()
+        let titled = NoteFactory.make(title: "  Titre  ")
+        let bodied = NoteFactory.make(body: "\n Contenu \n")
+        context.insert(titled); context.insert(bodied)
+        #expect(!NoteFactory.isDiscardableEmptyNote(titled))
+        #expect(!NoteFactory.isDiscardableEmptyNote(bodied))
+    }
+
+    @Test("Des blancs seuls ne retiennent pas la note")
+    func whitespaceOnlyIsStillDiscardable() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make(body: "   \n\t ", title: "  ")
+        context.insert(note)
+        #expect(NoteFactory.isDiscardableEmptyNote(note))
+    }
+
+    @Test("Une pièce jointe retient la note, même sans titre ni corps")
+    func attachmentKeepsIt() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make()
+        context.insert(note)
+        let attachment = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/doc.pdf"), kind: "pdf")
+        attachment.meeting = note
+        context.insert(attachment)
+        try context.save()
+        #expect(!NoteFactory.isDiscardableEmptyNote(note))
+    }
+
+    @Test("Le projet ou le participant posés par la fabrique ne retiennent pas la note")
+    func targetAloneDoesNotKeepIt() throws {
+        let context = try makeContext()
+        let project = Project(code: "REFSI", name: "Refonte SI", domain: "Courtage", phase: "Build")
+        let collab = Collaborator(name: "Alice")
+        context.insert(project); context.insert(collab)
+        let projectNote = NoteFactory.make(project: project)
+        let collabNote = NoteFactory.make(collaborator: collab)
+        context.insert(projectNote); context.insert(collabNote)
+        #expect(NoteFactory.isDiscardableEmptyNote(projectNote))
+        #expect(NoteFactory.isDiscardableEmptyNote(collabNote))
+    }
+
+    @Test("Une réunion vide qui n'est pas une note n'est jamais jetable")
+    func nonNoteIsNeverDiscardable() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "", date: Date())
+        meeting.kind = .oneToOne
+        context.insert(meeting)
+        #expect(!NoteFactory.isDiscardableEmptyNote(meeting))
+    }
 }

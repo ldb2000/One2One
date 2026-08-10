@@ -10,20 +10,20 @@ private let attachmentLog = Logger(subsystem: "com.onetoone.app", category: "att
 ///
 /// Layout :
 ///   ~/Library/Application Support/OneToOne/projects/<code>/<timestamp>_<filename>
-///   ~/Library/Application Support/OneToOne/notes/<noteStableID>/<timestamp>_<filename>
 enum AttachmentImporter {
 
-    /// Destination namespace under Application Support: per-project or per-note.
+    /// Destination namespace under Application Support. Un seul cas
+    /// aujourd'hui : le bucket par projet. Le cas « par note » a disparu avec
+    /// `NoteEditorSheet` — une note est désormais un `Meeting`, et les pièces
+    /// jointes d'une réunion passent par `MeetingAttachmentService`, qui
+    /// référence le fichier d'origine sans le recopier ici.
     enum Bucket {
         case project(code: String)
-        case note(stableID: UUID)
 
         var subpath: String {
             switch self {
             case .project(let code):
                 return "projects/\(sanitize(code))"
-            case .note(let id):
-                return "notes/\(id.uuidString)"
             }
         }
     }

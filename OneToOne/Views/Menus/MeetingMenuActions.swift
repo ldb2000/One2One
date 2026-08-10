@@ -17,6 +17,15 @@ struct MeetingMenuActions {
     /// Titre de la réunion (pour l'affichage éventuel dans les menus, ex. en-tête).
     var meetingTitle: String
 
+    /// Type de la réunion affichée. Porté ici — et non réduit à un booléen —
+    /// parce que c'est le vocabulaire déjà employé partout ailleurs pour la
+    /// même règle (`MeetingTopChromeBar`, `MeetingView.visibleSections(for:)`,
+    /// `MeetingStatsScope`) et parce qu'une restriction future propre à un
+    /// autre kind n'exigera pas un drapeau de plus. Sans valeur par défaut :
+    /// tout appelant doit déclarer le kind, c'est précisément l'oubli que
+    /// cette correction répare.
+    var kind: MeetingKind
+
     // État courant. Sert à `isEnabled(_:)` ET aux libellés dynamiques des menus :
     // `isRecording` → « Démarrer l'enregistrement » / « Arrêter et transcrire »,
     // `isPaused` → « Mettre en pause » / « Reprendre » (lus par MeetingCommands).
@@ -55,8 +64,25 @@ struct MeetingMenuActions {
     /// Occupé par une opération longue (enreg./transcription/rapport).
     var busy: Bool { isRecording || isTranscribing || isGeneratingReport }
 
+    /// Une note est une réunion avec soi-même (`MeetingKind.note`) : ni audio,
+    /// ni transcription, ni rapport.
+    var isNote: Bool { kind == .note }
+
+    /// Items sans objet sur une note : tout ce qui produit ou manipule de
+    /// l'audio, une transcription ou un rapport. `MeetingView` masque déjà les
+    /// onglets Transcription et Rapport d'une note ; laisser ces items actifs
+    /// rendrait leur résultat invisible et ingérable (⌘⇧R enregistrait et
+    /// transcrivait dans un `rawTranscript` qu'aucun écran n'affiche).
+    /// Restent actifs : `customPrompt`, `importCalendar`, `delete` et les
+    /// exports (ces derniers restent de toute façon liés à `hasReport`).
+    private static let disabledForNote: Set<MeetingMenuItem> = [
+        .startStopRecording, .appendRecording, .pause, .generateReport,
+        .retranscribe, .importWAV, .editAudio, .revealWAV
+    ]
+
     /// Item activable dans l'état courant.
     func isEnabled(_ item: MeetingMenuItem) -> Bool {
+        if isNote && Self.disabledForNote.contains(item) { return false }
         switch item {
         case .startStopRecording: return !isTranscribing && !isGeneratingReport
         case .appendRecording:    return hasWav && !busy

@@ -26,4 +26,26 @@ enum NoteFactory {
         }
         return note
     }
+
+    /// Vrai quand une note n'a rien reçu depuis sa fabrication : ni titre, ni
+    /// corps (aux espaces près), ni pièce jointe. Prédicat exact inverse de
+    /// `make` — il vit donc ici, avec la fabrique, plutôt que dans la vue.
+    ///
+    /// Les cinq chemins de création insèrent, sauvegardent et indexent
+    /// immédiatement (l'ouverture de `MeetingView` est le seul « éditeur ») :
+    /// sans nettoyage, un clic malheureux laisserait une note vide persistée
+    /// **et** indexée dans Spotlight. `MeetingView` s'appuie dessus à sa
+    /// fermeture pour la reprendre.
+    ///
+    /// Ne regarde que ce que l'écran d'une note permet de saisir — corps et
+    /// documents (cf. `MeetingView.visibleSections(for:)`). Le projet ou le
+    /// participant, posés par la fabrique elle-même, ne comptent pas comme une
+    /// saisie de l'utilisateur.
+    static func isDiscardableEmptyNote(_ meeting: Meeting) -> Bool {
+        guard meeting.kind == .note else { return false }
+        guard meeting.attachments.isEmpty else { return false }
+        let title = meeting.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = meeting.liveNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty && body.isEmpty
+    }
 }

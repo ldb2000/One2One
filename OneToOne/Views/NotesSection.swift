@@ -16,10 +16,14 @@ struct NotesSection: View {
     let target: Target
 
     @Environment(\.modelContext) private var context
+    /// `kindRaw` et non `kind` : `#Predicate` travaille sur les colonnes
+    /// stockées, pas sur le wrapper calculé. Le littéral "note" est la
+    /// `rawValue` de `MeetingKind.note`.
     @Query(filter: #Predicate<Meeting> { $0.kindRaw == "note" },
            sort: \Meeting.date, order: .reverse)
     private var allNotes: [Meeting]
-    @State private var openedNote: Meeting?
+    /// Note en cours de versement au rapport manager (cf. `NoteManagerReportSheet`).
+    @State private var noteForManagerReport: Meeting?
 
     /// Notes de la cible, triées du plus récent au plus ancien. Statique et
     /// pure : testable sans monter la vue.
@@ -66,6 +70,10 @@ struct NotesSection: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
+                                Button {
+                                    noteForManagerReport = note
+                                } label: { Label("Ajouter au rapport manager", systemImage: "plus.bubble") }
+                                Divider()
                                 Button(role: .destructive) {
                                     SpotlightIndexService.shared.remove(meeting: note)
                                     context.delete(note)
@@ -78,17 +86,19 @@ struct NotesSection: View {
             }
             .padding(.vertical, 4)
         }
-        .navigationDestination(item: $openedNote) { note in
-            MeetingView(meeting: note)
+        .sheet(item: $noteForManagerReport) { note in
+            NoteManagerReportSheet(note: note) { noteForManagerReport = nil }
         }
     }
 
-    // ⚠️ `navigationDestination(item:)` doit se trouver dans la pile de
-    // navigation qui porte les `NavigationLink` ci-dessus. Si SwiftUI se plaint
-    // (« A navigationDestination for … was declared earlier on the stack »), ou
-    // si l'ouverture pousse deux fois, retirer ce modificateur et laisser la
-    // note nouvellement créée apparaître en tête de liste : l'utilisateur la
-    // clique. Vérifier à l'écran avant de conclure.
+    // Pas de `navigationDestination(item:)` ici, contrairement à
+    // `AllNotesView` : cette section est montée deux fois (fiche projet et
+    // fiche collaborateur) et la fiche collaborateur peut empiler une fiche
+    // projet — deux déclarations du même type `Meeting` sur la même pile, dont
+    // SwiftUI n'en honore qu'une. « Ajouter » se contente donc de créer la
+    // note ; elle apparaît en tête de la liste (tri par date décroissante),
+    // déjà visible, et l'utilisateur la clique. L'asymétrie avec `AllNotesView`
+    // est voulue : là-bas la déclaration est unique sur sa pile.
 
     private func createNote() {
         let note: Meeting
@@ -99,7 +109,6 @@ struct NotesSection: View {
         context.insert(note)
         try? context.save()
         SpotlightIndexService.shared.index(meeting: note)
-        openedNote = note
     }
 }
 

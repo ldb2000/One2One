@@ -46,6 +46,8 @@ struct AllNotesView: View {
     @State private var searchText: String = ""
     @State private var openedNote: Meeting?
     @State private var scopeFilter: NoteListFilter.Scope = .all
+    /// Note en cours de versement au rapport manager (cf. `NoteManagerReportSheet`).
+    @State private var noteForManagerReport: Meeting?
 
     /// Notes affichées : restreintes par `scopeFilter` puis par `searchText`,
     /// via `NoteListFilter.matches`.
@@ -109,6 +111,10 @@ struct AllNotesView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
+                                Button {
+                                    noteForManagerReport = note
+                                } label: { Label("Ajouter au rapport manager", systemImage: "plus.bubble") }
+                                Divider()
                                 Button(role: .destructive) {
                                     SpotlightIndexService.shared.remove(meeting: note)
                                     context.delete(note)
@@ -126,6 +132,9 @@ struct AllNotesView: View {
         .navigationTitle("Notes")
         .navigationDestination(item: $openedNote) { note in
             MeetingView(meeting: note)
+        }
+        .sheet(item: $noteForManagerReport) { note in
+            NoteManagerReportSheet(note: note) { noteForManagerReport = nil }
         }
     }
 

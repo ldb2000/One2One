@@ -12,8 +12,8 @@ enum QuickLaunchURLHandler {
     /// enregistrement) ou `"meeting-<UUID>"` (ouvre la réunion — ou la note,
     /// une note étant une réunion de kind `.note` — existante, sans
     /// enregistrer). Tout autre type, préfixe inconnu, UUID mal formé ou
-    /// modèle introuvable provoque un retour silencieux (loggé pour les deux
-    /// derniers cas).
+    /// modèle introuvable provoque un retour sans effet ; seul le modèle
+    /// introuvable est journalisé — un UUID mal formé sort en silence.
     @MainActor
     static func handle(activity: NSUserActivity,
                        router: QuickLaunchRouter,

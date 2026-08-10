@@ -548,7 +548,14 @@ final class BackupService {
         ))) ?? []
         for action in existingMgrActions { context.delete(action) }
 
-        for meeting in existingMeetings { context.delete(meeting) }
+        // Les réunions (notes comprises) sont indexées dans Spotlight :
+        // `remove(meeting:)` avant `delete`, sinon l'index garde des entrées
+        // cliquables pointant sur des modèles disparus — rien ne rappelle
+        // jamais `remove` pour un modèle qui n'existe plus.
+        for meeting in existingMeetings {
+            SpotlightIndexService.shared.remove(meeting: meeting)
+            context.delete(meeting)
+        }
         for interview in existingInterviews { context.delete(interview) }
         for project in existingProjects { context.delete(project) }
         for collaborator in existingCollaborators { context.delete(collaborator) }

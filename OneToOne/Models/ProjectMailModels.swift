@@ -111,9 +111,8 @@ final class MailIndexSuggestion {
     /// Score du matcher (0–1) au moment du scan.
     var confidence: Double = 0
     var createdAt: Date = Date()
-    /// Relation sans inverse déclaré (même pattern que
-    /// `ProjectCollaboratorEntry.collaborator`) : la suppression du projet
-    /// laisse une suggestion orpheline, nettoyée par `MailScanStore`.
+    /// Relation sans inverse déclaré : la suppression du projet laisse une
+    /// suggestion orpheline, nettoyée par `MailScanStore`.
     var suggestedProject: Project?
 
     init(
