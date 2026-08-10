@@ -158,6 +158,32 @@ de la note plutôt que sur un champ dédié : lisible dans les listes, aucune ma
 Le `@Query` de notes du contexte IA (`ChatbotView:39`) passe sur `.note`. `type:note` est ajouté
 au vocabulaire de `/cherche`, qui accepte déjà `type:1:1|projet|archi|globale`.
 
+### Recherche locale du chatbot
+
+Trois réponses hors-ligne lisent les tables supprimées et se repointent sur les notes, en
+suivant la convention de titre ci-dessus :
+
+- `responseForProjectInfoQuery` (`ChatbotView:1080`) → les notes `.note` du projet ;
+- `responseForRexQuery` (`:1128-1132`) → les notes du projet dont le titre vaut `REX` ;
+- `responseForCollaboratorProjectQuery` (`:1148`) → les notes du projet dont `participants`
+  contient le collaborateur cherché.
+
+### `MailProjectMatcher`
+
+`projectEntries(from:)` (`:43-53`) construisait la liste d'emails d'un projet — le signal
+« expéditeur » du rattachement automatique des mails — **à partir de `collaboratorEntries`**.
+Comme cette table est vide, cette liste ne contient aujourd'hui que le chef de projet et
+l'architecte technique.
+
+Elle est **rebranchée sur les participants des réunions du projet** : 918 liens
+participant → réunion existent réellement, contre zéro entrée collaborateur. Le signal
+expéditeur cesse d'être théorique. La signature devient
+`projectEntries(from projects: [Project], meetings: [Meeting])` — il n'existe pas de relation
+inverse `Project.meetings`, les réunions sont donc passées par le seul appelant
+(`MailAutoIndexService:126`), qui récupère déjà ses projets du contexte.
+
+C'est une amélioration fonctionnelle, donc un élargissement assumé du périmètre.
+
 ### `ReportTemplating`
 
 `collabNotes` (`:181`) : le `FetchDescriptor<Note>` devient un fetch de `Meeting` `.note` dont
@@ -228,8 +254,10 @@ Aucun refactor gratuit : uniquement là où la logique devient partagée.
 | Commandes chatbot | `/ajout-action-collab-projet` crée un `ActionTask` et **aucune** note |
 | `makeMeetingItem` | titre, description et mots-clés attendus pour une note et pour un 1:1 ; **absence** de transcription dans l'item |
 
-**Tests existants à reprendre** : `ManagerCRGeneratorTests:23` et `ManagerReportServiceTests:16`
-déclarent `Note.self` dans leur `ModelContainer`.
+**Tests existants à reprendre** — quatre fichiers déclarent les modèles supprimés dans leur
+`ModelContainer` : `ManagerCRGeneratorTests`, `ManagerReportServiceTests`,
+`QuickLaunchRouterTests`, `QuickLaunchURLHandlerTests`. `MailProjectMatcherTests` construit
+des `ProjectEntry` à la main et n'est pas touché par la nouvelle signature.
 
 ### Ce qu'aucun test ne couvrira
 
@@ -265,6 +293,7 @@ CoreData refuse. Le dépôt a déjà cette habitude (`OneToOne.store.before-fix`
 | `liveNotes` conservé comme corps | Nom trompeur pour une note ; renommer traverserait sauvegarde, gabarits et rapports |
 | Catégorie `REX` / `Information` reportée sur le titre | Plus de champ typé ; le filtrage par catégorie devient une recherche textuelle |
 | Périmètre élargi aux trois modèles vides | Une PR plus large que « une intention » au sens strict ; justifié par un geste unique et une seule migration |
+| `MailProjectMatcher` rebranché sur les participants des réunions | Change le comportement du rattachement automatique des mails, au lieu de le laisser inerte ; élargissement assumé |
 
 ## Ce qui n'est pas décidé ici
 
