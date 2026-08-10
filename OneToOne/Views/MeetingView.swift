@@ -835,7 +835,7 @@ struct MeetingView: View {
                 return !(meeting.participants.first?.standingPrepNotes.isEmpty ?? true)
             case .project:
                 return !(meeting.project?.standingPrepNotes.isEmpty ?? true)
-            case .global, .work:
+            case .global, .work, .note:
                 return false
             }
         }()
@@ -1847,7 +1847,7 @@ struct MeetingView: View {
         case .manager:
             scope.collaboratorPID = meeting.participants.first?.persistentModelID
             guard scope.collaboratorPID != nil else { return "" }
-        case .global, .work:
+        case .global, .work, .note:
             return ""  // pas d'enrichissement historique hors scope clair
         }
 

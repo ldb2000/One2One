@@ -974,6 +974,8 @@ struct DashboardView: View {
             return ("Architecture", MeetingKind.work.sfSymbol)
         case .global:
             return ("Globale", MeetingKind.global.sfSymbol)
+        case .note:
+            return ("Note", MeetingKind.note.sfSymbol)
         }
     }
 

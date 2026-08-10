@@ -63,7 +63,7 @@ enum TodayStatsCalculator {
     @MainActor
     static func compute(in context: ModelContext, now: Date = Date()) -> TodayStats {
         let descriptor = FetchDescriptor<Meeting>()
-        let all = (try? context.fetch(descriptor)) ?? []
+        let all = MeetingStatsScope.held((try? context.fetch(descriptor)) ?? [])
         let cal = Calendar.current
         let startOfToday = cal.startOfDay(for: now)
         let endOfToday = cal.date(byAdding: .day, value: 1, to: startOfToday) ?? now

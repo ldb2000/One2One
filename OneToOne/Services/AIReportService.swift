@@ -403,6 +403,7 @@ struct AIReportService {
         case .manager:   templateKind = .manager
         case .project:   templateKind = .copil
         case .work:      templateKind = .general
+        case .note:      templateKind = .general
         }
         let raw = templateKind.rawValue
         let descriptor = FetchDescriptor<ReportTemplate>(

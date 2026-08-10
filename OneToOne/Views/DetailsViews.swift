@@ -50,7 +50,9 @@ struct ProjectDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 GroupBox("Activité réunions") {
                     MeetingHeatmapView(
-                        meetings: allMeetings.filter { $0.project?.persistentModelID == project.persistentModelID }
+                        meetings: MeetingStatsScope.held(
+                            allMeetings.filter { $0.project?.persistentModelID == project.persistentModelID }
+                        )
                     )
                     .padding(.top, 4)
                 }
@@ -899,9 +901,11 @@ struct CollaboratorDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 GroupBox("Activité réunions") {
                     MeetingHeatmapView(
-                        meetings: allMeetings.filter { meeting in
-                            meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID })
-                        }
+                        meetings: MeetingStatsScope.held(
+                            allMeetings.filter { meeting in
+                                meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID })
+                            }
+                        )
                     )
                     .padding(.top, 4)
                 }
@@ -1154,11 +1158,12 @@ struct CollaboratorDetailView: View {
                 }
 
                 GroupBox("Réunions") {
-                    if collaborator.meetings.isEmpty {
+                    let heldMeetings = MeetingStatsScope.held(collaborator.meetings)
+                    if heldMeetings.isEmpty {
                         Text("Aucune réunion").foregroundColor(.secondary)
                     } else {
                         VStack(alignment: .leading, spacing: 5) {
-                            ForEach(collaborator.meetings.sorted(by: { $0.date > $1.date })) { meeting in
+                            ForEach(heldMeetings.sorted(by: { $0.date > $1.date })) { meeting in
                                 NavigationLink {
                                     MeetingView(meeting: meeting)
                                 } label: {

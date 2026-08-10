@@ -59,7 +59,7 @@ extension PrepCarryoverService {
                 project.standingPrepNotes = ""
                 project.standingPrepUpdatedAt = Date()
             }
-        case .global, .work:
+        case .global, .work, .note:
             break
         }
 
@@ -114,7 +114,7 @@ extension PrepCarryoverService {
                 project.standingPrepNotes = block + project.standingPrepNotes
                 project.standingPrepUpdatedAt = Date()
             }
-        case .global, .work:
+        case .global, .work, .note:
             break  // pool absent — items perdus (cf. spec, intentionnel)
         }
 
