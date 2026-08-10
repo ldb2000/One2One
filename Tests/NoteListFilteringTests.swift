@@ -56,4 +56,13 @@ struct NoteListFilteringTests {
         #expect(NoteListFilter.matches(note, query: "alice", scope: .all))
         #expect(!NoteListFilter.matches(note, query: "zzz", scope: .all))
     }
+
+    @Test("La valeur brute du kind note est celle qu'attendent les prédicats SwiftData")
+    func rawValueMatchesPredicateLiteral() {
+        // Les `#Predicate` filtrent sur `kindRaw`, une colonne stockée, avec le
+        // littéral "note" — ils ne peuvent pas traverser le wrapper calculé
+        // `kind`. Renommer cette rawValue viderait silencieusement l'écran
+        // Notes et plusieurs autres requêtes. Ce test est le seul garde-fou.
+        #expect(MeetingKind.note.rawValue == "note")
+    }
 }
