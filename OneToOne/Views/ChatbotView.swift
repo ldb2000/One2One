@@ -61,7 +61,7 @@ struct ChatbotView: View {
     private let slashCommands: [SlashCommandDef] = [
         SlashCommandDef(
             name: "/cherche",
-            args: ["<mot-cle>", "[| projet:<nom>]", "[| collab:<nom>]", "[| type:1:1|projet|archi|globale]"],
+            args: ["<mot-cle>", "[| projet:<nom>]", "[| collab:<nom>]", "[| type:1:1|projet|archi|globale|note]"],
             help: "Rechercher dans les rapports / transcriptions / notes de réunion"
         ),
         SlashCommandDef(
@@ -707,6 +707,7 @@ struct ChatbotView: View {
 
         return """
         Le fournisseur IA configure ne repond pas actuellement. Je peux quand meme traiter localement:
+        - `/cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale|note]`
         - `liste des projets`
         - `liste des collaborateurs`
         - `/ajout-projet Nom du projet | information`
@@ -754,16 +755,16 @@ struct ChatbotView: View {
         if let response = handleProjectInfoCommand(trimmed) {
             return response
         }
-        if let response = handleCollaboratorProjectCommand(trimmed, commandPrefix: "/ajout-info-collab-projet", kind: "Information collaborateur") {
+        if let response = handleCollaboratorProjectCommand(trimmed, commandPrefix: "/ajout-info-collab-projet", entryKind: .information) {
             return response
         }
-        if let response = handleCollaboratorProjectCommand(trimmed, commandPrefix: "/ajout-action-collab-projet", kind: "Action collaborateur") {
+        if let response = handleCollaboratorProjectCommand(trimmed, commandPrefix: "/ajout-action-collab-projet", entryKind: .action) {
             return response
         }
 
         // Unknown slash command
         if trimmed.hasPrefix("/") && !trimmed.contains(" ") {
-            return "Commande inconnue: \(trimmed)\n\nCommandes disponibles:\n- /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale]\n- /ajout-projet <Nom du projet> | <information>\n- /ajout-info-collab-projet <Nom du projet> | <Nom collaborateur> | <information>\n- /ajout-action-collab-projet <Nom du projet> | <Nom collaborateur> | <action>"
+            return "Commande inconnue: \(trimmed)\n\nCommandes disponibles:\n- /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale|note]\n- /ajout-projet <Nom du projet> | <information>\n- /ajout-info-collab-projet <Nom du projet> | <Nom collaborateur> | <information>\n- /ajout-action-collab-projet <Nom du projet> | <Nom collaborateur> | <action>"
         }
 
         return nil
@@ -774,19 +775,19 @@ struct ChatbotView: View {
     /// Recherche mot-clé sur le corpus réunion : titre, rapport (résumé /
     /// points clés / décisions / questions), transcription brute & fusionnée,
     /// notes live & post-réunion, prompt custom, calendrier. Filtres optionnels :
-    /// `| projet:<nom>` `| collab:<nom>` `| type:1:1|projet|archi|globale`.
+    /// `| projet:<nom>` `| collab:<nom>` `| type:1:1|projet|archi|globale|note`.
     private func handleSearchCommand(_ question: String) -> String? {
         let lowered = question.lowercased()
         guard lowered.hasPrefix("/cherche") else { return nil }
 
         guard question.count > "/cherche".count else {
-            return "Usage: /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale]"
+            return "Usage: /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale|note]"
         }
 
         let payload = String(question.dropFirst("/cherche".count)).trimmingCharacters(in: .whitespaces)
         let parts = payload.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard let needle = parts.first, !needle.isEmpty else {
-            return "Usage: /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale]"
+            return "Usage: /cherche <mot-cle> [| projet:<nom>] [| collab:<nom>] [| type:1:1|projet|archi|globale|note]"
         }
 
         // Parse filtres
@@ -807,6 +808,7 @@ struct ChatbotView: View {
                 case "projet", "project": kindFilter = .project
                 case "archi", "architecture", "work": kindFilter = .work
                 case "globale", "global": kindFilter = .global
+                case "note", "notes": kindFilter = .note
                 default: break
                 }
             } else if !lower.isEmpty {
@@ -926,21 +928,19 @@ struct ChatbotView: View {
             return projectNotFoundMessage(for: projectName)
         }
 
-        let category = project.phase == "Build" ? "REX" : "Information"
-        let entry = ProjectInfoEntry(date: Date(), content: content, category: category)
-        entry.project = project
-        context.insert(entry)
-
         do {
-            try context.save()
-            SpotlightIndexService.shared.index(project: project)
-            return "Information ajoutee au projet \(project.name) [\(category)] avec la date du jour."
+            let note = try ChatbotEntryCommands.addProjectInfo(
+                content: content, project: project, in: context)
+            return "Information ajoutee au projet \(project.name) [\(note.title)] avec la date du jour."
         } catch {
             return "Impossible d'ajouter l'information: \(error.localizedDescription)"
         }
     }
 
-    private func handleCollaboratorProjectCommand(_ question: String, commandPrefix: String, kind: String) -> String? {
+    /// Nature de l'entrée créée par les commandes `/ajout-*-collab-projet`.
+    private enum CollaboratorEntryKind { case information, action }
+
+    private func handleCollaboratorProjectCommand(_ question: String, commandPrefix: String, entryKind: CollaboratorEntryKind) -> String? {
         let lowered = question.lowercased()
         guard lowered.hasPrefix(commandPrefix.lowercased()) else { return nil }
 
@@ -967,15 +967,17 @@ struct ChatbotView: View {
             return "Collaborateur introuvable: \(collaboratorName)\(hint)"
         }
 
-        let entry = ProjectCollaboratorEntry(date: Date(), content: content, kind: kind, isCompleted: false)
-        entry.project = project
-        entry.collaborator = collaborator
-        context.insert(entry)
-
         do {
-            try context.save()
-            SpotlightIndexService.shared.index(project: project)
-            return "\(kind) ajoutee pour \(collaborator.name) sur le projet \(project.name)."
+            switch entryKind {
+            case .information:
+                _ = try ChatbotEntryCommands.addCollaboratorInfo(
+                    content: content, project: project, collaborator: collaborator, in: context)
+                return "Information ajoutee pour \(collaborator.name) sur le projet \(project.name)."
+            case .action:
+                _ = try ChatbotEntryCommands.addCollaboratorAction(
+                    content: content, project: project, collaborator: collaborator, in: context)
+                return "Action ajoutee pour \(collaborator.name) sur le projet \(project.name)."
+            }
         } catch {
             return "Impossible d'ajouter l'entree: \(error.localizedDescription)"
         }
@@ -1080,10 +1082,11 @@ struct ChatbotView: View {
         guard !matchingProjects.isEmpty else { return nil }
 
         let lines = matchingProjects.map { project in
-            let entries = project.infoEntries.sorted(by: { $0.date > $1.date }).prefix(5)
-            let details = entries.isEmpty
+            let projectNotes = notes.filter { $0.project?.persistentModelID == project.persistentModelID }
+                .sorted(by: { $0.date > $1.date }).prefix(5)
+            let details = projectNotes.isEmpty
                 ? "Aucune information datee."
-                : entries.map { "\($0.date.formatted(date: .abbreviated, time: .omitted)) [\($0.category)] \($0.content)" }.joined(separator: "\n")
+                : projectNotes.map { "\($0.date.formatted(date: .abbreviated, time: .omitted)) [\($0.title)] \($0.liveNotes)" }.joined(separator: "\n")
             return "Projet \(project.name):\n\(details)"
         }
 
@@ -1128,12 +1131,22 @@ struct ChatbotView: View {
         let matchingProjects = projects.filter { project in
             normalizedQuestion.contains(project.name.lowercased()) || normalizedQuestion.contains(project.code.lowercased()) || normalizedQuestion == "rex"
         }
-        let sourceProjects = matchingProjects.isEmpty ? projects.filter { !$0.infoEntries.filter { $0.category == "REX" }.isEmpty } : matchingProjects
+
+        func rexNotes(of project: Project) -> [Meeting] {
+            notes.filter {
+                $0.project?.persistentModelID == project.persistentModelID && $0.title == "REX"
+            }
+            .sorted(by: { $0.date > $1.date })
+        }
+
+        let sourceProjects = matchingProjects.isEmpty
+            ? projects.filter { !rexNotes(of: $0).isEmpty }
+            : matchingProjects
         guard !sourceProjects.isEmpty else { return "Aucun REX projet trouve." }
 
         let sections = sourceProjects.sorted(by: { $0.name < $1.name }).map { project in
-            let entries = project.infoEntries.filter { $0.category == "REX" }.sorted(by: { $0.date > $1.date }).prefix(5)
-            let lines = entries.map { "- \($0.date.formatted(date: .abbreviated, time: .omitted)): \($0.content)" }
+            let lines = rexNotes(of: project).prefix(5)
+                .map { "- \($0.date.formatted(date: .abbreviated, time: .omitted)): \($0.liveNotes)" }
             return "Projet \(project.name):\n" + (lines.isEmpty ? "- Aucun REX date" : lines.joined(separator: "\n"))
         }
         return sections.joined(separator: "\n\n")
@@ -1147,12 +1160,16 @@ struct ChatbotView: View {
             normalizedQuestion.contains(collaborator.name.lowercased())
         }
 
-        let entries = projects.flatMap { project in
-            project.collaboratorEntries.filter { entry in
-                let projectMatch = matchingProjects.isEmpty || matchingProjects.contains(where: { $0.persistentModelID == project.persistentModelID })
-                let collaboratorMatch = matchingCollaborators.isEmpty || matchingCollaborators.contains(where: { $0.persistentModelID == entry.collaborator?.persistentModelID })
-                return projectMatch && collaboratorMatch
-            }.map { (project, $0) }
+        let entries: [(Project, Meeting)] = notes.compactMap { note in
+            guard let project = note.project else { return nil }
+            let projectMatch = matchingProjects.isEmpty
+                || matchingProjects.contains(where: { $0.persistentModelID == project.persistentModelID })
+            let collaboratorMatch = matchingCollaborators.isEmpty
+                || note.participants.contains(where: { participant in
+                    matchingCollaborators.contains(where: { $0.persistentModelID == participant.persistentModelID })
+                })
+            guard projectMatch && collaboratorMatch else { return nil }
+            return (project, note)
         }
 
         guard !entries.isEmpty else { return nil }
@@ -1162,10 +1179,9 @@ struct ChatbotView: View {
                 return lhs.1.date > rhs.1.date
             }
             return lhs.0.name < rhs.0.name
-        }.map { project, entry in
-            let collaboratorName = entry.collaborator?.name ?? "Collaborateur"
-            let statusSuffix = entry.kind.contains("Action") ? (entry.isCompleted ? " [terminee]" : " [en cours]") : ""
-            return "- \(project.name) | \(collaboratorName) | \(entry.kind)\(statusSuffix) | \(entry.content)"
+        }.map { project, note in
+            let collaboratorName = note.participants.first?.name ?? "Collaborateur"
+            return "- \(project.name) | \(collaboratorName) | \(note.title) | \(note.liveNotes)"
         }
 
         return "Entrees collaborateurs par projet:\n" + lines.joined(separator: "\n")
