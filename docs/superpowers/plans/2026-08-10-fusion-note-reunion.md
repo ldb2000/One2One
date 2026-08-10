@@ -841,6 +841,17 @@ struct NoteListFilteringTests {
         #expect(NoteListFilter.matches(note, query: "alice", scope: .all))
         #expect(!NoteListFilter.matches(note, query: "zzz", scope: .all))
     }
+
+    @Test("La valeur brute du kind note est celle qu'attendent les prédicats SwiftData")
+    func rawValueMatchesPredicateLiteral() {
+        // Les `#Predicate` filtrent sur `kindRaw`, une colonne stockée, avec le
+        // littéral "note" — ils ne peuvent pas traverser le wrapper calculé
+        // `kind`, et un initialiseur de `@Query` ne peut pas héberger de `let`
+        // préalable. Renommer cette rawValue viderait silencieusement l'écran
+        // Notes, la section Notes des fiches, le gabarit de rapport et le
+        // contexte de l'assistant. Ce test est le seul garde-fou.
+        #expect(MeetingKind.note.rawValue == "note")
+    }
 }
 ```
 
@@ -1342,7 +1353,9 @@ Expected: `type 'ReportTemplating' has no member 'collabNotesForTesting'`.
 
 - [ ] **Step 3: Repointer `collabNotes` sur les notes-réunions**
 
-Dans `OneToOne/Services/ReportTemplating.swift`, remplacer le corps de `collabNotes` :
+Dans `OneToOne/Services/ReportTemplating.swift` — le type qui porte `collabNotes` s'appelle
+`TemplateVariableResolver`, **pas** `ReportTemplating` (erreur du plan initial, corrigée en
+tâche 7) — remplacer le corps de `collabNotes` :
 
 ```swift
     @MainActor
@@ -1471,27 +1484,42 @@ git commit -m "feat(note): note rapide, recherche laterale et gabarit sur les re
 - Modify: `OneToOne/Models/Project.swift:114-115`
 - Modify: `OneToOne/Models/OtherModels.swift:75-76`
 - Modify: `OneToOne/Models/SchemaVersions.swift:46-47`
-- Modify: `OneToOne/Views/ChatbotView.swift:39` et son usage (~`:653`)
+- Modify: `OneToOne/OneToOneApp.swift:361-363` — `repairStoreIfNeeded` déduplique les
+  `NoteAttachment.stableID` au démarrage ; ce bloc part avec le modèle. **Omission du plan
+  initial, trouvée en tâche 7 : sans lui, cette tâche ne compile pas.**
 - Modify: `OneToOne/Views/MeetingsListView.swift:102-108`, `:165`
+- ~~`OneToOne/Views/ChatbotView.swift`~~ — **déjà fait en tâche 7** (son `@Query` de notes était
+  un lecteur vivant de `Note` qu'il fallait basculer pour tenir la postcondition de cette
+  tâche-là). Ne reste qu'à vérifier.
 - Modify: `Tests/ManagerCRGeneratorTests.swift:23`, `Tests/ManagerReportServiceTests.swift:16`
 
 **Interfaces:**
 - Consomme : tâches 5 à 7 (plus aucun lecteur de `Note`).
 - Produit : un schéma sans `Note` ni `NoteAttachment`.
 
-- [ ] **Step 1: Repointer le contexte du chatbot**
+- [ ] **Step 1: Vérifier le contexte du chatbot (déjà basculé en tâche 7)**
 
-Dans `OneToOne/Views/ChatbotView.swift`, remplacer la requête `:39` :
+`ChatbotView` lisait `Note` par un `@Query` ; la tâche 7 l'a basculé sur
+`#Predicate<Meeting> { $0.kindRaw == "note" }`, avec `n.liveNotes` au lieu de `n.body`,
+`n.date` au lieu de `n.updatedAt`, et `n.participants.first?.name` au lieu de
+`n.collaborator?.name`. Il n'y a donc rien à écrire ici — seulement à confirmer :
+
+Run: `grep -n "Note\b" OneToOne/Views/ChatbotView.swift | grep -v "NoteFactory\|// \|/// "`
+Expected: aucun résultat.
+
+- [ ] **Step 1 bis: Retirer la déduplication des `NoteAttachment` au démarrage**
+
+Dans `OneToOne/OneToOneApp.swift` (~ligne 361), `repairStoreIfNeeded` déduplique les
+`stableID` de plusieurs modèles. Supprimer le bloc qui vise `NoteAttachment` :
 
 ```swift
-    @Query(filter: #Predicate<Meeting> { $0.kindRaw == "note" },
-           sort: \Meeting.date, order: .reverse)
-    private var notes: [Meeting]
+            deduplicateOptional(context: context, label: "NoteAttachment",
+                                fetch: FetchDescriptor<NoteAttachment>(),
+                                get: { $0.stableID }, set: { $0.stableID = $1 })
 ```
 
-et, à l'endroit qui construit `noteLines` (~`:653`), remplacer `n.body` par `n.liveNotes` et
-`n.updatedAt` par `n.date`. Ajuster la description de la cible : `n.project?.name` reste,
-`n.collaborator?.name` devient `n.participants.first?.name`.
+Les autres appels à `deduplicateOptional` restent. Sans cette suppression, la tâche ne compile
+pas — le modèle disparaît à l'étape 3.
 
 - [ ] **Step 2: Exclure les notes de la liste des réunions**
 
@@ -2233,7 +2261,14 @@ puis reprendre avec un `SchemaV2` (snapshot nested + `MigrationStage`).
 6. fiche projet → les deux anciens `GroupBox` d'entrées datées ont disparu, la section Notes
    les remplace ;
 7. Réglages → réindexer Spotlight, puis rechercher dans Spotlight un mot présent dans une note
-   → elle remonte ;
+   → elle remonte, **et cliquer le résultat ouvre bien la note** (le routage est couvert par des
+   tests, l'ouverture réelle ne l'est pas) ;
+7 bis. depuis l'écran « Notes », cliquer « Nouvelle note » → la note s'ouvre **une seule fois**,
+   sans double poussée de navigation et sans avertissement SwiftUI en console
+   (« A navigationDestination for … was declared earlier on the stack »). C'est le seul contrôle
+   qui peut trancher la cohabitation `NavigationLink` + `navigationDestination(item:)` ; si elle
+   se révèle fautive, le repli est de retirer ce modificateur et de laisser la note nouvellement
+   créée apparaître en tête de liste ;
 8. sauvegarder puis restaurer via `BackupService` → la note survit.
 
 Noter dans `STATUS.md` chaque contrôle **réellement effectué**, et lesquels restent dus. Ne pas
