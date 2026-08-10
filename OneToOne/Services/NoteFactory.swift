@@ -4,10 +4,10 @@ import Foundation
 /// menubar, écran « Notes », section Notes d'une fiche, commandes `/ajout-*`
 /// de l'assistant. Une note est un `Meeting` de kind `.note`.
 ///
-/// Le corps va dans `liveNotes` — le champ que relie l'onglet « Note » de
-/// `MeetingView`. Le nom de ce champ est un héritage (« notes live » d'une
-/// réunion) ; le renommer traverserait la sauvegarde et les gabarits de
-/// rapport, il est donc conservé tel quel.
+/// Le corps va dans `liveNotes` — le champ que relie l'onglet du corps de
+/// `MeetingView`, intitulé « Notes live » pour une réunion et « Note » pour
+/// une note. Le nom du champ est un héritage ; le renommer traverserait la
+/// sauvegarde et les gabarits de rapport, il est donc conservé tel quel.
 enum NoteFactory {
 
     /// Crée une note **sans l'insérer** dans un contexte : l'appelant
