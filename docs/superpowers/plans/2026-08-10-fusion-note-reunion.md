@@ -251,12 +251,15 @@ import Foundation
 @Suite("NoteFactory — une note est une réunion avec soi-même")
 struct NoteFactoryTests {
 
-    private func makeContext() throws -> ModelContext {
-        let container = try ModelContainer(
+    private func makeContainer() throws -> ModelContainer {
+        try ModelContainer(
             for: Schema(CurrentSchema.models),
             configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
         )
-        return ModelContext(container)
+    }
+
+    private func makeContext() throws -> ModelContext {
+        ModelContext(try makeContainer())
     }
 
     @Test("Le kind est note et le corps va dans liveNotes")
@@ -280,21 +283,27 @@ struct NoteFactoryTests {
 
     @Test("Le collaborateur devient participant, et le lien survit à la sauvegarde")
     func collaboratorBecomesParticipant() throws {
-        let context = try makeContext()
+        let container = try makeContainer()
+        let context = ModelContext(container)
         let collab = Collaborator(name: "Alice")
         context.insert(collab)
         let note = NoteFactory.make(body: "Point de vigilance", collaborator: collab)
         context.insert(note)
         try context.save()
 
-        // Relu depuis le store, pas depuis l'instance en mémoire : c'est ce
-        // aller-retour qui prouve qu'une relation posée AVANT l'insertion
-        // survit à la persistance. Même motif que `Tests/SwiftDataTests.swift`.
-        let fetched = try context.fetch(FetchDescriptor<Meeting>())
-        #expect(fetched.count == 1)
-        #expect(fetched.first?.participants.map(\.name) == ["Alice"])
-        // Côté inverse de la relation.
-        #expect(collab.meetings.contains { $0.persistentModelID == note.persistentModelID })
+        // Second contexte sur le même conteneur. C'est la seule façon de sortir
+        // de la carte d'identité du premier : un `fetch` sur le contexte qui a
+        // fait le `save` rend l'instance déjà en mémoire, et l'assertion serait
+        // tautologique. Le dépôt ne fait nulle part cette distinction
+        // (cf. `Tests/SwiftDataTests.swift`) ; ici elle compte, parce que
+        // `NoteFactory` pose la relation AVANT l'insertion.
+        let verifier = ModelContext(container)
+        let fetchedNotes = try verifier.fetch(FetchDescriptor<Meeting>())
+        #expect(fetchedNotes.count == 1)
+        #expect(fetchedNotes.first?.participants.map(\.name) == ["Alice"])
+        // Côté inverse, relu lui aussi depuis le second contexte.
+        let fetchedCollabs = try verifier.fetch(FetchDescriptor<Collaborator>())
+        #expect(fetchedCollabs.first?.meetings.count == 1)
     }
 
     @Test("Sans collaborateur, aucun participant")
@@ -326,10 +335,10 @@ import Foundation
 /// menubar, écran « Notes », section Notes d'une fiche, commandes `/ajout-*`
 /// de l'assistant. Une note est un `Meeting` de kind `.note`.
 ///
-/// Le corps va dans `liveNotes` — le champ que relie l'onglet « Note » de
+/// Le corps va dans `liveNotes` — le champ que relie l'onglet du corps de
 /// `MeetingView`. Le nom de ce champ est un héritage (« notes live » d'une
-/// réunion) ; le renommer traverserait la sauvegarde et les gabarits de
-/// rapport, il est donc conservé tel quel.
+/// réunion enregistrée) ; le renommer traverserait la sauvegarde et les
+/// gabarits de rapport, il est donc conservé tel quel.
 enum NoteFactory {
 
     /// Crée une note **sans l'insérer** dans un contexte : l'appelant
