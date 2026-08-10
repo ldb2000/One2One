@@ -37,7 +37,6 @@ struct ProjectDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingProjectAttachmentImporter = false
     @State private var newProjectAttachmentCategory = "Document"
-    @State private var selectedCollaboratorForProjectEntry: Collaborator?
 
     private let riskLevels = ["", "Faible", "Modéré", "Élevé", "Critique"]
     private let phases = ["Cadrage", "Design", "Build", "Run"]
@@ -201,159 +200,6 @@ struct ProjectDetailView: View {
                         set: { project.comment = $0 }
                     ))
                     .frame(minHeight: 80)
-                }
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(project.phase == "Build" ? "REX / Infos projet" : "Infos projet / OneToOne")
-                                .font(.headline)
-                            Spacer()
-                            Button(action: addProjectInfoEntry) {
-                                Image(systemName: "plus.circle.fill")
-                            }
-                            .buttonStyle(.plain)
-                            .help("Ajouter une entrée datée")
-                        }
-
-                        Text(project.phase == "Build"
-                             ? "Chaque ajout est daté et permet de capitaliser les retours d'expérience du projet."
-                             : "Ajoutez ici des informations datées pour comprendre où en est le sujet et garder l'historique des échanges.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        let entries = project.infoEntries.sorted(by: { $0.date > $1.date })
-                        if entries.isEmpty {
-                            Text("Aucune information projet")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(entries) { entry in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(entry.category)
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 2)
-                                            .background(entry.category == "REX" ? Color.orange.opacity(0.18) : Color.accentColor.opacity(0.15))
-                                            .cornerRadius(4)
-                                        Text(entry.date, style: .date)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Spacer()
-                                        Button(role: .destructive) {
-                                            deleteProjectInfoEntry(entry)
-                                        } label: {
-                                            Image(systemName: "trash")
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-
-                                    EditableTextEditor(text: Binding(
-                                        get: { entry.content },
-                                        set: {
-                                            entry.content = $0
-                                            saveContext()
-                                        }
-                                    ))
-                                    .frame(minHeight: 90)
-                                }
-                                .padding(10)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(8)
-                            }
-                        }
-                    }
-                } label: {
-                    EmptyView()
-                }
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Informations / actions collaborateurs")
-                                .font(.headline)
-                            Spacer()
-                            Picker("Collaborateur", selection: $selectedCollaboratorForProjectEntry) {
-                                Text("Choisir").tag(nil as Collaborator?)
-                                ForEach(collaborators.filter { !$0.isArchived }.sorted(by: { $0.name < $1.name })) { collaborator in
-                                    Text(collaborator.name).tag(collaborator as Collaborator?)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(width: 180)
-
-                            Button("Ajouter info") {
-                                addCollaboratorEntry(kind: "Information collaborateur")
-                            }
-                            .disabled(selectedCollaboratorForProjectEntry == nil)
-
-                            Button("Ajouter action") {
-                                addCollaboratorEntry(kind: "Action collaborateur")
-                            }
-                            .disabled(selectedCollaboratorForProjectEntry == nil)
-                        }
-
-                        let entries = project.collaboratorEntries.sorted(by: { $0.date > $1.date })
-                        if entries.isEmpty {
-                            Text("Aucune information collaborateur sur ce projet")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(entries) { entry in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(entry.kind)
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 2)
-                                            .background(entry.kind.contains("Action") ? Color.blue.opacity(0.18) : Color.green.opacity(0.18))
-                                            .cornerRadius(4)
-                                        if let collaborator = entry.collaborator {
-                                            Text(collaborator.name)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Text(entry.date, style: .date)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Spacer()
-                                        if entry.kind.contains("Action") {
-                                            Button(action: {
-                                                entry.isCompleted.toggle()
-                                                saveContext()
-                                            }) {
-                                                Image(systemName: entry.isCompleted ? "checkmark.circle.fill" : "circle")
-                                                    .foregroundColor(entry.isCompleted ? .green : .secondary)
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                        Button(role: .destructive) {
-                                            context.delete(entry)
-                                            saveContext()
-                                        } label: {
-                                            Image(systemName: "trash")
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-
-                                    EditableTextEditor(text: Binding(
-                                        get: { entry.content },
-                                        set: {
-                                            entry.content = $0
-                                            saveContext()
-                                        }
-                                    ))
-                                    .frame(minHeight: 90)
-                                }
-                                .padding(10)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(8)
-                            }
-                        }
-                    }
-                } label: {
-                    EmptyView()
                 }
 
                 // Documents Techniques
@@ -749,30 +595,6 @@ struct ProjectDetailView: View {
         } catch {
             print("[ProjectDetail] attachment copy failed: \(error)")
         }
-    }
-
-    /// Ajoute une entrée datée vide ; catégorisée « REX » en phase Build, sinon « Information ».
-    private func addProjectInfoEntry() {
-        let category = project.phase == "Build" ? "REX" : "Information"
-        let entry = ProjectInfoEntry(date: Date(), content: "", category: category)
-        entry.project = project
-        context.insert(entry)
-        saveContext()
-    }
-
-    private func deleteProjectInfoEntry(_ entry: ProjectInfoEntry) {
-        context.delete(entry)
-        saveContext()
-    }
-
-    /// Crée une entrée (information ou action) liée au collaborateur sélectionné ; no-op si aucun.
-    private func addCollaboratorEntry(kind: String) {
-        guard let collaborator = selectedCollaboratorForProjectEntry else { return }
-        let entry = ProjectCollaboratorEntry(date: Date(), content: "", kind: kind, isCompleted: false)
-        entry.project = project
-        entry.collaborator = collaborator
-        context.insert(entry)
-        saveContext()
     }
 
     /// Génère via l'IA un brouillon de préparation pour le projet et l'enregistre
