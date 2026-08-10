@@ -142,7 +142,9 @@ struct AllNotesView: View {
 
 /// Ligne d'une note : symbole et badge selon la cible (projet, collaborateur
 /// ou orpheline), titre (titre de la note ou première ligne du corps en repli),
-/// aperçu du corps et date.
+/// aperçu du corps et date. Dérivation du titre et de l'aperçu factorisée dans
+/// `Meeting.noteDisplayTitle` / `Meeting.notePreview` (`NoteDisplay.swift`),
+/// partagée avec `NoteRow` (`NotesSection.swift`).
 private struct AllNotesRow: View {
     let note: Meeting
 
@@ -153,7 +155,7 @@ private struct AllNotesRow: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
-                    Text(displayTitle)
+                    Text(note.noteDisplayTitle)
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.primary)
                     Spacer()
@@ -164,8 +166,8 @@ private struct AllNotesRow: View {
                         .background(Color.accentColor.opacity(0.12))
                         .cornerRadius(4)
                 }
-                if !preview.isEmpty {
-                    Text(preview)
+                if !note.notePreview.isEmpty {
+                    Text(note.notePreview)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
@@ -190,20 +192,5 @@ private struct AllNotesRow: View {
         if let p = note.project { return "Projet · \(p.name)" }
         if let c = note.participants.first { return "Collab · \(c.name)" }
         return "Orpheline"
-    }
-
-    private var displayTitle: String {
-        let t = note.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !t.isEmpty { return t }
-        let firstLine = note.liveNotes.split(separator: "\n").first.map(String.init) ?? ""
-        let stripped = firstLine.trimmingCharacters(in: .whitespaces)
-        return stripped.isEmpty ? "Sans titre" : String(stripped.prefix(60))
-    }
-
-    private var preview: String {
-        let lines = note.liveNotes.split(separator: "\n").map(String.init)
-        let skipFirst = note.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let body = skipFirst ? lines.dropFirst() : ArraySlice(lines)
-        return body.joined(separator: " ").trimmingCharacters(in: .whitespaces)
     }
 }

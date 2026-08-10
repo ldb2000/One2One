@@ -55,6 +55,19 @@ struct NotesSectionScopeTests {
         #expect(NotesSection.notes(for: .project(project), in: [meeting]).isEmpty)
     }
 
+    @Test("Un vrai 1:1 avec le collaborateur en participant n'est pas une note")
+    func heldOneToOneIsNotANote() throws {
+        let context = try makeContext()
+        let alice = Collaborator(name: "Alice")
+        context.insert(alice)
+        let meeting = Meeting(title: "1:1", date: Date())
+        meeting.kind = .oneToOne
+        meeting.participants = [alice]
+        context.insert(meeting)
+
+        #expect(NotesSection.notes(for: .collaborator(alice), in: [meeting]).isEmpty)
+    }
+
     @Test("Les notes sont triées du plus récent au plus ancien")
     func sortedByDateDescending() throws {
         let context = try makeContext()

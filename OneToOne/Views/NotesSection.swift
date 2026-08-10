@@ -106,16 +106,18 @@ struct NotesSection: View {
 // MARK: - Row
 
 /// Ligne d'une note : titre (ou première ligne du corps en repli), aperçu et date.
+/// Dérivation du titre et de l'aperçu factorisée dans `Meeting.noteDisplayTitle`
+/// / `Meeting.notePreview` (`NoteDisplay.swift`), partagée avec `AllNotesRow`.
 private struct NoteRow: View {
     let note: Meeting
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(displayTitle)
+            Text(note.noteDisplayTitle)
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(.primary)
-            if !preview.isEmpty {
-                Text(preview)
+            if !note.notePreview.isEmpty {
+                Text(note.notePreview)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
@@ -128,20 +130,5 @@ private struct NoteRow: View {
         .padding(10)
         .background(Color.secondary.opacity(0.06))
         .cornerRadius(8)
-    }
-
-    private var displayTitle: String {
-        let t = note.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !t.isEmpty { return t }
-        let firstLine = note.liveNotes.split(separator: "\n").first.map(String.init) ?? ""
-        let stripped = firstLine.trimmingCharacters(in: .whitespaces)
-        return stripped.isEmpty ? "Sans titre" : String(stripped.prefix(60))
-    }
-
-    private var preview: String {
-        let lines = note.liveNotes.split(separator: "\n").map(String.init)
-        let skipFirst = note.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let body = skipFirst ? lines.dropFirst() : ArraySlice(lines)
-        return body.joined(separator: " ").trimmingCharacters(in: .whitespaces)
     }
 }
