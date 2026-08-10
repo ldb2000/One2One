@@ -1,8 +1,14 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-09 CEST
+Dernière mise à jour : 2026-08-10 CEST
 
 ## Synthèse
+
+**Fusion Note / Réunion — code terminé, vérification sur données réelles due.** Branche
+`feat/fusion-note-reunion`, 43 commits. Les douze tâches de code du
+[plan](docs/superpowers/plans/2026-08-10-fusion-note-reunion.md) sont livrées ; la
+treizième — sauvegarde du store, migration, dix contrôles à l'écran — **n'a pas eu lieu**.
+Voir la section datée du 2026-08-10 ci-dessous. Prochaine action : cette tâche 13.
 
 **Réécriture de l'éditeur — décidée, verdict du prototype en attente.** La
 réécriture de l'éditeur en reprenant l'architecture d'appflowy-editor
@@ -76,6 +82,63 @@ Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
 - État du worktree : plusieurs changements de l'éditeur sont encore non
   commités ; ils ne doivent pas être mélangés avec les changements de
   migration de `OneToOneApp.swift`
+
+## Fusion Note / Réunion (2026-08-10)
+
+Branche `feat/fusion-note-reunion`, 43 commits, **non fusionnée et non poussée**.
+
+**Livré.** `MeetingKind.note` et l'exclusion des statistiques (`MeetingStatsScope`) ;
+`NoteFactory` ; les onglets et le chrome de `MeetingView` filtrés par kind ; l'indexation
+Spotlight des réunions et des notes, avec l'ouverture depuis un résultat ; l'écran « Notes »
+et la `NotesSection` des fiches réécrits sur `Meeting` ; la note rapide, la recherche
+latérale et le gabarit de rapport repointés ; les commandes `/ajout-*` vers leur modèle
+naturel ; `MailProjectMatcher` sur les participants des réunions. **Quatre modèles
+supprimés** : `Note`, `NoteAttachment`, `ProjectInfoEntry`, `ProjectCollaboratorEntry` —
+sans `SchemaV2`, la prémisse étant que `ZNOTE` est à zéro dans le store réel, ce qui reste
+à vérifier (tâche 13, étape 2).
+
+**Huit correctifs issus d'une revue à effort `xhigh`** (14 constats vérifiés, 6 réfutés),
+tous en TDD, tous sur le prédicat qui supprime une note vide à la fermeture de l'écran —
+suppression *sans* confirmation, là où la suppression explicite passe par un
+`confirmationDialog` :
+
+1. le contenu du 1:1 manager (`ManagerMeetingReport`, `ManagerReportItem`,
+   `ActionTask.managerMeeting`) était invisible au prédicat, faute de relation inverse sur
+   `Meeting` : un 1:1 rapporté basculé sur « Note » était supprimé avec son CR ;
+2. le texte tapé dans les 0,3 s avant la fermeture n'atteignait jamais le modèle (débounce de
+   l'éditeur non vidé au démontage) : la note était jugée vide et supprimée avec ce qu'on
+   venait d'y écrire ;
+3. les participants ad hoc, saisis à la main, et les statuts de présence ne comptaient pas ;
+4. les colonnes JSON du rapport étaient lues par leurs façades, dont le getter avale toute
+   erreur de décodage en `[]` ;
+5. `isBeingDeleted` était un `@State` : deux écrans sur la même réunion se supprimaient le
+   modèle sous les pieds (`MeetingScreenRegistry` porte désormais le compte et la
+   suppression) ;
+6. les quatre gardes de relation en cascade n'étaient couvertes par aucun test (table ajoutée,
+   vérifiée par mutation) ;
+7. l'ordre des gardes faisait fauter toute la transcription avant d'atteindre un scalaire ;
+8. cinq commentaires promettaient plus que le code ne tient.
+
+**Non appliqué, à arbitrer.** Le prédicat reste une liste blanche entretenue à la main sur
+une partie des propriétés de `Meeting` : une propriété ajoutée demain tombe hors de la garde
+sans qu'aucun test n'échoue. Le correctif de fond serait de conditionner la suppression
+silencieuse à la **provenance** (« cet écran a créé cette note et rien ne l'a touchée »)
+plutôt qu'au contenu. Choix structurant → à proposer en ADR, pas à décider en revue. La
+moitié « texte » de la dérive est fermée par `Meeting.textualContent` et son test.
+
+**Vérifié.** `swift test --skip CalendarImportEventTests` : **997 tests XCTest** (1 ignoré,
+`CalendarImportEventTests`, crash d'environnement connu) **+ 301 tests Swift Testing, aucun
+échec**.
+
+**Non vérifié.** Rien n'a été vu à l'écran. La tâche 13 du plan reste entière : sauvegarde du
+store, contrôle `ZNOTE = 0`, build sur la version **commitée** (l'arbre porte une modification
+non commitée de `OneToOneApp.swift` qui retire `migrationPlan`), puis dix contrôles — dont
+deux ajoutés par ces correctifs : la fermeture immédiatement après la frappe, et la même note
+ouverte dans les deux fenêtres.
+
+**Arbre de travail.** Il porte un chantier étranger non commité (éditeur de blocs, Mermaid
+natif, `Services/Agent/`, `Vendor/`) : tous les commits de cette branche sont faits à chemins
+explicites.
 
 ## Sûreté des données — axe 1 de la revue de mai appliqué (2026-08-09)
 
