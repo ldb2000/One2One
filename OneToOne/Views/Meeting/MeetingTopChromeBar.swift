@@ -53,9 +53,13 @@ struct MeetingTopChromeBar: View {
                 // onglets Transcription et Rapport sont masqués par
                 // `MeetingView.visibleSections(for:)`. Laisser ces contrôles
                 // produirait un enregistrement et un rapport invisibles et
-                // ingérables. Même règle côté actions partagées : le menu natif
-                // « Réunion » et `moreMenu` lisent `MeetingMenuActions`, dont
-                // `isEnabled(_:)` grise les mêmes items quand `isNote`.
+                // ingérables. Même règle côté actions partagées, par deux
+                // mécanismes distincts : le menu natif « Réunion » grise ses
+                // items via `MeetingMenuActions.isEnabled(_:)`, qui renvoie
+                // `false` sur une note ; `moreMenu`, lui, ne les grise pas —
+                // il **masque** ses entrées Audio et Import WAV sur
+                // `actions.isNote`. Résultat visible identique, chemins de code
+                // différents.
                 if meeting.kind != .note {
                     recorderPill
                     captureButton

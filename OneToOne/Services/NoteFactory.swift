@@ -27,45 +27,83 @@ enum NoteFactory {
         return note
     }
 
-    /// Vrai quand une note n'a rien reçu depuis sa fabrication. Prédicat exact
-    /// inverse de `make` — il vit donc ici, avec la fabrique, plutôt que dans
-    /// la vue.
+    /// Vrai quand une réunion de kind `.note` **ne porte rien** : aucun texte,
+    /// aucun fichier, aucune relation. C'est la seule propriété dont une
+    /// suppression sans confirmation ait besoin, et c'est celle-ci qu'il faut
+    /// lire — pas « ce que l'écran d'une note permet de remplir ».
     ///
-    /// Les cinq chemins de création insèrent, sauvegardent et indexent
-    /// immédiatement (l'ouverture de `MeetingView` est le seul « éditeur ») :
+    /// ⚠️ **Une note n'est pas forcément née note.** Le badge de type du fil
+    /// d'Ariane (`MeetingTopChromeBar`) est un `Picker` sur
+    /// `MeetingKind.allCases`, rendu sans garde sur **toutes** les réunions :
+    /// n'importe quelle réunion peut devenir une note après coup, en portant
+    /// tout ce qu'une vraie réunion accumule. Et les réunions naissent sans
+    /// titre (`MeetingsListView.addMeeting`). Un prédicat calqué sur l'écran
+    /// réduit d'une note supprimerait donc, sans un mot, une réunion
+    /// enregistrée, transcrite et rapportée que personne n'a jamais renommée.
+    ///
+    /// L'asymétrie du risque commande la prudence : une note retenue à tort
+    /// n'est qu'une ligne vide de plus dans une liste, tandis qu'une note
+    /// supprimée à tort est une perte définitive — et l'autre chemin de
+    /// suppression, `MeetingView.deleteMeeting`, passe lui par un
+    /// `confirmationDialog` explicite. En cas de doute sur un champ, le retenir.
+    ///
+    /// Les chemins de création insèrent, sauvegardent et indexent immédiatement :
     /// sans nettoyage, un clic malheureux laisserait une note vide persistée
-    /// **et** indexée dans Spotlight. `MeetingView` s'appuie dessus à sa
-    /// fermeture pour la reprendre.
+    /// **et** indexée dans Spotlight. Portée réelle du nettoyage, à ne pas
+    /// surestimer — il n'a lieu qu'à la fermeture de `MeetingView` :
+    /// - `AllNotesView` est le **seul** chemin qui ouvre la note qu'il crée ;
+    ///   c'est celui que ce prédicat protège ;
+    /// - les deux chemins de `NotesSection` n'ouvrent plus rien (arbitrage de
+    ///   la correction D) : leurs notes vides s'accumulent en liste, sans perte ;
+    /// - le popover du menubar et les commandes `/ajout-*` créent la note avec
+    ///   un corps déjà saisi, donc jamais vide, et n'ouvrent aucun écran.
     ///
-    /// **La liste des champs regardés est celle de ce que l'écran réduit d'une
-    /// note permet de remplir** — deux onglets (« Note », « Documents »), le
-    /// fil d'Ariane et le menu « ⋯ ». Soit, dans l'ordre du code ci-dessous :
-    /// les documents et les thèmes (`MeetingTagEditor` est rendu hors de la
-    /// garde de kind du chrome, donc éditable sur une note), le prompt
-    /// spécifique (le `TextEditor` de `MeetingDetailsBlock`, atteint par
-    /// « ⋯ → Détails de la réunion… », n'est lui non plus sous aucune garde),
-    /// le lien calendrier (« ⋯ → Importer Calendrier », que la règle des menus
-    /// laisse délibérément actif sur une note), puis le titre et le corps.
+    /// Le nettoyage s'applique par ailleurs à **toute** note ouverte puis
+    /// fermée, pas seulement à celle qu'on vient de créer.
     ///
-    /// Chacun est une saisie délibérée : la supprimer en silence serait le
-    /// dommage même que ce nettoyage cherche à éviter. À l'inverse, ce que la
-    /// note tient de sa **création** et non d'une saisie — son projet, son
-    /// participant, sa date — ne la retient pas : ils viennent du bouton
-    /// cliqué, pas d'une intention de la garder.
-    ///
-    /// ⚠️ Tout nouvel onglet ou contrôle ouvert à une note doit repasser ici.
+    /// **Ne comptent pas**, parce qu'ils viennent du geste de création et non
+    /// d'une saisie : le projet, les participants (y compris ad hoc), la date,
+    /// le gabarit de rapport. **Couverts indirectement** : les slides (ce sont
+    /// des `MeetingAttachment` de kind « slides »), les métadonnées calendrier
+    /// (toutes écrites par les chemins qui posent `calendarEventID`), les
+    /// assignations de locuteur (sans objet sans segments) et les drapeaux de
+    /// préparation (sans objet sans `prepNotes`).
     static func isDiscardableEmptyNote(_ meeting: Meeting) -> Bool {
         guard meeting.kind == .note else { return false }
-        guard meeting.attachments.isEmpty else { return false }
-        guard meeting.tags.isEmpty else { return false }
-        // Non vide ⇒ un événement a été importé. C'est le seul marqueur fiable :
-        // l'import recopie aussi le titre, mais un événement sans titre laisserait
-        // le reste du prédicat vide alors que la note porte désormais un lien.
-        guard meeting.calendarEventID.isEmpty else { return false }
-        let prompt = meeting.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard prompt.isEmpty else { return false }
-        let title = meeting.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = meeting.liveNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty && body.isEmpty
+
+        // Relations : toutes en `.cascade`, donc toute collection non vide est
+        // du contenu qu'une suppression emporterait avec elle.
+        guard meeting.attachments.isEmpty,
+              meeting.tags.isEmpty,
+              meeting.tasks.isEmpty,
+              meeting.transcriptChunks.isEmpty,
+              meeting.transcriptSegments.isEmpty,
+              meeting.reportRevisions.isEmpty,
+              meeting.meetingAlerts.isEmpty
+        else { return false }
+
+        // Audio, et lien calendrier. Non vide ⇒ un événement a été importé :
+        // c'est le marqueur fiable, l'import recopie bien le titre mais un
+        // événement sans titre laisserait le reste du prédicat vide.
+        guard (meeting.wavFilePath ?? "").isEmpty, meeting.calendarEventID.isEmpty else { return false }
+
+        // Champs structurés du rapport (façades JSON).
+        guard meeting.keyPoints.isEmpty,
+              meeting.decisions.isEmpty,
+              meeting.openQuestions.isEmpty
+        else { return false }
+
+        // Tout le texte libre que `Meeting` peut porter, quel que soit l'écran
+        // qui l'a rempli avant la conversion en note.
+        let freeText = [
+            meeting.title, meeting.liveNotes, meeting.notes, meeting.customPrompt,
+            meeting.rawTranscript, meeting.mergedTranscript,
+            meeting.summary, meeting.shortSummary,
+            meeting.prepNotes, meeting.referencedAbsent, meeting.nextDeadline
+        ]
+        return freeText.allSatisfy {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
+
 }

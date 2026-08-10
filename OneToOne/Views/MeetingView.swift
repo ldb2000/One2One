@@ -387,7 +387,10 @@ struct MeetingView: View {
     /// Articulation avec le reste du cycle de vie :
     /// - pose `isBeingDeleted` **avant** de supprimer, comme `deleteMeeting()` :
     ///   c'est ce drapeau qui empêche un second `.onDisappear` de réindexer —
-    ///   ou de re-supprimer — un modèle disparu ;
+    ///   ou de re-supprimer — un modèle disparu. Portée limitée : c'est un
+    ///   `@State`, donc il ne protège que **cette instance de vue**. Deux
+    ///   fenêtres ouvertes sur la même note ont chacune le sien, et la seconde
+    ///   réindexerait ce que la première vient de supprimer ;
     /// - renvoie `true` pour que l'appelant saute l'indexation : réindexer ici
     ///   laisserait l'orphelin permanent que la tâche 4 a justement supprimé ;
     /// - annule la sauvegarde différée de l'éditeur, devenue sans objet ;

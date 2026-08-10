@@ -168,4 +168,77 @@ struct NoteFactoryTests {
         context.insert(meeting)
         #expect(!NoteFactory.isDiscardableEmptyNote(meeting))
     }
+
+    // MARK: - Une note n'est pas forcément née note
+
+    /// **Le scénario qui compte.** Le badge de type du fil d'Ariane est un
+    /// `Picker` sur `MeetingKind.allCases`, rendu sans garde sur toutes les
+    /// réunions ; et les réunions naissent sans titre
+    /// (`MeetingsListView.addMeeting`). Une réunion enregistrée, transcrite,
+    /// rapportée et jamais renommée, dont on bascule le type sur « Note »,
+    /// n'est donc **pas** jetable — sinon la fermeture de l'écran la
+    /// supprimerait sans la confirmation que `deleteMeeting` exige.
+    @Test("Une réunion transcrite et rapportée, sans titre, convertie en note, n'est pas jetable")
+    func convertedRecordedMeetingIsNotDiscardable() throws {
+        let context = try makeContext()
+        let meeting = Meeting(title: "", date: Date(), notes: "")
+        context.insert(meeting)
+        meeting.rawTranscript = "Bonjour à tous, on démarre le point."
+        meeting.summary = "## Décisions\n- Reporter la mise en production."
+        meeting.wavFilePath = "/tmp/reunion.wav"
+        try context.save()
+
+        // Le geste réel : l'utilisateur bascule le badge de type sur « Note ».
+        meeting.kind = .note
+
+        #expect(!NoteFactory.isDiscardableEmptyNote(meeting))
+    }
+
+    /// Chaque champ hérité d'une vraie réunion retient la note **à lui seul**,
+    /// tous les autres restant vides. Verrouille l'absence de trou dans la
+    /// liste des gardes.
+    @Test("Chaque trace d'une vraie réunion retient la note à elle seule")
+    func eachLeftoverFieldAloneKeepsIt() throws {
+        let context = try makeContext()
+
+        func convertedNote(_ fill: (Meeting) -> Void) -> Meeting {
+            let m = Meeting(title: "", date: Date(), notes: "")
+            context.insert(m)
+            fill(m)
+            m.kind = .note
+            return m
+        }
+
+        let cases: [(String, (Meeting) -> Void)] = [
+            ("notes",            { $0.notes = "Compte rendu manuscrit" }),
+            ("rawTranscript",    { $0.rawTranscript = "…" }),
+            ("mergedTranscript", { $0.mergedTranscript = "…" }),
+            ("summary",          { $0.summary = "Rapport" }),
+            ("shortSummary",     { $0.shortSummary = "Résumé court" }),
+            ("prepNotes",        { $0.prepNotes = "- Préparer le budget" }),
+            ("referencedAbsent", { $0.referencedAbsent = "Zied" }),
+            ("nextDeadline",     { $0.nextDeadline = "Comité du 12" }),
+            ("wavFilePath",      { $0.wavFilePath = "/tmp/a.wav" }),
+            ("keyPoints",        { $0.keyPoints = ["Un point clé"] }),
+            ("decisions",        { $0.decisions = ["Une décision"] }),
+            ("openQuestions",    { $0.openQuestions = ["Une question"] })
+        ]
+        for (name, fill) in cases {
+            #expect(!NoteFactory.isDiscardableEmptyNote(convertedNote(fill)),
+                    "\(name) seul devrait retenir la note")
+        }
+    }
+
+    @Test("Une action ouverte retient la note")
+    func taskKeepsIt() throws {
+        let context = try makeContext()
+        let note = NoteFactory.make()
+        context.insert(note)
+        let task = ActionTask(title: "Relancer le prestataire")
+        task.meeting = note
+        context.insert(task)
+        try context.save()
+        // Relation en cascade : supprimer la note emporterait l'action.
+        #expect(!NoteFactory.isDiscardableEmptyNote(note))
+    }
 }
