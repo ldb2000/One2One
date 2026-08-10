@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import OneToOne
 
 @MainActor
@@ -80,5 +81,83 @@ final class MailProjectMatcherTests: XCTestCase {
         )
         XCTAssertNil(v.projectCode)
         XCTAssertEqual(v.confidence, 0, accuracy: 0.001)
+    }
+
+    // MARK: - projectEntries(from:meetings:)
+
+    func test_projectEntries_agregeLesEmailsDesParticipantsDesReunions() throws {
+        let container = try ModelContainer(
+            for: Schema(CurrentSchema.models),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+
+        let project = Project(code: "REFSI", name: "Refonte SI", domain: "Courtage", phase: "Build")
+        let alice = Collaborator(name: "Alice")
+        alice.email = "Alice@April.com"
+        let manager = Collaborator(name: "Manager")
+        manager.email = "manager@april.com"
+        project.projectManager = manager
+        context.insert(project); context.insert(alice); context.insert(manager)
+
+        let meeting = Meeting(title: "Comité", date: Date())
+        meeting.kind = .project
+        meeting.project = project
+        meeting.participants = [alice]
+        context.insert(meeting)
+
+        let entries = MailProjectMatcher.projectEntries(from: [project], meetings: [meeting])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertTrue(entries[0].collaboratorEmails.contains("alice@april.com"))
+        XCTAssertTrue(entries[0].collaboratorEmails.contains("manager@april.com"))
+    }
+
+    func test_projectEntries_dedoublonneLesEmails() throws {
+        let container = try ModelContainer(
+            for: Schema(CurrentSchema.models),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+
+        let project = Project(code: "REFSI", name: "Refonte SI", domain: "Courtage", phase: "Build")
+        let alice = Collaborator(name: "Alice")
+        alice.email = "alice@april.com"
+        context.insert(project); context.insert(alice)
+
+        var meetings: [Meeting] = []
+        for index in 0..<3 {
+            let meeting = Meeting(title: "Comité \(index)", date: Date())
+            meeting.kind = .project
+            meeting.project = project
+            meeting.participants = [alice]
+            context.insert(meeting)
+            meetings.append(meeting)
+        }
+
+        let entries = MailProjectMatcher.projectEntries(from: [project], meetings: meetings)
+        XCTAssertEqual(entries[0].collaboratorEmails.filter { $0 == "alice@april.com" }.count, 1)
+    }
+
+    func test_projectEntries_ignoreLesReunionsDUnAutreProjet() throws {
+        let container = try ModelContainer(
+            for: Schema(CurrentSchema.models),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+
+        let refsi = Project(code: "REFSI", name: "Refonte SI", domain: "Courtage", phase: "Build")
+        let data = Project(code: "DATA24", name: "Plateforme Data", domain: "Data", phase: "Run")
+        let bob = Collaborator(name: "Bob")
+        bob.email = "bob@april.com"
+        context.insert(refsi); context.insert(data); context.insert(bob)
+
+        let meeting = Meeting(title: "Comité Data", date: Date())
+        meeting.kind = .project
+        meeting.project = data
+        meeting.participants = [bob]
+        context.insert(meeting)
+
+        let entries = MailProjectMatcher.projectEntries(from: [refsi], meetings: [meeting])
+        XCTAssertFalse(entries[0].collaboratorEmails.contains("bob@april.com"))
     }
 }

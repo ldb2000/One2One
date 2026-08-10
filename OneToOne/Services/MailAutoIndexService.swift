@@ -123,7 +123,8 @@ final class MailAutoIndexService {
         // obligatoire (uniqueKeysWithValues crasherait sur un doublon), et on
         // exclut les archivés (cohérent avec projectEntries).
         let projects = (try? context.fetch(FetchDescriptor<Project>())) ?? []
-        let entries = MailProjectMatcher.projectEntries(from: projects)
+        let meetings = (try? context.fetch(FetchDescriptor<Meeting>())) ?? []
+        let entries = MailProjectMatcher.projectEntries(from: projects, meetings: meetings)
         let projectByCode = Dictionary(
             projects.filter { !$0.isArchived }.map { ($0.code, $0) },
             uniquingKeysWith: { first, _ in first })

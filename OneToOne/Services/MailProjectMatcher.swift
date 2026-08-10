@@ -41,15 +41,24 @@ enum MailProjectMatcher {
     }
 
     /// Prépare les entrées de matching depuis les projets actifs.
-    static func projectEntries(from projects: [Project]) -> [ProjectEntry] {
+    ///
+    /// Les emails viennent des **participants des réunions du projet** —
+    /// c'est le signal réel : les entrées collaborateur typées qui servaient
+    /// autrefois de source n'ont jamais été alimentées. `Meeting.project`
+    /// n'a pas de relation inverse déclarée, les réunions sont donc fournies
+    /// par l'appelant.
+    static func projectEntries(from projects: [Project], meetings: [Meeting]) -> [ProjectEntry] {
         projects.filter { !$0.isArchived }.map { p in
-            var emails = p.collaboratorEntries.compactMap { entry in
-                entry.collaborator.map { $0.email.lowercased() }
-            }
+            var emails = meetings
+                .filter { $0.project?.persistentModelID == p.persistentModelID }
+                .flatMap { $0.participants }
+                .map { $0.email.lowercased() }
             if let e = p.projectManager?.email.lowercased() { emails.append(e) }
             if let e = p.technicalArchitect?.email.lowercased() { emails.append(e) }
-            return ProjectEntry(code: p.code, name: p.name,
-                                collaboratorEmails: emails.filter { !$0.isEmpty })
+
+            var seen = Set<String>()
+            let unique = emails.filter { !$0.isEmpty && seen.insert($0).inserted }
+            return ProjectEntry(code: p.code, name: p.name, collaboratorEmails: unique)
         }
     }
 
