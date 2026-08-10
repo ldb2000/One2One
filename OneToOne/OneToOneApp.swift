@@ -5,7 +5,7 @@ import Combine
 import CoreSpotlight
 
 /// Point d'entrée de l'app. Construit le `ModelContainer` SwiftData (avec
-/// migration légère inférée et récupération destructive si elle échoue) puis déclare les scènes :
+/// récupération destructive si la migration échoue) et déclare les scènes :
 /// fenêtre principale, fenêtre 1to1-meeting et fenêtre de préparation.
 @main
 struct OneToOneApp: App {
@@ -30,10 +30,11 @@ struct OneToOneApp: App {
         let configuration = ModelConfiguration(schema: schema, url: storeURL)
 
         do {
-            // Le schéma historique V1 a évolué sans snapshots immuables. Sans
-            // plan explicite, Core Data compare les hashes stockés et applique
-            // correctement les ajouts de propriétés compatibles.
-            container = try ModelContainer(for: schema, configurations: configuration)
+            container = try ModelContainer(
+                for: schema,
+                migrationPlan: OneToOneMigrationPlan.self,
+                configurations: configuration
+            )
             Self.sharedContainer = container
         } catch {
             // Migration impossible — sauvegarde le store cassé puis recrée
@@ -51,7 +52,11 @@ struct OneToOneApp: App {
                 try? FileManager.default.moveItem(at: fileURL, to: dst)
             }
             do {
-                container = try ModelContainer(for: schema, configurations: configuration)
+                container = try ModelContainer(
+                    for: schema,
+                    migrationPlan: OneToOneMigrationPlan.self,
+                    configurations: configuration
+                )
                 Self.sharedContainer = container
             } catch {
                 fatalError("Could not create ModelContainer: \(error)")
@@ -355,7 +360,7 @@ struct ContentView: View {
                 print("Reparation SwiftData: \(meetingFilled) Meeting.stableID backfilles.")
             }
 
-            // Defensive dedup for the 4 stableID Optionals + SlideCapture.id.
+            // Defensive dedup for the 3 stableID Optionals + SlideCapture.id.
             // Same pattern as Meeting/Collaborator: nil rows OR duplicates
             // get a fresh UUID.
             deduplicateOptional(context: context, label: "ManagerReportItem",
