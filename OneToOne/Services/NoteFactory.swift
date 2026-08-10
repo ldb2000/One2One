@@ -79,42 +79,13 @@ enum NoteFactory {
         // rien, donc on la retient.
         guard let context = meeting.modelContext else { return false }
 
-        // Relations : toutes en `.cascade`, donc toute collection non vide est
-        // du contenu qu'une suppression emporterait avec elle.
-        guard meeting.attachments.isEmpty,
-              meeting.tags.isEmpty,
-              meeting.tasks.isEmpty,
-              meeting.transcriptChunks.isEmpty,
-              meeting.transcriptSegments.isEmpty,
-              meeting.reportRevisions.isEmpty,
-              meeting.meetingAlerts.isEmpty
-        else { return false }
+        // Trois blocs, du moins cher au plus cher : les attributs déjà en
+        // mémoire, puis les relations (chacune faute le store), puis les
+        // fetches. Le prédicat est une conjonction : l'ordre ne change que le
+        // coût du premier « non », jamais la réponse.
 
-        // Audio, et lien calendrier. Non vide ⇒ un événement a été importé :
-        // c'est le marqueur fiable, l'import recopie bien le titre mais un
-        // événement sans titre laisserait le reste du prédicat vide.
-        guard (meeting.wavFilePath ?? "").isEmpty, meeting.calendarEventID.isEmpty else { return false }
-
-        // Champs structurés du rapport. On lit la **colonne**, pas la façade
-        // calculée : son getter avale toute erreur de décodage en `[]`
-        // (`OtherModels.swift:503-518`), donc un JSON écrit par un schéma plus
-        // ancien ou tronqué à la restauration se lirait « vide » alors qu'il
-        // porte le rapport.
-        guard carriesNoJSONContent(meeting.keyPointsJSON),
-              carriesNoJSONContent(meeting.decisionsJSON),
-              carriesNoJSONContent(meeting.openQuestionsJSON)
-        else { return false }
-
-        // Présence saisie à la main sur l'écran de réunion. Un participant ad
-        // hoc est tapé dans la feuille des participants ; son `Collaborator`
-        // n'existe que pour cette réunion et n'est ramassé que par
-        // `MeetingView.removeAllParticipants`, jamais par cette suppression.
-        guard !meeting.participants.contains(where: { $0.isAdhoc }),
-              carriesNoJSONContent(meeting.participantStatusesJSON)
-        else { return false }
-
-        // Tout le texte libre que `Meeting` peut porter, quel que soit l'écran
-        // qui l'a rempli avant la conversion en note.
+        // 1. Attributs. Tout le texte libre que `Meeting` peut porter, quel
+        // que soit l'écran qui l'a rempli avant la conversion en note.
         let freeText = [
             meeting.title, meeting.liveNotes, meeting.notes, meeting.customPrompt,
             meeting.rawTranscript, meeting.mergedTranscript,
@@ -125,8 +96,44 @@ enum NoteFactory {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) else { return false }
 
-        // Dernier bloc parce que le seul à toucher le store : le contenu que
-        // le 1:1 manager rattache à la réunion depuis **son** côté.
+        // Audio, et lien calendrier. Non vide ⇒ un événement a été importé :
+        // c'est le marqueur fiable, l'import recopie bien le titre mais un
+        // événement sans titre laisserait le reste du prédicat vide.
+        guard (meeting.wavFilePath ?? "").isEmpty, meeting.calendarEventID.isEmpty else { return false }
+
+        // Champs structurés du rapport, et statuts de présence. On lit la
+        // **colonne**, pas la façade calculée : son getter avale toute erreur
+        // de décodage en `[]` (`OtherModels.swift:503-518`), donc un JSON
+        // écrit par un schéma plus ancien ou tronqué à la restauration se
+        // lirait « vide » alors qu'il porte le rapport.
+        guard carriesNoJSONContent(meeting.keyPointsJSON),
+              carriesNoJSONContent(meeting.decisionsJSON),
+              carriesNoJSONContent(meeting.openQuestionsJSON),
+              carriesNoJSONContent(meeting.participantStatusesJSON)
+        else { return false }
+
+        // 2. Relations portées par `Meeting`. Toutes en `.cascade` sauf
+        // `tags`, en `.nullify` (`OtherModels.swift:451`, `MeetingTag.swift:23`)
+        // : une collection non vide est donc soit du contenu qu'une
+        // suppression emporterait, soit — pour les thèmes — une saisie
+        // délibérée que l'écran réduit d'une note permet encore de faire.
+        guard meeting.attachments.isEmpty,
+              meeting.tags.isEmpty,
+              meeting.tasks.isEmpty,
+              meeting.transcriptChunks.isEmpty,
+              meeting.transcriptSegments.isEmpty,
+              meeting.reportRevisions.isEmpty,
+              meeting.meetingAlerts.isEmpty
+        else { return false }
+
+        // Un participant ad hoc est tapé à la main dans la feuille des
+        // participants ; son `Collaborator` n'existe que pour cette réunion et
+        // n'est ramassé que par `MeetingView.removeAllParticipants`, jamais
+        // par cette suppression.
+        guard !meeting.participants.contains(where: { $0.isAdhoc }) else { return false }
+
+        // 3. Le seul bloc qui interroge le store : le contenu que le 1:1
+        // manager rattache à la réunion depuis **son** côté.
         return !hasAttachedContentWithoutInverse(meeting, in: context)
     }
 
