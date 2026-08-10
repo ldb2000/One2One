@@ -278,14 +278,23 @@ struct NoteFactoryTests {
         #expect(note.project?.code == "REFSI")
     }
 
-    @Test("Le collaborateur devient participant")
+    @Test("Le collaborateur devient participant, et le lien survit à la sauvegarde")
     func collaboratorBecomesParticipant() throws {
         let context = try makeContext()
         let collab = Collaborator(name: "Alice")
         context.insert(collab)
         let note = NoteFactory.make(body: "Point de vigilance", collaborator: collab)
         context.insert(note)
-        #expect(note.participants.map(\.name) == ["Alice"])
+        try context.save()
+
+        // Relu depuis le store, pas depuis l'instance en mémoire : c'est ce
+        // aller-retour qui prouve qu'une relation posée AVANT l'insertion
+        // survit à la persistance. Même motif que `Tests/SwiftDataTests.swift`.
+        let fetched = try context.fetch(FetchDescriptor<Meeting>())
+        #expect(fetched.count == 1)
+        #expect(fetched.first?.participants.map(\.name) == ["Alice"])
+        // Côté inverse de la relation.
+        #expect(collab.meetings.contains { $0.persistentModelID == note.persistentModelID })
     }
 
     @Test("Sans collaborateur, aucun participant")
