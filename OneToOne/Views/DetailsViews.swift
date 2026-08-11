@@ -404,9 +404,6 @@ struct ProjectDetailView: View {
                                     .foregroundColor(.gray)
                                 Text(task.title)
                                 Spacer()
-                                if let interview = task.interview {
-                                    Text(interview.date, style: .date).font(.caption2).foregroundColor(.secondary)
-                                }
                             }
                         }
 

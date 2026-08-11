@@ -128,22 +128,12 @@ struct FlexKey: CodingKey {
 
 /// Brouillon d'entretien de recrutement généré par l'IA à partir d'un CV /
 /// dossier candidat (synthèse, points forts/vigilance, notes par thème).
-struct CandidateInterviewDraft: Codable {
-    let summary: String
-    let positivePoints: [String]
-    let negativePoints: [String]
-    let trainingAssessment: [String]
-    let experienceNotes: String
-    let skillsNotes: String
-    let motivationNotes: String
-    let linkedinHints: String
-}
 
 // MARK: - AI Ingestion Service
 
 /// Service d'import de fichiers (PDF, PPTX, XLSX, JSON…) : extrait le texte,
 /// délègue à l'IA pour structurer les données, puis applique le résultat dans
-/// SwiftData (projets, collaborateurs, entités, interviews).
+/// SwiftData (projets, collaborateurs, entités) et un reçu d'import.
 class AIIngestionService {
 
     // MARK: - File processing
@@ -212,40 +202,6 @@ class AIIngestionService {
         let fullPrompt = customPrompt + "\n\nContenu du fichier \"\(url.lastPathComponent)\":\n" + String(text.prefix(30000))
         let response = try await AIClient.send(prompt: fullPrompt, settings: settings)
         return try parseJSON(response)
-    }
-
-    func analyzeCandidateFile(at url: URL, settings: AppSettings) async throws -> CandidateInterviewDraft {
-        let text = try extractText(from: url)
-        guard !text.isEmpty else {
-            throw IngestionError.emptyFile
-        }
-
-        let prompt = """
-        Analyse ce CV / dossier candidat et prépare un brouillon d'entretien de recrutement.
-
-        Réponds UNIQUEMENT en JSON avec la structure suivante:
-        {
-          "summary": "synthèse en 4-5 phrases",
-          "positivePoints": ["point positif 1", "point positif 2"],
-          "negativePoints": ["point de vigilance 1", "point de vigilance 2"],
-          "trainingAssessment": ["évaluation formation 1", "évaluation formation 2"],
-          "experienceNotes": "analyse de l'expérience",
-          "skillsNotes": "analyse des compétences",
-          "motivationNotes": "analyse motivation / posture",
-          "linkedinHints": "points à vérifier ou enrichir via LinkedIn"
-        }
-
-        Règles:
-        - N'invente rien
-        - Sois concret et exploitable par un recruteur
-        - Fais apparaître les incohérences, signaux faibles et points forts
-
-        Contenu:
-        \(String(text.prefix(15000)))
-        """
-
-        let response = try await AIClient.send(prompt: prompt, settings: settings)
-        return try parseJSON(response, as: CandidateInterviewDraft.self)
     }
 
     // MARK: - Text extraction

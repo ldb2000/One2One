@@ -336,7 +336,7 @@ struct SettingsView: View {
                 // Prompts configurables
                 GroupBox("Prompts IA") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Personnalisez les prompts utilisés par l'IA. Variables disponibles : {{fileName}}, {{notes}}, {{interviews}}")
+                        Text("Personnalisez les prompts utilisés par l'IA. Variables disponibles : {{fileName}}, {{notes}}, {{interviews}} (les réunions tenues de la semaine — nom hérité)")
                             .font(.caption)
                             .foregroundColor(.secondary)
 

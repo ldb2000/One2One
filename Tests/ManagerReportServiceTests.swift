@@ -8,11 +8,11 @@ struct ManagerReportServiceTests {
 
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
-            Project.self, Collaborator.self, Interview.self, ActionTask.self,
+            Project.self, Collaborator.self, ActionTask.self,
             AppSettings.self, Entity.self, Meeting.self, MeetingAttachment.self,
             TranscriptChunk.self, SlideCapture.self, ProjectAlert.self,
             ProjectAttachment.self, ProjectMail.self, ProjectMailAttachment.self,
-            InterviewAttachment.self, SavedPrompt.self,
+            SavedPrompt.self,
             ManagerReportItem.self, ManagerMeetingReport.self
         ])
         return try ModelContainer(for: schema, configurations: [

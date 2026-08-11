@@ -10,10 +10,10 @@ struct QuickLaunchRouterTests {
     private func makeContext() throws -> ModelContext {
         let schema = Schema([
             Collaborator.self, Meeting.self, Project.self,
-            Interview.self, ActionTask.self, AppSettings.self, Entity.self,
+            ActionTask.self, AppSettings.self, Entity.self,
             ProjectAlert.self,
             ProjectAttachment.self, MeetingAttachment.self, TranscriptChunk.self,
-            SlideCapture.self, InterviewAttachment.self
+            SlideCapture.self
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])

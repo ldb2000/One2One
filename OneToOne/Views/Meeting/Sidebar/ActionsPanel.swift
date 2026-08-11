@@ -139,7 +139,7 @@ struct ActionsPanel: View {
     }
 
     /// Actions ouvertes (non terminées) assignées à `collab`, agrégées depuis
-    /// ses assignations directes et celles de ses interviews, dédupliquées, et
+    /// ses assignations directes, dédupliquées, et
     /// en excluant celles de la réunion courante. Triées par échéance croissante
     /// (les actions sans échéance en dernier).
     private func otherCollabOpenActions(for collab: Collaborator) -> [ActionTask] {

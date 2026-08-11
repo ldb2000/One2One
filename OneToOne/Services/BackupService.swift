@@ -445,7 +445,6 @@ final class BackupService {
 
         let existingProjects = try context.fetch(FetchDescriptor<Project>())
         let existingCollaborators = try context.fetch(FetchDescriptor<Collaborator>())
-        let existingInterviews = try context.fetch(FetchDescriptor<Interview>())
         let existingEntities = try context.fetch(FetchDescriptor<Entity>())
         let existingSettings = try context.fetch(FetchDescriptor<AppSettings>())
         let existingMeetings = try context.fetch(FetchDescriptor<Meeting>())
@@ -468,7 +467,6 @@ final class BackupService {
             SpotlightIndexService.shared.remove(meeting: meeting)
             context.delete(meeting)
         }
-        for interview in existingInterviews { context.delete(interview) }
         for project in existingProjects { context.delete(project) }
         for collaborator in existingCollaborators { context.delete(collaborator) }
         for entity in existingEntities { context.delete(entity) }

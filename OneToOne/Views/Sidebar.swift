@@ -1183,10 +1183,8 @@ struct DashboardView: View {
     private var pendingTasksByCollaborator: [(String, [ActionTask])] {
         collaborators
             .map { collaborator in
-                // Use direct assignedTasks relationship, falling back to interview-based lookup
                 let directTasks = collaborator.assignedTasks.filter { !$0.isCompleted }
-                let interviewTasks = collaborator.interviews.flatMap { $0.tasks }.filter { !$0.isCompleted && $0.collaborator == nil }
-                let allTasks = directTasks + interviewTasks
+                let allTasks = directTasks
                 // Deduplicate by persistentModelID
                 var seen = Set<PersistentIdentifier>()
                 let unique = allTasks.filter { seen.insert($0.persistentModelID).inserted }

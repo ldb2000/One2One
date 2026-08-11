@@ -1,31 +1,6 @@
 import Foundation
 import SwiftData
 
-/// Nature d'un `Interview`. Distingue les 1:1 récurrents des entretiens de
-/// recrutement et des fiches créées par import de document.
-enum InterviewType: String, CaseIterable {
-    /// 1:1 récurrent avec un collaborateur de l'équipe.
-    case regular = "Entretien"
-    /// Entretien d'embauche / recrutement (active les champs CV, candidat…).
-    case job = "Entretien Job"
-    /// Fiche créée à partir d'un import de présentation PowerPoint.
-    case importPPTX = "Import PPTX"
-    /// Fiche créée à partir d'un import de document PDF.
-    case importPDF = "Import PDF"
-
-    var label: String {
-        switch self {
-        case .regular:
-            return "1:1"
-        case .job:
-            return "Entretien job"
-        case .importPPTX:
-            return "Import PPTX"
-        case .importPDF:
-            return "Import PDF"
-        }
-    }
-}
 
 @Model
 final class Collaborator {
@@ -63,8 +38,6 @@ final class Collaborator {
     /// Date du dernier update (debug + audit).
     var voicePrintUpdatedAt: Date?
 
-    @Relationship(deleteRule: .nullify, inverse: \Interview.collaborator)
-    var interviews: [Interview] = []
 
     @Relationship(deleteRule: .nullify, inverse: \ActionTask.collaborator)
     var assignedTasks: [ActionTask] = []
@@ -116,106 +89,7 @@ final class Collaborator {
     }
 }
 
-/// Une fiche d'entretien : soit un 1:1 récurrent avec un collaborateur, soit
-/// un entretien de recrutement (selon `type`). Les champs candidat/CV ci-dessous
-/// ne sont renseignés que pour les entretiens de type `.job`.
-@Model
-final class Interview {
-    var date: Date
-    var collaborator: Collaborator?
-    var notes: String
-    var recordingLink: URL?
-    var hasAlert: Bool = false
-    var alertDescription: String = ""
-    /// Raw value de `InterviewType` (accès typé via `type`).
-    var typeRaw: String?
-    /// Nom du fichier source pour les fiches issues d'un import (PPTX/PDF).
-    var sourceFileName: String?
-    var shareWithEveryone: Bool = false
-    var contextComment: String = ""
-    /// Recrutement : URL du profil LinkedIn du candidat.
-    var candidateLinkedInURL: String = ""
-    /// Recrutement : notes prises depuis le profil LinkedIn du candidat.
-    var candidateLinkedInNotes: String = ""
-    /// Recrutement : appréciation de l'expérience du candidat (relecture CV).
-    var cvExperienceNotes: String = ""
-    /// Recrutement : appréciation des compétences du candidat (relecture CV).
-    var cvSkillsNotes: String = ""
-    /// Recrutement : appréciation de la motivation du candidat (relecture CV).
-    var cvMotivationNotes: String = ""
-    /// Recrutement : points positifs relevés pendant l'entretien.
-    var positivePoints: String = ""
-    /// Recrutement : points négatifs / réserves relevés pendant l'entretien.
-    var negativePoints: String = ""
-    /// Bilan de formation / besoins en montée en compétences du collaborateur.
-    var trainingAssessment: String = ""
-    /// Appréciation générale de synthèse (recrutement : décision finale).
-    var generalAssessment: String = ""
-    /// Projet associé à l'entretien (ex: projet pressenti pour un candidat).
-    var selectedProject: Project?
 
-    /// Computed property for type-safe access
-    var type: InterviewType {
-        get { InterviewType(rawValue: typeRaw ?? "") ?? .regular }
-        set { typeRaw = newValue.rawValue }
-    }
-
-    @Relationship(deleteRule: .cascade, inverse: \ActionTask.interview)
-    var tasks: [ActionTask] = []
-
-    @Relationship(deleteRule: .cascade, inverse: \ProjectAlert.interview)
-    var alerts: [ProjectAlert] = []
-
-    @Relationship(deleteRule: .cascade, inverse: \InterviewAttachment.interview)
-    var attachments: [InterviewAttachment] = []
-
-    init(date: Date = Date(), notes: String = "", hasAlert: Bool = false, type: InterviewType = .regular) {
-        self.date = date
-        self.notes = notes
-        self.hasAlert = hasAlert
-        self.typeRaw = type.rawValue
-    }
-}
-
-@Model
-final class InterviewAttachment {
-    var fileName: String
-    var filePath: String
-    var bookmarkData: Data?
-    var comment: String
-    var importedAt: Date
-    var interview: Interview?
-
-    init(url: URL, comment: String = "", importedAt: Date = Date()) {
-        self.fileName = url.lastPathComponent
-        self.filePath = url.path
-        self.bookmarkData = try? url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
-        self.comment = comment
-        self.importedAt = importedAt
-    }
-
-    func resolvedURL() -> URL {
-        guard let bookmarkData else {
-            return URL(fileURLWithPath: filePath)
-        }
-
-        var isStale = false
-        if let resolvedURL = try? URL(
-            resolvingBookmarkData: bookmarkData,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ) {
-            return resolvedURL
-        }
-
-        return URL(fileURLWithPath: filePath)
-    }
-}
 
 /// Destinataire d'une action : à qui/quoi elle se rapporte.
 enum ActionAudience: String, Codable, CaseIterable, Sendable {
@@ -253,7 +127,6 @@ enum ActionAudience: String, Codable, CaseIterable, Sendable {
 final class ActionTask {
     var title: String
     var project: Project?
-    var interview: Interview?
     var meeting: Meeting?
     var collaborator: Collaborator?
     var dueDate: Date?
@@ -318,7 +191,6 @@ final class ProjectAlert {
     var date: Date
     var isResolved: Bool = false
     var project: Project?
-    var interview: Interview?
     /// Lien vers la réunion qui a soulevé l'alerte (rendu dans la meta-table
     /// du rapport sous forme de callout cream).
     var meeting: Meeting?

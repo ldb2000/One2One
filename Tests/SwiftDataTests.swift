@@ -7,7 +7,7 @@ import Foundation
 struct SwiftDataTests {
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([Project.self, Collaborator.self, Interview.self, ActionTask.self, AppSettings.self, Entity.self])
+        let schema = Schema([Project.self, Collaborator.self, ActionTask.self, AppSettings.self, Entity.self, Meeting.self])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
     }
@@ -159,47 +159,21 @@ struct SwiftDataTests {
         #expect(fetched.first?.isArchived == true)
     }
 
-    // MARK: - Interview
-
-    @Test("Interview can be created and mutated with collaborator")
-    func interviewWithCollaborator() throws {
-        let container = try makeContainer()
-        let context = ModelContext(container)
-
-        let collab = Collaborator(name: "Bob")
-        let interview = Interview(date: Date(), notes: "Initial notes")
-        interview.collaborator = collab
-        context.insert(collab)
-        context.insert(interview)
-        try context.save()
-
-        interview.notes = "Updated notes"
-        interview.hasAlert = true
-        interview.alertDescription = "Risk detected"
-        try context.save()
-
-        let fetched = try context.fetch(FetchDescriptor<Interview>())
-        #expect(fetched.first?.notes == "Updated notes")
-        #expect(fetched.first?.hasAlert == true)
-        #expect(fetched.first?.alertDescription == "Risk detected")
-        #expect(fetched.first?.collaborator?.name == "Bob")
-    }
-
     // MARK: - ActionTask
 
-    @Test("ActionTask linked to Interview and Project")
+    @Test("ActionTask linked to Meeting and Project")
     func actionTaskRelationships() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
 
         let project = Project(code: "P003", name: "Proj", domain: "IT", phase: "Build")
-        let interview = Interview(date: Date(), notes: "")
+        let meeting = Meeting(title: "Point projet", date: Date())
         let task = ActionTask(title: "Do something")
         task.project = project
-        task.interview = interview
+        task.meeting = meeting
 
         context.insert(project)
-        context.insert(interview)
+        context.insert(meeting)
         context.insert(task)
         try context.save()
 
@@ -211,7 +185,7 @@ struct SwiftDataTests {
         #expect(fetched.first?.title == "Done something")
         #expect(fetched.first?.isCompleted == true)
         #expect(fetched.first?.project?.name == "Proj")
-        #expect(fetched.first?.interview != nil)
+        #expect(fetched.first?.meeting != nil)
     }
 
     // MARK: - AppSettings

@@ -1297,7 +1297,6 @@ struct MeetingView: View {
     private func isThrowawayCollaborator(_ c: Collaborator) -> Bool {
         let otherMeetings = c.meetings.filter { $0.persistentModelID != meeting.persistentModelID }
         return otherMeetings.isEmpty
-            && c.interviews.isEmpty
             && c.assignedTasks.isEmpty
             && c.projectsAsManager.isEmpty
             && c.projectsAsArchitect.isEmpty
@@ -2046,7 +2045,6 @@ struct MeetingView: View {
         for a in report.alerts {
             let alert = ProjectAlert(title: a.title, detail: a.detail, severity: a.severity)
             alert.project = meeting.project
-            alert.interview = nil
             alert.meeting = meeting
             context.insert(alert)
         }
