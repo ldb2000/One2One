@@ -180,11 +180,43 @@ final class TableControlLayoutTests: XCTestCase {
         XCTAssertNil(TableControlLayout.gesture(at: wouldBeCenter, in: placement))
     }
 
+    func test_footerGeometry_matchesTheSegmentedToolbarLayout() {
+        let geometry = TableControlLayout.footerGeometry(forTableRect: tableRect)
+
+        XCTAssertEqual(geometry.footerRect, NSRect(x: 10, y: 160, width: 300, height: 36))
+        XCTAssertEqual(geometry.addRowRect.width, 26)
+        XCTAssertEqual(geometry.deleteRowRect.minX, geometry.addRowRect.maxX - 1)
+        XCTAssertEqual(geometry.addColumnRect.maxX, geometry.footerRect.maxX - TableControlLayout.footerInset)
+        XCTAssertEqual(geometry.addColumnRect.height, TableControlLayout.footerButtonHeight)
+    }
+
+    func test_footerAction_hitsEachVisibleCommand() {
+        let geometry = TableControlLayout.footerGeometry(forTableRect: tableRect)
+
+        XCTAssertEqual(TableControlLayout.footerAction(at: center(of: geometry.addRowRect), in: geometry), .addRow)
+        XCTAssertEqual(TableControlLayout.footerAction(at: center(of: geometry.deleteRowRect), in: geometry), .deleteRow)
+        XCTAssertEqual(TableControlLayout.footerAction(at: center(of: geometry.addColumnRect), in: geometry), .addColumn)
+        XCTAssertNil(TableControlLayout.footerAction(at: NSPoint(x: geometry.footerRect.midX, y: geometry.footerRect.midY), in: geometry))
+    }
+
+    func test_headerChevron_isInsetInsideTheHeaderCell() {
+        let cell = NSRect(x: 20, y: 40, width: 120, height: 30)
+        let chevron = TableControlLayout.headerChevronRect(forCellRect: cell)
+
+        XCTAssertTrue(cell.contains(chevron))
+        XCTAssertEqual(chevron.width, TableControlLayout.headerChevronSize)
+        XCTAssertEqual(chevron.maxX, cell.maxX - 6)
+    }
+
     // MARK: - `placementForCursor(...)` — lecture du storage (gardes)
 
     private let table = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
     private let oneBodyRowTable = "| A | B |\n|---|---|\n| 1 | 2 |"
     private let oneColumnTable = "| A |\n|---|\n| 1 |"
+
+    private func center(of rect: NSRect) -> NSPoint {
+        NSPoint(x: rect.midX, y: rect.midY)
+    }
 
     func test_placementForCursor_cursorOutsideTable_isNil() throws {
         let (storage, layoutManager, container) = makeLayout(markdown: "Paragraphe\n\n" + table)
@@ -205,6 +237,34 @@ final class TableControlLayoutTests: XCTestCase {
         XCTAssertNotNil(placement.deleteColumn, "2 colonnes : la suppression de colonne reste possible")
         XCTAssertNotNil(placement.addRow)
         XCTAssertNotNil(placement.addColumn)
+    }
+
+    func test_activeTable_headerSelection_targetsTheLastBodyRowForFooterDeletion() throws {
+        let (storage, layoutManager, container) = makeLayout(markdown: table)
+        let aLocation = (storage.string as NSString).range(of: "A").location
+
+        let active = try XCTUnwrap(TableControlLayout.activeTable(
+            in: storage, at: aLocation, layoutManager: layoutManager, container: container
+        ))
+        let target = try XCTUnwrap(active.deletionTargetRange)
+        let info = try XCTUnwrap(storage.attribute(.mdTableCell, at: target.location, effectiveRange: nil) as? TableCellInfo)
+
+        XCTAssertEqual(info.row, 2)
+        XCTAssertTrue(active.canDeleteRow)
+    }
+
+    func test_activeTable_bodySelection_targetsThatBodyRowForFooterDeletion() throws {
+        let (storage, layoutManager, container) = makeLayout(markdown: table)
+        let oneLocation = (storage.string as NSString).range(of: "1").location
+
+        let active = try XCTUnwrap(TableControlLayout.activeTable(
+            in: storage, at: oneLocation, layoutManager: layoutManager, container: container
+        ))
+        let target = try XCTUnwrap(active.deletionTargetRange)
+        let info = try XCTUnwrap(storage.attribute(.mdTableCell, at: target.location, effectiveRange: nil) as? TableCellInfo)
+
+        XCTAssertEqual(info.row, 1)
+        XCTAssertTrue(active.canDeleteRow)
     }
 
     func test_placementForCursor_bodyRow_withTwoBodyRows_deleteRowIsPresent() throws {
@@ -350,6 +410,25 @@ final class TableControlLayoutTests: XCTestCase {
         let point = viewPoint(for: placement.addRow, in: editor)
 
         XCTAssertNil(editor.tableControlGesture(at: point), "lecture seule : aucun contrôle de tableau cliquable")
+    }
+
+    // MARK: - Lecture seule
+
+    /// `.markdownReadOnly(true)` : le point d'entrée partagé dessin/
+    /// interaction des contrôles de tableau doit refuser un éditeur non
+    /// éditable — sinon le pied `+`/`−` et le menu de colonne restent
+    /// peints et actifs, et leurs commandes mutent une note en lecture
+    /// seule (même garde que `tableControlGesture`).
+    @MainActor
+    func test_activeTableInView_onAReadOnlyEditor_returnsNil() throws {
+        let editor = makeWiredEditor(markdown: table)
+        let aLocation = (editor.textStorage!.string as NSString).range(of: "A").location
+        editor.setSelectedRange(NSRange(location: aLocation, length: 0))
+        XCTAssertNotNil(editor.activeTableInView(), "prémisse : la table est active en mode éditable")
+
+        editor.isEditable = false
+
+        XCTAssertNil(editor.activeTableInView())
     }
 
     // MARK: - Fixtures

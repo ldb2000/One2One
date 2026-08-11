@@ -33,52 +33,52 @@ final class MermaidRenderCacheTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 
-    // MARK: - store / cachedSVGData
+    // MARK: - store / cachedRenderData
 
-    func test_store_thenCachedSVGData_roundTrips() {
+    func test_store_thenCachedRenderData_roundTrips() {
         let key = "test-\(UUID().uuidString)"
         let svg = Data("<svg>test</svg>".utf8)
-        defer { try? FileManager.default.removeItem(at: MermaidRenderCache.directory.appendingPathComponent("\(key).svg")) }
+        defer { try? FileManager.default.removeItem(at: MermaidRenderCache.directory.appendingPathComponent("\(key).render")) }
 
         MermaidRenderCache.store(svg, forKey: key)
-        XCTAssertEqual(MermaidRenderCache.cachedSVGData(forKey: key), svg)
+        XCTAssertEqual(MermaidRenderCache.cachedRenderData(forKey: key), svg)
     }
 
-    func test_cachedSVGData_missingKey_returnsNil() {
-        XCTAssertNil(MermaidRenderCache.cachedSVGData(forKey: "onetoone-does-not-exist-\(UUID().uuidString)"))
+    func test_cachedRenderData_missingKey_returnsNil() {
+        XCTAssertNil(MermaidRenderCache.cachedRenderData(forKey: "onetoone-does-not-exist-\(UUID().uuidString)"))
     }
 
     /// `invalidateMemoryCache()` ne doit vider que la mémoire — le fichier
     /// écrit sur disque doit rester lisible après (sinon `store`/
-    /// `cachedSVGData` ne serait pas un vrai cache disque, juste un cache
+    /// `cachedRenderData` ne serait pas un vrai cache disque, juste un cache
     /// mémoire qui écrit en plus sur disque sans jamais relire).
     func test_invalidateMemoryCache_doesNotDeleteDiskFile() {
         let key = "test-\(UUID().uuidString)"
         let svg = Data("<svg>persisted</svg>".utf8)
-        defer { try? FileManager.default.removeItem(at: MermaidRenderCache.directory.appendingPathComponent("\(key).svg")) }
+        defer { try? FileManager.default.removeItem(at: MermaidRenderCache.directory.appendingPathComponent("\(key).render")) }
 
         MermaidRenderCache.store(svg, forKey: key)
         MermaidRenderCache.invalidateMemoryCache()
 
-        XCTAssertEqual(MermaidRenderCache.cachedSVGData(forKey: key), svg)
+        XCTAssertEqual(MermaidRenderCache.cachedRenderData(forKey: key), svg)
     }
 
     /// Distingue le cache mémoire du simple cache disque : après `store`, un
-    /// appel à `cachedSVGData` doit pouvoir servir depuis la mémoire même si
+    /// appel à `cachedRenderData` doit pouvoir servir depuis la mémoire même si
     /// le fichier disque a disparu entre-temps (sans quoi `memoryCache`
     /// serait un no-op mort — mutation qu'un test se contentant du seul
     /// round-trip disque ne détecterait pas).
-    func test_cachedSVGData_servesFromMemory_evenIfDiskFileDeletedAfterStore() {
+    func test_cachedRenderData_servesFromMemory_evenIfDiskFileDeletedAfterStore() {
         let key = "test-\(UUID().uuidString)"
         let svg = Data("<svg>memory</svg>".utf8)
-        let fileURL = MermaidRenderCache.directory.appendingPathComponent("\(key).svg")
+        let fileURL = MermaidRenderCache.directory.appendingPathComponent("\(key).render")
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         MermaidRenderCache.store(svg, forKey: key)
         try? FileManager.default.removeItem(at: fileURL)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "précondition : le fichier disque a bien disparu")
 
-        XCTAssertEqual(MermaidRenderCache.cachedSVGData(forKey: key), svg, "doit être servi depuis le cache mémoire")
+        XCTAssertEqual(MermaidRenderCache.cachedRenderData(forKey: key), svg, "doit être servi depuis le cache mémoire")
     }
 
     func test_directory_pointsUnderApplicationSupportRenderCache() {

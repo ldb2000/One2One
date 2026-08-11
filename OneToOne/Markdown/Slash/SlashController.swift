@@ -606,10 +606,9 @@ final class SlashController {
     /// `SlashCommand.Action.insertMermaidDiagram`), avec `.mdCodeLanguage =
     /// "mermaid"` en plus de `.mdBlockType = .codeBlock` sur tout le corps.
     ///
-    /// Le squelette entier est sélectionné après l'insertion (pas juste un
-    /// caractère placeholder comme `insertCodeBlock`) : la première frappe de
-    /// l'utilisateur le remplace nativement par sa propre description, sans
-    /// laisser de résidu de l'exemple.
+    /// Le curseur est placé après le bloc afin que le diagramme se ferme et
+    /// se rende immédiatement. Le squelette n'est jamais sélectionné en
+    /// entier : une frappe accidentelle ne doit pas effacer son source.
     private func insertMermaidDiagram(at location: Int, in textView: EditorTextView) {
         stripRiskyTypingAttributes(in: textView)
         let body = Self.mermaidDiagramSkeleton
@@ -622,13 +621,10 @@ final class SlashController {
 
         guard let storage = textView.textStorage else { return }
         let bodyLength = (body as NSString).length
-        let placeholderRange = NSRange(
-            location: min(safeLocation + 1, storage.length),
-            length: min(bodyLength, max(0, storage.length - (safeLocation + 1)))
-        )
-        textView.setSelectedRange(placeholderRange)
-        textView.typingAttributes[.mdBlockType] = BlockType.codeBlock
-        textView.typingAttributes[.mdCodeLanguage] = "mermaid"
+        let afterBlock = min(safeLocation + 1 + bodyLength + 1, storage.length)
+        textView.setSelectedRange(NSRange(location: afterBlock, length: 0))
+        textView.typingAttributes.removeValue(forKey: .mdBlockType)
+        textView.typingAttributes.removeValue(forKey: .mdCodeLanguage)
     }
 
     /// Insère un tableau GFM de 3 colonnes — la rangée d'en-tête (row 0,

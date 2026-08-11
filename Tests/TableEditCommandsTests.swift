@@ -163,6 +163,72 @@ final class TableEditCommandsTests: XCTestCase {
 
     // MARK: - Ajouter une colonne
 
+    func test_addColumnLeft_insertsAnEmptyColumnBeforeTheCursorsColumn() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let bLocation = (storage.string as NSString).range(of: "B").location
+        editor.setSelectedRange(NSRange(location: bLocation, length: 0)) // colonne 1
+
+        let handled = TableEditCommands.addColumnLeft(in: editor)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(storage.string, "A\n\nB\n1\n\n2\n3\n\n4")
+    }
+
+    func test_addColumnLeft_onLeftmostColumn_prependsAtTheRowStart() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let aLocation = (storage.string as NSString).range(of: "A").location
+        editor.setSelectedRange(NSRange(location: aLocation, length: 0)) // colonne 0
+
+        let handled = TableEditCommands.addColumnLeft(in: editor)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(storage.string, "\nA\nB\n\n1\n2\n\n3\n4")
+        let aInfo = try XCTUnwrap(storage.attribute(.mdTableCell, at: (storage.string as NSString).range(of: "A").location, effectiveRange: nil) as? TableCellInfo)
+        XCTAssertEqual(aInfo.column, 1, "l'ancienne première colonne doit être décalée à droite")
+        XCTAssertEqual(aInfo.columnCount, 3)
+    }
+
+    func test_addColumnLeft_roundTripsCorrectly() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let aLocation = (storage.string as NSString).range(of: "A").location
+        editor.setSelectedRange(NSRange(location: aLocation, length: 0))
+
+        _ = TableEditCommands.addColumnLeft(in: editor)
+
+        let md = serialized(editor)
+        XCTAssertEqual(md, "|  | A | B |\n| --- | --- | --- |\n|  | 1 | 2 |\n|  | 3 | 4 |")
+    }
+
+    func test_realCommandOptionLeftArrowKeyEvent_addsAColumnLeft() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        let storage = try XCTUnwrap(editor.textStorage)
+        let aLocation = (storage.string as NSString).range(of: "A").location
+        editor.setSelectedRange(NSRange(location: aLocation, length: 0))
+
+        editor.keyDown(with: try commandOptionArrowEvent(keyCode: 0x7B)) // flèche gauche
+
+        XCTAssertEqual(storage.string, "\nA\nB\n\n1\n2\n\n3\n4")
+    }
+
+    /// `.markdownReadOnly(true)` : les raccourcis d'édition de tableau
+    /// (⌘⌥/⌘⌥⇧/⌘⌥⌃ + flèche) ne doivent pas muter le storage — `keyDown`
+    /// les écarte en lecture seule avant même d'atteindre les handlers.
+    func test_commandOptionArrowKeyEvent_onAReadOnlyEditor_isANoOp() throws {
+        let (editor, _) = makeWiredEditor(markdown: table)
+        editor.isEditable = false
+        let storage = try XCTUnwrap(editor.textStorage)
+        let before = storage.string
+        let aLocation = (storage.string as NSString).range(of: "A").location
+        editor.setSelectedRange(NSRange(location: aLocation, length: 0))
+
+        editor.keyDown(with: try commandOptionArrowEvent(keyCode: 0x7B)) // flèche gauche
+
+        XCTAssertEqual(storage.string, before)
+    }
+
     func test_addColumnRight_insertsAnEmptyColumnRightAfterTheCursorsColumn() throws {
         let (editor, _) = makeWiredEditor(markdown: table)
         let storage = try XCTUnwrap(editor.textStorage)

@@ -18,20 +18,58 @@ import AppKit
 enum MermaidBlockLayout {
 
     /// Marge interne entre le cadre du bloc et le diagramme qui y est inscrit.
-    static let inset: CGFloat = 8
+    static let horizontalInset: CGFloat = 18
+    static let verticalInset: CGFloat = 16
+    static let cardCornerRadius: CGFloat = 8
 
-    static let backgroundColor = NSColor.textBackgroundColor
-    static let borderColor = NSColor.separatorColor
+    static let backgroundColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0x1f/255, green: 0x20/255, blue: 0x24/255, alpha: 1)
+            : NSColor.white
+    }
+    static let borderColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 1, alpha: 0.16)
+            : NSColor(red: 0xe3/255, green: 0xe0/255, blue: 0xda/255, alpha: 1)
+    }
+    static let loadingBackgroundColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0x22/255, green: 0x23/255, blue: 0x27/255, alpha: 1)
+            : NSColor(red: 0xfa/255, green: 0xf8/255, blue: 0xf5/255, alpha: 1)
+    }
+    static let loadingTextColor = NSColor.secondaryLabelColor
+    static let errorBackgroundColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0x32/255, green: 0x25/255, blue: 0x25/255, alpha: 1)
+            : NSColor(red: 0xfd/255, green: 0xf6/255, blue: 0xf5/255, alpha: 1)
+    }
+    static let errorBorderColor = NSColor(red: 0xe9/255, green: 0xb8/255, blue: 0xb3/255, alpha: 1)
+    static let errorTitleColor = NSColor(red: 0xc0/255, green: 0x39/255, blue: 0x2f/255, alpha: 1)
+    static let errorDetailColor = NSColor(red: 0x8a/255, green: 0x3a/255, blue: 0x31/255, alpha: 1)
 
     /// Hauteur provisoire, modeste, réservée tant que le rendu web n'a pas
     /// encore livré d'image (`MermaidAttachmentFactory.placeholder`) — jamais
     /// une hauteur étalée sur les lignes du source (l'ancien défaut : 220pt).
     static let placeholderHeight: CGFloat = 104
 
+    /// Largeur de la colonne commune aux trois états d'un bloc mermaid
+    /// (carte rendue, placeholder de chargement, cadre d'erreur) : celle de
+    /// la colonne de texte sur la fenêtre de référence. Constante **propre à
+    /// mermaid** — les images ordinaires gardent leur limite distincte
+    /// (`ImageAttachmentFactory.maxWidth`, plus petite) : un `NSTextAttachment`
+    /// d'image n'est jamais réajusté au conteneur au moment du dessin,
+    /// contrairement aux cartes mermaid (`fittedSize` dans
+    /// `MarkdownLayoutManager.drawMermaidDiagram`), et déborderait d'un
+    /// éditeur plus étroit que cette colonne.
+    static let columnWidth: CGFloat = 960
+
     /// Largeur du cadre de secours (chargement/erreur) — voir
     /// `MermaidAttachmentFactory.frameWidth`, dupliquée ici comme source de
-    /// vérité unique pour éviter la dérive des deux constantes.
-    static let placeholderWidth: CGFloat = 320
+    /// vérité unique pour éviter la dérive des deux constantes. Elle est
+    /// volontairement celle de la colonne de texte : le rendu terminé, le
+    /// chargement et l'erreur doivent avoir exactement le même cadre que le
+    /// source Mermaid ouvert.
+    static let placeholderWidth: CGFloat = columnWidth
 
     /// Hauteur du cadre d'erreur (avec message mermaid) — voir
     /// `MermaidAttachmentFactory.frameHeightWithDetail`.
@@ -97,6 +135,64 @@ enum MermaidBlockLayout {
         return NSSize(width: size.width * scale, height: size.height * scale)
     }
 
+    // MARK: - Barre d'actions (survol diagramme)
+
+    static let actionBarTopMargin: CGFloat = 8
+    static let actionBarRightMargin: CGFloat = 8
+    static let actionBarPadding: CGFloat = 3
+    static let actionBarGap: CGFloat = 2
+
+    static let actionBarBackgroundColor = NSColor(red: 250/255, green: 250/255, blue: 252/255, alpha: 0.92)
+    static let actionBarBorderColor = NSColor(red: 0xde/255, green: 0xdb/255, blue: 0xd5/255, alpha: 1)
+    static let actionBarBorderWidth: CGFloat = 1
+    static let actionBarCornerRadius: CGFloat = 7
+
+    static let actionButtonHeight: CGFloat = 22
+    static let actionButtonCornerRadius: CGFloat = 5
+    static let actionButtonHoverColor = NSColor(white: 0, alpha: 0.07)
+    static let actionButtonFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
+    static let actionButtonTextColor = NSColor(red: 0x3c/255, green: 0x3c/255, blue: 0x43/255, alpha: 1)
+
+    static let editButtonLabel = "Modifier"
+    static let editButtonPaddingX: CGFloat = 9
+
+    static let separatorWidth: CGFloat = 1
+    static let separatorMarginX: CGFloat = 1
+    static let separatorMarginY: CGFloat = 3
+    static let separatorColor = NSColor(red: 0xe2/255, green: 0xdf/255, blue: 0xd9/255, alpha: 1)
+
+    static let copyButtonWidth: CGFloat = 70
+
+    struct ActionBarGeometry {
+        let barRect: NSRect
+        let editButtonRect: NSRect
+        let separatorRect: NSRect
+        let copyButtonRect: NSRect
+    }
+
+    static func actionBarGeometry(forDrawnRect drawnRect: NSRect) -> ActionBarGeometry {
+        let editLabelSize = (editButtonLabel as NSString).size(withAttributes: [.font: actionButtonFont])
+        let editButtonWidth = editLabelSize.width + 2 * editButtonPaddingX
+        let barWidth = actionBarPadding + editButtonWidth + actionBarGap + separatorMarginX * 2 + separatorWidth + actionBarGap + copyButtonWidth + actionBarPadding
+        let barHeight = actionBarPadding * 2 + actionButtonHeight
+
+        let barX = drawnRect.maxX - actionBarRightMargin - barWidth
+        let barY = drawnRect.minY + actionBarTopMargin
+        let barRect = NSRect(x: barX, y: barY, width: barWidth, height: barHeight)
+
+        var currentX = barX + actionBarPadding
+        let editButtonRect = NSRect(x: currentX, y: barY + actionBarPadding, width: editButtonWidth, height: actionButtonHeight)
+        currentX += editButtonWidth + actionBarGap
+
+        currentX += separatorMarginX
+        let separatorRect = NSRect(x: currentX, y: barY + actionBarPadding + separatorMarginY, width: separatorWidth, height: actionButtonHeight - separatorMarginY * 2)
+        currentX += separatorWidth + separatorMarginX + actionBarGap
+
+        let copyButtonRect = NSRect(x: currentX, y: barY + actionBarPadding, width: copyButtonWidth, height: actionButtonHeight)
+
+        return ActionBarGeometry(barRect: barRect, editButtonRect: editButtonRect, separatorRect: separatorRect, copyButtonRect: copyButtonRect)
+    }
+
     // MARK: - Bouton « Ouvrir le source » (état 4 — cadre d'erreur)
 
     /// Libellé et police du bouton d'action peint dans le cadre d'erreur
@@ -105,7 +201,7 @@ enum MermaidBlockLayout {
     /// mermaidErrorActionButtonRange`), pour que les deux mesurent le texte
     /// à l'identique.
     static let errorActionLabel = "Ouvrir le source"
-    static let errorActionFont = NSFont.systemFont(ofSize: 10, weight: .medium)
+    static let errorActionFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
 
     /// Rectangle du bouton d'action, en coordonnées **natives de l'image**
     /// (origine bas-gauche — voir `NSImage(size:flipped:false)` dans
@@ -115,7 +211,7 @@ enum MermaidBlockLayout {
     /// l'appelant (dessin ou hit-test) — jamais mesurée deux fois avec des
     /// attributs qui pourraient diverger.
     static func errorActionButtonRect(labelSize: NSSize) -> NSRect {
-        NSRect(x: 12, y: 10, width: labelSize.width + 20, height: 20)
+        NSRect(x: 16, y: 12, width: labelSize.width + 20, height: 22)
     }
 
     /// Convertit `point` (coordonnées **conteneur**, mêmes conventions que
@@ -188,9 +284,16 @@ enum MermaidBlockLayout {
         return blockRange
     }
 
-    /// `true` si `location` (typiquement `selectedRange().location`) touche
+    /// `true` si `location` (typiquement `selectedRange().location`) est dans
     /// `blockRange` — un bloc mermaid est « ouvert » (source affiché) tant
-    /// que le curseur y touche, « fermé » (diagramme peint) sinon. Fonction
+    /// que le curseur y touche, « fermé » (diagramme peint) sinon. Les deux
+    /// bornes sont **incluses** : un curseur juste après le dernier caractère
+    /// du source (flèche droite, Fin, clic en bout de ligne) reste en édition
+    /// et une frappe s'ajoute à la fin du source — l'ancienne borne de fin
+    /// exclusive refermait le bloc à cette position et rendait la fin du
+    /// source inatteignable au clavier. Fermer le bloc demande une position
+    /// au-delà du séparateur : c'est là que « Terminé » place le curseur
+    /// (voir `doneCaretPlacement`). Fonction
     /// pure partagée par `StyleRenderer` (géométrie posée), `EditorTextView`
     /// (hit-test au clic) et `MarkdownLayoutManager` (dessin) : un seul
     /// calcul, jamais deux qui pourraient diverger — même principe que
@@ -199,5 +302,38 @@ enum MermaidBlockLayout {
     static func selectionTouches(_ location: Int, blockRange: NSRange) -> Bool {
         guard location != NSNotFound else { return false }
         return location >= blockRange.location && location <= blockRange.location + blockRange.length
+    }
+
+    /// Plage du bloc mermaid « ouvert » par un curseur à `location`, ou
+    /// `nil`. Sonde l'attribut à `location` puis à `location - 1` : à la
+    /// borne de fin (incluse par `selectionTouches`), le caractère sous le
+    /// curseur est le **séparateur**, qui ne porte pas `.mdMermaidAttachment`
+    /// — seule la sonde à `location - 1` retrouve alors le bloc. À utiliser
+    /// partout où le bloc est cherché **depuis la sélection** (bouton
+    /// « Terminé », bascule de géométrie) ; les hit-tests au point de clic
+    /// continuent d'utiliser `blockRange(in:at:)` directement.
+    static func openBlockRange(in storage: NSTextStorage, selection location: Int) -> NSRange? {
+        guard location != NSNotFound, storage.length > 0 else { return nil }
+        for probe in [min(location, storage.length - 1), location - 1]
+        where probe >= 0 && probe < storage.length {
+            if let range = blockRange(in: storage, at: probe),
+               selectionTouches(location, blockRange: range) {
+                return range
+            }
+        }
+        return nil
+    }
+
+    /// Position du curseur après un clic sur « Terminé » : la première
+    /// position **au-delà** du séparateur qui suit le bloc — la borne de fin
+    /// étant incluse dans l'état ouvert, sortir du bloc exige de dépasser ce
+    /// séparateur. `insertsSeparator` signale qu'aucun caractère ne suit le
+    /// bloc (fin de document) : l'appelant doit insérer un `\n` avant de
+    /// poser le curseur, sinon aucune position fermée n'existe.
+    static func doneCaretPlacement(
+        afterBlock blockRange: NSRange, storageLength: Int
+    ) -> (location: Int, insertsSeparator: Bool) {
+        let end = NSMaxRange(blockRange)
+        return (end + 1, end >= storageLength)
     }
 }

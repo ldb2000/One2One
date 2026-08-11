@@ -5,8 +5,15 @@ import AppKit
 /// texte, déclenché à chaque frappe, ne relise pas le fichier sur disque.
 enum ImageAttachmentFactory {
 
-    /// Largeur maximale d'affichage. Les images plus larges sont réduites en
-    /// conservant leur rapport d'aspect.
+    /// Largeur maximale d'affichage des images **ordinaires**. Les images
+    /// plus larges sont réduites en conservant leur rapport d'aspect. Reste
+    /// volontairement plus petite que la colonne mermaid
+    /// (`MermaidBlockLayout.columnWidth`, 960 pt) : un `NSTextAttachment`
+    /// d'image est dessiné par TextKit à ses bounds figés, jamais réajusté à
+    /// la largeur vivante du conteneur (l'éditeur démarre à 200 pt, sans
+    /// défilement horizontal) — une limite à 960 clippait les images dans
+    /// les éditeurs courants de 300–600 pt, contrairement aux cartes mermaid
+    /// qui, elles, sont réduites au dessin (`MermaidBlockLayout.fittedSize`).
     static let maxWidth: CGFloat = 480
 
     /// Hauteur du cadre affiché quand la taille de l'image est inexploitable.

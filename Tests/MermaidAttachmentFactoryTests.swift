@@ -29,6 +29,29 @@ final class MermaidAttachmentFactoryTests: XCTestCase {
         XCTAssertEqual(tall.size.width, short.size.width, "la largeur du cadre ne dépend pas du détail")
     }
 
+    @MainActor
+    func test_framedDiagram_usesTheSharedCardWidthAndAddsProfessionalInsets() {
+        let diagram = NSImage(size: NSSize(width: 100, height: 40))
+
+        let framed = MermaidAttachmentFactory.framedDiagram(diagram)
+
+        XCTAssertEqual(framed.size.width, MermaidBlockLayout.columnWidth)
+        XCTAssertEqual(
+            framed.size.height,
+            diagram.size.height + MermaidBlockLayout.verticalInset * 2
+        )
+    }
+
+    @MainActor
+    func test_framedDiagram_neverExceedsTheSharedCardWidth() {
+        let diagram = NSImage(size: NSSize(width: 900, height: 300))
+
+        let framed = MermaidAttachmentFactory.framedDiagram(diagram)
+
+        XCTAssertEqual(framed.size.width, MermaidBlockLayout.columnWidth)
+        XCTAssertGreaterThan(framed.size.height, MermaidBlockLayout.verticalInset * 2)
+    }
+
     // MARK: - Le contrat central du palier : muter .image ne touche pas NSTextStorage
 
     /// Piège mesuré sur cette branche : remplacer l'image d'un attachment déjà
