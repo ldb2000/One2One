@@ -172,10 +172,48 @@ lendemain et le décompte passe de 2 à 1. La même commande passait à 22 h sur
 aucun commit de la branche ne touche `TodayStatsCalculator`. À corriger un jour en injectant
 l'horloge — c'est le second test horaire du fichier après `test_badge_twelve_compact`.
 
-**Reste dû : les dix contrôles à l'écran (étape 4).** Ils exigent quelqu'un devant l'écran.
-Deux d'entre eux sont nés des correctifs de revue : la fermeture immédiatement après la
-frappe (elle seule tranche l'ordre `.onDisappear` / `dismantleNSView`) et la même note
-ouverte dans les deux fenêtres.
+**Étape 4 — trois contrôles déroulés sur onze, le 2026-08-10 au soir.**
+
+| # | Contrôle | Résultat |
+|---|---|---|
+| 1 | note rapide du menubar → apparaît dans « Notes » | conforme |
+| 2 | l'ouvrir → deux onglets, pas de barre d'enregistrement | conforme |
+| 3 | bascule vers « One-to-One » → les six onglets reviennent | conforme, **mais** |
+| 4–11 | temps passé, fiche collab, fiche projet, Spotlight, nouvelle note, frappe puis fermeture, deux fenêtres, backup/restore | **non déroulés** |
+
+Le contrôle 3 a révélé un manque : la bascule produit un 1:1 **sans interlocuteur**, et rien
+dans le fil d'Ariane ne permet de le rattacher à quelqu'un — le seul chemin est Vue
+d'ensemble → Présence → « Gérer les participants ». Le manque préexiste à cette branche (le
+badge de type était déjà un `Picker` sur tous les types). Traité à part, sur
+`feat/pastille-participant-fil-ariane`, voir
+[la spec](docs/superpowers/specs/2026-08-11-pastille-participant-fil-ariane-design.md).
+
+**Les contrôles 4 à 11 passent en vérification à l'usage**, décision de l'auteur le
+2026-08-11. La tâche 13 n'est donc **pas close** : ce qu'ils couvrent — dont la fermeture
+immédiatement après la frappe, seul contrôle qui tranche l'ordre `.onDisappear` /
+`dismantleNSView`, et la même note ouverte dans les deux fenêtres — reste non vérifié. Ne
+pas écrire ailleurs que ces points sont acquis.
+
+## `master` ne compilait plus depuis le 2026-08-08 (constaté le 2026-08-11)
+
+Constaté en créant un worktree partant de `master` : **42 erreurs de compilation**.
+`OneToOne/Markdown/Core/EditorTextView.swift`, commité le 8 août (`8d88197`), appelle une API
+dont les définitions étaient restées **non commitées** dans l'arbre de travail de l'auteur —
+`TableControlLayout.footerGeometry`, `MermaidBlockLayout.columnWidth`,
+`BlockMoveCommands.dragRewrite`, `TableEditCommands.Gesture.addColumnLeft`, entre autres.
+Toutes les branches en héritaient : **le seul état compilable du dépôt était cet arbre de
+travail**. Conséquence rétrospective à connaître : toutes les suites de tests vertes citées
+plus haut ont été lancées sur cet arbre — code de la branche **plus** le chantier éditeur non
+commité. Aucun commit n'a jamais été compilé isolément ; ce n'était pas possible.
+
+Réparé sur `fix/build-editeur-mermaid-tables`, partie de `master`, en deux commits : le
+vendoring de BeautifulMermaidSwift (MIT) + `elk-swift` (81 fichiers), puis les onze fichiers
+de `OneToOne/Markdown/`, `NativeMermaidRenderer.swift` et onze fichiers de test
+(+1606 −339). Contenu repris sans modification de l'arbre de l'auteur ; jeu minimal
+déterminé par ajouts successifs. Vérifié : `swift build` passe, et
+`swift test --skip CalendarImportEventTests` donne 990 XCTest (1 ignoré) + 138 Swift Testing,
+aucun échec. **Reste à fusionner dans `master`** ; tant que ce n'est pas fait, aucune branche
+ne compile seule.
 
 **Ce qui reste ouvert par ailleurs**, laissé tel quel par la spec : le sort de `Meeting.notes`
 (champ distinct de `liveNotes`, encore lu par les gabarits de rapport) et le renommage
