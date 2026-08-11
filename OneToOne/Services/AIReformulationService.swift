@@ -15,33 +15,20 @@ class AIReformulationService {
         return parseReformulation(response)
     }
 
-    /// Construit un export hebdomadaire markdown à partir des interviews
+    /// Construit un export hebdomadaire markdown à partir des réunions tenues
     /// (triées par date, actions incluses) puis le fait synthétiser par l'IA.
-    func generateWeeklyExport(interviews: [Interview], settings: AppSettings) async throws -> String {
-        var interviewsText = ""
-        for interview in interviews.sorted(by: { $0.date < $1.date }) {
-            let dateStr = interview.date.formatted(date: .long, time: .omitted)
-            let collabName = interview.collaborator?.name ?? "Inconnu"
-            let typeStr = interview.type.label
-            interviewsText += "### \(dateStr) — \(collabName) (\(typeStr))\n"
-            interviewsText += interview.notes + "\n\n"
-
-            if !interview.tasks.isEmpty {
-                interviewsText += "Actions:\n"
-                for task in interview.tasks {
-                    let check = task.isCompleted ? "[x]" : "[ ]"
-                    interviewsText += "- \(check) \(task.title)"
-                    if let project = task.project {
-                        interviewsText += " (Projet: \(project.name))"
-                    }
-                    interviewsText += "\n"
-                }
-                interviewsText += "\n"
-            }
-        }
-
+    ///
+    /// Bâti autrefois sur `Interview`, supprimé le 2026-08-11 : ses lignes
+    /// étaient vides, l'export produisait donc des en-têtes sans corps. La
+    /// matière vit dans les réunions ; le montage du texte est vérifiable à
+    /// part, dans `WeeklyExportText`.
+    ///
+    /// Le jeton du prompt reste `{{interviews}}` : il est écrit dans le
+    /// `weeklyExportPrompt` que l'utilisateur a enregistré, et le renommer
+    /// couperait silencieusement l'interpolation de son prompt.
+    func generateWeeklyExport(meetings: [Meeting], settings: AppSettings) async throws -> String {
         let prompt = settings.weeklyExportPrompt
-            .replacingOccurrences(of: "{{interviews}}", with: interviewsText)
+            .replacingOccurrences(of: "{{interviews}}", with: WeeklyExportText.build(meetings: meetings))
 
         return try await AIClient.send(prompt: prompt, settings: settings)
     }

@@ -858,10 +858,12 @@ struct EntityDetailView: View {
 /// (avec backup automatique et rollback) et l'export hebdomadaire assisté par IA.
 struct DashboardView: View {
     @Query private var projects: [Project]
-    @Query private var interviews: [Interview]
     @Query private var collaborators: [Collaborator]
     @Query private var entities: [Entity]
     @Query private var meetings: [Meeting]
+    /// Encore lue par la sauvegarde, qui n'a pas fini d'être sevrée
+    /// d'`Interview` (cf. ADR du 2026-08-11).
+    @Query private var interviews: [Interview]
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @ObservedObject private var agenda = CalendarAgendaService.shared
@@ -899,10 +901,13 @@ struct DashboardView: View {
         settingsList.canonicalSettings ?? AppSettings()
     }
 
-    private var thisWeekInterviews: [Interview] {
+    /// Réunions **tenues** des sept derniers jours : la matière de l'export
+    /// hebdomadaire. Les notes en sont écartées — une réunion avec soi-même ne
+    /// représente aucun temps passé.
+    private var thisWeekMeetings: [Meeting] {
         let calendar = Calendar.current
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        return interviews.filter { $0.date >= weekAgo }
+        return MeetingStatsScope.held(meetings).filter { $0.date >= weekAgo }
     }
 
     /// Début de la semaine ISO en cours (lundi 00:00 local).
@@ -1224,7 +1229,7 @@ struct DashboardView: View {
                         }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isExportingWeekly || thisWeekInterviews.isEmpty)
+                    .disabled(isExportingWeekly || thisWeekMeetings.isEmpty)
                     .help("Générer le rapport hebdomadaire des modifications")
 
                     Button(action: { showingFileImporter = true }) {
@@ -1778,7 +1783,7 @@ struct DashboardView: View {
             let service = AIReformulationService()
             do {
                 let report = try await service.generateWeeklyExport(
-                    interviews: thisWeekInterviews,
+                    meetings: thisWeekMeetings,
                     settings: settings
                 )
                 await MainActor.run {
