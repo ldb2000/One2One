@@ -412,10 +412,35 @@ final class Meeting {
         set { keyPointsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
     }
 
-    /// Décisions prises, vue tableau au-dessus de `decisionsJSON`.
-    var decisions: [String] {
-        get { (try? JSONDecoder().decode([String].self, from: Data(decisionsJSON.utf8))) ?? [] }
+    /// Décisions prises **avec leur état de solde** — la vue complète de
+    /// `decisionsJSON`. Voir `DecisionEntry` pour les deux formes acceptées.
+    var decisionEntries: [DecisionEntry] {
+        get { (try? JSONDecoder().decode([DecisionEntry].self, from: Data(decisionsJSON.utf8))) ?? [] }
         set { decisionsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
+    }
+
+    /// Décisions prises, vue tableau au-dessus de `decisionsJSON`. Conservée
+    /// telle quelle : la génération de rapport, les gabarits, l'export et
+    /// l'assistant la lisent.
+    ///
+    /// L'écriture **préserve le solde des décisions qui survivent** : la
+    /// régénération d'un rapport réécrit la liste en bloc, et un engagement
+    /// tenu ressusciterait sinon à chaque rapport.
+    var decisions: [String] {
+        get { decisionEntries.map(\.text) }
+        set {
+            let anciens = Dictionary(decisionEntries.map { ($0.text, $0.settledAt) },
+                                     uniquingKeysWith: { premier, _ in premier })
+            decisionEntries = newValue.map { DecisionEntry(text: $0, settledAt: anciens[$0] ?? nil) }
+        }
+    }
+
+    /// Solde la décision de rang `index`. Sans effet si le rang n'existe pas.
+    func settleDecision(at index: Int, on date: Date = Date()) {
+        var entries = decisionEntries
+        guard entries.indices.contains(index) else { return }
+        entries[index].settledAt = date
+        decisionEntries = entries
     }
 
     /// Questions ouvertes, vue tableau au-dessus de `openQuestionsJSON`.
