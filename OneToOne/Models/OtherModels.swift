@@ -18,6 +18,23 @@ final class Collaborator {
     /// Pinning level in the sidebar: 0 = hidden, 1 = favourite, 2 = pinned.
     var pinLevel: Int = 0
 
+    /// Rythme convenu des tête-à-tête (Raw + wrapper — contournement enum
+    /// SwiftData). Défaut `aucune` : c'est lui qui décide si un écart se
+    /// colore en retard, et l'app ne suppose aucun rythme à la place de
+    /// l'utilisateur.
+    var oneToOneCadenceRaw: String = OneToOneCadence.aucune.rawValue
+    var oneToOneCadence: OneToOneCadence {
+        get { OneToOneCadence(rawValue: oneToOneCadenceRaw) ?? .aucune }
+        set { oneToOneCadenceRaw = newValue.rawValue }
+    }
+
+    /// Entité de rattachement de la personne. `Entity` ne reliait jusqu'ici
+    /// que les projets.
+    var entity: Entity?
+
+    /// Manager de la personne. `nil` vaut « Moi » — le propriétaire de l'app.
+    var manager: Collaborator?
+
     /// Marks a collaborator created ad-hoc from a meeting (reusable afterwards).
     var isAdhoc: Bool = false
 
