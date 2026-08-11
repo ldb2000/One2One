@@ -147,6 +147,11 @@ final class ActionTask {
     /// Ordre manuel (vues Kanban/Timeline ultérieures).
     var sortOrder: Int = 0
 
+    /// Date à laquelle cette action, née en tête-à-tête, a été **explicitement
+    /// reprise** — donc soldée en tant qu'engagement sans avoir été cochée.
+    /// `nil` tant qu'elle traîne. Sans objet pour une action née ailleurs.
+    var engagementSettledAt: Date? = nil
+
     /// True when the task was extracted from a 1:1 manager CR.
     var fromManager: Bool = false
     var managerMeeting: Meeting?
