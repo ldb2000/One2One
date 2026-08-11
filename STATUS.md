@@ -212,8 +212,15 @@ de `OneToOne/Markdown/`, `NativeMermaidRenderer.swift` et onze fichiers de test
 (+1606 −339). Contenu repris sans modification de l'arbre de l'auteur ; jeu minimal
 déterminé par ajouts successifs. Vérifié : `swift build` passe, et
 `swift test --skip CalendarImportEventTests` donne 990 XCTest (1 ignoré) + 138 Swift Testing,
-aucun échec. **Reste à fusionner dans `master`** ; tant que ce n'est pas fait, aucune branche
-ne compile seule.
+aucun échec.
+
+**Fusionné dans `master`** le 2026-08-11 (`4577048..9f18a73`), puis `master` fusionné dans
+`feat/fusion-note-reunion` (`8d77c18`). L'arbre de travail est passé de 24 fichiers modifiés
+à trois — `CLAUDE.md`, `Info.plist` (bump du script de build) et la modification de
+`OneToOneApp.swift` sur `migrationPlan` — le reste étant désormais commité à l'identique.
+Contenu vérifié octet à octet contre une sauvegarde prise avant l'opération. La branche
+fusion compile pour la première fois seule : 997 XCTest (1 ignoré) + 301 Swift Testing,
+aucun échec.
 
 **Ce qui reste ouvert par ailleurs**, laissé tel quel par la spec : le sort de `Meeting.notes`
 (champ distinct de `liveNotes`, encore lu par les gabarits de rapport) et le renommage
