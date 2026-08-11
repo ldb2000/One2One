@@ -552,7 +552,15 @@ class AIIngestionService {
 
     // MARK: - Apply extracted data to SwiftData
 
-    func applyExtractedData(_ extracted: ExtractedData, fileName: String, in context: ModelContext) -> (projects: [Project], collaborators: [Collaborator], interview: Interview) {
+    /// Applique ce que l'IA a extrait d'un fichier, et rend le **reçu** de
+    /// l'import : une note, titrée du fichier, tagguée « Import ».
+    ///
+    /// C'était un `Interview` de type « Import PDF » — un objet invisible, qui
+    /// ne vivait que pour ancrer le retour arrière. Une note se liste, se
+    /// cherche et se retrouve ; le thème remplace le type d'entretien et rend
+    /// tous les imports filtrables d'un geste. Cf. l'ADR du 2026-08-11 : un
+    /// entretien n'est rien de plus qu'une réunion, distinguée par son thème.
+    func applyExtractedData(_ extracted: ExtractedData, fileName: String, in context: ModelContext) -> (projects: [Project], collaborators: [Collaborator], receipt: Meeting) {
         // 1. Find or create "Autre" entity
         let autreEntity = findOrCreateEntity(name: "Autre", in: context)
 
@@ -570,32 +578,22 @@ class AIIngestionService {
             createdProjects.append(project)
         }
 
-        // 4. Create import Interview
-        let fileExt = (fileName as NSString).pathExtension.lowercased()
-        let interviewType: InterviewType
-        switch fileExt {
-        case "pptx": interviewType = .importPPTX
-        case "pdf": interviewType = .importPDF
-        default: interviewType = .importPDF
-        }
-
-        let interview = Interview(
-            date: Date(),
-            notes: buildImportNotes(extracted: extracted, fileName: fileName),
-            type: interviewType
+        // 4. Le reçu de l'import : une note tagguée.
+        let receipt = NoteFactory.make(
+            body: buildImportNotes(extracted: extracted, fileName: fileName),
+            title: "Import — \(fileName)",
+            collaborator: collaboratorMap.values.first
         )
-        interview.sourceFileName = fileName
-        context.insert(interview)
-
-        if let firstCollab = collaboratorMap.values.first {
-            interview.collaborator = firstCollab
+        context.insert(receipt)
+        if let tag = MeetingTag.findOrCreate(name: "Import", in: context) {
+            receipt.tags.append(tag)
         }
 
         // 5. Create tasks for risks and key points
         for project in createdProjects {
             if let riskDesc = project.comment, !riskDesc.isEmpty {
                 let task = ActionTask(title: "Suivi: \(project.name)")
-                task.interview = interview
+                task.meeting = receipt
                 task.project = project
                 context.insert(task)
             }
@@ -608,7 +606,7 @@ class AIIngestionService {
             print("[AIIngestion] Save failed: \(error)")
         }
 
-        return (createdProjects, Array(collaboratorMap.values), interview)
+        return (createdProjects, Array(collaboratorMap.values), receipt)
     }
 
     // MARK: - Helpers

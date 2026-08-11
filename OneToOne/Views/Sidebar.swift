@@ -894,7 +894,7 @@ struct DashboardView: View {
     // Rollback
     @State private var lastImportProjectIDs: [Project] = []
     @State private var lastImportCollaboratorIDs: [Collaborator] = []
-    @State private var lastImportInterview: Interview?
+    @State private var lastImportReceipt: Meeting?
     @State private var canRollback = false
 
     private var settings: AppSettings {
@@ -1732,7 +1732,7 @@ struct DashboardView: View {
                     let result = service.applyExtractedData(extracted, fileName: url.lastPathComponent, in: context)
                     lastImportProjectIDs = result.projects
                     lastImportCollaboratorIDs = result.collaborators
-                    lastImportInterview = result.interview
+                    lastImportReceipt = result.receipt
                     canRollback = true
                     isProcessing = false
                     importResult = "\(result.projects.count) projets et \(result.collaborators.count) collaborateurs importes depuis \(url.lastPathComponent)"
@@ -1749,14 +1749,14 @@ struct DashboardView: View {
     }
 
     private func rollbackLastImport() {
-        // Delete the interview and its tasks
-        if let interview = lastImportInterview {
-            for task in interview.tasks { context.delete(task) }
-            context.delete(interview)
+        // Supprime le reçu de l'import et les actions qui y pendent.
+        if let receipt = lastImportReceipt {
+            for task in receipt.tasks { context.delete(task) }
+            context.delete(receipt)
         }
         // Note: we don't delete projects/collaborators that may have existed before
         // We only delete those that were newly created (have no other references)
-        // For safety, just delete the interview — projects may have been updated, not created
+        // For safety, just delete the receipt — projects may have been updated, not created
         do {
             try context.save()
             canRollback = false
@@ -1764,7 +1764,7 @@ struct DashboardView: View {
             importError = nil
             lastImportProjectIDs = []
             lastImportCollaboratorIDs = []
-            lastImportInterview = nil
+            lastImportReceipt = nil
         } catch {
             importError = "Echec du rollback: \(error.localizedDescription)"
         }
