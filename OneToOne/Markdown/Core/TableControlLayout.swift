@@ -1,253 +1,287 @@
 import AppKit
 
-/// Géométrie des contrôles de tableau (ajouter une ligne, ajouter une
-/// colonne, supprimer la ligne/la colonne courantes) — peints par
-/// `MarkdownLayoutManager.drawTableControls` quand le curseur est dans une
-/// cellule, hit-testés par `EditorTextView.tableControlGesture(at:)` sur
-/// `mouseDown`. Les deux appellent `placementForCursor` : **un seul** calcul
-/// de géométrie, jamais deux qui pourraient diverger — même schéma que
-/// `ListMarkerLayout`/`BlockquoteRuleLayout` (constantes + fonctions pures,
-/// testables sans vue vivante, cf. leur doc).
-///
-/// Déclenché sur curseur dans le tableau plutôt que sur survol de la souris
-/// (voir la doc de `TableEditCommands` et d'`EditorTextView.
-/// onTableEditCommand`) : `EditorTextView` n'a aucune infrastructure de
-/// suivi de souris (`NSTrackingArea`, `mouseMoved`), et cette tâche n'en
-/// construit pas — la position du curseur (`selectedRange().location`) est
-/// la seule source de vérité, pour le dessin comme pour le clic.
-///
-/// Mesuré hors écran (`NSLayoutManager`/`NSTextContainer` construits sans
-/// vue vivante, comme `Tests/TableEditCommandsTests.swift`, plus une sonde
-/// de rendu bitmap jetée après mesure — voir le rapport de tâche) : une
-/// `NSTextTable` sans largeur de colonne explicite (voir `StyleRenderer`,
-/// qui n'en pose aucune) occupe la **largeur totale** du conteneur — aucune
-/// marge libre à gauche ni à droite du tableau pour y loger des contrôles
-/// sans empiéter sur son propre rendu. Et surtout : `boundingRect(
-/// forGlyphRange:in:)` renvoie le rectangle du **contenu** d'une cellule —
-/// bordure et remplissage (`TableLayout.borderWidth`/`cellPadding`) déjà
-/// retirés par TextKit lui-même, pas une marge en plus à soustraire ici.
-/// Un premier essai centrait `deleteRow`/`deleteColumn` **sur la bordure
-/// extérieure du tableau** (`tableRect.minX`/`.minY`) en misant sur cette
-/// marge — inexistante : le rendu réel (sonde bitmap) montrait le contrôle
-/// à cheval sur le premier caractère de la cellule. `addRow`/`addColumn`,
-/// eux, centrés sur une bordure **entre deux cellules** (chacune apportant
-/// son propre remplissage), avaient bien la place et rendaient correctement
-/// — d'où le choix retenu : les quatre contrôles vivent tous sur une
-/// bordure **interne** (jamais l'extérieure du tableau), groupés deux par
-/// deux — ajouter/supprimer une ligne sur la bordure basse de la rangée
-/// courante, ajouter/supprimer une colonne sur la bordure droite de la
-/// colonne courante — comme deux petits boutons côte à côte plutôt
-/// qu'écartés aux quatre coins du tableau.
-///
-/// Rendu : pastille de fond neutre (couleur de bouton système, bordure fine
-/// `separatorColor`) surmontée d'une icône SF Symbols (`+`/`–`) — voir
-/// `MarkdownLayoutManager.drawTableControl` — plutôt qu'un disque saturé
-/// avec un trait dessiné à la main : un premier essai (disque
-/// `controlAccentColor`/`systemRed` plein, croix tracée en `NSBezierPath`)
-/// a été jugé peu soigné (retour utilisateur, voir le rapport de tâche) —
-/// remplacé par le patron « bouton +/– » natif macOS (Mail, Réglages
-/// Système, Trousseaux…) : fond neutre identique pour les quatre contrôles,
-/// seule la couleur de l'**icône** distingue ajouter (neutre) de supprimer
-/// (rouge, geste destructif), pour éviter l'effet « pastille de couleur ».
 enum TableControlLayout {
-
-    /// Diamètre d'un contrôle, en points — égal à `TableLayout.cellPadding`
-    /// (6pt de rayon) pour ne jamais empiéter au-delà du remplissage d'une
-    /// cellule voisine. Mesuré : un premier essai à 16pt (8pt de rayon, pour
-    /// donner plus d'air à l'icône SF Symbols) dépassait ce rayon de
-    /// sécurité — une rangée à une seule ligne mesure couramment ~16pt de
-    /// haut, donc le centre vertical d'une cellule (`cellRect.midY`) ne se
-    /// trouve alors qu'à 8pt de la bordure basse de la rangée (`rowRect.
-    /// maxY`, où `addRow` est centré) : un clic en plein milieu du *texte*
-    /// de la cellule tombait dans le contrôle. Repris à 12pt (voir
-    /// `Tests/TableControlLayoutTests.
-    /// test_tableControlGesture_clickInsideCellText_returnsNil`, qui a
-    /// attrapé la régression).
-    static let controlDiameter: CGFloat = TableLayout.cellPadding * 2
-
-    /// Espace entre les deux pastilles d'un même groupe (ajouter/supprimer)
-    /// — voir la doc de tête.
+    static let controlDiameter: CGFloat = 16
     static let controlGap: CGFloat = 4
 
-    /// Fond des quatre contrôles — couleur de bouton système, identique
-    /// qu'il s'agisse d'ajouter ou de supprimer (voir la doc de tête).
-    static let controlBackgroundColor = NSColor.controlBackgroundColor
+    static let footerHeight: CGFloat = 36
+    static let footerButtonHeight: CGFloat = 22
+    static let footerSegmentWidth: CGFloat = 26
+    static let footerInset: CGFloat = 10
+    static let footerButtonCornerRadius: CGFloat = 5
+    static let addColumnButtonWidth: CGFloat = 92
+    static let headerChevronSize: CGFloat = 16
 
-    /// Bordure fine du fond — même couleur sémantique que les filets de
-    /// tableau (`TableLayout.borderColor`), pour rester cohérent avec le
-    /// reste du rendu.
-    static let controlBorderColor = NSColor.separatorColor
-    static let controlBorderWidth: CGFloat = 1
+    static let footerBackgroundColor = NSColor(red: 0xf7/255, green: 0xf7/255, blue: 0xf9/255, alpha: 1)
+    static let footerBorderColor = NSColor(red: 0xd5/255, green: 0xd5/255, blue: 0xd8/255, alpha: 1)
+    static let footerButtonBorderColor = NSColor(red: 0xcf/255, green: 0xcf/255, blue: 0xd4/255, alpha: 1)
+    static let footerButtonBackgroundColor = NSColor.white
+    static let footerTextColor = NSColor(white: 0, alpha: 0.42)
+    static let footerButtonTextColor = NSColor(red: 0x3c/255, green: 0x3c/255, blue: 0x43/255, alpha: 1)
+    static let headerChevronColor = NSColor(white: 0, alpha: 0.4)
+    static let headerChevronHoverColor = NSColor(red: 0xe3/255, green: 0xe3/255, blue: 0xe8/255, alpha: 1)
 
-    /// Couleur de l'icône `+` (ajouter une ligne/colonne) — `labelColor`
-    /// (pas `secondaryLabelColor`, mesuré trop pâle à cette taille sur la
-    /// sonde bitmap) : geste non destructif, mais doit rester lisible.
-    static let addIconColor = NSColor.labelColor
-
-    /// Couleur de l'icône `–` (supprimer la ligne/la colonne) — rouge
-    /// système, geste destructif. Seule l'icône est teintée, jamais le fond
-    /// (voir la doc de tête) : évite l'effet « bonbon » d'un disque
-    /// entièrement rouge.
-    static let deleteIconColor = NSColor.systemRed
-
-    /// Position des quatre contrôles, en coordonnées du **conteneur** de
-    /// texte — mêmes conventions que `NSLayoutManager.boundingRect(
-    /// forGlyphRange:in:)`, sans le décalage `origin`/`textContainerInset`
-    /// qu'ajoute chaque appelant (`MarkdownLayoutManager.drawTableControls`
-    /// pour dessiner en coordonnées vue, `EditorTextView.
-    /// tableControlGesture(at:)` pour ramener un point cliqué en coordonnées
-    /// conteneur avant de tester) — jamais l'inverse, un seul décalage
-    /// possible par sens de conversion.
     struct Placement: Equatable {
-        /// « Ajouter une ligne » (`TableEditCommands.addRowBelow`) — toujours
-        /// proposé, aucune borne supérieure sur le nombre de rangées.
         let addRow: NSRect
-        /// « Ajouter une colonne » (`TableEditCommands.addColumnRight`) —
-        /// toujours proposé.
         let addColumn: NSRect
-        /// « Supprimer la ligne » (`TableEditCommands.deleteRow`) — `nil` si
-        /// la garde de `deleteRow` refuserait de toute façon (rangée d'en-tête,
-        /// ou dernière rangée de corps restante) : pas de contrôle affiché
-        /// pour un geste qui n'aurait aucun effet.
         let deleteRow: NSRect?
-        /// « Supprimer la colonne » (`TableEditCommands.deleteColumn`) —
-        /// `nil` si la garde de `deleteColumn` refuserait (dernière colonne
-        /// restante).
         let deleteColumn: NSRect?
     }
 
-    /// Calcule `Placement` à partir de deux rectangles déjà mesurés (voir
-    /// `placementForCursor`) : `rowRect` (la rangée du curseur, même largeur
-    /// que le tableau) et `cellRect` (la seule cellule du curseur — ses
-    /// abscisses valent pour toute sa colonne, les colonnes d'`NSTextTable`
-    /// partageant leur largeur sur toutes les rangées). `tableRect` n'entre
-    /// plus dans le calcul (voir la doc de tête : sa bordure extérieure n'a
-    /// pas la place). Deux groupes de deux pastilles, jamais sur la bordure
-    /// extérieure du tableau :
-    /// - **ligne** : bordure basse de la rangée courante — `addRow` à
-    ///   gauche du centre de la cellule, `deleteRow` à droite ;
-    /// - **colonne** : bordure droite de la colonne courante — `addColumn`
-    ///   au-dessus du centre de la cellule, `deleteColumn` en dessous.
-    ///
-    /// `addRow`/`addColumn` gardent une position fixe que `deleteRow`/
-    /// `deleteColumn` soit affiché ou non (pas de recentrage conditionnel) :
-    /// plus simple, et la position ne « saute » pas selon la rangée/colonne
-    /// du curseur.
-    static func placement(
-        tableRect: NSRect, rowRect: NSRect, cellRect: NSRect,
-        canDeleteRow: Bool, canDeleteColumn: Bool
-    ) -> Placement {
-        let radius = controlDiameter / 2
-        let clusterOffset = radius + controlGap / 2
-        func square(centeredAt point: NSPoint) -> NSRect {
-            NSRect(x: point.x - radius, y: point.y - radius, width: controlDiameter, height: controlDiameter)
-        }
-
-        let addRow = square(centeredAt: NSPoint(x: cellRect.midX - clusterOffset, y: rowRect.maxY))
-        let deleteRow = canDeleteRow
-            ? square(centeredAt: NSPoint(x: cellRect.midX + clusterOffset, y: rowRect.maxY))
-            : nil
-
-        let addColumn = square(centeredAt: NSPoint(x: cellRect.maxX, y: cellRect.midY + clusterOffset))
-        let deleteColumn = canDeleteColumn
-            ? square(centeredAt: NSPoint(x: cellRect.maxX, y: cellRect.midY - clusterOffset))
-            : nil
-
-        return Placement(addRow: addRow, addColumn: addColumn, deleteRow: deleteRow, deleteColumn: deleteColumn)
+    struct FooterGeometry: Equatable {
+        let footerRect: NSRect
+        let addRowRect: NSRect
+        let deleteRowRect: NSRect
+        let addColumnRect: NSRect
     }
 
-    /// Point d'entrée partagé par le dessin et le hit-test : mesure la
-    /// géométrie du tableau/de la rangée/de la cellule portant `location`
-    /// (`.mdTableCell`), calcule les gardes de suppression, puis appelle
-    /// `placement(...)`. `nil` si `location` n'est pas dans une cellule de
-    /// tableau — pas de contrôle à afficher/tester ailleurs dans le document.
-    ///
-    /// Les gardes (`canDeleteRow`/`canDeleteColumn`) reprennent les
-    /// **mêmes conditions** que `TableEditCommands.deleteRow`/`deleteColumn`
-    /// (`info.row > 0 && maxRow > 1`, `info.columnCount > 1`) — lues ici pour
-    /// décider si le contrôle correspondant a une chance d'avoir un effet,
-    /// jamais redoublées comme autorité : `TableEditCommands` reste seul à
-    /// réellement refuser une suppression (appelé tel quel par
-    /// `EditorRepresentable.Coordinator.performTableEdit`, y compris pour un
-    /// clic sur un contrôle — voir `EditorTextView.mouseDown`), donc même un
-    /// écart entre les deux resterait sans danger (au pire un contrôle
-    /// affiché qui ne ferait rien).
-    static func placementForCursor(
-        in storage: NSTextStorage, at location: Int,
-        layoutManager: NSLayoutManager, container: NSTextContainer
-    ) -> Placement? {
-        guard location >= 0, location < storage.length,
-              let info = storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo
-        else { return nil }
+    enum FooterAction: Equatable {
+        case addRow
+        case deleteRow
+        case addColumn
+    }
 
-        let ns = storage.string as NSString
+    struct HeaderCell: Equatable {
+        let column: Int
+        let range: NSRange
+        let rect: NSRect
+    }
 
-        func rect(for range: NSRange) -> NSRect {
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            return layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
-        }
+    struct ActiveTable: Equatable {
+        let range: NSRange
+        let tableRect: NSRect
+        let selectedCell: TableCellInfo
+        let deletionTargetRange: NSRange?
+        let rowCount: Int
+        let columnCount: Int
+        let headerCells: [HeaderCell]
 
-        let tableRange = BlockRange.of(in: storage, at: location).range
-        let tableRect = rect(for: tableRange)
+        var canDeleteRow: Bool { deletionTargetRange != nil && rowCount > 2 }
 
-        let cellLineRange = ns.lineRange(for: NSRange(location: location, length: 0))
-        let cellRect = rect(for: cellLineRange)
+        var canDeleteColumn: Bool { columnCount > 1 }
+    }
 
-        // Rangée entière : les cellules d'une même rangée sont contiguës en
-        // storage (même `tableID` + `row`, colonnes dans l'ordre — voir
-        // `MarkdownParser.emitTableRow`) ; balayage local borné à la rangée,
-        // même patron que `TableEditCommands.cellsOfTable` mais sans balayer
-        // tout le tableau.
-        var rowStart = cellLineRange.location
-        while rowStart > 0 {
-            let previousLine = ns.lineRange(for: NSRange(location: rowStart - 1, length: 0))
-            guard let previous = storage.attribute(.mdTableCell, at: previousLine.location, effectiveRange: nil) as? TableCellInfo,
-                  previous.tableID == info.tableID, previous.row == info.row
-            else { break }
-            rowStart = previousLine.location
-        }
-        var rowEnd = cellLineRange.location + cellLineRange.length
-        while rowEnd < storage.length {
-            let nextLine = ns.lineRange(for: NSRange(location: rowEnd, length: 0))
-            guard let next = storage.attribute(.mdTableCell, at: nextLine.location, effectiveRange: nil) as? TableCellInfo,
-                  next.tableID == info.tableID, next.row == info.row
-            else { break }
-            rowEnd = nextLine.location + nextLine.length
-        }
-        let rowRect = rect(for: NSRange(location: rowStart, length: rowEnd - rowStart))
-
-        // Rangée maximale du tableau, pour la garde `deleteRow` (même
-        // condition que `TableEditCommands.deleteRow` : `maxRow > 1`, au
-        // moins deux rangées de corps quel que soit celle du curseur).
-        var maxRow = info.row
-        var cursor = tableRange.location
-        while cursor < storage.length,
-              let cellInfo = storage.attribute(.mdTableCell, at: cursor, effectiveRange: nil) as? TableCellInfo,
-              cellInfo.tableID == info.tableID {
-            maxRow = max(maxRow, cellInfo.row)
-            let lineRange = ns.lineRange(for: NSRange(location: cursor, length: 0))
-            cursor = lineRange.location + lineRange.length
-        }
-
-        let canDeleteRow = info.row > 0 && maxRow > 1
-        let canDeleteColumn = info.columnCount > 1
-
-        return placement(
-            tableRect: tableRect, rowRect: rowRect, cellRect: cellRect,
-            canDeleteRow: canDeleteRow, canDeleteColumn: canDeleteColumn
+    static func footerGeometry(forTableRect tableRect: NSRect) -> FooterGeometry {
+        let footerRect = NSRect(x: tableRect.minX, y: tableRect.maxY, width: tableRect.width, height: footerHeight)
+        let buttonY = footerRect.midY - footerButtonHeight / 2
+        let addRowRect = NSRect(
+            x: footerRect.minX + footerInset,
+            y: buttonY,
+            width: footerSegmentWidth,
+            height: footerButtonHeight
+        )
+        let deleteRowRect = NSRect(
+            x: addRowRect.maxX - 1,
+            y: buttonY,
+            width: footerSegmentWidth,
+            height: footerButtonHeight
+        )
+        let addColumnRect = NSRect(
+            x: footerRect.maxX - footerInset - addColumnButtonWidth,
+            y: buttonY,
+            width: addColumnButtonWidth,
+            height: footerButtonHeight
+        )
+        return FooterGeometry(
+            footerRect: footerRect,
+            addRowRect: addRowRect,
+            deleteRowRect: deleteRowRect,
+            addColumnRect: addColumnRect
         )
     }
 
-    /// Contrôle sous `point` (coordonnées conteneur, voir la doc de
-    /// `Placement`), ou `nil` si aucun n'y correspond. Renvoie directement
-    /// `TableEditCommands.Gesture` — pas d'enum séparée à faire correspondre
-    /// à la main : les quatre contrôles sont exactement les quatre gestes
-    /// existants.
+    static func footerAction(at point: NSPoint, in geometry: FooterGeometry) -> FooterAction? {
+        if geometry.addRowRect.contains(point) { return .addRow }
+        if geometry.deleteRowRect.contains(point) { return .deleteRow }
+        if geometry.addColumnRect.contains(point) { return .addColumn }
+        return nil
+    }
+
+    static func headerChevronRect(forCellRect cellRect: NSRect) -> NSRect {
+        NSRect(
+            x: cellRect.maxX - headerChevronSize - 6,
+            y: cellRect.midY - headerChevronSize / 2,
+            width: headerChevronSize,
+            height: headerChevronSize
+        )
+    }
+
+    static func placement(
+        tableRect: NSRect,
+        rowRect: NSRect,
+        cellRect: NSRect,
+        canDeleteRow: Bool,
+        canDeleteColumn: Bool
+    ) -> Placement {
+        let offset = controlDiameter / 2 + controlGap / 2
+        func centered(at point: NSPoint) -> NSRect {
+            NSRect(
+                x: point.x - controlDiameter / 2,
+                y: point.y - controlDiameter / 2,
+                width: controlDiameter,
+                height: controlDiameter
+            )
+        }
+
+        return Placement(
+            addRow: centered(at: NSPoint(x: cellRect.midX - offset, y: rowRect.maxY)),
+            addColumn: centered(at: NSPoint(x: cellRect.maxX, y: cellRect.midY + offset)),
+            deleteRow: canDeleteRow ? centered(at: NSPoint(x: cellRect.midX + offset, y: rowRect.maxY)) : nil,
+            deleteColumn: canDeleteColumn ? centered(at: NSPoint(x: cellRect.maxX, y: cellRect.midY - offset)) : nil
+        )
+    }
+
     static func gesture(at point: NSPoint, in placement: Placement) -> TableEditCommands.Gesture? {
         if placement.addRow.contains(point) { return .addRowBelow }
         if placement.addColumn.contains(point) { return .addColumnRight }
-        if let deleteRow = placement.deleteRow, deleteRow.contains(point) { return .deleteRow }
-        if let deleteColumn = placement.deleteColumn, deleteColumn.contains(point) { return .deleteColumn }
+        if placement.deleteRow?.contains(point) == true { return .deleteRow }
+        if placement.deleteColumn?.contains(point) == true { return .deleteColumn }
         return nil
+    }
+
+    static func placementForCursor(
+        in storage: NSTextStorage,
+        at location: Int,
+        layoutManager: NSLayoutManager,
+        container: NSTextContainer
+    ) -> Placement? {
+        guard storage.length > 0 else { return nil }
+        let safeLocation = min(max(0, location), storage.length - 1)
+        guard let info = storage.attribute(.mdTableCell, at: safeLocation, effectiveRange: nil) as? TableCellInfo
+        else { return nil }
+
+        let cells = cellsOfTable(containing: safeLocation, tableID: info.tableID, in: storage)
+        guard !cells.isEmpty else { return nil }
+
+        let rowCells = cells.filter { $0.info.row == info.row }
+        guard !rowCells.isEmpty else { return nil }
+
+        let cellLineRange = (storage.string as NSString).lineRange(for: NSRange(location: safeLocation, length: 0))
+        let cellGlyphRange = layoutManager.glyphRange(forCharacterRange: cellLineRange, actualCharacterRange: nil)
+        let cellRect = layoutManager.boundingRect(forGlyphRange: cellGlyphRange, in: container)
+
+        let rowRect = unionGlyphRects(rowCells.map(\.range), layoutManager: layoutManager, container: container)
+        let tableLayoutRect = unionGlyphRects(cells.map(\.range), layoutManager: layoutManager, container: container)
+        let tableContentRect = boundingGlyphRect(cells.map(\.range), layoutManager: layoutManager, container: container)
+        let visualBottom = tableContentRect.maxY + TableLayout.cellVerticalPadding + TableLayout.borderWidth
+        let tableRect = NSRect(
+            x: tableLayoutRect.minX,
+            y: tableLayoutRect.minY,
+            width: tableLayoutRect.width,
+            height: max(0, visualBottom - tableLayoutRect.minY)
+        )
+
+        let bodyRowCount = Set(cells.map(\.info.row)).filter { $0 > 0 }.count
+        let canDeleteRow = info.row > 0 && bodyRowCount > 1
+        let canDeleteColumn = info.columnCount > 1
+
+        return placement(
+            tableRect: tableRect,
+            rowRect: rowRect,
+            cellRect: cellRect,
+            canDeleteRow: canDeleteRow,
+            canDeleteColumn: canDeleteColumn
+        )
+    }
+
+    static func activeTable(
+        in storage: NSTextStorage,
+        at location: Int,
+        layoutManager: NSLayoutManager,
+        container: NSTextContainer
+    ) -> ActiveTable? {
+        guard storage.length > 0 else { return nil }
+        let safeLocation = min(max(0, location), storage.length - 1)
+        guard let selected = storage.attribute(.mdTableCell, at: safeLocation, effectiveRange: nil) as? TableCellInfo
+        else { return nil }
+
+        let cells = cellsOfTable(containing: safeLocation, tableID: selected.tableID, in: storage)
+        guard !cells.isEmpty else { return nil }
+        let tableRange = cells.map(\.range).reduce(NSRange(location: cells[0].range.location, length: 0)) { partial, range in
+            NSUnionRange(partial, range)
+        }
+        let tableLayoutRect = unionGlyphRects(cells.map(\.range), layoutManager: layoutManager, container: container)
+        let tableGlyphRange = layoutManager.glyphRange(forCharacterRange: tableRange, actualCharacterRange: nil)
+        let tableContentRect = layoutManager.boundingRect(forGlyphRange: tableGlyphRange, in: container)
+        let visualBottom = tableContentRect.maxY + TableLayout.cellVerticalPadding + TableLayout.borderWidth
+        let tableRect = NSRect(
+            x: tableLayoutRect.minX,
+            y: tableLayoutRect.minY,
+            width: tableLayoutRect.width,
+            height: max(0, visualBottom - tableLayoutRect.minY)
+        )
+        let rowCount = Set(cells.map(\.info.row)).count
+        let columnCount = selected.columnCount
+        let deletionTargetRow = selected.row > 0
+            ? selected.row
+            : cells.map(\.info.row).filter { $0 > 0 }.max()
+        let deletionTargetRange = deletionTargetRow.flatMap { row in
+            cells.first(where: { $0.info.row == row })?.range
+        }
+        let headerCells = cells
+            .filter { $0.info.row == 0 }
+            .map { cell in
+                HeaderCell(
+                    column: cell.info.column,
+                    range: cell.range,
+                    rect: unionGlyphRects([cell.range], layoutManager: layoutManager, container: container)
+                )
+            }
+
+        return ActiveTable(
+            range: tableRange,
+            tableRect: tableRect,
+            selectedCell: selected,
+            deletionTargetRange: deletionTargetRange,
+            rowCount: rowCount,
+            columnCount: columnCount,
+            headerCells: headerCells
+        )
+    }
+
+    private static func cellsOfTable(
+        containing location: Int,
+        tableID: UUID,
+        in storage: NSTextStorage
+    ) -> [(range: NSRange, info: TableCellInfo)] {
+        let tableStart = BlockRange.of(in: storage, at: location).range.location
+        let ns = storage.string as NSString
+        var result: [(range: NSRange, info: TableCellInfo)] = []
+        var cursor = tableStart
+        while cursor < storage.length,
+              let info = storage.attribute(.mdTableCell, at: cursor, effectiveRange: nil) as? TableCellInfo,
+              info.tableID == tableID {
+            let lineRange = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            result.append((lineRange, info))
+            cursor = lineRange.location + lineRange.length
+        }
+        return result
+    }
+
+    private static func unionGlyphRects(
+        _ ranges: [NSRange],
+        layoutManager: NSLayoutManager,
+        container: NSTextContainer
+    ) -> NSRect {
+        ranges.reduce(NSRect.null) { partial, range in
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = NSRect.null
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { lineRect, _, _, _, _ in
+                rect = rect.isNull ? lineRect : rect.union(lineRect)
+            }
+            return partial.isNull ? rect : partial.union(rect)
+        }
+    }
+
+    private static func boundingGlyphRect(
+        _ ranges: [NSRange],
+        layoutManager: NSLayoutManager,
+        container: NSTextContainer
+    ) -> NSRect {
+        ranges.reduce(NSRect.null) { partial, range in
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
+            return partial.isNull ? rect : partial.union(rect)
+        }
     }
 }

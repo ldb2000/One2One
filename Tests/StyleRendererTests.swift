@@ -504,11 +504,11 @@ final class StyleRendererTests: XCTestCase {
     /// documenté dans `EditableTextField.swift` étant qu'un
     /// `NSTextAttachmentCell` explicite ignorerait `bounds`).
     func test_imageAttachment_layoutHonorsDisplayBounds() throws {
-        // 960×480 dépasse `maxWidth` (480) : `displayBounds` doit réduire à
-        // 480×240, un résultat different de la taille source — un test qui
+        // 1920×960 dépasse `maxWidth` (960) : `displayBounds` doit réduire à
+        // 960×480, un résultat different de la taille source — un test qui
         // se contenterait de vérifier "bounds non-nul" ne détecterait pas un
         // retour silencieux à la taille de l'image d'origine.
-        let url = try makeTemporaryPNGFile(pixelsWide: 960, pixelsHigh: 480)
+        let url = try makeTemporaryPNGFile(pixelsWide: 1920, pixelsHigh: 960)
         defer { try? FileManager.default.removeItem(at: url) }
 
         let storage = NSTextStorage(string: "\u{FFFC}")
@@ -521,8 +521,10 @@ final class StyleRendererTests: XCTestCase {
 
         StyleRenderer.applyVisualStyle(to: storage)
 
-        let expected = ImageAttachmentFactory.displayBounds(for: NSSize(width: 960, height: 480))
-        XCTAssertEqual(expected.width, 480)
+        let expected = ImageAttachmentFactory.displayBounds(for: NSSize(width: 1920, height: 960))
+        XCTAssertEqual(expected.width, ImageAttachmentFactory.maxWidth)
+        // 1920×960 réduit à la limite des images ordinaires (480 pt) : la
+        // colonne mermaid (960 pt) ne s'applique pas aux images.
         XCTAssertEqual(expected.height, 240)
 
         let glyphRange = layoutManager.glyphRange(
@@ -867,10 +869,13 @@ final class StyleRendererTests: XCTestCase {
 
         StyleRenderer.applyVisualStyle(to: storage)
 
-        XCTAssertNil(
-            storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil),
-            "un paragraphe ordinaire ne doit recevoir aucun paragraphStyle"
+        let style = try XCTUnwrap(
+            storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
         )
+        XCTAssertEqual(style.paragraphSpacing, BlockGutterLayout.blockSpacing)
+        XCTAssertEqual(style.headIndent, 0)
+        XCTAssertEqual(style.firstLineHeadIndent, 0)
+        XCTAssertTrue(style.textBlocks.isEmpty)
 
         let bitmap = try renderToOffscreenBitmap(storage: storage, width: 200, height: 40)
         let ruleXRange = Int(BlockquoteRuleLayout.ruleLeadingGap)

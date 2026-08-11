@@ -139,10 +139,70 @@ final class MermaidBlockLayoutTests: XCTestCase {
         XCTAssertTrue(MermaidBlockLayout.selectionTouches(5, blockRange: NSRange(location: 2, length: 10)))
     }
 
-    func test_selectionTouches_locationAtBothEdges_isTrue() {
+    /// La borne de fin est **incluse** : un curseur juste après le dernier
+    /// caractère du source (flèche droite, Fin, clic en bout de ligne) reste
+    /// en édition — on peut ajouter du texte en fin de source. Le bloc ne se
+    /// referme qu'au-delà du séparateur (« Terminé » y place le curseur).
+    func test_selectionTouches_startAndEndBoundaries_areBothInside() {
         let block = NSRange(location: 2, length: 10)
         XCTAssertTrue(MermaidBlockLayout.selectionTouches(2, blockRange: block), "borne de début incluse")
         XCTAssertTrue(MermaidBlockLayout.selectionTouches(12, blockRange: block), "borne de fin incluse")
+        XCTAssertFalse(MermaidBlockLayout.selectionTouches(13, blockRange: block), "au-delà du séparateur : fermé")
+    }
+
+    // MARK: - openBlockRange — sonde d'attribut couvrant la borne de fin
+
+    func test_openBlockRange_withCaretInsideTheBlock_returnsItsRange() {
+        let (storage, block) = makeMermaidStorage()
+        XCTAssertEqual(MermaidBlockLayout.openBlockRange(in: storage, selection: block.location + 3), block)
+    }
+
+    /// Le caractère à `NSMaxRange` est le séparateur, qui ne porte pas
+    /// l'attribut : la sonde doit retomber sur `location - 1` pour trouver
+    /// le bloc encore ouvert.
+    func test_openBlockRange_withCaretAtTheEndBoundary_returnsItsRange() {
+        let (storage, block) = makeMermaidStorage()
+        XCTAssertEqual(MermaidBlockLayout.openBlockRange(in: storage, selection: NSMaxRange(block)), block)
+    }
+
+    func test_openBlockRange_withCaretBeyondTheSeparator_returnsNil() {
+        let (storage, block) = makeMermaidStorage()
+        XCTAssertNil(MermaidBlockLayout.openBlockRange(in: storage, selection: NSMaxRange(block) + 1))
+    }
+
+    func test_openBlockRange_withCaretAtDocumentEnd_ofABlockEndingTheDocument_returnsItsRange() {
+        let storage = NSTextStorage(string: "graph TD\nA-->B")
+        storage.addAttribute(.mdMermaidAttachment, value: NSTextAttachment(),
+                             range: NSRange(location: 0, length: storage.length))
+        XCTAssertEqual(
+            MermaidBlockLayout.openBlockRange(in: storage, selection: storage.length),
+            NSRange(location: 0, length: storage.length)
+        )
+    }
+
+    // MARK: - doneCaretPlacement — « Terminé » sort au-delà du séparateur
+
+    func test_doneCaretPlacement_withTextAfterTheBlock_landsBeyondTheSeparator() {
+        let placement = MermaidBlockLayout.doneCaretPlacement(
+            afterBlock: NSRange(location: 0, length: 14), storageLength: 20
+        )
+        XCTAssertEqual(placement.location, 15)
+        XCTAssertFalse(placement.insertsSeparator)
+    }
+
+    func test_doneCaretPlacement_onABlockEndingTheDocument_asksForASeparator() {
+        let placement = MermaidBlockLayout.doneCaretPlacement(
+            afterBlock: NSRange(location: 0, length: 14), storageLength: 14
+        )
+        XCTAssertEqual(placement.location, 15)
+        XCTAssertTrue(placement.insertsSeparator, "aucun caractère après le bloc : un \\n doit être inséré pour pouvoir en sortir")
+    }
+
+    private func makeMermaidStorage() -> (NSTextStorage, NSRange) {
+        let storage = NSTextStorage(string: "graph TD\nA-->B\nAprès")
+        let block = NSRange(location: 0, length: 14)
+        storage.addAttribute(.mdMermaidAttachment, value: NSTextAttachment(), range: block)
+        return (storage, block)
     }
 
     func test_selectionTouches_locationOutsideBlock_isFalse() {
@@ -203,13 +263,13 @@ final class MermaidBlockLayoutTests: XCTestCase {
 
     // MARK: - errorActionButtonRect / imageLocalPoint — bouton « Ouvrir le source »
 
-    /// Le bouton est posé près du **bas** de l'image (`y: 10`, coordonnées
+    /// Le bouton est posé près du **bas** de l'image (`y: 12`, coordonnées
     /// natives bas-gauche — voir `MermaidAttachmentFactory.frameImage`),
     /// jamais du haut (où se trouve déjà le titre/message d'erreur).
     func test_errorActionButtonRect_sitsNearTheBottomOfTheNativeImage() {
         let rect = MermaidBlockLayout.errorActionButtonRect(labelSize: NSSize(width: 80, height: 12))
-        XCTAssertEqual(rect.minY, 10)
-        XCTAssertEqual(rect.height, 20)
+        XCTAssertEqual(rect.minY, 12)
+        XCTAssertEqual(rect.height, 22)
     }
 
     /// La largeur suit le texte mesuré (marge de 20pt, 10pt de chaque côté)

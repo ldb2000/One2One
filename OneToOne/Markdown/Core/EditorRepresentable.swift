@@ -316,12 +316,12 @@ struct EditorRepresentable: NSViewRepresentable {
         private func updateMermaidBlockGeometryIfNeeded() {
             guard let tv = textView, let storage = tv.textStorage, storage.length > 0 else { return }
             let selection = tv.selectedRange()
-            let safeLocation = min(selection.location, storage.length - 1)
-            var currentBlockRange: NSRange?
-            if safeLocation >= 0, let blockRange = MermaidBlockLayout.blockRange(in: storage, at: safeLocation),
-               MermaidBlockLayout.selectionTouches(selection.location, blockRange: blockRange) {
-                currentBlockRange = blockRange
-            }
+            // `openBlockRange` sonde aussi `location - 1` : à la borne de fin
+            // (incluse), le caractère sous le curseur est le séparateur, qui
+            // ne porte pas l'attribut du bloc.
+            let currentBlockRange = MermaidBlockLayout.openBlockRange(
+                in: storage, selection: selection.location
+            )
 
             let previousBlockRange = mermaidBlockRangeAtLastSelection
             mermaidBlockRangeAtLastSelection = currentBlockRange
@@ -333,6 +333,10 @@ struct EditorRepresentable: NSViewRepresentable {
             if let currentBlockRange {
                 StyleRenderer.applyVisualStyle(to: storage, affectedRange: currentBlockRange)
             }
+
+            tv.invalidateMermaidPresentation(
+                for: [previousBlockRange, currentBlockRange].compactMap { $0 }
+            )
         }
 
         /// Réagit à chaque frappe : applique les raccourcis markdown puis
@@ -416,6 +420,8 @@ struct EditorRepresentable: NSViewRepresentable {
             switch gesture {
             case .addRowBelow:
                 TableEditCommands.addRowBelow(in: tv)
+            case .addColumnLeft:
+                TableEditCommands.addColumnLeft(in: tv)
             case .addColumnRight:
                 TableEditCommands.addColumnRight(in: tv)
             case .deleteRow:

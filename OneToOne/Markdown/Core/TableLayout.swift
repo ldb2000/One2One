@@ -19,11 +19,12 @@ enum TableLayout {
 
     /// Marge interne d'une cellule, en points, entre la bordure et son
     /// texte — évite que le texte touche le filet.
-    static let cellPadding: CGFloat = 6
+    static let cellVerticalPadding: CGFloat = 6
+    static let cellHorizontalPadding: CGFloat = 9
 
     /// Fond de la rangée d'en-tête (row 0) — juste assez de contraste pour
     /// la distinguer du corps sans dominer le texte.
-    static let headerBackgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.25)
+    static let headerBackgroundColor = NSColor(white: 0, alpha: 0.035)
 
     /// Traduit l'alignement GFM (`TableCellInfo.Alignment?`, où `nil` = pas
     /// de `:` dans le séparateur source) en alignement de paragraphe visuel.
@@ -37,4 +38,9 @@ enum TableLayout {
         case .right: return .right
         }
     }
+
+    static let cellMinimumLineHeight: CGFloat = 19
+
+    /// Marge extérieure du dernier rang, utilisée par la barre de pied 1a.
+    static let footerReservedHeight: CGFloat = TableControlLayout.footerHeight + cellVerticalPadding + borderWidth
 }

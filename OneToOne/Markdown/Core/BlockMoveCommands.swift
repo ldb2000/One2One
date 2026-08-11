@@ -21,10 +21,14 @@ import AppKit
 enum BlockMoveCommands {
 
     /// ⌥↑. `false` (aucun effet, pas de crash) si le bloc du curseur est déjà
-    /// le premier du document.
+    /// le premier du document — ou si l'éditeur est en lecture seule :
+    /// `swapAdjacentBlocks` mute le storage sans bracket
+    /// `shouldChangeText`, la garde d'éditabilité doit donc vivre ici (elle
+    /// couvre à la fois ⌥↑/⌥↓ et les entrées Monter/Descendre du menu de
+    /// bloc).
     @discardableResult
     static func moveUp(in textView: NSTextView) -> Bool {
-        guard let storage = textView.textStorage else { return false }
+        guard textView.isEditable, let storage = textView.textStorage else { return false }
         let selection = textView.selectedRange()
         let current = BlockRange.of(in: storage, at: selection.location)
         guard let previous = previousBlock(of: current, in: storage) else { return false }
@@ -36,10 +40,11 @@ enum BlockMoveCommands {
         return true
     }
 
-    /// ⌥↓. `false` si le bloc du curseur est déjà le dernier du document.
+    /// ⌥↓. `false` si le bloc du curseur est déjà le dernier du document —
+    /// ou si l'éditeur est en lecture seule (voir `moveUp`).
     @discardableResult
     static func moveDown(in textView: NSTextView) -> Bool {
-        guard let storage = textView.textStorage else { return false }
+        guard textView.isEditable, let storage = textView.textStorage else { return false }
         let selection = textView.selectedRange()
         let current = BlockRange.of(in: storage, at: selection.location)
         guard let next = nextBlock(of: current, in: storage) else { return false }
@@ -51,6 +56,58 @@ enum BlockMoveCommands {
         let newStart = current.range.location + next.range.length + separatorLength
         textView.setSelectedRange(NSRange(location: newStart + offset, length: 0))
         return true
+    }
+
+    // MARK: - Glisser-déposer
+
+    /// Réécriture **pure** de la plage combinée d'un glisser-déposer de bloc
+    /// (`EditorTextView.performDragOperation`) : retire `blockRange` — plus
+    /// son `\n` séparateur s'il le suit — puis le réinsère à
+    /// `insertionIndex` en garantissant un séparateur de chaque côté de la
+    /// jointure. L'ancien algorithme insérait le bloc tel quel : déplacer le
+    /// **dernier** bloc (sans `\n` final) ou déposer **en fin** de document
+    /// collait deux blocs sur la même ligne (`"A\nB"` → `"BA\n"`).
+    ///
+    /// `blockRange` et `insertionIndex` sont exprimés dans le repère de
+    /// `combined`. Renvoie `nil` si le dépôt tombe dans la plage déplacée
+    /// (geste sans effet) ou hors bornes. `blockLocation` est la position du
+    /// bloc déplacé dans le texte réécrit, pour reposer sélection et cadre
+    /// de bloc.
+    static func dragRewrite(
+        combined: NSAttributedString, blockRange: NSRange, insertionIndex: Int
+    ) -> (text: NSAttributedString, blockLocation: Int)? {
+        let ns = combined.string as NSString
+        guard blockRange.location >= 0, NSMaxRange(blockRange) <= ns.length,
+              insertionIndex >= 0, insertionIndex <= ns.length
+        else { return nil }
+
+        let afterBlock = NSMaxRange(blockRange)
+        let hasSeparator = afterBlock < ns.length && ns.character(at: afterBlock) == 0x0A
+        let removalRange = NSRange(location: blockRange.location,
+                                   length: blockRange.length + (hasSeparator ? 1 : 0))
+        guard insertionIndex <= blockRange.location || insertionIndex >= NSMaxRange(removalRange)
+        else { return nil }
+
+        let block = combined.attributedSubstring(from: blockRange)
+        let result = NSMutableAttributedString(attributedString: combined)
+        result.deleteCharacters(in: removalRange)
+
+        let insertAt = insertionIndex > blockRange.location
+            ? insertionIndex - removalRange.length
+            : insertionIndex
+
+        // Le séparateur inséré est un `\n` nu : ses attributs visuels sont
+        // recalculés par le restyle qui suit toute réécriture de plage.
+        let piece = NSMutableAttributedString(attributedString: block)
+        var blockLocation = insertAt
+        if insertAt < result.length {
+            piece.append(NSAttributedString(string: "\n"))
+        } else if insertAt > 0, (result.string as NSString).character(at: insertAt - 1) != 0x0A {
+            piece.insert(NSAttributedString(string: "\n"), at: 0)
+            blockLocation += 1
+        }
+        result.insert(piece, at: insertAt)
+        return (result, blockLocation)
     }
 
     // MARK: - Curseur

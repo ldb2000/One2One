@@ -27,11 +27,22 @@ let package = Package(
         // Éditeur/rendu markdown natif macOS (TextKit 2). Cœur sans dépendance ;
         // highlighting/LaTeX = produits optionnels non embarqués. Apache 2.0.
         .package(url: "https://github.com/nodes-app/swift-markdown-engine", from: "0.1.0"),
+        // Moteur de layout utilisé par la copie locale modifiable de
+        // BeautifulMermaidSwift (MIT, voir Vendor/BeautifulMermaidSwift).
+        .package(url: "https://github.com/lukilabs/elk-swift", from: "1.0.2"),
     ],
     targets: [
+        .target(
+            name: "BeautifulMermaid",
+            dependencies: [
+                .product(name: "ElkSwift", package: "elk-swift")
+            ],
+            path: "Vendor/BeautifulMermaidSwift/Sources"
+        ),
         .executableTarget(
             name: "OneToOne",
             dependencies: [
+                "BeautifulMermaid",
                 .product(name: "MLXAudioSTT", package: "mlx-audio-swift"),
                 .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
                 .product(name: "MLX", package: "mlx-swift"),

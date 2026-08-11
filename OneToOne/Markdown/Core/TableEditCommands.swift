@@ -31,6 +31,7 @@ enum TableEditCommands {
     /// le choix du clavier plutôt que du menu `/`.
     enum Gesture {
         case addRowBelow
+        case addColumnLeft
         case addColumnRight
         case deleteRow
         case deleteColumn
@@ -56,6 +57,31 @@ enum TableEditCommands {
     // MARK: - Ajouter une colonne
 
     /// Insère une nouvelle colonne vide (une cellule par rangée) juste à
+    /// gauche de la colonne portant le curseur. `false` (aucun effet) si le
+    /// curseur n'est pas dans une cellule de tableau.
+    @discardableResult
+    static func addColumnLeft(in textView: NSTextView) -> Bool {
+        guard let storage = textView.textStorage, storage.length > 0 else { return false }
+        let location = min(textView.selectedRange().location, storage.length - 1)
+        guard let info = storage.attribute(.mdTableCell, at: location, effectiveRange: nil) as? TableCellInfo
+        else { return false }
+
+        let start = tableStart(in: storage, at: location)
+        let newColumnCount = info.columnCount + 1
+        let content = emptyColumnContent(
+            tableID: info.tableID,
+            insertedColumn: info.column,
+            columnCount: newColumnCount,
+            startingAt: start,
+            in: storage
+        )
+
+        performInsertColumn(afterColumn: info.column - 1, content: content, focusRow: info.row,
+                            anchor: start, in: textView, storage: storage)
+        return true
+    }
+
+    /// Insère une nouvelle colonne vide (une cellule par rangée) juste à
     /// droite de la colonne portant le curseur. `false` (aucun effet) si le
     /// curseur n'est pas dans une cellule de tableau.
     @discardableResult
@@ -66,14 +92,14 @@ enum TableEditCommands {
         else { return false }
 
         let start = tableStart(in: storage, at: location)
-        let allCells = cellsOfTable(startingAt: start, tableID: info.tableID, in: storage)
         let newColumnCount = info.columnCount + 1
-        var content: [Int: NSAttributedString] = [:]
-        for row in Set(allCells.map({ $0.info.row })) {
-            let cellInfo = TableCellInfo(tableID: info.tableID, row: row, column: info.column + 1,
-                                         columnCount: newColumnCount, alignment: nil)
-            content[row] = NSAttributedString(string: "\n", attributes: [.mdTableCell: cellInfo])
-        }
+        let content = emptyColumnContent(
+            tableID: info.tableID,
+            insertedColumn: info.column + 1,
+            columnCount: newColumnCount,
+            startingAt: start,
+            in: storage
+        )
 
         performInsertColumn(afterColumn: info.column, content: content, focusRow: info.row,
                             anchor: start, in: textView, storage: storage)
@@ -158,6 +184,23 @@ enum TableEditCommands {
             cursor = lineRange.location + lineRange.length
         }
         return result
+    }
+
+    private static func emptyColumnContent(
+        tableID: UUID,
+        insertedColumn: Int,
+        columnCount: Int,
+        startingAt tableStart: Int,
+        in storage: NSTextStorage
+    ) -> [Int: NSAttributedString] {
+        let allCells = cellsOfTable(startingAt: tableStart, tableID: tableID, in: storage)
+        var content: [Int: NSAttributedString] = [:]
+        for row in Set(allCells.map({ $0.info.row })) {
+            let cellInfo = TableCellInfo(tableID: tableID, row: row, column: insertedColumn,
+                                         columnCount: columnCount, alignment: nil)
+            content[row] = NSAttributedString(string: "\n", attributes: [.mdTableCell: cellInfo])
+        }
+        return content
     }
 
     // MARK: - Primitives ligne (partagées ajout / suppression, undo réciproque)
@@ -313,8 +356,14 @@ enum TableEditCommands {
         }
         var insertLocationByRow: [Int: Int] = [:]
         for row in byRow.keys.sorted(by: >) {
-            guard let target = byRow[row]?.first(where: { $0.info.column == afterColumn }) else { continue }
-            let insertLocation = target.range.location + target.range.length
+            let insertLocation: Int
+            if afterColumn < 0 {
+                guard let first = byRow[row]?.first(where: { $0.info.column == 0 }) else { continue }
+                insertLocation = first.range.location
+            } else {
+                guard let target = byRow[row]?.first(where: { $0.info.column == afterColumn }) else { continue }
+                insertLocation = target.range.location + target.range.length
+            }
             insertLocationByRow[row] = insertLocation
             let cellContent = content[row] ?? NSAttributedString(
                 string: "\n",

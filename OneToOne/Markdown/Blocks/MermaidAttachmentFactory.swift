@@ -29,7 +29,7 @@ enum MermaidAttachmentFactory {
     /// maxWidth`, déjà la convention retenue dans ce module pour approximer
     /// la colonne de texte sans avoir à faire remonter la largeur réelle du
     /// conteneur jusqu'au callback de rendu asynchrone (qui n'y a pas accès).
-    private static let maxDiagramWidth: CGFloat = ImageAttachmentFactory.maxWidth
+    private static let maxDiagramWidth: CGFloat = MermaidBlockLayout.columnWidth
 
     /// Attachments vivants, un par (source, apparence) — clé
     /// `MermaidRenderCache.key`. `StyleRenderer.applyMermaidAttachment` est
@@ -50,9 +50,13 @@ enum MermaidAttachmentFactory {
     /// Attachment mermaid pour `source`/`isDark`, partagé entre tous les
     /// appels (dédoublonné via `pendingKeys`). Renvoie immédiatement un
     /// placeholder ; si aucun rendu n'est déjà en cours pour cette clé, en
-    /// lance un et appelle `onUpdate` (main actor) une fois l'attachment mis
-    /// à jour en place — jamais avant, jamais deux fois pour le même rendu.
-    static func attachment(for source: String, isDark: Bool, onUpdate: @escaping () -> Void) -> NSTextAttachment {
+    /// lance un et appelle `onUpdate` (main actor) avec l'attachment mis à
+    /// jour en place — jamais avant, jamais deux fois pour le même rendu.
+    /// L'attachment est passé au callback pour que l'appelant retrouve le
+    /// bloc par **identité** au moment où le rendu aboutit (le bloc a pu
+    /// bouger entre-temps — voir `StyleRenderer.refreshMermaidGeometry`),
+    /// jamais par une position capturée au lancement.
+    static func attachment(for source: String, isDark: Bool, onUpdate: @escaping (NSTextAttachment) -> Void) -> NSTextAttachment {
         let key = MermaidRenderCache.key(source: source, isDark: isDark)
 
         if let cached = liveCache.object(forKey: key as NSString) {
@@ -67,7 +71,7 @@ enum MermaidAttachmentFactory {
 
         render(source: source, isDark: isDark, into: placeholderAttachment) {
             pendingKeys.remove(key)
-            onUpdate()
+            onUpdate(placeholderAttachment)
         }
         return placeholderAttachment
     }
@@ -141,7 +145,8 @@ enum MermaidAttachmentFactory {
     /// Compose `diagram` (le SVG rasterisé par `MermaidRenderer`, sans cadre
     /// propre) à l'intérieur d'un cadre discret — fond
     /// `MermaidBlockLayout.backgroundColor`, liseré `borderColor`, marge
-    /// interne `MermaidBlockLayout.inset` — directement dans l'image finale.
+    /// interne horizontale/verticale définie par `MermaidBlockLayout` —
+    /// directement dans l'image finale.
     /// L'attachment devient ainsi un objet fini une fois pour toutes :
     /// `MarkdownLayoutManager.drawMermaidDiagram` le dessine tel quel, sans
     /// fond ni liseré supplémentaires (jamais un double cadre) et sans le
@@ -150,28 +155,42 @@ enum MermaidAttachmentFactory {
     /// `diagram` est réduit si besoin pour que la largeur **finale** (cadre
     /// compris) ne dépasse pas `maxDiagramWidth` — jamais agrandi (une petite
     /// icône n'a pas à remplir la colonne).
-    private static func framedDiagram(_ diagram: NSImage) -> NSImage {
+    static func framedDiagram(_ diagram: NSImage) -> NSImage {
         guard diagram.size.width > 0, diagram.size.height > 0 else { return diagram }
 
-        let maxContentWidth = maxDiagramWidth - MermaidBlockLayout.inset * 2
+        let maxContentWidth = maxDiagramWidth - MermaidBlockLayout.horizontalInset * 2
         let scale = diagram.size.width > maxContentWidth ? maxContentWidth / diagram.size.width : 1
         let contentSize = NSSize(width: diagram.size.width * scale, height: diagram.size.height * scale)
+        // La carte finale garde la même largeur que le placeholder et le
+        // cadre d'erreur. Le SVG reste centré dans cette largeur commune :
+        // sinon deux diagrammes valides ayant des contenus intrinsèquement
+        // différents produisent des blocs de largeur différente.
         let size = NSSize(
-            width: contentSize.width + MermaidBlockLayout.inset * 2,
-            height: contentSize.height + MermaidBlockLayout.inset * 2
+            width: maxDiagramWidth,
+            height: contentSize.height + MermaidBlockLayout.verticalInset * 2
         )
 
         return NSImage(size: size, flipped: false) { rect in
+            let card = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: MermaidBlockLayout.cardCornerRadius,
+                yRadius: MermaidBlockLayout.cardCornerRadius
+            )
             MermaidBlockLayout.backgroundColor.setFill()
-            rect.fill()
+            card.fill()
+
+            NSGraphicsContext.current?.saveGraphicsState()
+            card.addClip()
             diagram.draw(in: NSRect(
-                x: MermaidBlockLayout.inset, y: MermaidBlockLayout.inset,
+                x: (rect.width - contentSize.width) / 2,
+                y: MermaidBlockLayout.verticalInset,
                 width: contentSize.width, height: contentSize.height
             ))
-            let border = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+            NSGraphicsContext.current?.restoreGraphicsState()
+
             MermaidBlockLayout.borderColor.setStroke()
-            border.lineWidth = 1
-            border.stroke()
+            card.lineWidth = 1
+            card.stroke()
             return true
         }
     }
@@ -200,31 +219,88 @@ enum MermaidAttachmentFactory {
         let height = detail == nil ? frameHeightShort : frameHeightWithDetail
         let size = NSSize(width: frameWidth, height: height)
         return NSImage(size: size, flipped: false) { rect in
-            let background = tinted ? borderColor.withAlphaComponent(0.10) : NSColor.controlBackgroundColor
+            let isError = detail != nil || tinted
+            let background = isError ? MermaidBlockLayout.errorBackgroundColor : MermaidBlockLayout.loadingBackgroundColor
+            let resolvedBorderColor = isError ? MermaidBlockLayout.errorBorderColor : MermaidBlockLayout.borderColor
+            let card = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: MermaidBlockLayout.cardCornerRadius,
+                yRadius: MermaidBlockLayout.cardCornerRadius
+            )
             background.setFill()
-            rect.fill()
-            let border = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
-            border.lineWidth = 1
-            borderColor.withAlphaComponent(tinted ? 0.4 : 1).setStroke()
-            border.stroke()
+            card.fill()
+            card.lineWidth = 1
+            resolvedBorderColor.setStroke()
+            card.stroke()
 
-            let badgeWidth: CGFloat = badge == nil ? 0 : 66
+            if detail == nil {
+                let loadingAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: MermaidBlockLayout.loadingTextColor
+                ]
+                let loadingText = title as NSString
+                let loadingSize = loadingText.size(withAttributes: loadingAttrs)
+                let groupWidth = 12 + 8 + loadingSize.width
+                let groupX = rect.midX - groupWidth / 2
+                let spinnerCenter = NSPoint(x: groupX + 6, y: rect.midY)
+                let spinnerTrack = NSBezierPath()
+                spinnerTrack.appendArc(withCenter: spinnerCenter, radius: 5.5, startAngle: 0, endAngle: 360)
+                spinnerTrack.lineWidth = 1.5
+                NSColor.labelColor.withAlphaComponent(0.16).setStroke()
+                spinnerTrack.stroke()
+                let spinnerArc = NSBezierPath()
+                spinnerArc.appendArc(withCenter: spinnerCenter, radius: 5.5, startAngle: 35, endAngle: 155)
+                spinnerArc.lineWidth = 1.5
+                spinnerArc.lineCapStyle = .round
+                NSColor.labelColor.withAlphaComponent(0.46).setStroke()
+                spinnerArc.stroke()
+                loadingText.draw(
+                    at: NSPoint(x: groupX + 20, y: rect.midY - loadingSize.height / 2),
+                    withAttributes: loadingAttrs
+                )
+            }
+
             let titleAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.boldSystemFont(ofSize: 12),
-                .foregroundColor: titleColor
+                .font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
+                .foregroundColor: isError ? MermaidBlockLayout.errorTitleColor : titleColor
             ]
-            let titleRect = NSRect(x: 12, y: rect.height - 24, width: rect.width - 24 - badgeWidth, height: 18)
-            (title as NSString).draw(in: titleRect, withAttributes: titleAttrs)
+            if isError {
+                let iconRect = NSRect(x: 16, y: rect.height - 31, width: 14, height: 14)
+                MermaidBlockLayout.errorTitleColor.setFill()
+                NSBezierPath(ovalIn: iconRect).fill()
+                let markAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 10, weight: .bold),
+                    .foregroundColor: NSColor.white
+                ]
+                let mark = "!" as NSString
+                let markSize = mark.size(withAttributes: markAttrs)
+                mark.draw(
+                    at: NSPoint(x: iconRect.midX - markSize.width / 2, y: iconRect.midY - markSize.height / 2),
+                    withAttributes: markAttrs
+                )
+                (title as NSString).draw(
+                    in: NSRect(x: 37, y: rect.height - 33, width: rect.width - 53, height: 19),
+                    withAttributes: titleAttrs
+                )
+            }
 
             if let badge {
                 let badgeAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 9.5, weight: .medium),
+                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                     .foregroundColor: NSColor.tertiaryLabelColor
                 ]
                 let badgeText = badge as NSString
                 let badgeSize = badgeText.size(withAttributes: badgeAttrs)
+                let badgeRect = NSRect(
+                    x: rect.width - 12 - badgeSize.width - 12,
+                    y: rect.height - 13 - badgeSize.height,
+                    width: badgeSize.width + 12,
+                    height: badgeSize.height + 6
+                )
+                NSColor.labelColor.withAlphaComponent(0.04).setFill()
+                NSBezierPath(roundedRect: badgeRect, xRadius: 4, yRadius: 4).fill()
                 badgeText.draw(
-                    at: NSPoint(x: rect.width - 12 - badgeSize.width, y: rect.height - 12 - badgeSize.height),
+                    at: NSPoint(x: badgeRect.midX - badgeSize.width / 2, y: badgeRect.midY - badgeSize.height / 2),
                     withAttributes: badgeAttrs
                 )
             }
@@ -237,15 +313,14 @@ enum MermaidAttachmentFactory {
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.lineBreakMode = .byTruncatingTail
                 let detailAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular),
-                    .foregroundColor: NSColor.secondaryLabelColor,
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: MermaidBlockLayout.errorDetailColor,
                     .paragraphStyle: paragraph
                 ]
                 let lineHeight = ("Ag" as NSString).size(withAttributes: detailAttrs).height
-                let detailTop = actionLabel == nil ? 10 : 36
                 let detailRect = NSRect(
-                    x: 12, y: max(CGFloat(detailTop), rect.height - 24 - 6 - lineHeight * 2),
-                    width: rect.width - 24, height: lineHeight * 2
+                    x: 16, y: max(CGFloat(42), rect.height - 39 - lineHeight * 2),
+                    width: rect.width - 32, height: lineHeight * 2
                 )
                 (detail as NSString).draw(in: detailRect, withAttributes: detailAttrs)
             }
@@ -253,7 +328,7 @@ enum MermaidAttachmentFactory {
             if let actionLabel {
                 let buttonAttrs: [NSAttributedString.Key: Any] = [
                     .font: MermaidBlockLayout.errorActionFont,
-                    .foregroundColor: NSColor.labelColor
+                    .foregroundColor: MermaidBlockLayout.errorDetailColor
                 ]
                 let buttonText = actionLabel as NSString
                 let textSize = buttonText.size(withAttributes: buttonAttrs)
@@ -261,10 +336,10 @@ enum MermaidAttachmentFactory {
                 // `EditorTextView.mermaidErrorActionButtonRange` : un seul
                 // calcul, jamais deux qui pourraient diverger.
                 let buttonRect = MermaidBlockLayout.errorActionButtonRect(labelSize: textSize)
-                let pill = NSBezierPath(roundedRect: buttonRect, xRadius: buttonRect.height / 2, yRadius: buttonRect.height / 2)
-                NSColor.controlBackgroundColor.setFill()
+                let pill = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
+                NSColor.white.setFill()
                 pill.fill()
-                NSColor.separatorColor.setStroke()
+                NSColor(red: 0xdc/255, green: 0xb5/255, blue: 0xb0/255, alpha: 1).setStroke()
                 pill.lineWidth = 1
                 pill.stroke()
                 buttonText.draw(

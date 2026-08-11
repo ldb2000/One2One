@@ -613,6 +613,41 @@ final class SlashControllerTests: XCTestCase {
         )
     }
 
+    // MARK: - Application : diagramme Mermaid
+
+    /// Le squelette inséré par `/diagramme` doit inclure sa déclaration de
+    /// type sur la première ligne. Sans `flowchart TD`, Mermaid affiche
+    /// précisément « No diagram type detected » sur la flèche de la ligne 2.
+    func test_applyingMermaidDiagram_insertsACompleteValidSkeleton() {
+        let (editor, controller, _) = makeWiredController(markdown: "")
+        type("/diagramme", into: editor, controller: controller)
+
+        applySelectedCommand(.mermaidDiagram, controller: controller)
+
+        let storage = editor.textStorage!
+        let expectedSource = "flowchart TD\n    A[Début] --> B[Fin]"
+        let sourceRange = (storage.string as NSString).range(of: expectedSource)
+        XCTAssertNotEqual(sourceRange.location, NSNotFound)
+        XCTAssertEqual(
+            storage.attribute(.mdBlockType, at: sourceRange.location, effectiveRange: nil) as? BlockType,
+            .codeBlock
+        )
+        XCTAssertEqual(
+            storage.attribute(.mdCodeLanguage, at: sourceRange.location, effectiveRange: nil) as? String,
+            "mermaid"
+        )
+        XCTAssertEqual(
+            editor.selectedRange(),
+            NSRange(location: NSMaxRange(sourceRange) + 1, length: 0),
+            "le squelette ne doit pas rester sélectionné : une frappe ne doit jamais l'effacer"
+        )
+        XCTAssertNil(editor.typingAttributes[.mdBlockType])
+        XCTAssertNil(editor.typingAttributes[.mdCodeLanguage])
+
+        let serialized = MarkdownSerializer.serialize(storage)
+        XCTAssertTrue(serialized.contains("```mermaid\n\(expectedSource)\n```"))
+    }
+
     // MARK: - Sortie du bloc de code (⏎ sur une ligne vide)
 
     /// Scénario complet : insertion, remplacement du placeholder, ⏎ à

@@ -329,6 +329,93 @@ final class BlockMoveCommandsTests: XCTestCase {
         XCTAssertEqual(editor.textStorage!.string, "Un\n/Deux", "le déplacement ne doit pas s'exécuter, menu ouvert")
     }
 
+    // MARK: - Lecture seule
+
+    /// `.markdownReadOnly(true)` : ⌥↑/⌥↓ et les entrées Monter/Descendre du
+    /// menu de bloc passent tous par `BlockMoveCommands`, qui réécrit le
+    /// storage sans bracket `shouldChangeText` — la garde d'éditabilité doit
+    /// donc vivre ici.
+    func test_moveUp_onAReadOnlyEditor_isANoOp() {
+        let (editor, _) = makeWiredEditor(markdown: "Un\n\nDeux")
+        editor.isEditable = false
+        let deuxStart = (editor.textStorage!.string as NSString).range(of: "Deux").location
+        editor.setSelectedRange(NSRange(location: deuxStart, length: 0))
+
+        let handled = BlockMoveCommands.moveUp(in: editor)
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(editor.textStorage!.string, "Un\nDeux")
+    }
+
+    func test_moveDown_onAReadOnlyEditor_isANoOp() {
+        let (editor, _) = makeWiredEditor(markdown: "Un\n\nDeux")
+        editor.isEditable = false
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let handled = BlockMoveCommands.moveDown(in: editor)
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(editor.textStorage!.string, "Un\nDeux")
+    }
+
+    // MARK: - dragRewrite : réécriture pure du glisser-déposer
+
+    func test_dragRewrite_movingTheLastBlockUp_keepsTheSeparator() {
+        let combined = NSAttributedString(string: "A\nB")
+
+        let rewrite = BlockMoveCommands.dragRewrite(
+            combined: combined, blockRange: NSRange(location: 2, length: 1), insertionIndex: 0
+        )
+
+        XCTAssertEqual(rewrite?.text.string, "B\nA\n")
+        XCTAssertEqual(rewrite?.blockLocation, 0)
+    }
+
+    func test_dragRewrite_movingTheFirstBlockToTheEnd_insertsASeparator() {
+        let combined = NSAttributedString(string: "A\nB")
+
+        let rewrite = BlockMoveCommands.dragRewrite(
+            combined: combined, blockRange: NSRange(location: 0, length: 1), insertionIndex: 3
+        )
+
+        XCTAssertEqual(rewrite?.text.string, "B\nA")
+        XCTAssertEqual(rewrite?.blockLocation, 2)
+    }
+
+    func test_dragRewrite_movingAMiddleBlockDown_matchesTheOldBehaviour() {
+        let combined = NSAttributedString(string: "A\nB\nC")
+
+        let rewrite = BlockMoveCommands.dragRewrite(
+            combined: combined, blockRange: NSRange(location: 0, length: 1), insertionIndex: 4
+        )
+
+        XCTAssertEqual(rewrite?.text.string, "B\nA\nC")
+        XCTAssertEqual(rewrite?.blockLocation, 2)
+    }
+
+    func test_dragRewrite_movingABlockUp_keepsItsAttributes() {
+        let combined = NSMutableAttributedString(string: "A\nB")
+        combined.addAttribute(.mdBlockType, value: BlockType.codeBlock, range: NSRange(location: 2, length: 1))
+
+        let rewrite = BlockMoveCommands.dragRewrite(
+            combined: combined, blockRange: NSRange(location: 2, length: 1), insertionIndex: 0
+        )
+
+        XCTAssertEqual(
+            rewrite?.text.attribute(.mdBlockType, at: 0, effectiveRange: nil) as? BlockType,
+            .codeBlock,
+            "le bloc déplacé garde ses attributs md*"
+        )
+    }
+
+    func test_dragRewrite_droppingInsideTheDraggedBlock_returnsNil() {
+        let combined = NSAttributedString(string: "A\nB")
+
+        XCTAssertNil(BlockMoveCommands.dragRewrite(
+            combined: combined, blockRange: NSRange(location: 0, length: 1), insertionIndex: 1
+        ))
+    }
+
     // MARK: - Fixtures
 
     private func assertRoundTripIsStable(_ editor: EditorTextView) {
