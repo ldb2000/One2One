@@ -861,9 +861,6 @@ struct DashboardView: View {
     @Query private var collaborators: [Collaborator]
     @Query private var entities: [Entity]
     @Query private var meetings: [Meeting]
-    /// Encore lue par la sauvegarde, qui n'a pas fini d'être sevrée
-    /// d'`Interview` (cf. ADR du 2026-08-11).
-    @Query private var interviews: [Interview]
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
     @ObservedObject private var agenda = CalendarAgendaService.shared
@@ -1702,7 +1699,6 @@ struct DashboardView: View {
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
-                interviews: interviews,
                 meetings: meetings,
                 managerReportItems: mgrItems,
                 managerMeetingReports: mgrReports,

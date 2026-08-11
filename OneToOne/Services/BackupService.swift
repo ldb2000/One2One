@@ -19,7 +19,6 @@ final class BackupService {
         var entities: [EntityDTO]
         var projects: [ProjectDTO]
         var collaborators: [CollaboratorDTO]
-        var interviews: [InterviewDTO]
         /// Optionnel pour rester rétro-compatible avec les anciens backups
         /// (sans réunions). Ajouté en avril 2026 — le backup inclut désormais
         /// transcript, rapport, notes live, WAV, documents joints et slides.
@@ -110,14 +109,6 @@ final class BackupService {
         var photoData: Data?
     }
 
-    struct InterviewAttachmentDTO: Codable {
-        var fileName: String
-        var filePath: String
-        var bookmarkData: Data?
-        var fileData: Data?
-        var comment: String
-        var importedAt: Date
-    }
 
     struct TaskDTO: Codable {
         var title: String
@@ -194,31 +185,6 @@ final class BackupService {
         var transcriptChunks: [TranscriptChunkDTO]
     }
 
-    struct InterviewDTO: Codable {
-        var date: Date
-        var collaboratorName: String?
-        var notes: String
-        var recordingLink: String?
-        var hasAlert: Bool
-        var alertDescription: String
-        var typeRaw: String?
-        var sourceFileName: String?
-        var shareWithEveryone: Bool
-        var contextComment: String
-        var candidateLinkedInURL: String
-        var candidateLinkedInNotes: String
-        var cvExperienceNotes: String
-        var cvSkillsNotes: String
-        var cvMotivationNotes: String
-        var positivePoints: String
-        var negativePoints: String
-        var trainingAssessment: String
-        var generalAssessment: String
-        var selectedProjectCode: String?
-        var attachments: [InterviewAttachmentDTO]
-        var tasks: [TaskDTO]
-        var alerts: [AlertDTO]
-    }
 
     struct ManagerReportItemDTO: Codable {
         var stableID: UUID
@@ -270,7 +236,6 @@ final class BackupService {
         entities: [Entity],
         projects: [Project],
         collaborators: [Collaborator],
-        interviews: [Interview],
         meetings: [Meeting] = [],
         managerReportItems: [ManagerReportItem] = [],
         managerMeetingReports: [ManagerMeetingReport] = [],
@@ -351,59 +316,6 @@ final class BackupService {
                     photoPath: $0.photoPath,
                     photoBookmarkData: $0.photoBookmarkData,
                     photoData: fileData(fromPath: $0.photoPath)
-                )
-            },
-            interviews: interviews.map { interview in
-                InterviewDTO(
-                    date: interview.date,
-                    collaboratorName: interview.collaborator?.name,
-                    notes: interview.notes,
-                    recordingLink: interview.recordingLink?.absoluteString,
-                    hasAlert: interview.hasAlert,
-                    alertDescription: interview.alertDescription,
-                    typeRaw: interview.typeRaw,
-                    sourceFileName: interview.sourceFileName,
-                    shareWithEveryone: interview.shareWithEveryone,
-                    contextComment: interview.contextComment,
-                    candidateLinkedInURL: interview.candidateLinkedInURL,
-                    candidateLinkedInNotes: interview.candidateLinkedInNotes,
-                    cvExperienceNotes: interview.cvExperienceNotes,
-                    cvSkillsNotes: interview.cvSkillsNotes,
-                    cvMotivationNotes: interview.cvMotivationNotes,
-                    positivePoints: interview.positivePoints,
-                    negativePoints: interview.negativePoints,
-                    trainingAssessment: interview.trainingAssessment,
-                    generalAssessment: interview.generalAssessment,
-                    selectedProjectCode: interview.selectedProject?.code,
-                    attachments: interview.attachments.map {
-                        InterviewAttachmentDTO(
-                            fileName: $0.fileName,
-                            filePath: $0.filePath,
-                            bookmarkData: $0.bookmarkData,
-                            fileData: fileData(fromPath: $0.filePath),
-                            comment: $0.comment,
-                            importedAt: $0.importedAt
-                        )
-                    },
-                    tasks: interview.tasks.map {
-                        TaskDTO(
-                            title: $0.title,
-                            projectCode: $0.project?.code,
-                            dueDate: $0.dueDate,
-                            isCompleted: $0.isCompleted,
-                            reminderID: $0.reminderID
-                        )
-                    },
-                    alerts: interview.alerts.map {
-                        AlertDTO(
-                            title: $0.title,
-                            detail: $0.detail,
-                            severity: $0.severityRaw,
-                            date: $0.date,
-                            isResolved: $0.isResolved,
-                            projectCode: $0.project?.code
-                        )
-                    }
                 )
             },
             meetings: meetings.map { meeting in
@@ -669,75 +581,6 @@ final class BackupService {
             context.insert(collaborator)
             collaboratorMap[collaborator.name] = collaborator
         }
-
-        for interviewDTO in payload.interviews {
-            let interview = Interview(
-                date: interviewDTO.date,
-                notes: interviewDTO.notes,
-                hasAlert: interviewDTO.hasAlert,
-                type: InterviewType(rawValue: interviewDTO.typeRaw ?? "") ?? .regular
-            )
-            interview.collaborator = interviewDTO.collaboratorName.flatMap { collaboratorMap[$0] }
-            interview.recordingLink = interviewDTO.recordingLink.flatMap(URL.init(string:))
-            interview.alertDescription = interviewDTO.alertDescription
-            interview.typeRaw = interviewDTO.typeRaw
-            interview.sourceFileName = interviewDTO.sourceFileName
-            interview.shareWithEveryone = interviewDTO.shareWithEveryone
-            interview.contextComment = interviewDTO.contextComment
-            interview.candidateLinkedInURL = interviewDTO.candidateLinkedInURL
-            interview.candidateLinkedInNotes = interviewDTO.candidateLinkedInNotes
-            interview.cvExperienceNotes = interviewDTO.cvExperienceNotes
-            interview.cvSkillsNotes = interviewDTO.cvSkillsNotes
-            interview.cvMotivationNotes = interviewDTO.cvMotivationNotes
-            interview.positivePoints = interviewDTO.positivePoints
-            interview.negativePoints = interviewDTO.negativePoints
-            interview.trainingAssessment = interviewDTO.trainingAssessment
-            interview.generalAssessment = interviewDTO.generalAssessment
-            interview.selectedProject = interviewDTO.selectedProjectCode.flatMap { projectMap[$0] }
-            context.insert(interview)
-
-            for attachmentDTO in interviewDTO.attachments {
-                let restoredURL = try restoredFileURL(
-                    fileName: attachmentDTO.fileName,
-                    filePath: attachmentDTO.filePath,
-                    fileData: attachmentDTO.fileData,
-                    in: restoredFilesDirectory
-                )
-                let attachment = InterviewAttachment(
-                    url: restoredURL,
-                    comment: attachmentDTO.comment,
-                    importedAt: attachmentDTO.importedAt
-                )
-                attachment.fileName = attachmentDTO.fileName
-                attachment.bookmarkData = attachmentDTO.bookmarkData
-                attachment.interview = interview
-                context.insert(attachment)
-            }
-
-            for taskDTO in interviewDTO.tasks {
-                let task = ActionTask(title: taskDTO.title, dueDate: taskDTO.dueDate)
-                task.project = taskDTO.projectCode.flatMap { projectMap[$0] }
-                task.isCompleted = taskDTO.isCompleted
-                task.reminderID = taskDTO.reminderID
-                task.interview = interview
-                context.insert(task)
-            }
-
-            for alertDTO in interviewDTO.alerts {
-                let alert = ProjectAlert(
-                    title: alertDTO.title,
-                    detail: alertDTO.detail,
-                    severity: alertDTO.severity,
-                    date: alertDTO.date
-                )
-                alert.isResolved = alertDTO.isResolved
-                alert.project = alertDTO.projectCode.flatMap { projectMap[$0] }
-                alert.interview = interview
-                context.insert(alert)
-            }
-        }
-
-        // MARK: - Meetings (live notes, transcript, rapport, WAV, attachments, slides)
 
         for meetingDTO in payload.meetings ?? [] {
             let meeting = Meeting(

@@ -9,7 +9,6 @@ struct SettingsView: View {
     @Query private var entities: [Entity]
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
-    @Query private var interviews: [Interview]
     @Query private var meetings: [Meeting]
     @Environment(\.modelContext) private var context
     /// Langue de transcription (source de vérité : `TranscriptionService`, persistée
@@ -1125,7 +1124,6 @@ struct SettingsView: View {
                 entities: entities,
                 projects: projects,
                 collaborators: collaborators,
-                interviews: interviews,
                 meetings: meetings,
                 managerReportItems: mgrItems,
                 managerMeetingReports: mgrReports,
