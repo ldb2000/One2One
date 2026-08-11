@@ -21,7 +21,7 @@ struct OneToOneApp: App {
         // Store dédié sous `Application Support/OneToOne/OneToOne.store` :
         // évite la collision avec `default.store` (utilisé par d'autres libs
         // CoreData qui partagent ce nom par défaut) et garantit la persistance
-        // continue des données métier (Project, Meeting, Interview…).
+        // continue des données métier (Project, Meeting, Collaborator…).
         let storeDir = URL.applicationSupportDirectory.appending(path: "OneToOne", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
         let storeURL = storeDir.appending(path: "OneToOne.store")

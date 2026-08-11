@@ -145,9 +145,8 @@ struct ActionsPanel: View {
     private func otherCollabOpenActions(for collab: Collaborator) -> [ActionTask] {
         // Tasks assigned to collab, open, not part of THIS meeting.
         let direct = collab.assignedTasks
-        let viaInterviews = collab.interviews.flatMap { $0.tasks }
         var seen = Set<PersistentIdentifier>()
-        let combined = (direct + viaInterviews).filter { task in
+        let combined = direct.filter { task in
             guard !task.isCompleted else { return false }
             guard task.meeting?.persistentModelID != meeting.persistentModelID else { return false }
             return seen.insert(task.persistentModelID).inserted

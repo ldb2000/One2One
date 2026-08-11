@@ -34,7 +34,6 @@ struct ChatbotView: View {
     @Environment(\.modelContext) private var context
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
-    @Query private var interviews: [Interview]
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query private var settingsList: [AppSettings]
 
@@ -623,13 +622,9 @@ struct ChatbotView: View {
         }
 
         let collaboratorLines = collaborators.sorted(by: { $0.name < $1.name }).map { collaborator in
-            let interviewCount = collaborator.interviews.count
-            return "- Collaborateur: \(collaborator.name), role \(collaborator.role), entretiens \(interviewCount)"
-        }
-
-        let interviewLines = interviews.sorted(by: { $0.date > $1.date }).prefix(25).map { interview in
-            let linkedProject = interview.selectedProject?.name ?? "Aucun"
-            return "- Entretien \(interview.type.label) du \(interview.date.formatted(date: .abbreviated, time: .omitted)) avec \(interview.collaborator?.name ?? "Inconnu"), projet \(linkedProject), actions \(interview.tasks.filter { !$0.isCompleted }.count), alertes \(interview.alerts.filter { !$0.isResolved }.count)"
+            let oneToOneCount = MeetingStatsScope.held(collaborator.meetings)
+                .filter { $0.kind == .oneToOne }.count
+            return "- Collaborateur: \(collaborator.name), role \(collaborator.role), 1:1 \(oneToOneCount)"
         }
 
         // Rapports de réunion AI (last 15 with non-empty summary)
@@ -671,9 +666,6 @@ struct ChatbotView: View {
 
         Collaborateurs:
         \(collaboratorLines.joined(separator: "\n"))
-
-        Entretiens recents:
-        \(interviewLines.joined(separator: "\n"))
 
         Rapports de réunion (générés par IA):
         \(meetingReportLines.isEmpty ? "(aucun rapport disponible)" : meetingReportLines.joined(separator: "\n"))
