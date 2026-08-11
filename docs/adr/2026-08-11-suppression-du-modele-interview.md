@@ -72,6 +72,36 @@ sur le store réel : les tables ont été retirées, les 162 réunions d'alors s
 Instruction de l'auteur, le 2026-08-11 : « Il faut les supprimer si on a rien dedans. » La
 condition est vérifiée ci-dessus, exhaustivement.
 
+## Correction du 2026-08-11 — `Interview` portait trois choses, pas une
+
+La première version de cet ADR ne décrivait qu'un modèle mort. La lecture du code en a
+montré **trois usages**, dont deux vivants :
+
+1. **le 1:1 mort** — les 7 lignes vides décrites plus haut ;
+2. **l'import de documents** — `AIIngestionService.applyExtractedData` créait un `Interview`
+   de type « Import PDF » / « Import PPTX » pour recevoir le texte extrait, et cet objet
+   servait d'**ancre au retour arrière** de l'import (`lastImportReceipt`, `canRollback`) ;
+3. **le recrutement** — `analyzeCandidateFile`, les champs CV / LinkedIn / points
+   positifs-négatifs / évaluation, et un export markdown dédié (`InterviewType.job`).
+
+Aucune ligne des types « import » ou « job » n'existe dans le store : ces deux chemins n'ont
+rien laissé. Mais supprimer le modèle sans les repointer aurait cassé le retour arrière de
+l'import — une régression, pas un nettoyage.
+
+**Règle retenue, énoncée par l'auteur :** *« Une interview n'est pas plus qu'un meeting avec
+une préparation. On pourra le tagger Interview pour rechercher tous les interviews. »*
+
+Elle tranche les trois cas d'un coup, sans modèle intermédiaire :
+
+- l'import produit désormais un **reçu** : une note (`Meeting` kind `.note`) titrée du
+  fichier, portant le texte extrait, **tagguée « Import »** — donc listée, cherchable dans
+  Spotlight et dans l'assistant, ce que l'`Interview` invisible n'était pas ;
+- le recrutement, quand il reviendra, sera une réunion avec préparation, tagguée. Rien à
+  migrer : aucune ligne de ce type n'existe ;
+- le 1:1 est un `Meeting` de kind `.oneToOne`.
+
+Le thème (`MeetingTag`) remplace le type d'entretien : un filtre, pas une classe.
+
 ## Conséquences
 
 - `InterviewView` disparaît — **1 209 lignes**, la plus grosse vue du dépôt après
@@ -84,6 +114,8 @@ condition est vérifiée ci-dessus, exhaustivement.
   `interviews` d'une sauvegarde ancienne est désormais **ignorée** à la restauration, sans
   erreur. Perdre une ligne vide n'est pas une perte ; échouer à restaurer le reste en
   serait une.
+- **L'import garde son reçu et son retour arrière**, sous forme de note tagguée (cf. la
+  correction ci-dessus). C'est la seule fonction vivante qui dépendait du modèle.
 - Treize fichiers source et cinq fichiers de test citent `Interview` : la suppression se
   fait par étapes, lecteurs d'abord, modèle en dernier, chaque étape vérifiée.
 - Le bouton qui produisait ces lignes disparaît avec la vue. La fiche collaborateur v3 ne
