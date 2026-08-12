@@ -13,6 +13,7 @@ struct CollaboratorFicheView: View {
 
     @State private var segment: TimelineKind?   // nil = « Tout »
     @State private var showEditSheet = false
+    @State private var openedMeeting: Meeting?
 
     private var items: [TimelineItem] { CollaboratorTimeline.build(for: collaborator) }
 
@@ -22,7 +23,7 @@ struct CollaboratorFicheView: View {
                 header
                 Divider().overlay(FicheTokens.divider)
                 segments
-                CollaboratorTimelineList(items: filtered)
+                CollaboratorTimelineList(items: filtered, onOpen: open)
             }
             .frame(minWidth: 560)
             .background(FicheTokens.bg)
@@ -34,6 +35,13 @@ struct CollaboratorFicheView: View {
         .sheet(isPresented: $showEditSheet) {
             CollaboratorEditSheet(collaborator: collaborator)
         }
+        .navigationDestination(item: $openedMeeting) { MeetingView(meeting: $0) }
+    }
+
+    /// Une décision n'a pas d'écran : cliquer l'une ou l'autre ouvre la
+    /// réunion où elle a été actée.
+    private func open(_ item: TimelineItem) {
+        openedMeeting = collaborator.meetings.first { $0.persistentModelID == item.meetingID }
     }
 
     private var filtered: [TimelineItem] {
@@ -88,13 +96,19 @@ struct CollaboratorFicheView: View {
         .background(FicheTokens.bg)
     }
 
+    @ViewBuilder
     private var avatar: some View {
-        let paire = AvatarPalette.pair(for: collaborator.name)
-        return Text(AvatarPalette.initials(for: collaborator.name))
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(paire.texte)
-            .frame(width: 42, height: 42)
-            .background(Circle().fill(paire.fond))
+        if let url = collaborator.photoURL(), let image = NSImage(contentsOf: url) {
+            Image(nsImage: image).resizable().scaledToFill()
+                .frame(width: 42, height: 42).clipShape(Circle())
+        } else {
+            let paire = AvatarPalette.pair(for: collaborator.name)
+            Text(AvatarPalette.initials(for: collaborator.name))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(paire.texte)
+                .frame(width: 42, height: 42)
+                .background(Circle().fill(paire.fond))
+        }
     }
 
     private var subtitle: String {

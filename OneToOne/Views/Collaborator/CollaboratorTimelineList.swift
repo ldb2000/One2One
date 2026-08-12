@@ -7,6 +7,10 @@ import SwiftUI
 /// note et une réunion en romain.
 struct CollaboratorTimelineList: View {
     let items: [TimelineItem]
+    /// Ouvre la réunion d'où vient la ligne.
+    let onOpen: (TimelineItem) -> Void
+
+    @State private var hovered: String?
 
     var body: some View {
         ScrollView {
@@ -21,7 +25,13 @@ struct CollaboratorTimelineList: View {
                             .foregroundStyle(FicheTokens.ink.opacity(0.30))
                             .textCase(.uppercase)
                             .padding(.leading, 46).padding(.top, 9).padding(.bottom, 3)
-                        ForEach(lignes) { item in row(item) }
+                        ForEach(lignes) { item in
+                            row(item)
+                                .background(RoundedRectangle(cornerRadius: 6)
+                                    .fill(hovered == item.id ? FicheTokens.rowHover : Color.clear))
+                                .onHover { hovered = $0 ? item.id : nil }
+                                .onTapGesture { onOpen(item) }
+                        }
                     }
                 }
             }
@@ -94,7 +104,6 @@ struct CollaboratorTimelineList: View {
         }
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.clear))
     }
 
     /// La graisse porte la hiérarchie : ce qui engage est en demi-gras.

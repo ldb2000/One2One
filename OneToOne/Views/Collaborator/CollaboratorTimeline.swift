@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// Type d'une ligne du fil — ce que porte la pastille.
 ///
@@ -22,6 +23,9 @@ enum TimelineKind: String, CaseIterable, Hashable {
 /// Une ligne du fil.
 struct TimelineItem: Identifiable, Equatable {
     let id: String
+    /// La réunion d'où vient la ligne — y compris pour une décision, qui n'a
+    /// pas d'existence propre. Cliquer une ligne doit ouvrir cette réunion.
+    let meetingID: PersistentIdentifier
     let kind: TimelineKind
     let date: Date
     let title: String
@@ -54,6 +58,7 @@ enum CollaboratorTimeline {
 
             items.append(TimelineItem(
                 id: key,
+                meetingID: meeting.persistentModelID,
                 kind: kind(of: meeting),
                 date: meeting.date,
                 title: title(of: meeting),
@@ -66,6 +71,7 @@ enum CollaboratorTimeline {
             for (index, entry) in meeting.decisionEntries.enumerated() {
                 items.append(TimelineItem(
                     id: "\(key)#d\(index)",
+                    meetingID: meeting.persistentModelID,
                     kind: .decision,
                     date: meeting.date,
                     title: entry.text,

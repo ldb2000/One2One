@@ -14,6 +14,10 @@ struct CollaboratorEditSheet: View {
     @Query private var allCollaborators: [Collaborator]
 
     @State private var showArchiveConfirm = false
+    /// Vrai pendant qu'un glisser survole le puits. Le bandeau « DÉPOSER »
+    /// n'apparaît qu'à ce moment : affiché en permanence, il masquait les
+    /// initiales — et une photo déjà posée.
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -48,23 +52,24 @@ struct CollaboratorEditSheet: View {
     // MARK: - Photo — un puits, pas quatre boutons
 
     private var photoWell: some View {
-        let paire = AvatarPalette.pair(for: collaborator.name)
-        return VStack(spacing: 8) {
+        VStack(spacing: 8) {
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 10).fill(paire.fond)
-                Text(AvatarPalette.initials(for: collaborator.name))
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(paire.texte)
-                Text("DÉPOSER")
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                    .background(Color.black.opacity(0.55))
+                contenuDuPuits
+                if dropTargeted {
+                    Text("DÉPOSER")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.55))
+                }
             }
             .frame(width: 88, height: 88)
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(FicheTokens.stroke))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(dropTargeted ? FicheTokens.link : FicheTokens.stroke,
+                        lineWidth: dropTargeted ? 2 : 1))
+            .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { _ in true }
 
             HStack(spacing: 4) {
                 Button("Choisir") {}.controlSize(.small)
@@ -74,7 +79,10 @@ struct CollaboratorEditSheet: View {
                     Button("Rechercher sur LinkedIn") {}
                     Button("Rechercher sur le web") {}
                     Divider()
-                    Button("Retirer la photo", role: .destructive) {}
+                    Button("Retirer la photo", role: .destructive) {
+                        collaborator.photoPath = ""
+                        collaborator.photoBookmarkData = nil
+                    }
                 } label: { EmptyView() }
                     .menuStyle(.borderlessButton)
                     .frame(width: 22)
@@ -86,6 +94,23 @@ struct CollaboratorEditSheet: View {
             Text("LinkedIn").font(.system(size: 10.5)).foregroundStyle(FicheTokens.link)
         }
         .frame(width: 120)
+    }
+
+    /// La photo si elle existe, les initiales sinon — sur la couleur d'avatar
+    /// de la personne, stable d'un lancement à l'autre.
+    @ViewBuilder
+    private var contenuDuPuits: some View {
+        if let url = collaborator.photoURL(), let image = NSImage(contentsOf: url) {
+            Image(nsImage: image).resizable().scaledToFill()
+        } else {
+            let paire = AvatarPalette.pair(for: collaborator.name)
+            ZStack {
+                paire.fond
+                Text(AvatarPalette.initials(for: collaborator.name))
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(paire.texte)
+            }
+        }
     }
 
     // MARK: - Identité
