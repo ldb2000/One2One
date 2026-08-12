@@ -13,7 +13,6 @@ struct CollaboratorFicheView: View {
 
     @State private var segment: TimelineKind?   // nil = « Tout »
     @State private var showEditSheet = false
-    @State private var openedMeeting: Meeting?
 
     private var items: [TimelineItem] { CollaboratorTimeline.build(for: collaborator) }
 
@@ -23,7 +22,7 @@ struct CollaboratorFicheView: View {
                 header
                 Divider().overlay(FicheTokens.divider)
                 segments
-                CollaboratorTimelineList(items: filtered, onOpen: open)
+                CollaboratorTimelineList(items: filtered, meetingFor: meeting(of:))
             }
             .frame(minWidth: 560)
             .background(FicheTokens.bg)
@@ -31,17 +30,15 @@ struct CollaboratorFicheView: View {
             CollaboratorStateRail(collaborator: collaborator)
                 .frame(width: FicheTokens.railWidth)
         }
-        .frame(minWidth: 960, minHeight: 640)
         .sheet(isPresented: $showEditSheet) {
             CollaboratorEditSheet(collaborator: collaborator)
         }
-        .navigationDestination(item: $openedMeeting) { MeetingView(meeting: $0) }
     }
 
     /// Une décision n'a pas d'écran : cliquer l'une ou l'autre ouvre la
     /// réunion où elle a été actée.
-    private func open(_ item: TimelineItem) {
-        openedMeeting = collaborator.meetings.first { $0.persistentModelID == item.meetingID }
+    private func meeting(of item: TimelineItem) -> Meeting? {
+        collaborator.meetings.first { $0.persistentModelID == item.meetingID }
     }
 
     private var filtered: [TimelineItem] {

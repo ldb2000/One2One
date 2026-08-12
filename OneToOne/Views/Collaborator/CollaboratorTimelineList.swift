@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Le fil chronologique : une ligne par événement, un séparateur par mois.
 ///
@@ -7,8 +8,8 @@ import SwiftUI
 /// note et une réunion en romain.
 struct CollaboratorTimelineList: View {
     let items: [TimelineItem]
-    /// Ouvre la réunion d'où vient la ligne.
-    let onOpen: (TimelineItem) -> Void
+    /// La réunion d'où vient la ligne, à ouvrir au clic.
+    let meetingFor: (TimelineItem) -> Meeting?
 
     @State private var hovered: String?
 
@@ -26,11 +27,18 @@ struct CollaboratorTimelineList: View {
                             .textCase(.uppercase)
                             .padding(.leading, 46).padding(.top, 9).padding(.bottom, 3)
                         ForEach(lignes) { item in
-                            row(item)
-                                .background(RoundedRectangle(cornerRadius: 6)
-                                    .fill(hovered == item.id ? FicheTokens.rowHover : Color.clear))
-                                .onHover { hovered = $0 ? item.id : nil }
-                                .onTapGesture { onOpen(item) }
+                            // `NavigationLink`, pas un `onTapGesture` qui
+                            // pousse une destination : c'est le patron que la
+                            // fiche precedente utilisait, et un double-clic n'y
+                            // pousse qu'une fois.
+                            if let meeting = meetingFor(item) {
+                                NavigationLink { MeetingView(meeting: meeting) } label: {
+                                    ligneSurvolee(item)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                ligneSurvolee(item)
+                            }
                         }
                     }
                 }
@@ -66,6 +74,13 @@ struct CollaboratorTimelineList: View {
             paquets[mois, default: []].append(item)
         }
         return ordre.map { ($0, paquets[$0] ?? []) }
+    }
+
+    private func ligneSurvolee(_ item: TimelineItem) -> some View {
+        row(item)
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(hovered == item.id ? FicheTokens.rowHover : Color.clear))
+            .onHover { hovered = $0 ? item.id : nil }
     }
 
     private func row(_ item: TimelineItem) -> some View {
