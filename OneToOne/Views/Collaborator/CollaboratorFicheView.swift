@@ -98,12 +98,9 @@ struct CollaboratorFicheView: View {
     }
 
     private var subtitle: String {
-        [collaborator.role,
-         collaborator.entity?.name,
-         projectCount > 0 ? "\(projectCount) projet\(projectCount > 1 ? "s" : "")" : nil]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
+        CollaboratorIdentity.subtitle(role: collaborator.role,
+                                      entity: collaborator.entity?.name,
+                                      projects: projectCount)
     }
 
     // MARK: - Compteurs
@@ -160,7 +157,8 @@ struct CollaboratorFicheView: View {
         let counts = CollaboratorTimeline.counts(of: items)
         return HStack(spacing: 8) {
             segmentChip(nil, "Tout", items.count)
-            ForEach(TimelineKind.allCases, id: \.self) { kind in
+            // Ordre de la spec : 1:1 · Notes · Décisions · Réunions.
+            ForEach([TimelineKind.oneToOne, .note, .decision, .meeting], id: \.self) { kind in
                 segmentChip(kind, kind.pill, counts[kind] ?? 0)
             }
             Spacer()
