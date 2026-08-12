@@ -12,9 +12,6 @@ struct CollaboratorTimelineList: View {
     let meetingFor: (TimelineItem) -> Meeting?
 
     @State private var hovered: String?
-    /// Mois dont le groupe de réunions sans suite est déplié. Replié par
-    /// défaut : c'est tout l'intérêt.
-    @State private var deplies: Set<String> = []
 
     var body: some View {
         ScrollView {
@@ -29,7 +26,7 @@ struct CollaboratorTimelineList: View {
                             .foregroundStyle(FicheTokens.ink.opacity(0.30))
                             .textCase(.uppercase)
                             .padding(.leading, 46).padding(.top, 9).padding(.bottom, 3)
-                        ForEach(lignes.filter { !estSansSuite($0) }) { item in
+                        ForEach(lignes) { item in
                             // `NavigationLink`, pas un `onTapGesture` qui
                             // pousse une destination : c'est le patron que la
                             // fiche precedente utilisait, et un double-clic n'y
@@ -43,59 +40,11 @@ struct CollaboratorTimelineList: View {
                                 ligneSurvolee(item)
                             }
                         }
-                        sansSuite(mois, lignes.filter(estSansSuite))
                     }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-        }
-    }
-
-    /// Une réunion partagée qui n'a rien produit. « Un Echange activité sans
-    /// note ni action ne mérite pas une ligne de 44 px dans la fiche de
-    /// quelqu'un » : elle se replie dans un groupe mensuel, accessible mais
-    /// jamais en vue par défaut. Les 1:1, notes et décisions ne se replient
-    /// jamais — ce qui engage reste visible même sans suite.
-    private func estSansSuite(_ item: TimelineItem) -> Bool {
-        item.kind == .meeting && !item.producedActions
-    }
-
-    /// Une ligne discrète en fin de mois, repliée par défaut, sur la même
-    /// grille que le reste du fil. Pas de `DisclosureGroup` : son cadre casse
-    /// le rythme des lignes, et il s'ouvrait tout seul.
-    @ViewBuilder
-    private func sansSuite(_ mois: String, _ lignes: [TimelineItem]) -> some View {
-        if !lignes.isEmpty {
-            let deplie = deplies.contains(mois)
-            Button {
-                if deplie { deplies.remove(mois) } else { deplies.insert(mois) }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: deplie ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                    Text(deplie
-                         ? "masquer les réunions sans action produite"
-                         : "\(lignes.count) réunion\(lignes.count > 1 ? "s" : "") sans action produite")
-                    Spacer()
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(FicheTokens.inkTertiary)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 46).padding(.vertical, 4)
-
-            if deplie {
-                ForEach(lignes) { item in
-                    if let meeting = meetingFor(item) {
-                        NavigationLink { MeetingView(meeting: meeting, isPushed: true) } label: {
-                            ligneSurvolee(item)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
         }
     }
 
@@ -159,12 +108,21 @@ struct CollaboratorTimelineList: View {
             }
             .padding(.vertical, 7)
             Spacer(minLength: 8)
-            // Le badge compte les actions produites — la seule métrique qui
-            // justifie de rouvrir une réunion.
+            // La colonne de droite dit ce que la réunion a laissé : le compte
+            // d'actions produites — la seule métrique qui justifie de la
+            // rouvrir — ou, à défaut, qu'elle n'a rien laissé. Le tag permet
+            // de sauter la ligne des yeux sans la cacher.
             if item.actionCount > 0 {
                 Text("\(item.actionCount) action\(item.actionCount > 1 ? "s" : "")")
                     .font(.system(size: 11)).monospacedDigit()
                     .foregroundStyle(FicheTokens.inkSecondary)
+                    .padding(.top, 11)
+            } else if item.kind == .meeting {
+                Text("VIDE")
+                    .font(.system(size: 9, weight: .semibold)).tracking(0.4)
+                    .foregroundStyle(FicheTokens.ink.opacity(0.32))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Capsule().fill(FicheTokens.ink.opacity(0.06)))
                     .padding(.top, 11)
             }
         }

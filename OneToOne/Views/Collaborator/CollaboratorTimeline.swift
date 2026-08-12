@@ -109,8 +109,9 @@ enum CollaboratorTimeline {
         var parts: [String] = []
         let others = meeting.participants.count - 1
         if others > 0 { parts.append("\(meeting.participants.count) participants") }
-        parts.append(actionCount == 0 ? "Aucune action produite"
-                                      : "\(actionCount) action\(actionCount > 1 ? "s" : "") produite\(actionCount > 1 ? "s" : "")")
+        // Le compte d'actions n'est pas répété ici : la colonne de droite le
+        // porte, et dit « vide » quand il n'y en a aucune.
+        if let projet = meeting.project?.code, !projet.isEmpty { parts.append(projet) }
         return parts.joined(separator: " · ")
     }
 }
