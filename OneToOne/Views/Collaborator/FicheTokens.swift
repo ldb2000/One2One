@@ -14,19 +14,19 @@ import AppKit
 /// et son commentaire interdit de la dupliquer sous un autre nom. Elle est
 /// donc reprise, pas redéfinie.
 ///
-/// Trois jetons sont en revanche **proches sans être identiques** à ceux
-/// d'`AppTheme`, parce que les deux palettes ont été lues sur des captures
-/// différentes :
+/// Les **cinq couleurs sémantiques sont reprises d'`AppTheme`**, pas
+/// redéfinies : `late`, `warn`, `ok`, `ai`, `link`. Quatre d'entre elles y ont
+/// été alignées sur les valeurs de cette spec le 2026-08-12 — elles étaient
+/// auparavant lues sur les captures de la vitrine Actions, d'où un écart de
+/// teinte sur des rôles identiques.
 ///
-/// | ici | `AppTheme` | écart |
-/// |---|---|---|
-/// | `late` `#D9483F` | `urgenceForte` `#E5484D` | teinte plus sourde |
-/// | `ok` `#3F9D6B` | `nominal` `#2E7D52` | plus clair |
-/// | `ai` `#7A5CD6` | `accentManager` `#6E56CF` | plus saturé |
+/// ## Les variantes sombres dorment
 ///
-/// Elles coexistent tant que la fiche v3 et la vitrine Actions ne sont pas
-/// passées sous la même palette. **Ne pas « corriger » l'une vers l'autre sans
-/// arbitrage** : ce sont deux lectures de design, pas une erreur de saisie.
+/// L'app épingle `.preferredColorScheme(.light)` sur ses trois scènes
+/// (`OneToOneApp`) : **aucune valeur sombre ci-dessous n'est atteinte
+/// aujourd'hui**. Elles sont conservées parce que la spec les donne, donc
+/// l'intention de dépingler un jour existe. Ne pas les prendre pour du code
+/// vérifié : elles n'ont jamais été vues à l'écran.
 enum FicheTokens {
 
     // MARK: - Surfaces
@@ -51,12 +51,14 @@ enum FicheTokens {
 
     // MARK: - Sémantique
 
-    static let late = statique(0xD9483F)
-    static let warn = statique(0xC9762F)
-    static let ok   = statique(0x3F9D6B)
-    static let ai   = statique(0x7A5CD6)
-    /// Reprise d'`AppTheme.verbe` : même valeur, un seul nom.
-    static let link = AppTheme.verbe
+    // Repris d'`AppTheme`, pas redéfinis : un rôle, une valeur, un nom. Les
+    // quatre couleurs sémantiques y ont été alignées sur les valeurs de cette
+    // spec le 2026-08-12.
+    static let late = AppTheme.urgenceForte      // #D9483F
+    static let warn = AppTheme.urgenceMoyenne    // #C9762F
+    static let ok   = AppTheme.nominal           // #3F9D6B
+    static let ai   = AppTheme.accentManager     // #7A5CD6
+    static let link = AppTheme.verbe             // #0A6CFF
 
     // MARK: - Texte
 

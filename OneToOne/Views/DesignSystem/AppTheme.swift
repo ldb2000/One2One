@@ -29,10 +29,21 @@ public enum AppTheme {
     /// Bleu système des verbes et des liens. Même valeur que le handoff éditeur
     /// (`#0a6cff`) : ne pas la dupliquer sous un autre nom.
     public static let verbe = Color(red: 0.039, green: 0.424, blue: 1.0)
-    public static let urgenceForte = Color(red: 0.898, green: 0.282, blue: 0.302)
-    public static let urgenceMoyenne = Color(red: 0.878, green: 0.502, blue: 0.0)
-    public static let nominal = Color(red: 0.180, green: 0.490, blue: 0.322)
-    public static let accentManager = Color(red: 0.431, green: 0.337, blue: 0.812)
+    // Les quatre valeurs ci-dessous ont été alignées le 2026-08-12 sur la spec
+    // de la fiche collaborateur v3, plus récente et écrite avec ses valeurs
+    // exactes. Elles étaient auparavant lues sur les captures de la vitrine
+    // Actions, d'où un écart de teinte sur des rôles identiques : le « rouge
+    // d'urgence » n'était pas le même d'un écran à l'autre, alors que les deux
+    // s'ouvrent depuis la même barre latérale. `FicheTokens` les reprend au
+    // lieu de les redéfinir — un rôle, une valeur, un nom.
+    /// `#D9483F`
+    public static let urgenceForte = Color(red: 0.851, green: 0.282, blue: 0.247)
+    /// `#C9762F`
+    public static let urgenceMoyenne = Color(red: 0.788, green: 0.463, blue: 0.184)
+    /// `#3F9D6B`
+    public static let nominal = Color(red: 0.247, green: 0.616, blue: 0.420)
+    /// `#7A5CD6`
+    public static let accentManager = Color(red: 0.478, green: 0.361, blue: 0.839)
 
     /// Couleur d'affichage d'une échéance, d'après sa seule urgence.
     public static func couleur(_ urgence: Urgence) -> Color {
