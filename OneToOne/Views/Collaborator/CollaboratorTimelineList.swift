@@ -32,7 +32,7 @@ struct CollaboratorTimelineList: View {
                             // fiche precedente utilisait, et un double-clic n'y
                             // pousse qu'une fois.
                             if let meeting = meetingFor(item) {
-                                NavigationLink { MeetingView(meeting: meeting) } label: {
+                                NavigationLink { MeetingView(meeting: meeting, isPushed: true) } label: {
                                     ligneSurvolee(item)
                                 }
                                 .buttonStyle(.plain)

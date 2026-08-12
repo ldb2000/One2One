@@ -62,6 +62,10 @@ enum TranscriptionPhase: Equatable, Sendable {
 /// génération de rapport IA et gestion des speakers.
 struct MeetingView: View {
     @Bindable var meeting: Meeting
+    /// Vrai quand l'écran a été **poussé** dans une pile — depuis la fiche d'un
+    /// collaborateur. Un chevron de retour apparaît alors dans le fil
+    /// d'Ariane. Faux par défaut : ouverte seule, la réunion n'a rien derrière.
+    var isPushed: Bool = false
     /// Démarre automatiquement le recorder à `onAppear` (déclenché par
     /// quick-launch 1:1). Consommé une seule fois grâce à `didAutoStart`.
     var autoStartRecording: Bool = false
@@ -222,6 +226,7 @@ struct MeetingView: View {
                 onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
                 onShowSlides: { showSlidesList = true },
+                onBack: isPushed ? { dismiss() } : nil,
                 suggestedTagNames: $suggestedTagNames,
                 isSuggestingTags: isSuggestingTags,
                 onRequestTagSuggestions: { Task { await suggestTags() } }

@@ -34,6 +34,11 @@ struct MeetingTopChromeBar: View {
     /// Ouvre la galerie des slides capturées.
     let onShowSlides: () -> Void
 
+    /// Retour vers l'écran d'où l'on vient, quand la réunion a été **poussée**
+    /// dans une pile (depuis la fiche d'un collaborateur). `nil` quand elle est
+    /// ouverte seule : il n'y a alors rien derrière, et un chevron mentirait.
+    var onBack: (() -> Void)?
+
     /// Thèmes proposés par l'IA, en attente d'acceptation (éphémères).
     @Binding var suggestedTagNames: [String]
     /// Une suggestion de thèmes est en cours.
@@ -92,6 +97,21 @@ struct MeetingTopChromeBar: View {
 
     private var breadcrumb: some View {
         HStack(spacing: 8) {
+            if let onBack {
+                // Le retour vit dans le fil d'Ariane : c'est le seul endroit
+                // de l'écran qui dit déjà « où je suis ». `⌘[` fait la même
+                // chose, comme partout sur macOS.
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("[", modifiers: .command)
+                .help("Retour (⌘[)")
+            }
             Text("One2One").font(.caption).foregroundColor(.secondary)
             chevron
             if let project = meeting.project {
