@@ -61,15 +61,32 @@ struct CollaboratorTimelineList: View {
         item.kind == .meeting && !item.producedActions
     }
 
+    /// Une ligne discrète en fin de mois, repliée par défaut, sur la même
+    /// grille que le reste du fil. Pas de `DisclosureGroup` : son cadre casse
+    /// le rythme des lignes, et il s'ouvrait tout seul.
     @ViewBuilder
     private func sansSuite(_ mois: String, _ lignes: [TimelineItem]) -> some View {
         if !lignes.isEmpty {
-            DisclosureGroup(isExpanded: Binding(
-                get: { deplies.contains(mois) },
-                set: { deplie in
-                    if deplie { deplies.insert(mois) } else { deplies.remove(mois) }
+            let deplie = deplies.contains(mois)
+            Button {
+                if deplie { deplies.remove(mois) } else { deplies.insert(mois) }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: deplie ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                    Text(deplie
+                         ? "masquer les réunions sans action produite"
+                         : "\(lignes.count) réunion\(lignes.count > 1 ? "s" : "") sans action produite")
+                    Spacer()
                 }
-            )) {
+                .font(.system(size: 11))
+                .foregroundStyle(FicheTokens.inkTertiary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 46).padding(.vertical, 4)
+
+            if deplie {
                 ForEach(lignes) { item in
                     if let meeting = meetingFor(item) {
                         NavigationLink { MeetingView(meeting: meeting, isPushed: true) } label: {
@@ -78,19 +95,7 @@ struct CollaboratorTimelineList: View {
                         .buttonStyle(.plain)
                     }
                 }
-            } label: {
-                HStack {
-                    Text("Réunions partagées · \(mois)")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(FicheTokens.inkSecondary)
-                    Spacer()
-                    Text("\(lignes.count)")
-                        .font(.system(size: 11)).monospacedDigit()
-                        .foregroundStyle(FicheTokens.inkTertiary)
-                }
-                .contentShape(Rectangle())
             }
-            .padding(.leading, 46).padding(.vertical, 3)
         }
     }
 
