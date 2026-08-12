@@ -12,6 +12,9 @@ struct CollaboratorTimelineList: View {
     let meetingFor: (TimelineItem) -> Meeting?
 
     @State private var hovered: String?
+    /// Mois dont le groupe de réunions sans suite est déplié. Replié par
+    /// défaut : c'est tout l'intérêt.
+    @State private var deplies: Set<String> = []
 
     var body: some View {
         ScrollView {
@@ -26,7 +29,7 @@ struct CollaboratorTimelineList: View {
                             .foregroundStyle(FicheTokens.ink.opacity(0.30))
                             .textCase(.uppercase)
                             .padding(.leading, 46).padding(.top, 9).padding(.bottom, 3)
-                        ForEach(lignes) { item in
+                        ForEach(lignes.filter { !estSansSuite($0) }) { item in
                             // `NavigationLink`, pas un `onTapGesture` qui
                             // pousse une destination : c'est le patron que la
                             // fiche precedente utilisait, et un double-clic n'y
@@ -40,11 +43,54 @@ struct CollaboratorTimelineList: View {
                                 ligneSurvolee(item)
                             }
                         }
+                        sansSuite(mois, lignes.filter(estSansSuite))
                     }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
+        }
+    }
+
+    /// Une réunion partagée qui n'a rien produit. « Un Echange activité sans
+    /// note ni action ne mérite pas une ligne de 44 px dans la fiche de
+    /// quelqu'un » : elle se replie dans un groupe mensuel, accessible mais
+    /// jamais en vue par défaut. Les 1:1, notes et décisions ne se replient
+    /// jamais — ce qui engage reste visible même sans suite.
+    private func estSansSuite(_ item: TimelineItem) -> Bool {
+        item.kind == .meeting && !item.producedActions
+    }
+
+    @ViewBuilder
+    private func sansSuite(_ mois: String, _ lignes: [TimelineItem]) -> some View {
+        if !lignes.isEmpty {
+            DisclosureGroup(isExpanded: Binding(
+                get: { deplies.contains(mois) },
+                set: { deplie in
+                    if deplie { deplies.insert(mois) } else { deplies.remove(mois) }
+                }
+            )) {
+                ForEach(lignes) { item in
+                    if let meeting = meetingFor(item) {
+                        NavigationLink { MeetingView(meeting: meeting, isPushed: true) } label: {
+                            ligneSurvolee(item)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } label: {
+                HStack {
+                    Text("Réunions partagées · \(mois)")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(FicheTokens.inkSecondary)
+                    Spacer()
+                    Text("\(lignes.count)")
+                        .font(.system(size: 11)).monospacedDigit()
+                        .foregroundStyle(FicheTokens.inkTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .padding(.leading, 46).padding(.vertical, 3)
         }
     }
 
