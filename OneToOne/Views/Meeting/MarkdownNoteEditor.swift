@@ -69,7 +69,7 @@ struct MarkdownNoteEditor: View {
             }
             .sheet(item: $openedCollaborator) { collaborator in
                 NavigationStack {
-                    CollaboratorDetailView(collaborator: collaborator)
+                    CollaboratorFicheView(collaborator: collaborator)
                 }
             }
     }

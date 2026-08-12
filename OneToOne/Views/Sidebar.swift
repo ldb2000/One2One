@@ -226,7 +226,7 @@ struct MainSidebarView: View {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
                     ForEach(filteredActiveCollaborators) { collaborator in
                         NavigationLink {
-                            CollaboratorDetailView(collaborator: collaborator)
+                            CollaboratorFicheView(collaborator: collaborator)
                         } label: {
                             HStack(spacing: 8) {
                                 SidebarCollaboratorAvatar(collaborator: collaborator)
@@ -293,7 +293,7 @@ struct MainSidebarView: View {
                         DisclosureGroup(isExpanded: $archivesExpanded) {
                         ForEach(filteredArchivedCollaborators) { collaborator in
                             NavigationLink {
-                            CollaboratorDetailView(collaborator: collaborator)
+                            CollaboratorFicheView(collaborator: collaborator)
                         } label: {
                                 HStack(spacing: 8) {
                                     SidebarCollaboratorAvatar(collaborator: collaborator)

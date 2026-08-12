@@ -133,7 +133,7 @@ struct AllCollaboratorsView: View {
             pinControls(c)
 
             NavigationLink {
-                CollaboratorDetailView(collaborator: c)
+                CollaboratorFicheView(collaborator: c)
             } label: {
                 Image(systemName: "chevron.right")
                     .foregroundColor(.secondary)

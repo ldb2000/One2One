@@ -285,7 +285,7 @@ struct MarkdownEditorView: View {
             }
             .sheet(item: $openedCollaborator) { collaborator in
                 NavigationStack {
-                    CollaboratorDetailView(collaborator: collaborator)
+                    CollaboratorFicheView(collaborator: collaborator)
                 }
             }
     }
