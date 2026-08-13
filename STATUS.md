@@ -1,8 +1,46 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-10 CEST
+Dernière mise à jour : 2026-08-13 CEST
 
 ## Synthèse
+
+**Fiche collaborateur v3 — l'écran vit, vérifié à l'écran par l'auteur.** Branche
+`feat/fiche-collaborateur-v3`, 23 commits, partie de `master`. Elle est branchée : les cinq
+points d'entrée ouvrent la nouvelle fiche. Suite verte, 997 XCTest (1 ignoré) + 255 Swift
+Testing.
+
+**Ce que la confrontation aux données réelles a corrigé dans la spec.** Trois défauts que
+seule la mesure pouvait révéler, tous arbitrés par l'auteur :
+
+1. **L'en-tête mesurait ce qui n'existe pas.** 8 collaborateurs sur 366 ont eu un
+   tête-à-tête, 349 apparaissent dans une réunion. Les quatre compteurs de suivi affichaient
+   « — 0 0 0 » sur 341 fiches. La **cadence tranche** désormais : un rythme choisi déclare
+   « je suis cette personne » et donne l'en-tête de la maquette ; sinon l'en-tête montre
+   échanges, réunions, décisions.
+2. **« Projets portés » était structurellement vide.** Un seul des 63 projets porte un chef
+   de projet ou un architecte : le rôle est un attribut de la personne, pas une désignation
+   par projet. Le bloc lit désormais l'implication — réunions et actions assignées — et
+   s'appelle « Projets suivis », le calcul ne justifiant pas « portés ».
+3. **38 rôles portaient une adresse mail.** Origine trouvée : `role: attendee.email` dans
+   l'import calendrier (commit `2cb5bf4`, 24 avril). Réparé au démarrage, **par déplacement
+   et non par effacement** — 16 des 38 avaient un champ `email` vide, les vider aurait
+   détruit l'adresse. Vérifié après passage sur le store réel : 0 rôle pollué, 0 adresse
+   perdue. Un second chemin encore vivant a été fermé (`AIIngestionService` écrivait le rôle
+   proposé par le LLM sans le vérifier).
+
+**Vérifié à l'écran par l'auteur** : l'écran s'affiche, la colonne d'état ne défile pas, le
+clic ouvre la réunion, le retour par le fil d'Ariane fonctionne, et le crash au double-clic a
+disparu. **Non vérifié** : tout le reste, dont les métriques de la spec (42 pt de ligne,
+alignements).
+
+**Reste de la spec** : le puits photo n'accepte pas de fichier (glisser, coller, LinkedIn
+inertes), le geste de solde d'un engagement n'a pas de contrôle, le clavier (`⌘1`…`⌘5`,
+`↑↓`, `␣`) n'est pas branché, le graphe d'écart entre 1:1 n'existe pas. Prochaine action :
+le solde d'un engagement, seul manque qui rende un compteur inutilisable.
+
+**Deux branches en attente.** `feat/pastille-participant-fil-ariane` : spec validée, plan
+jamais écrit. `feat/fusion-note-reunion` : fusionnée dans `master` ; sa tâche 13 garde huit
+contrôles non déroulés, passés en vérification à l'usage.
 
 **Fusion Note / Réunion — code terminé, vérification sur données réelles due.** Branche
 `feat/fusion-note-reunion`, 43 commits. Les douze tâches de code du
