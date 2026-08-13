@@ -12,12 +12,40 @@ struct CollaboratorEditSheet: View {
     @Environment(\.modelContext) private var context
     @Query private var entities: [Entity]
     @Query private var allCollaborators: [Collaborator]
+    @Query private var reglagesList: [AppSettings]
+
+    private var reglages: AppSettings? { reglagesList.first }
 
     @State private var showArchiveConfirm = false
     /// Vrai pendant qu'un glisser survole le puits. Le bandeau « DÉPOSER »
     /// n'apparaît qu'à ce moment : affiché en permanence, il masquait les
     /// initiales — et une photo déjà posée.
     @State private var dropTargeted = false
+    @State private var showPhotoSearch = false
+
+    /// Reçoit ce qui tombe dans le puits : un fichier image est adopté en
+    /// place, une image brute est recopiée dans le dossier de l'app.
+    private func adopter(_ fournisseurs: [NSItemProvider]) -> Bool {
+        guard let fournisseur = fournisseurs.first else { return false }
+        if fournisseur.canLoadObject(ofClass: URL.self) {
+            _ = fournisseur.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in
+                    CollaboratorPhoto.adopt(fileURL: url, for: collaborator)
+                    try? context.save()
+                }
+            }
+            return true
+        }
+        fournisseur.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+            guard let data else { return }
+            Task { @MainActor in
+                CollaboratorPhoto.store(data, for: collaborator)
+                try? context.save()
+            }
+        }
+        return true
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,6 +62,14 @@ struct CollaboratorEditSheet: View {
         }
         .frame(width: 560)
         .background(FicheTokens.bg)
+        .sheet(isPresented: $showPhotoSearch) {
+            PhotoSearchSheet(initialQuery: collaborator.name,
+                             googleAPIKey: reglages?.googleCseApiKey ?? "",
+                             googleCSEID: reglages?.googleCseId ?? "") { data in
+                CollaboratorPhoto.store(data, for: collaborator)
+                try? context.save()
+            }
+        }
     }
 
     // MARK: - En-tête
@@ -69,19 +105,32 @@ struct CollaboratorEditSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 10)
                 .stroke(dropTargeted ? FicheTokens.link : FicheTokens.stroke,
                         lineWidth: dropTargeted ? 2 : 1))
-            .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { _ in true }
+            .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { fournisseurs in
+                adopter(fournisseurs)
+            }
 
             HStack(spacing: 4) {
-                Button("Choisir") {}.controlSize(.small)
+                Button("Choisir") {
+                    if CollaboratorPhoto.choose(for: collaborator) { try? context.save() }
+                }
+                .controlSize(.small)
                 Menu {
-                    Button("Importer un fichier…") {}
-                    Button("Coller depuis le presse-papiers") {}
-                    Button("Rechercher sur LinkedIn") {}
-                    Button("Rechercher sur le web") {}
+                    Button("Importer un fichier…") {
+                        if CollaboratorPhoto.choose(for: collaborator) { try? context.save() }
+                    }
+                    .keyboardShortcut("o")
+                    Button("Coller depuis le presse-papiers") {
+                        if CollaboratorPhoto.paste(for: collaborator) { try? context.save() }
+                    }
+                    .keyboardShortcut("v")
+                    Button("Rechercher sur LinkedIn") {
+                        LinkedInPhotoSearch.openLinkedInSearch(name: collaborator.name)
+                    }
+                    Button("Rechercher sur le web") { showPhotoSearch = true }
                     Divider()
                     Button("Retirer la photo", role: .destructive) {
-                        collaborator.photoPath = ""
-                        collaborator.photoBookmarkData = nil
+                        CollaboratorPhoto.remove(for: collaborator)
+                        try? context.save()
                     }
                 } label: { EmptyView() }
                     .menuStyle(.borderlessButton)
@@ -91,7 +140,11 @@ struct CollaboratorEditSheet: View {
             Text("Glisser une image,\ncoller, ou")
                 .font(.system(size: 10.5)).multilineTextAlignment(.center)
                 .foregroundStyle(FicheTokens.inkSecondary)
-            Text("LinkedIn").font(.system(size: 10.5)).foregroundStyle(FicheTokens.link)
+            Button("LinkedIn") {
+                LinkedInPhotoSearch.openLinkedInSearch(name: collaborator.name)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10.5)).foregroundStyle(FicheTokens.link)
         }
         .frame(width: 120)
     }
