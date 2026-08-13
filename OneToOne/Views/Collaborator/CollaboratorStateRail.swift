@@ -19,6 +19,8 @@ struct CollaboratorStateRail: View {
             separator
             actions
             separator
+            rythme
+            separator
             projects
             Spacer(minLength: 0)
         }
@@ -52,6 +54,32 @@ struct CollaboratorStateRail: View {
                 Text(prochain.date.formatted(date: .complete, time: .shortened))
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(FicheTokens.ink)
+                if let avancement = PrepChecklist.progress(from: prochain.prepNotes) {
+                    Text("Prep à \(avancement)")
+                        .font(.system(size: 11)).foregroundStyle(FicheTokens.inkSecondary)
+                }
+                // Les points vivent dans le markdown de la préparation : les
+                // cocher ici réécrit ce markdown, sans modèle intermédiaire.
+                ForEach(PrepChecklist.items(from: prochain.prepNotes).prefix(4), id: \.index) { point in
+                    Button {
+                        prochain.prepNotes = PrepChecklist.toggled(prochain.prepNotes, at: point.index)
+                        try? context.save()
+                    } label: {
+                        HStack(alignment: .top, spacing: 7) {
+                            Image(systemName: point.done ? "checkmark.square.fill" : "square")
+                                .font(.system(size: 12))
+                                .foregroundStyle(point.done ? FicheTokens.ok : FicheTokens.inkTertiary)
+                            Text(point.text)
+                                .font(.system(size: 11.5))
+                                .strikethrough(point.done)
+                                .foregroundStyle(point.done ? FicheTokens.ink.opacity(0.4) : FicheTokens.ink)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             } else {
                 // Pas d'alerte ici : quelqu'un qu'on n'a jamais vu n'est pas
                 // « en retard », il y a un rythme à commencer.
@@ -158,6 +186,62 @@ struct CollaboratorStateRail: View {
             }
         }
         .padding(14)
+    }
+
+    // MARK: - Rythme des 1:1
+
+    /// La suite des écarts entre deux tête-à-tête, remplaçant la heatmap de
+    /// 52 semaines vide à 90 % : un carré vide ne dit rien, passer de 2 à 11
+    /// semaines d'écart est le signal.
+    @ViewBuilder
+    private var rythme: some View {
+        let ecarts = OneToOneRhythm.gaps(for: collaborator, now: .now)
+        VStack(alignment: .leading, spacing: 8) {
+            title("Rythme des 1:1")
+            if ecarts.isEmpty {
+                calme("Aucun tête-à-tête à ce jour")
+            } else {
+                HStack(alignment: .bottom, spacing: 2) {
+                    ForEach(Array(ecarts.enumerated()), id: \.offset) { _, semaines in
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(teinte(OneToOneRhythm.severity(ofGap: semaines)))
+                            .frame(width: 2, height: min(34, 6 + Double(semaines) * 2.4))
+                    }
+                }
+                .frame(height: 34, alignment: .bottom)
+                HStack {
+                    Text(legende(premier: true)).font(.system(size: 10))
+                        .foregroundStyle(FicheTokens.inkTertiary)
+                    Spacer()
+                    if let courant = ecarts.last {
+                        Text("écart actuel : \(courant) sem.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(teinte(OneToOneRhythm.severity(ofGap: courant)))
+                    }
+                    Spacer()
+                    Text(legende(premier: false)).font(.system(size: 10))
+                        .foregroundStyle(FicheTokens.inkTertiary)
+                }
+            }
+        }
+        .padding(14)
+    }
+
+    private func teinte(_ gravite: OneToOneRhythm.Severity) -> Color {
+        switch gravite {
+        case .neutre:    return FicheTokens.ink.opacity(0.18)
+        case .attention: return FicheTokens.warn
+        case .alerte:    return FicheTokens.late
+        }
+    }
+
+    /// Mois du premier ou du dernier tête-à-tête, en légende du graphe.
+    private func legende(premier: Bool) -> String {
+        let dates = MeetingStatsScope.held(collaborator.meetings)
+            .filter { $0.kind == .oneToOne || $0.kind == .manager }
+            .map(\.date).sorted()
+        guard let date = premier ? dates.first : dates.last else { return "" }
+        return date.formatted(.dateTime.month(.abbreviated))
     }
 
     // MARK: - Projets

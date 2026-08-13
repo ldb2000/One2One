@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 /// Fiche collaborateur v3 — `SPEC-Fiche-Collaborateur.md`, tour 5.
 ///
@@ -13,6 +14,9 @@ struct CollaboratorFicheView: View {
 
     @State private var segment: TimelineKind?   // nil = « Tout »
     @State private var showEditSheet = false
+    @State private var showDeleteConfirm = false
+    /// Année affichée par le fil. `nil` = toutes.
+    @State private var annee: Int?
 
     private var items: [TimelineItem] { CollaboratorTimeline.build(for: collaborator) }
 
@@ -30,6 +34,15 @@ struct CollaboratorFicheView: View {
             CollaboratorStateRail(collaborator: collaborator)
                 .frame(width: FicheTokens.railWidth)
         }
+        .confirmationDialog("Supprimer \(collaborator.name) ?",
+                            isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Supprimer définitivement", role: .destructive) {
+                context.delete(collaborator)
+                try? context.save()
+            }
+        } message: {
+            Text("Ses réunions et ses actions ne sont pas supprimées ; elles perdent ce participant.")
+        }
         .sheet(isPresented: $showEditSheet) {
             CollaboratorEditSheet(collaborator: collaborator)
         }
@@ -42,8 +55,30 @@ struct CollaboratorFicheView: View {
     }
 
     private var filtered: [TimelineItem] {
-        guard let segment else { return items }
-        return items.filter { $0.kind == segment }
+        var lignes = items
+        if let segment { lignes = lignes.filter { $0.kind == segment } }
+        if let annee {
+            lignes = lignes.filter { Calendar.current.component(.year, from: $0.date) == annee }
+        }
+        return lignes
+    }
+
+    /// Années où il s'est passé quelque chose, de la plus récente à la plus
+    /// ancienne. Rien à choisir s'il n'y en a qu'une.
+    private var anneesDisponibles: [Int] {
+        Array(Set(items.map { Calendar.current.component(.year, from: $0.date) }))
+            .sorted(by: >)
+    }
+
+    /// Exporte le fil affiché en markdown, dans le presse-papiers — le même
+    /// filtre que ce qui est à l'écran.
+    private func exporterLeFil() {
+        let lignes = filtered.map { item in
+            "- \(item.date.formatted(date: .numeric, time: .omitted)) · \(item.kind.pill) · \(item.title)"
+        }
+        let texte = "# \(collaborator.name)\n\n" + lignes.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(texte, forType: .string)
     }
 
     // MARK: - En-tête
@@ -85,6 +120,11 @@ struct CollaboratorFicheView: View {
                 Button(collaborator.isArchived ? "Désarchiver" : "Archiver") {
                     collaborator.isArchived.toggle()
                     try? context.save()
+                }
+                Button("Exporter le fil…") { exporterLeFil() }
+                Divider()
+                Button("Supprimer définitivement", role: .destructive) {
+                    showDeleteConfirm = true
                 }
             } label: { Image(systemName: "ellipsis") }
                 .menuStyle(.borderlessButton)
@@ -175,12 +215,21 @@ struct CollaboratorFicheView: View {
     private var segments: some View {
         let counts = CollaboratorTimeline.counts(of: items)
         return HStack(spacing: 8) {
-            segmentChip(nil, "Tout", items.count)
+            segmentChip(nil, "Tout", items.count).keyboardShortcut("1", modifiers: .command)
             // Ordre de la spec : 1:1 · Notes · Décisions · Réunions.
-            ForEach([TimelineKind.oneToOne, .note, .decision, .meeting], id: \.self) { kind in
+            ForEach(Array([TimelineKind.oneToOne, .note, .decision, .meeting].enumerated()),
+                    id: \.element) { rang, kind in
                 segmentChip(kind, kind.pill, counts[kind] ?? 0)
+                    .keyboardShortcut(KeyEquivalent(Character("\(rang + 2)")), modifiers: .command)
             }
             Spacer()
+            if anneesDisponibles.count > 1 {
+                Picker("", selection: $annee) {
+                    Text("Toutes").tag(Int?.none)
+                    ForEach(anneesDisponibles, id: \.self) { Text("\($0)").tag(Int?.some($0)) }
+                }
+                .labelsHidden().fixedSize().controlSize(.small)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)

@@ -57,6 +57,38 @@ enum OneToOneRhythm {
         return Int(now.timeIntervalSince(last) / (7 * 86_400))
     }
 
+    /// Les écarts successifs, en semaines : entre deux tête-à-tête
+    /// consécutifs, puis l'écart courant depuis le dernier.
+    ///
+    /// Remplace la heatmap de 52 semaines, vide à 90 % : un carré vide ne dit
+    /// rien, alors que passer de 2 à 11 semaines d'écart est le signal du
+    /// produit. Vide s'il n'y a jamais eu de tête-à-tête — il n'y a pas de
+    /// rythme à tracer, il y en a un à commencer.
+    static func gaps(for collaborator: Collaborator, now: Date) -> [Int] {
+        let dates = collaborator.meetings
+            .filter { faceToFace.contains($0.kind) && $0.date <= now }
+            .map(\.date)
+            .sorted()
+        guard let dernier = dates.last else { return [] }
+
+        var ecarts = zip(dates, dates.dropFirst()).map { precedent, suivant in
+            Int(suivant.timeIntervalSince(precedent) / (7 * 86_400))
+        }
+        ecarts.append(Int(now.timeIntervalSince(dernier) / (7 * 86_400)))
+        return ecarts
+    }
+
+    /// Gravité d'un écart, aux seuils de la spec.
+    enum Severity { case neutre, attention, alerte }
+
+    static func severity(ofGap semaines: Int) -> Severity {
+        switch semaines {
+        case ..<5: return .neutre
+        case 5...7: return .attention
+        default:   return .alerte
+        }
+    }
+
     /// Vrai quand l'écart dépasse la cadence convenue.
     ///
     /// Faux sans cadence — un écart n'est un retard que face à un rythme

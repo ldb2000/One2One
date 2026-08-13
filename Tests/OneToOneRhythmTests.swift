@@ -81,4 +81,50 @@ struct OneToOneRhythmTests {
         #expect(OneToOneRhythm.weeksSinceLast(for: collab, now: maintenant) == 4)
         #expect(OneToOneRhythm.isLate(for: collab, now: maintenant))
     }
+
+    // MARK: - Le graphe d'écart
+
+    /// « Un carré vide ne dit rien ; passer de 2 à 11 semaines d'écart est *le*
+    /// signal du produit. » La heatmap 52 semaines est remplacée par la suite
+    /// des écarts entre deux tête-à-tête consécutifs.
+    @Test("Les écarts se lisent entre deux tête-à-tête consécutifs")
+    func gapsAreMeasuredBetweenConsecutiveMeetings() throws {
+        let context = try makeContext()
+        let collab = Collaborator(name: "Alice")
+        context.insert(collab)
+        // Trois 1:1 : il y a 8 semaines, 6 semaines, 2 semaines.
+        for semaines in [8.0, 6.0, 2.0] {
+            let m = Meeting(title: "1:1", date: maintenant.addingTimeInterval(-semaines * 7 * 86_400))
+            m.kind = .oneToOne
+            m.participants = [collab]
+            context.insert(m)
+        }
+
+        // Deux intervalles (8→6 et 6→2), puis l'écart courant depuis le dernier.
+        #expect(OneToOneRhythm.gaps(for: collab, now: maintenant) == [2, 4, 2])
+    }
+
+    @Test("Un seul tête-à-tête ne donne que l'écart courant")
+    func aSingleMeetingGivesOnlyTheCurrentGap() throws {
+        let context = try makeContext()
+        let collab = collaborator(context, cadence: .aucune, dernierIlYAJours: 21)
+        #expect(OneToOneRhythm.gaps(for: collab, now: maintenant) == [3])
+    }
+
+    @Test("Sans aucun tête-à-tête, il n'y a rien à tracer")
+    func noMeetingsMeansNoChart() throws {
+        let context = try makeContext()
+        let collab = collaborator(context, cadence: .bimensuelle, dernierIlYAJours: nil)
+        #expect(OneToOneRhythm.gaps(for: collab, now: maintenant).isEmpty)
+    }
+
+    /// Les seuils de la spec : neutre en deçà de 5 semaines, `warn` de 5 à 7,
+    /// `late` à partir de 8.
+    @Test("Les trois seuils de couleur du graphe")
+    func chartThresholds() {
+        #expect(OneToOneRhythm.severity(ofGap: 4) == .neutre)
+        #expect(OneToOneRhythm.severity(ofGap: 5) == .attention)
+        #expect(OneToOneRhythm.severity(ofGap: 7) == .attention)
+        #expect(OneToOneRhythm.severity(ofGap: 8) == .alerte)
+    }
 }
