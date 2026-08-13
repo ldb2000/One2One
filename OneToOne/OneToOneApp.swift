@@ -278,6 +278,15 @@ struct ContentView: View {
         guard !didRunDataRepair else { return }
         didRunDataRepair = true
 
+        // Un rôle qui porte une adresse n'est pas un rôle. Une ancienne
+        // version de l'import calendrier écrivait l'email de l'invité dans
+        // `role` (commit 2cb5bf4) ; 38 fiches en portent la trace, dont 16 où
+        // l'adresse n'existe **que** là. La règle déplace, elle n'efface pas.
+        let rolesRepares = CollaboratorIdentity.repairRoles(in: context)
+        if rolesRepares > 0 {
+            print("[Repair] \(rolesRepares) rôle(s) qui portaient une adresse déplacés vers le champ email")
+        }
+
         do {
             let allProjects = try context.fetch(FetchDescriptor<Project>())
             let sortedProjects = allProjects.sorted { $0.code.localizedStandardCompare($1.code) == .orderedAscending }

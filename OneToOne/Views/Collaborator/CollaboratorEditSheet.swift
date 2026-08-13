@@ -123,7 +123,13 @@ struct CollaboratorEditSheet: View {
             champ("Poste / rôle") {
                 TextField("Architecte, chef de projet…", text: Binding(
                     get: { CollaboratorIdentity.displayRole(collaborator.role) },
-                    set: { collaborator.role = $0 }
+                    set: { saisi in
+                        // Taper une adresse ici la range où elle doit être.
+                        let repare = CollaboratorIdentity.repaired(role: saisi,
+                                                                   email: collaborator.email)
+                        collaborator.role = repare.role
+                        collaborator.email = repare.email
+                    }
                 ))
             }
             champ("Email", hint: "importé de l'annuaire") {

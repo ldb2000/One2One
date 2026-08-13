@@ -593,7 +593,12 @@ class AIIngestionService {
             }
         }
 
-        let collab = Collaborator(name: name, role: role ?? "Non spécifié")
+        // Le rôle vient de l'extraction LLM : rien ne garantit que c'en soit
+        // un. La même règle qu'ailleurs s'applique — une adresse n'est pas un
+        // rôle, elle va dans le champ prévu pour elle.
+        let propose = CollaboratorIdentity.repaired(role: role ?? "Non spécifié", email: "")
+        let collab = Collaborator(name: name, role: propose.role)
+        collab.email = propose.email
         context.insert(collab)
         return collab
     }
