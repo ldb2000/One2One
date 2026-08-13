@@ -75,7 +75,8 @@ struct CollaboratorFicheView: View {
             Spacer(minLength: 16)
             counters
             Button(FicheHeader.isFollowed(collaborator) ? "Préparer le 1:1"
-                                                          : "Planifier le premier 1:1") {}
+                                                          : "Planifier le premier 1:1",
+                   action: ouvrirPreparation)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             Menu {
@@ -92,6 +93,16 @@ struct CollaboratorFicheView: View {
         .padding(.horizontal, 16)
         .frame(height: FicheTokens.headerHeight)
         .background(FicheTokens.bg)
+    }
+
+    /// Ouvre la fenêtre de préparation du 1:1, par le mécanisme que le
+    /// menubar utilise déjà — un jeton et une notification. Le bouton
+    /// principal de l'écran ne faisait rien jusqu'ici, ce qui est pire qu'un
+    /// bouton absent.
+    private func ouvrirPreparation() {
+        let token = PrepWindowToken(collabID: collaborator.ensuredStableID, projectID: nil)
+        NotificationCenter.default.post(name: .openPrepWindow, object: nil,
+                                        userInfo: ["token": token])
     }
 
     @ViewBuilder

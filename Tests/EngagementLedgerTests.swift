@@ -105,4 +105,54 @@ struct EngagementLedgerTests {
         #expect(EngagementLedger.pending(for: alice).map(\.text)
                 == ["La plus ancienne", "La plus récente"])
     }
+
+    // MARK: - Solder
+
+    /// Sans ce geste, le compteur ne redescend jamais — et un compteur qui ne
+    /// redescend jamais cesse d'être lu.
+    @Test("Solder une décision la retire du compte")
+    func settlingADecisionRemovesIt() throws {
+        let context = try makeContext()
+        let alice = Collaborator(name: "Alice"); context.insert(alice)
+        let meeting = oneToOne(context, with: alice)
+        meeting.decisions = ["Tenue", "En suspens"]
+
+        let pending = EngagementLedger.pending(for: alice)
+        EngagementLedger.settle(pending[0])
+
+        #expect(EngagementLedger.pending(for: alice).map(\.text) == ["En suspens"])
+        #expect(meeting.decisionEntries[0].settledAt != nil)
+    }
+
+    /// Solder une action n'est **pas** la cocher : l'engagement est repris, la
+    /// tâche reste ouverte dans le backlog.
+    @Test("Solder une action la retire du compte sans la terminer")
+    func settlingAnActionDoesNotCompleteIt() throws {
+        let context = try makeContext()
+        let alice = Collaborator(name: "Alice"); context.insert(alice)
+        let meeting = oneToOne(context, with: alice)
+        let task = ActionTask(title: "Relancer la DSI")
+        task.meeting = meeting
+        context.insert(task)
+
+        EngagementLedger.settle(EngagementLedger.pending(for: alice)[0])
+
+        #expect(EngagementLedger.pending(for: alice).isEmpty)
+        #expect(!task.isCompleted, "l'action reste a faire, seule la promesse est soldee")
+        #expect(task.engagementSettledAt != nil)
+    }
+
+    @Test("Solder deux fois ne change rien de plus")
+    func settlingTwiceIsIdempotent() throws {
+        let context = try makeContext()
+        let alice = Collaborator(name: "Alice"); context.insert(alice)
+        let meeting = oneToOne(context, with: alice)
+        meeting.decisions = ["Une seule"]
+
+        let engagement = EngagementLedger.pending(for: alice)[0]
+        EngagementLedger.settle(engagement, on: Date(timeIntervalSince1970: 1))
+        EngagementLedger.settle(engagement, on: Date(timeIntervalSince1970: 2))
+
+        #expect(meeting.decisionEntries[0].settledAt == Date(timeIntervalSince1970: 1))
+    }
 }

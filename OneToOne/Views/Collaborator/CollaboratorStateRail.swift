@@ -97,8 +97,19 @@ struct CollaboratorStateRail: View {
             } else {
                 ForEach(pending.prefix(4)) { engagement in
                     HStack(alignment: .top, spacing: 7) {
-                        Image(systemName: "circle").font(.system(size: 10))
-                            .foregroundStyle(FicheTokens.inkTertiary).padding(.top, 2)
+                        // Solder, ce n'est pas cocher : la promesse est
+                        // reprise, l'action reste ouverte dans le backlog.
+                        Button {
+                            EngagementLedger.settle(engagement)
+                            try? context.save()
+                        } label: {
+                            Image(systemName: "circle").font(.system(size: 10))
+                                .foregroundStyle(FicheTokens.inkTertiary)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 2)
+                        .help("Solder cet engagement — il cesse de compter")
                         Text(engagement.text)
                             .font(.system(size: 11.5)).foregroundStyle(FicheTokens.ink)
                             .lineLimit(2).fixedSize(horizontal: false, vertical: true)
