@@ -152,11 +152,15 @@ struct CollaboratorStateRail: View {
     // MARK: - Projets
 
     private var projects: some View {
-        let portes = collaborator.projectsAsManager + collaborator.projectsAsArchitect
+        // « Suivis », pas « portés » : le calcul lit une implication —
+        // réunions et actions assignées —, pas une responsabilité désignée.
+        // Un libellé qui promet plus que le calcul ne tient est un mensonge
+        // qui survit au code.
+        let portes = CollaboratorProjects.involved(in: collaborator)
         return VStack(alignment: .leading, spacing: 7) {
-            title("Projets portés")
+            title("Projets suivis")
             if portes.isEmpty {
-                calme("Aucun projet porté")
+                calme("Aucun projet suivi")
             } else {
                 ForEach(portes.prefix(4)) { projet in
                     HStack(spacing: 7) {

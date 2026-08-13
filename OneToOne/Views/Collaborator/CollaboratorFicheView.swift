@@ -159,7 +159,7 @@ struct CollaboratorFicheView: View {
     }
     private var engagementCount: Int { EngagementLedger.pending(for: collaborator).count }
     private var projectCount: Int {
-        collaborator.projectsAsManager.count + collaborator.projectsAsArchitect.count
+        CollaboratorProjects.involved(in: collaborator).count
     }
 
     // MARK: - Segments
