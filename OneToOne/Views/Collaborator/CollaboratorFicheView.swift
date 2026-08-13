@@ -74,7 +74,8 @@ struct CollaboratorFicheView: View {
             }
             Spacer(minLength: 16)
             counters
-            Button("Préparer le 1:1") {}
+            Button(FicheHeader.isFollowed(collaborator) ? "Préparer le 1:1"
+                                                          : "Planifier le premier 1:1") {}
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             Menu {
@@ -121,16 +122,19 @@ struct CollaboratorFicheView: View {
     /// sans rapport — voir `EngagementLedger`.
     private var counters: some View {
         HStack(spacing: 18) {
-            counter(weeksLabel, "dernier 1:1",
-                    OneToOneRhythm.isLate(for: collaborator, now: .now) ? FicheTokens.warn : FicheTokens.ink)
-            counter("\(overdueCount)", "en retard",
-                    overdueCount > 0 ? FicheTokens.late : FicheTokens.ink)
-            counter("\(openCount)", "ouvertes", FicheTokens.ink)
-            counter("\(engagementCount)", "engagements",
-                    EngagementLedger.level(count: engagementCount) == .alerte
-                        ? FicheTokens.late : FicheTokens.ink)
+            ForEach(FicheHeader.counters(for: collaborator, now: .now), id: \.label) { compteur in
+                counter(compteur.value, compteur.label, teinte(compteur.level))
+            }
         }
         .fixedSize()
+    }
+
+    private func teinte(_ level: FicheCounter.Level) -> Color {
+        switch level {
+        case .neutre:    return FicheTokens.ink
+        case .attention: return FicheTokens.warn
+        case .alerte:    return FicheTokens.late
+        }
     }
 
     private func counter(_ value: String, _ label: String, _ tint: Color) -> some View {
@@ -147,17 +151,10 @@ struct CollaboratorFicheView: View {
         .fixedSize()
     }
 
-    private var weeksLabel: String {
-        guard let weeks = OneToOneRhythm.weeksSinceLast(for: collaborator, now: .now) else { return "—" }
-        return "\(weeks) sem."
-    }
-
     private var openActions: [ActionTask] { collaborator.assignedTasks.filter { !$0.isCompleted } }
-    private var openCount: Int { openActions.count }
     private var overdueCount: Int {
         openActions.filter { ($0.dueDate ?? .distantFuture) < .now }.count
     }
-    private var engagementCount: Int { EngagementLedger.pending(for: collaborator).count }
     private var projectCount: Int {
         CollaboratorProjects.involved(in: collaborator).count
     }
