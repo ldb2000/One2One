@@ -259,6 +259,14 @@ struct ContentView: View {
     /// Réindexe tous les projets, collaborateurs et réunions (notes comprises)
     /// dans Spotlight.
     private func reindexSpotlight() {
+        // Une reunion marquee « drainee » avec une preparation vide n'a rien
+        // recu : le drapeau enregistrait « on a essaye ». Rien ne justifie de
+        // lui fermer la porte.
+        let drainsRouverts = PrepCarryoverService.reopenBurnedDrains(in: context)
+        if drainsRouverts > 0 {
+            print("[Repair] \(drainsRouverts) reunion(s) peuvent de nouveau recevoir une preparation")
+        }
+
         do {
             let allProjects = try context.fetch(FetchDescriptor<Project>())
             let allCollabs = try context.fetch(FetchDescriptor<Collaborator>())

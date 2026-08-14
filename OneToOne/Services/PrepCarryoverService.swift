@@ -37,35 +37,70 @@ extension PrepCarryoverService {
     /// `meeting.prepDrainDone`.
     /// - For `.global` / `.work`: no pool exists; sets the flag and returns.
     @MainActor
+    /// Verse dans la réunion la préparation « en attente » de ce qu'elle
+    /// concerne — le collaborateur qu'on va voir, ou le projet.
+    ///
+    /// **Le drapeau ne se pose que si quelque chose a été versé.** Il
+    /// enregistrait « on a essayé » : une réunion ouverte avant que la prep
+    /// soit écrite brûlait sa seule chance, et la prep écrite ensuite
+    /// n'entrait plus jamais. Constaté le 2026-08-14 sur la réunion du 13/08
+    /// avec BARBA Jean Marc : drain fait, prep de zéro caractère, et 32
+    /// caractères en attente sur la fiche.
+    ///
+    /// **Tous les participants sont lus, pas seulement le premier.** Sur un
+    /// 1:1 à deux, `participants.first` peut être soi-même : la préparation de
+    /// l'autre n'aurait jamais été vue.
+    /// Rouvre la chance des réunions dont le drapeau a été posé sans que rien
+    /// n'ait été versé — le défaut corrigé le 2026-08-14. Une réunion marquée
+    /// « drainée » avec une préparation vide n'a rien reçu : rien ne justifie
+    /// de lui fermer la porte.
+    ///
+    /// Renvoie le nombre de réunions rouvertes. Idempotente : une fois qu'une
+    /// prep y est versée, elles ne remplissent plus la condition.
+    @discardableResult
+    static func reopenBurnedDrains(in context: ModelContext) -> Int {
+        guard let reunions = try? context.fetch(FetchDescriptor<Meeting>()) else { return 0 }
+        var rouvertes = 0
+        for reunion in reunions
+        where reunion.prepDrainDone
+            && reunion.prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            reunion.prepDrainDone = false
+            rouvertes += 1
+        }
+        if rouvertes > 0 { try? context.save() }
+        return rouvertes
+    }
+
     static func drainStandingIntoMeeting(_ meeting: Meeting, in context: ModelContext) {
         guard !meeting.prepDrainDone else { return }
+        var verse = false
 
         switch meeting.kind {
         case .oneToOne, .manager:
-            if let collab = meeting.participants.first, !collab.standingPrepNotes.isEmpty {
-                meeting.prepNotes = mergePrep(
-                    standing: collab.standingPrepNotes,
-                    existing: meeting.prepNotes
-                )
+            for collab in meeting.participants where !collab.standingPrepNotes.isEmpty {
+                meeting.prepNotes = mergePrep(standing: collab.standingPrepNotes,
+                                              existing: meeting.prepNotes)
                 collab.standingPrepNotes = ""
                 collab.standingPrepUpdatedAt = Date()
+                verse = true
             }
         case .project:
             if let project = meeting.project, !project.standingPrepNotes.isEmpty {
-                meeting.prepNotes = mergePrep(
-                    standing: project.standingPrepNotes,
-                    existing: meeting.prepNotes
-                )
+                meeting.prepNotes = mergePrep(standing: project.standingPrepNotes,
+                                              existing: meeting.prepNotes)
                 project.standingPrepNotes = ""
                 project.standingPrepUpdatedAt = Date()
+                verse = true
             }
         case .global, .work, .note:
             break
         }
 
-        meeting.prepDrainDone = true
+        // Rien versé, rien à protéger : la chance reste ouverte pour une prep
+        // écrite plus tard.
+        if verse { meeting.prepDrainDone = true }
         try? context.save()
-        prepLog.info("drain done kind=\(meeting.kind.rawValue, privacy: .public) bytes=\(meeting.prepNotes.count)")
+        prepLog.info("drain kind=\(meeting.kind.rawValue, privacy: .public) verse=\(verse, privacy: .public) bytes=\(meeting.prepNotes.count)")
     }
 
     /// Concatène le contenu du pool permanent en tête des notes existantes
