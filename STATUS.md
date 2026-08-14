@@ -1,42 +1,41 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-13 CEST
+Dernière mise à jour : 2026-08-14 CEST
 
 ## Synthèse
 
-**Fiche collaborateur v3 — l'écran vit, vérifié à l'écran par l'auteur.** Branche
-`feat/fiche-collaborateur-v3`, 23 commits, partie de `master`. Elle est branchée : les cinq
-points d'entrée ouvrent la nouvelle fiche. Suite verte, 997 XCTest (1 ignoré) + 255 Swift
-Testing.
+**Fiche collaborateur v3 — livrée en production.** `master` à `70c268d`, build 730 (release)
+dans `/Applications`. 997 XCTest (1 ignoré) + 270 Swift Testing, aucun échec. La copie de
+développement de `~/Applications` a été retirée par le script : il n'y a plus qu'une app.
 
-**Ce que la confrontation aux données réelles a corrigé dans la spec.** Trois défauts que
-seule la mesure pouvait révéler, tous arbitrés par l'auteur :
+**Couvert** : fil chronologique unifié à quatre types, colonne d'état fixe (prochain 1:1 avec
+ses points de préparation cochables, engagements soldables, actions, rythme, projets), en-tête
+adaptatif, feuille d'édition `⌘I` complète avec puits photo à cinq entrées, sélecteur d'année,
+export du fil, suppression, navigation clavier (`↑↓`, `␣`, `⏎`, `⌘1`…`⌘5`).
 
-1. **L'en-tête mesurait ce qui n'existe pas.** 8 collaborateurs sur 366 ont eu un
-   tête-à-tête, 349 apparaissent dans une réunion. Les quatre compteurs de suivi affichaient
-   « — 0 0 0 » sur 341 fiches. La **cadence tranche** désormais : un rythme choisi déclare
-   « je suis cette personne » et donne l'en-tête de la maquette ; sinon l'en-tête montre
-   échanges, réunions, décisions.
-2. **« Projets portés » était structurellement vide.** Un seul des 63 projets porte un chef
-   de projet ou un architecte : le rôle est un attribut de la personne, pas une désignation
-   par projet. Le bloc lit désormais l'implication — réunions et actions assignées — et
-   s'appelle « Projets suivis », le calcul ne justifiant pas « portés ».
-3. **38 rôles portaient une adresse mail.** Origine trouvée : `role: attendee.email` dans
-   l'import calendrier (commit `2cb5bf4`, 24 avril). Réparé au démarrage, **par déplacement
-   et non par effacement** — 16 des 38 avaient un champ `email` vide, les vider aurait
-   détruit l'adresse. Vérifié après passage sur le store réel : 0 rôle pollué, 0 adresse
-   perdue. Un second chemin encore vivant a été fermé (`AIIngestionService` écrivait le rôle
-   proposé par le LLM sans le vérifier).
+**Trois manques réels**, tous à la charge d'un prochain chantier :
 
-**Vérifié à l'écran par l'auteur** : l'écran s'affiche, la colonne d'état ne défile pas, le
-clic ouvre la réunion, le retour par le fil d'Ariane fonctionne, et le crash au double-clic a
-disparu. **Non vérifié** : tout le reste, dont les métriques de la spec (42 pt de ligne,
-alignements).
+1. le **tri « Pas vu depuis » du dashboard** n'existe pas — critère d'acceptation n° 9 de la
+   spec ; la cadence n'est lue que par la fiche ;
+2. **`⎋` ne demande jamais confirmation** : la feuille d'édition ne sait pas si elle est
+   modifiée (critère n° 10) ;
+3. **`⌘⌥←/→`** demande de toucher à la barre latérale, donc un autre écran.
 
-**Reste de la spec** : le puits photo n'accepte pas de fichier (glisser, coller, LinkedIn
-inertes), le geste de solde d'un engagement n'a pas de contrôle, le clavier (`⌘1`…`⌘5`,
-`↑↓`, `␣`) n'est pas branché, le graphe d'écart entre 1:1 n'existe pas. Prochaine action :
-le solde d'un engagement, seul manque qui rende un compteur inutilisable.
+**Deux écarts assumés** : `⏎` ouvre la réunion dans sa fenêtre dédiée et non en poussant dans
+la pile — la navigation programmée depuis ce panneau est ce qui avait fait crasher AppKit au
+build 715 ; et les squelettes de chargement n'ont rien à masquer, `@Query` résolvant avant le
+premier rendu.
+
+**⚠️ La plus grande part n'a jamais été vue à l'écran.** Vérifiés par l'auteur : l'affichage,
+la colonne d'état qui ne défile pas, l'ouverture d'une réunion, le retour, l'absence de crash
+au double-clic, la feuille d'édition. **Non vérifiés** : graphe d'écart, cases de préparation,
+sélecteur d'année, export, suppression, tous les raccourcis clavier, et le glisser-déposer
+d'une photo. Prochaine action : une passe à l'écran, spec en main.
+
+**Réparations de données passées au démarrage**, toutes idempotentes et vérifiées sur le store
+réel : 38 rôles portant une adresse mail déplacée vers le champ `email` (0 perte, dont 16 où
+l'adresse n'existait que là), et les réunions dont le drapeau de report de préparation avait
+été posé sans que rien n'ait été versé.
 
 **Deux branches en attente.** `feat/pastille-participant-fil-ariane` : spec validée, plan
 jamais écrit. `feat/fusion-note-reunion` : fusionnée dans `master` ; sa tâche 13 garde huit
