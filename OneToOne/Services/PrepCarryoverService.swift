@@ -93,11 +93,13 @@ extension PrepCarryoverService {
                 verse = true
             }
         case .global, .work, .note:
-            break
+            // Ces types n'ont aucune préparation à recevoir, jamais : fermer
+            // la porte ne leur coûte rien et évite de re-vérifier.
+            meeting.prepDrainDone = true
         }
 
-        // Rien versé, rien à protéger : la chance reste ouverte pour une prep
-        // écrite plus tard.
+        // Ailleurs : rien versé, rien à protéger. La chance reste ouverte pour
+        // une prep écrite plus tard — c'est tout l'objet du correctif.
         if verse { meeting.prepDrainDone = true }
         try? context.save()
         prepLog.info("drain kind=\(meeting.kind.rawValue, privacy: .public) verse=\(verse, privacy: .public) bytes=\(meeting.prepNotes.count)")
