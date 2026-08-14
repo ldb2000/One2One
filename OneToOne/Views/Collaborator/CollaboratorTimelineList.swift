@@ -12,8 +12,15 @@ struct CollaboratorTimelineList: View {
     let meetingFor: (TimelineItem) -> Meeting?
 
     @State private var hovered: String?
+    /// Ligne sélectionnée au clavier. Distincte du survol : la souris et les
+    /// flèches ne se disputent pas la mise en avant.
+    @State private var selection: String?
+    /// Ligne dont l'aperçu est déplié par `␣`.
+    @State private var apercu: String?
+    @FocusState private var focus: Bool
 
     var body: some View {
+        ScrollViewReader { defilement in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
                 if items.isEmpty {
@@ -46,6 +53,49 @@ struct CollaboratorTimelineList: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focus)
+        .onAppear { focus = true }
+        .onKeyPress(.upArrow) { deplacer(-1, defilement) }
+        .onKeyPress(.downArrow) { deplacer(1, defilement) }
+        .onKeyPress(.space) {
+            guard let selection else { return .ignored }
+            apercu = (apercu == selection) ? nil : selection
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            guard apercu != nil else { return .ignored }
+            apercu = nil
+            return .handled
+        }
+        .onKeyPress(.return) {
+            guard let id = selection,
+                  let item = items.first(where: { $0.id == id }),
+                  let meeting = meetingFor(item),
+                  let stable = meeting.stableID
+            else { return .ignored }
+            // Ouvre dans la fenêtre dédiée, pas en poussant dans la pile : la
+            // navigation programmée depuis ce panneau est ce qui avait fait
+            // crasher AppKit (build 715). Le clic, lui, pousse — via
+            // NavigationLink, qui est le patron éprouvé.
+            QuickLaunchRouter.shared.pendingToken =
+                OneToOneLaunchToken(meetingID: stable, autoStartRecording: false)
+            return .handled
+        }
+        }
+    }
+
+    /// Déplace la sélection d'un cran et la garde à l'écran.
+    private func deplacer(_ pas: Int, _ defilement: ScrollViewProxy) -> KeyPress.Result {
+        guard !items.isEmpty else { return .ignored }
+        let rangs = items.map(\.id)
+        let courant = selection.flatMap { rangs.firstIndex(of: $0) }
+        let suivant = min(max((courant ?? -1) + pas, 0), rangs.count - 1)
+        selection = rangs[suivant]
+        apercu = nil
+        withAnimation(.linear(duration: 0.1)) { defilement.scrollTo(rangs[suivant], anchor: .center) }
+        return .handled
     }
 
     /// « Aucun échange enregistré » plutôt qu'une liste vide : l'absence
@@ -77,10 +127,24 @@ struct CollaboratorTimelineList: View {
     }
 
     private func ligneSurvolee(_ item: TimelineItem) -> some View {
-        row(item)
-            .background(RoundedRectangle(cornerRadius: 6)
-                .fill(hovered == item.id ? FicheTokens.rowHover : Color.clear))
-            .onHover { hovered = $0 ? item.id : nil }
+        VStack(alignment: .leading, spacing: 0) {
+            row(item)
+            // `␣` déplie trois lignes sans quitter la fiche.
+            if apercu == item.id {
+                Text(item.subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(FicheTokens.inkSecondary)
+                    .lineLimit(3)
+                    .padding(.leading, 118).padding(.bottom, 6)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(selection == item.id ? FicheTokens.rowHover
+                  : (hovered == item.id ? FicheTokens.rowHover.opacity(0.6) : Color.clear)))
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .stroke(selection == item.id ? FicheTokens.stroke : .clear))
+        .onHover { hovered = $0 ? item.id : nil }
+        .id(item.id)
     }
 
     private func row(_ item: TimelineItem) -> some View {
