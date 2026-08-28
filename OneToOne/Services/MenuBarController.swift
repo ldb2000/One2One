@@ -17,6 +17,14 @@ final class MenuBarController: NSObject {
 
     private weak var container: ModelContainer?
 
+    /// Instance installée, exposée pour que `TeamsAutoRecordCoordinator` puisse
+    /// basculer l'état d'enregistrement sans traverser l'AppDelegate.
+    private(set) static weak var shared: MenuBarController?
+
+    private var isRecording = false
+    private var pulseOn = false
+    private var pulseTimer: Timer?
+
     // MARK: - Popover ivars
 
     private lazy var quickActionPopover = makePopover()
@@ -59,11 +67,11 @@ final class MenuBarController: NSObject {
     /// Installe l'item de barre de menus et branche les sources de
     /// rafraîchissement : agenda calendrier, sauvegardes SwiftData et timer 30 s.
     func install(container: ModelContainer) {
+        Self.shared = self
         self.container = container
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem?.button?.image = NSImage(systemSymbolName: "calendar.badge.clock",
-                                            accessibilityDescription: "OneToOne agenda")
+        applyStatusImage()
         statusItem?.menu = NSMenu()  // populated on refresh
 
         CalendarAgendaService.shared.$eventsToday
@@ -93,9 +101,53 @@ final class MenuBarController: NSObject {
         dbChangeObserver = nil
         if let item = statusItem { NSStatusBar.system.removeStatusItem(item) }
         statusItem = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        isRecording = false
+        if Self.shared === self { Self.shared = nil }
         refreshTimer?.invalidate()
         refreshTimer = nil
         cancellables.removeAll()
+    }
+
+    // MARK: - État d'enregistrement
+
+    /// Symbole SF à afficher. Fonction pure : c'est la règle, pas le rendu.
+    nonisolated static func statusSymbol(isRecording: Bool, pulseOn: Bool) -> String {
+        guard isRecording else { return "calendar.badge.clock" }
+        return pulseOn ? "record.circle.fill" : "record.circle"
+    }
+
+    /// Bascule l'icône en mode enregistrement (rouge, pulse 0,8 Hz) ou la
+    /// rend à l'agenda. Idempotent.
+    func setRecording(_ on: Bool) {
+        guard isRecording != on else { return }
+        isRecording = on
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        pulseOn = on
+        if on {
+            let timer = Timer(timeInterval: 0.625, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.pulseOn.toggle()
+                    self.applyStatusImage()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            pulseTimer = timer
+        }
+        applyStatusImage()
+    }
+
+    /// Applique le symbole courant, teinté en rouge pendant l'enregistrement.
+    private func applyStatusImage() {
+        guard let button = statusItem?.button else { return }
+        let name = Self.statusSymbol(isRecording: isRecording, pulseOn: pulseOn)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription:
+                                isRecording ? "Enregistrement en cours" : "OneToOne agenda")
+        button.image = image
+        button.contentTintColor = isRecording ? .systemRed : nil
     }
 
     // MARK: - Refresh
@@ -108,7 +160,7 @@ final class MenuBarController: NSObject {
         let settings = currentSettings()
         guard settings?.menubarEnabled ?? true else {
             item.button?.title = ""
-            item.button?.image = NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: nil)
+            applyStatusImage()
             item.menu = buildMenu(settings: settings)
             return
         }
@@ -161,6 +213,14 @@ final class MenuBarController: NSObject {
     private func buildMenu(settings: AppSettings?) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+
+        if isRecording {
+            let item = NSMenuItem(title: "Ouvrir la réunion en cours",
+                                  action: #selector(openActiveRecording), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
 
         // --- Header
         let header = NSMenuItem(title: dayHeader(Date()), action: nil, keyEquivalent: "")
@@ -524,6 +584,15 @@ final class MenuBarController: NSObject {
             onDismiss: { [weak self] in self?.urgentActionPopover.performClose(nil) }
         ))
         show(urgentActionPopover, content: host)
+    }
+
+    /// Ouvre la réunion dont l'enregistrement est en cours (spec §4, clic sur
+    /// l'icône rouge).
+    @objc private func openActiveRecording() {
+        guard let meetingID = AudioRecorderService.shared.activeMeetingID else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
+            meetingID: meetingID, autoStartRecording: false)
     }
 
     private func openMeeting(_ meeting: Meeting) {
