@@ -213,6 +213,15 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertEqual(outbound, [.reportFailedPopup(meetingID: meetingID)])
     }
 
+    func test_recordingFailure_returnsToIdle_andTurnsOffMenuBar() throws {
+        let meetingID = try startRecording()
+        outbound = []
+        coordinator.recordingDidFail(meetingID: meetingID)
+        XCTAssertEqual(coordinator.phase, .idle)
+        XCTAssertEqual(outbound, [.menuBarRecording(false)])
+        XCTAssertNil(coordinator.consumePendingRequest(for: meetingID), "La demande .startRecording est retirée")
+    }
+
     func test_deletionDuringRecording_stopsWithoutAskingTheWindow() throws {
         let meetingID = try startRecording()
         outbound = []

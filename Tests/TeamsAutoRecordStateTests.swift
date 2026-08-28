@@ -140,4 +140,20 @@ struct TeamsAutoRecordStateTests {
         #expect(phase == .idle)
         #expect(effects.isEmpty)
     }
+
+    @Test("Une capture qui n'a pas pu démarrer rend la machine et éteint l'icône")
+    func recordingFailureReturnsToIdle() {
+        for phase in [TeamsAutoRecordPhase.recording, .callEnded] {
+            let (next, effects) = reduce(phase, .recordingFailed)
+            #expect(next == .idle)
+            #expect(effects == [.setMenuBarRecording(false)])
+        }
+    }
+
+    @Test("Un échec de capture découvert à la finalisation rend la machine sans effet")
+    func recordingFailureDuringFinalizingReturnsToIdle() {
+        let (next, effects) = reduce(.finalizing, .recordingFailed)
+        #expect(next == .idle)
+        #expect(effects.isEmpty)
+    }
 }

@@ -19,6 +19,8 @@ enum TeamsAutoRecordEvent: Equatable {
     /// Un des trois déclencheurs de §3 a conclu à un appel.
     case callDetected(eventID: String)
     case userStarted
+    /// La capture n'a pas pu démarrer, ou n'appartient pas à cette réunion.
+    case recordingFailed
     case userDismissed
     case userSnoozed
     case snoozeElapsed(eventID: String)
@@ -115,6 +117,15 @@ enum TeamsAutoRecordState {
         case (.finalizing, .meetingDeleted), (.readyForAI, .meetingDeleted), (.reporting, .meetingDeleted):
             // La capture est déjà arrêtée ; il n'y a plus rien à demander à
             // une fenêtre qui n'existe plus. On rend simplement la machine.
+            return (.idle, [])
+
+        case (.recording, .recordingFailed), (.callEnded, .recordingFailed):
+            // Pas de capture : rien à finaliser, on éteint l'icône et on rend la machine.
+            return (.idle, [.setMenuBarRecording(false)])
+
+        case (.finalizing, .recordingFailed):
+            // La fenêtre nous dit qu'aucune capture ne lui appartient : l'icône
+            // est déjà éteinte, on rend simplement la machine.
             return (.idle, [])
 
         default:

@@ -1467,6 +1467,7 @@ struct MeetingView: View {
     private func startRecording() async {
         if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
             recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
+            TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
             return
         }
         // Ouvre le flux live AVANT de démarrer le recorder (la continuation doit
@@ -1498,6 +1499,9 @@ struct MeetingView: View {
             // Défense : no-op si begin() n'a jamais démarré (start() a throw
             // avant qu'on ne lance la consommation du flux live).
             LiveTranscriptionService.shared.abort()
+            // Sans ce signal le coordinateur resterait en `.recording` sur une
+            // capture qui n'existe pas, puis en `.finalizing` pour toujours.
+            TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
         }
     }
 
@@ -1602,6 +1606,7 @@ struct MeetingView: View {
     private func stopRecordingAndTranscribe() async {
         guard recorder.activeMeetingID == nil || recorder.activeMeetingID == meeting.stableID else {
             recorder.lastError = "Cet enregistrement appartient à une autre réunion."
+            TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
             return
         }
         guard let stopped = recorder.stop() else { return }
@@ -1838,9 +1843,15 @@ struct MeetingView: View {
                 )
                 await MainActor.run {
                     self.apply(report: result)
+                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
+                        meetingID: self.meeting.ensuredStableID, succeeded: true)
                 }
             } catch {
                 print("[Rapport] génération échec: \(error)")
+                await MainActor.run {
+                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
+                        meetingID: self.meeting.ensuredStableID, succeeded: false)
+                }
             }
         }
     }
@@ -2829,7 +2840,6 @@ struct MeetingView: View {
         // même réunion dans l'autre fenêtre.
         isBeingDeleted = true
         MeetingScreenRegistry.shared.markDeleted(meeting.persistentModelID)
-        TeamsAutoRecordCoordinator.shared.meetingWasDeleted(meetingID: meeting.ensuredStableID)
         if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
             _ = recorder.stop()
             // recorder.stop() clôt le flux audio : end() peut drainer sans
@@ -2840,6 +2850,12 @@ struct MeetingView: View {
                 Task { _ = await LiveTranscriptionService.shared.end() }
             }
         }
+        // Après notre propre démontage, jamais avant : prévenir le
+        // coordinateur ici l'aurait fait couper la capture lui-même
+        // (effet `.stopRecording`), et la garde ci-dessus, déjà fausse,
+        // aurait sauté le drain du flux live — dont les segments seraient
+        // réapparus dans la transcription de la réunion suivante.
+        TeamsAutoRecordCoordinator.shared.meetingWasDeleted(meetingID: meeting.ensuredStableID)
         let target = meeting
         let ctx = context
         // Retrait de l'index Spotlight synchrone et avant dismiss() : au-delà

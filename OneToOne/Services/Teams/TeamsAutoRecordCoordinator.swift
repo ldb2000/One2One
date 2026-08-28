@@ -210,6 +210,13 @@ final class TeamsAutoRecordCoordinator {
         handle(succeeded ? .reportSucceeded : .reportFailed)
     }
 
+    /// La fenêtre n'a pas pu démarrer la capture, ou a constaté qu'aucune
+    /// capture ne lui appartient. Ignoré pour toute autre réunion.
+    func recordingDidFail(meetingID: UUID) {
+        guard meetingID == currentMeetingID else { return }
+        handle(.recordingFailed)
+    }
+
     /// La réunion du parcours a été supprimée par l'utilisateur.
     func meetingWasDeleted(meetingID: UUID) {
         guard meetingID == currentMeetingID else { return }
