@@ -109,6 +109,8 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertEqual(meeting.calendarEventID, "EVT-1")
         XCTAssertEqual(meeting.title, "Comité hebdo")
         XCTAssertNotNil(meeting.teamsJoinURL)
+        XCTAssertEqual(coordinator.consumePendingRequest(for: meetingID), .startRecording)
+        XCTAssertNil(coordinator.consumePendingRequest(for: meetingID))
         XCTAssertEqual(Array(outbound.suffix(2)), [
             .openWindow(meetingID: meetingID, autoStartRecording: true),
             .menuBarRecording(true)

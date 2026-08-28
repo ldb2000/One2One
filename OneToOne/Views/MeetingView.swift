@@ -369,9 +369,15 @@ struct MeetingView: View {
         .onAppear {
             MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
             applyActionDraftDefaultsIfNeeded()
+            consumeTeamsRequestIfAny()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
             didAutoStart = true
             Task { await startRecording() }
+        }
+        // Une demande déposée alors que cette fenêtre est déjà montée.
+        .onReceive(NotificationCenter.default.publisher(
+            for: TeamsAutoRecordCoordinator.meetingRequestNotification)) { _ in
+            consumeTeamsRequestIfAny()
         }
         .focusedSceneValue(\.meetingMenu, makeMenuActions())
         // Indexation Spotlight à la fermeture, pas à la sauvegarde : l'éditeur
@@ -453,6 +459,7 @@ struct MeetingView: View {
         guard NoteFactory.isDiscardableEmptyNote(meeting) else { return false }
         isBeingDeleted = true
         MeetingScreenRegistry.shared.markDeleted(id)
+        TeamsAutoRecordCoordinator.shared.meetingWasDeleted(meetingID: meeting.ensuredStableID)
         saveDebounceTask?.cancel()
         let target = meeting
         let ctx = context
@@ -644,6 +651,9 @@ struct MeetingView: View {
                     )
                     self.activeSection = .transcript
                     self.saveContext()
+                    TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
+                        meetingID: self.meeting.ensuredStableID,
+                        segmentCount: result.segments.count)
                 }
                 print("[MeetingView] retranscribe OK: \(result.text.count) chars, \(result.segments.count) segments")
                 // Enchaîne la génération du rapport « dans la foulée » si demandé
@@ -662,6 +672,8 @@ struct MeetingView: View {
                 await MainActor.run {
                     self.transcribeError = error.localizedDescription
                     self.transcriptionPhase = .error(error.localizedDescription)
+                    TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
+                        meetingID: self.meeting.ensuredStableID, segmentCount: 0)
                 }
                 print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
                 throw error
@@ -1434,6 +1446,24 @@ struct MeetingView: View {
 
     // MARK: - Recording actions
 
+    /// Le coordinateur Teams ne possède pas le pipeline de démarrage / arrêt
+    /// / transcription / rapport : il dépose une demande, et cette fenêtre —
+    /// si c'est la sienne — la consomme une seule fois et exécute son propre
+    /// chemin. `consumePendingRequest` renvoie `nil` pour toute autre réunion.
+    private func consumeTeamsRequestIfAny() {
+        guard let request = TeamsAutoRecordCoordinator.shared
+            .consumePendingRequest(for: meeting.ensuredStableID) else { return }
+        switch request {
+        case .startRecording:
+            // Même garde que le démarrage automatique : jamais deux captures.
+            guard !didAutoStart, !recorder.isRecording else { return }
+            didAutoStart = true
+            Task { await startRecording() }
+        case .stopAndFinalize: Task { await stopRecordingAndTranscribe() }
+        case .generateReport:  Task { await generateReport() }
+        }
+    }
+
     private func startRecording() async {
         if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
             recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
@@ -1632,11 +1662,15 @@ struct MeetingView: View {
         guard fileSize > 44 else {
             transcribeError = "Fichier audio vide (\(fileSize) octets). Enregistrement échoué."
             print("[MeetingView] WAV invalide: \(fileSize) octets")
+            TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
+                meetingID: meeting.ensuredStableID, segmentCount: 0)
             return
         }
         guard totalDuration >= 1.0 else {
             transcribeError = "Enregistrement trop court (\(String(format: "%.1f", totalDuration))s). STT désactivé."
             print("[MeetingView] durée trop courte: \(totalDuration)s")
+            TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
+                meetingID: meeting.ensuredStableID, segmentCount: 0)
             return
         }
 
@@ -1708,10 +1742,17 @@ struct MeetingView: View {
             )
             activeSection = .transcript
             saveContext()
+            // Les deux branches ci-dessus (finalisation live et re-STT batch)
+            // convergent ici : un seul compte rendu par transcription tentée.
+            TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
+                meetingID: meeting.ensuredStableID,
+                segmentCount: result.segments.count)
         } catch {
             transcribeError = error.localizedDescription
             transcriptionPhase = .error(error.localizedDescription)
             print("[MeetingView] transcribe FAILED: \(error.localizedDescription)")
+            TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
+                meetingID: meeting.ensuredStableID, segmentCount: 0)
         }
     }
 
@@ -1843,7 +1884,11 @@ struct MeetingView: View {
             print("[Rapport] génération déjà en cours, abort")
             return
         }
-        guard !meeting.rawTranscript.isEmpty else { return }
+        guard !meeting.rawTranscript.isEmpty else {
+            TeamsAutoRecordCoordinator.shared.reportDidFinish(
+                meetingID: meeting.ensuredStableID, succeeded: false)
+            return
+        }
 
         // Refresh merged transcript au cas où l'utilisateur a édité les notes.
         meeting.mergedTranscript = NoteMergeService.merge(
@@ -1912,6 +1957,8 @@ struct MeetingView: View {
                     self.meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
                     self.saveContext()
                     self.activeSection = .report
+                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
+                        meetingID: self.meeting.ensuredStableID, succeeded: true)
                 }
 
                 // Suggestion de thèmes post-rapport (non bloquant pour l'UI,
@@ -1927,9 +1974,19 @@ struct MeetingView: View {
                     }
                 }
             } catch is CancellationError {
+                // Une annulation laisse la réunion prête à retenter : le
+                // coordinateur la traduit par le popup « Rapport non généré ».
+                await MainActor.run {
+                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
+                        meetingID: self.meeting.ensuredStableID, succeeded: false)
+                }
                 throw CancellationError()
             } catch {
-                await MainActor.run { self.reportError = error.localizedDescription }
+                await MainActor.run {
+                    self.reportError = error.localizedDescription
+                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
+                        meetingID: self.meeting.ensuredStableID, succeeded: false)
+                }
                 throw error
             }
         }
@@ -2772,6 +2829,7 @@ struct MeetingView: View {
         // même réunion dans l'autre fenêtre.
         isBeingDeleted = true
         MeetingScreenRegistry.shared.markDeleted(meeting.persistentModelID)
+        TeamsAutoRecordCoordinator.shared.meetingWasDeleted(meetingID: meeting.ensuredStableID)
         if recorder.isRecording, recorder.activeMeetingID == meeting.stableID {
             _ = recorder.stop()
             // recorder.stop() clôt le flux audio : end() peut drainer sans

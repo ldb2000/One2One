@@ -21,6 +21,7 @@ final class TeamsAutoRecordCoordinator {
 
     /// Ce que le coordinateur demande à la fenêtre de réunion.
     enum MeetingRequest: Equatable {
+        case startRecording
         case stopAndFinalize
         case generateReport
     }
@@ -301,6 +302,11 @@ final class TeamsAutoRecordCoordinator {
         let stableID = meeting.ensuredStableID
         currentMeetingID = stableID
         lastHandledEventID = event.id
+        // Fenêtre déjà ouverte ou pas : la demande couvre les deux cas, le
+        // token `autoStartRecording` ne couvre que l'ouverture.
+        pendingRequest = (stableID, .startRecording)
+        NotificationCenter.default.post(name: Self.meetingRequestNotification, object: nil,
+                                        userInfo: ["meetingID": stableID.uuidString])
         deliver(.openWindow(meetingID: stableID, autoStartRecording: true))
     }
 
