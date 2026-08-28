@@ -2288,10 +2288,49 @@ foi ; les tâches restent telles qu'écrites pour la traçabilité.
 - **§3, déclencheur 3** : `willPresent` conservé, doublé d'une horloge de 30 s dans le coordinateur.
 - **`swift test --skip CalendarImportEventTests`** : le `--skip` est devenu inutile (voir tâche 7).
 
+### Vague de correction après revue de branche
+
+La revue finale de branche a rendu « No — with fixes » : cinq constats, soldés en une vague
+unique (commits `5c999e1` et suivant).
+
+- **C1 — identité d'une occurrence.** EventKit déplie une série récurrente en un `EKEvent` par
+  occurrence, mais toutes portent le même `calendarItemIdentifier`. Deux conséquences : le point
+  hebdomadaire n'était proposé qu'une seule fois (`handledEventIDs` bloquait toutes les
+  occurrences suivantes), et après une relance « Démarrer » → `importEvent` →
+  `findExisting(calendarEventID)` rendait la réunion de la semaine précédente, que
+  l'enregistrement écrasait (`wavFilePath`, segments, `rawTranscript`, rapport). L'identité
+  d'une réunion est désormais le couple (identifiant, date de début) :
+  `findExisting(eventID:startDate:)` côté import, `occurrenceKey(_:)` pour `handledEventIDs` et
+  `linkProposedEventIDs` côté coordinateur.
+- **I1 — un popup sans réponse ne bloque plus la session.** Une bannière laissée expirer
+  n'émet aucun `didReceive` : `.detected`, `.snoozed` et `.readyForAI` étaient définitifs.
+  Le réducteur accepte maintenant `callDetected` depuis ces trois phases (supersession, même
+  identifiant de requête de notification → la bannière précédente disparaît), et `detected(_:)`
+  arbitre par un `switch` explicite sur la phase au lieu d'un `reduce` à blanc. `.finalizing`
+  et `.reporting` restent inertes : un travail est en cours.
+- **I2 — l'horloge est gardée sur Teams.** Le tick de 30 s appariait l'agenda que Teams tourne
+  ou non, donc proposait tout événement Teams à T−2 min ; couplé à I1, un seul popup ignoré
+  gelait la fonctionnalité. `TeamsCallMonitor.isTeamsRunning()` (registre des applications,
+  aucune permission) garde désormais le déclencheur : sans Teams, l'heure de début est un
+  simple rappel, que `MEETING_START` couvre déjà. Non testable unitairement (état système).
+- **I3 — double démarrage sur la même réunion.** Le `catch` de `MeetingView.startRecording()`
+  signalait `recordingDidFail` sur n'importe quelle erreur, `AudioError.alreadyRecording`
+  comprise : le perdant de la course ramenait la machine à `.idle` alors que la capture du
+  gagnant tournait. Le signal n'est émis que si `recorder.isRecording(for:)` est faux.
+- **I4 — plus de balayage à 1 Hz.** `TeamsCallMonitor` échantillonne à 5 s au repos et à 1 s
+  seulement pendant la confirmation d'un candidat (`.observing`) ; les notifications
+  `NSWorkspace` continuent de déclencher un tick immédiat, donc l'activation de Teams reste
+  détectée sur-le-champ. Avec 5 s de stabilité et 30 s d'absence, la latence pire cas ne croît
+  que d'un tick lent. Le non-objectif §1 de la spec est amendé en conséquence.
+- **Mode dégradé.** Hors bundle `.app`, `MeetingNotificationService` compare désormais
+  `pathExtension.lowercased()` et trace une fois en `.warning` que les notifications système
+  sont désactivées, au lieu de rester totalement muet.
+
 ### Reports connus (revues de tâches, non bloquants)
 
 Consignés dans `STATUS.md` : aucun timeout par phase dans le coordinateur ; l'icône de barre de
 menus est pilotée par le coordinateur plutôt que par l'état réel du recorder ;
-`TeamsCallMonitor.stop()` n'annule pas un tick en vol ; mode dégradé silencieux hors `.app` ;
-un double démarrage sur la même réunion signale `recordingDidFail` ; un « Retenter » dont le
-`.wav` a disparu échoue silencieusement.
+`TeamsCallMonitor.stop()` n'annule pas un tick en vol ; un « Retenter » dont le `.wav` a disparu
+échoue silencieusement ; un popup de liaison périmé (3e événement) n'est pas comparé au candidat
+courant. Le double démarrage (`recordingDidFail`) et le mode dégradé muet hors `.app` ont été
+soldés par la vague de correction ci-dessus.

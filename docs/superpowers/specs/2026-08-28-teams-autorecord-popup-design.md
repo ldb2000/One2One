@@ -59,10 +59,11 @@ work »). Voir §2.
 - Pas d'intégration au chat Teams (lecture/envoi de messages).
 - Pas d'appel sortant via Teams (`TeamsLauncher` reste pour rejoindre
   manuellement, comme dans la spec v1).
-- Pas de balayage périodique des fenêtres. L'énumération
+- Pas de balayage des fenêtres à haute fréquence : l'énumération
   `SCShareableContent` n'est consultée que si la permission
-  d'enregistrement d'écran est **déjà** accordée ; sans elle, la
-  surveillance se limite au premier plan. Voir §3.
+  d'enregistrement d'écran est **déjà** accordée, toutes les 5 s au repos et
+  toutes les secondes seulement pendant la confirmation d'un candidat ; sans
+  permission, la surveillance se limite au premier plan. Voir §3.
 
 ## 2. Décisions (et rapport à la spec v1)
 

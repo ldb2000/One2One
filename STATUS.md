@@ -1,16 +1,20 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-14 CEST
+Dernière mise à jour : 2026-08-28 CEST
 
 ## Teams auto-record — détection & orchestration (plan 1/2) (2026-08-28)
 
 - **État** : les tâches 1 à 8 du plan `docs/superpowers/plans/2026-08-28-teams-autorecord-detection-orchestration.md`
   sont implémentées et revues sur la branche `feat/teams-autorecord-popup` — détection pure,
-  appariement agenda, moniteur `NSWorkspace` + énumération opportuniste, neuf catégories de
-  notification, machine à états pure, icône de barre de menus, coordinateur (trois
-  déclencheurs + horloge 30 s), `MeetingView` qui consomme les demandes et rend compte,
+  appariement agenda, moniteur `NSWorkspace` + énumération opportuniste, cinq catégories de
+  notification Teams (neuf enregistrées au total), machine à états pure, icône de barre de
+  menus, coordinateur (trois déclencheurs + horloge 30 s gardée sur Teams en cours
+  d'exécution), `MeetingView` qui consomme les demandes et rend compte,
   concurrence (liaison), garde provider IA, popup STT indisponible avec « Retenter le STT »
-  qui relance la transcription. Micro seul : la double piste est le plan 2.
+  qui relance la transcription. Micro seul : la double piste est le plan 2. La revue de branche
+  a été soldée par une vague de correction unique (identité par occurrence pour les réunions
+  récurrentes, popup remplacé plutôt que bloquant, horloge gardée sur Teams, tick lent au
+  repos) — voir le « Journal d'exécution » du plan.
 - **Vérifié** : `swift test` complet — **le `--skip CalendarImportEventTests` n'est plus
   nécessaire** depuis que `MeetingNotificationService` n'instancie `UNUserNotificationCenter`
   que dans un bundle `.app` (`Bundle.main.bundleURL.pathExtension == "app"`, sinon `center`
@@ -21,8 +25,12 @@ Dernière mise à jour : 2026-08-14 CEST
   entrée pour le process `OneToOne` — donc aucune erreur ; l'app quitte proprement via
   `osascript` (`pgrep` négatif ensuite) ; aucun rapport dans
   `~/Library/Logs/DiagnosticReports/`.
-- **Prochaine action — partenaire, à l'écran** (cinq scénarios, aucun n'est faisable par un
+- **Prochaine action — partenaire, à l'écran** (sept scénarios, aucun n'est faisable par un
   agent — il faut un vrai appel Microsoft Teams et un calendrier vivant) :
+  0a. Réunion récurrente, deuxième occurrence : le popup est proposé et « Démarrer » crée une
+     nouvelle réunion (pas d'écrasement de la précédente).
+  0b. Bannière ignorée : laisser expirer le popup, attendre l'appel suivant → il est proposé
+     (le précédent est remplacé).
   1. Détection + démarrage : événement Teams à +1 min dans le calendrier, fenêtre Teams au
      premier plan avec « Réunion » dans le titre, 5 s → popup ; « Démarrer » crée, ouvre,
      enregistre, icône rouge pulsante.
@@ -33,12 +41,12 @@ Dernière mise à jour : 2026-08-14 CEST
      rapport dans la réunion, éditable.
   5. Sans permission d'enregistrement d'écran : « Rejoindre Teams » depuis OneToOne → le
      déclencheur 2 propose quand même (D-11).
-
   Puis : plan 2 (`2026-08-28-teams-autorecord-double-piste-audio.md`).
 - **Défauts connus / reports** (issus des revues, non bloquants) : l'icône de barre de menus
   est pilotée par le coordinateur, pas par l'état réel du recorder ; aucun timeout si la
   fenêtre ne rend jamais compte ; `TeamsCallMonitor.stop()` n'annule pas un tick en vol ; le
-  mode dégradé sans `UNUserNotificationCenter` (binaire hors `.app`) est silencieux ; la trace
+  mode dégradé sans `UNUserNotificationCenter` (binaire hors `.app`) reste invisible pour
+  l'utilisateur — il n'est tracé qu'en `.warning` dans le log système ; la trace
   « Source : Outlook Calendar » de la spec §5 n'est pas écrite (`summary` est le corps du
   rapport, écrasé à la génération — `calendarEventID`/`calendarEventTitle` portent le lien).
 
