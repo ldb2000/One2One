@@ -88,6 +88,13 @@ enum TeamsAutoRecordState {
         case (.callEnded, .meetingDeleted):
             return (.idle, [.stopRecording, .setMenuBarRecording(false)])
 
+        case (.recording, .transcriptionFinalized(let count)),
+             (.callEnded, .transcriptionFinalized(let count)):
+            // Arrêt manuel depuis la fenêtre, puis transcription : on rejoint
+            // le parcours sans repasser par le popup de fin d'appel.
+            return (.readyForAI, [.setMenuBarRecording(false),
+                                  .emitTranscriptReadyNotification(segmentCount: count)])
+
         case (.finalizing, .transcriptionFinalized(let count)):
             return (.readyForAI, [.emitTranscriptReadyNotification(segmentCount: count)])
 

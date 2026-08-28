@@ -6,6 +6,11 @@ import AppKit
 /// No MS Graph, no auth — just URL scheme rewriting.
 enum TeamsLauncher {
 
+    /// Émise quand l'utilisateur rejoint explicitement un appel Teams depuis
+    /// OneToOne — déclencheur 2 de la spec §3. Signal sans faux positif :
+    /// contrairement à la surveillance de fenêtres, l'intention est certaine.
+    static let didJoinNotification = Notification.Name("OneToOne.TeamsLauncher.didJoin")
+
     /// Point d'entrée public — fire-and-forget.
     /// Parse `urlString`, tente la réécriture vers le scheme `msteams:` (app
     /// desktop) et ouvre l'URL via `NSWorkspace`. Si l'URL n'est pas une URL de
@@ -14,6 +19,7 @@ enum TeamsLauncher {
     static func open(_ urlString: String) {
         guard let parsed = URL(string: urlString) else { return }
         NSWorkspace.shared.open(rewriteToMSTeams(parsed) ?? parsed)
+        NotificationCenter.default.post(name: didJoinNotification, object: nil)
     }
 
     /// Réécrit `https://teams.microsoft.com/l/meetup-join/...` en

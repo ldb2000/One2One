@@ -18,6 +18,14 @@ enum STTEngineKind: String, Codable, CaseIterable, Sendable {
     case qwen3
 }
 
+/// Sources audio capturées pour une réunion Teams.
+enum TeamsAudioCaptureMode: String, Codable, CaseIterable, Sendable {
+    /// Micro seul — mode de repli quand la permission écran est refusée.
+    case microOnly
+    /// Micro + audio système de Teams, mixés (spec §6.1).
+    case microAndSystem
+}
+
 enum AIProvider: String, Codable, CaseIterable {
     /// LLM exécuté localement en MLX, directement dans le process (≠ Ollama
     /// qui passe par un serveur HTTP). Cf. `DirectLLMClient`.
@@ -156,6 +164,20 @@ final class AppSettings {
 
     /// Notifier à la fin de la réunion.
     var notifMeetingEnd: Bool = true
+
+    /// Arme le parcours Teams auto-record (spec §7). Pas d'interface en v2 :
+    /// la clé existe pour désactiver le système en cas de besoin.
+    var teamsAutoRecordEnabled: Bool = true
+
+    /// Mode de capture souhaité pour les réunions Teams. Stocké en `…Raw`
+    /// (contournement du bug SwiftData sur les énumérations persistées).
+    /// Bascule automatiquement à `.microOnly` si la permission écran est
+    /// refusée. Consommé par le plan 2 (double piste).
+    var teamsAudioCaptureModeRaw: String = TeamsAudioCaptureMode.microAndSystem.rawValue
+    var teamsAudioCaptureMode: TeamsAudioCaptureMode {
+        get { TeamsAudioCaptureMode(rawValue: teamsAudioCaptureModeRaw) ?? .microAndSystem }
+        set { teamsAudioCaptureModeRaw = newValue.rawValue }
+    }
 
     /// Seuil de confiance pour l'importation automatique (0.0 à 1.0).
     var autoImportThreshold: Double = 0.9

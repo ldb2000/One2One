@@ -8,7 +8,17 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
 
     static let shared = MeetingNotificationService()
 
-    private let center = UNUserNotificationCenter.current()
+    /// `UNUserNotificationCenter.current()` lève une `NSInternalInconsistencyException`
+    /// (« bundleProxyForCurrentProcess is nil ») quand le process n'est pas une
+    /// application : c'est le cas du binaire de test, dont le `mainBundle` est
+    /// `/Applications/Xcode.app/Contents/Developer/usr/bin/`. L'exception n'est
+    /// pas rattrapable depuis Swift — elle abattait tout l'hôte de test dès
+    /// qu'un test atteignait ce service, d'où le `--skip CalendarImportEventTests`
+    /// historique. On ne l'instancie donc que si le bundle principal est bien un
+    /// `.app` ; ailleurs le service devient un no-op silencieux. En production
+    /// (`OneToOne.app`) le comportement est strictement inchangé.
+    private let center: UNUserNotificationCenter? =
+        Bundle.main.bundleURL.pathExtension == "app" ? UNUserNotificationCenter.current() : nil
 
     enum Category {
         static let preStart = "MEETING_PRE_START"  // Outlook-style "starts in N min"
@@ -54,6 +64,10 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     /// `userInfo` porte `actionID: String` et, si connue, `meetingID: String`.
     static let teamsActionNotification = Notification.Name("OneToOne.MeetingNotificationService.teamsAction")
 
+    /// Posted quand une notification `MEETING_START` est présentée — sert de
+    /// déclencheur 3 au parcours Teams auto-record.
+    static let meetingStartReachedNotification = Notification.Name("OneToOne.MeetingNotificationService.meetingStartReached")
+
     /// Posted when the user taps "Open" on a meeting notification. UserInfo
     /// carries `meetingID` (PersistentIdentifier.storeIdentifier as String).
     static let openMeetingNotification = Notification.Name("OneToOne.MeetingNotificationService.openMeeting")
@@ -64,11 +78,12 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
 
     override init() {
         super.init()
-        center.delegate = self
+        center?.delegate = self
         registerCategories()
     }
 
     func requestAuthorization() async -> Bool {
+        guard let center else { return false }
         do {
             return try await center.requestAuthorization(
                 options: [.alert, .sound, .badge]
@@ -144,7 +159,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     /// start, endWarning, end). Idempotent — sûr à appeler à tout moment.
     func cancel(for meeting: Meeting) {
         let base = idPrefix(for: meeting)
-        center.removePendingNotificationRequests(withIdentifiers: [
+        center?.removePendingNotificationRequests(withIdentifiers: [
             base + ".preStart",
             base + ".start",
             base + ".endWarning",
@@ -172,6 +187,13 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        // Déclencheur 3 de la spec §3 : l'heure de début d'une réunion arrive.
+        // Le coordinateur décidera s'il existe un événement Teams apparié.
+        if notification.request.content.categoryIdentifier == Category.start {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: Self.meetingStartReachedNotification, object: nil)
+            }
+        }
         completionHandler([.banner, .sound])
     }
 
@@ -232,7 +254,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     func snoozePreStart(meeting: Meeting) {
         let baseID = idPrefix(for: meeting)
         let id = baseID + ".preStart.snooze"
-        center.removePendingNotificationRequests(withIdentifiers: [id])
+        center?.removePendingNotificationRequests(withIdentifiers: [id])
         var userInfo: [AnyHashable: Any] = [
             "meetingID": meeting.ensuredStableID.uuidString
         ]
@@ -260,7 +282,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false)
         let id = "recording.start.\(UUID().uuidString)"
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error { print("[MeetingNotificationService] recording: \(error)") }
         }
     }
@@ -291,6 +313,16 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                   suffix: "teams.transcript")
     }
 
+    /// Bannière d'échec du rapport, sans action : la réunion reste prête et
+    /// l'utilisateur peut retenter depuis sa fenêtre (spec §10).
+    func notifyTeamsReportFailed(meetingStableID: String) {
+        postTeams(category: Category.recording,
+                  title: "Rapport non généré",
+                  body: "Le provider IA n'a pas pu générer le rapport. Tu peux le retenter plus tard depuis la réunion.",
+                  meetingStableID: meetingStableID,
+                  suffix: "teams.report-failed")
+    }
+
     /// Émission commune. Le `requestIdentifier` est dérivé du `stableID` de la
     /// réunion — **pas** de `persistentModelID`, que le modèle documente comme
     /// inutilisable en identifiant externe. Réémettre la même catégorie pour la
@@ -308,7 +340,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         let request = UNNotificationRequest(
             identifier: id, content: content,
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false))
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error { print("[MeetingNotificationService] teams: \(error)") }
         }
     }
@@ -316,7 +348,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     // MARK: - Internals
 
     private func registerCategories() {
-        center.setNotificationCategories(Set(Self.makeCategories()))
+        center?.setNotificationCategories(Set(Self.makeCategories()))
     }
 
     /// Catalogue **unique** des catégories de l'application.
@@ -395,7 +427,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         )
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error { print("[MeetingNotificationService] schedule \(id): \(error)") }
         }
     }

@@ -104,6 +104,20 @@ struct TeamsAutoRecordStateTests {
         #expect(effects == [.stopRecording, .setMenuBarRecording(false)])
     }
 
+    @Test("Un arrêt manuel suivi d'une transcription rejoint le parcours sans popup de fin")
+    func manualStopThenTranscriptionSkipsEndedPopup() {
+        let (phase, effects) = reduce(.recording, .transcriptionFinalized(segmentCount: 7))
+        #expect(phase == .readyForAI)
+        #expect(effects == [.setMenuBarRecording(false), .emitTranscriptReadyNotification(segmentCount: 7)])
+    }
+
+    @Test("Une transcription arrivée pendant le popup de fin d'appel le rend caduc")
+    func transcriptionDuringCallEndedProceeds() {
+        let (phase, effects) = reduce(.callEnded, .transcriptionFinalized(segmentCount: 3))
+        #expect(phase == .readyForAI)
+        #expect(effects == [.setMenuBarRecording(false), .emitTranscriptReadyNotification(segmentCount: 3)])
+    }
+
     @Test("Une détection pendant un enregistrement en cours ne relance rien")
     func detectionDuringRecordingIsIgnored() {
         let (phase, effects) = reduce(.recording, .callDetected(eventID: "EVT-2"))

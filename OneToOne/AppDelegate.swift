@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBar.install(container: container)
 
+        // Parcours Teams auto-record : trois déclencheurs, une machine à états.
+        TeamsAutoRecordCoordinator.shared.start(container: container)
+
         // Re-arm pending notifs on launch (reboot resilience)
         let context = container.mainContext
         if let settings = (try? context.fetch(FetchDescriptor<AppSettings>()))?.first {
@@ -96,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         notifObservers.forEach(NotificationCenter.default.removeObserver)
         notifObservers.removeAll()
+        TeamsAutoRecordCoordinator.shared.stop()
         menuBar.uninstall()
     }
 
