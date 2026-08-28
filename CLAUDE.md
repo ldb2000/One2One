@@ -82,9 +82,9 @@ Le module vit dans `OneToOne/Markdown/` : TextKit 1, **le markdown reste la sour
 
 1. Lire `STATUS.md` avant de commencer.
 2. Une PR = une intention. Si le périmètre dérive, s'arrêter et me demander.
-3. `swift test --skip CalendarImportEventTests` avant de proposer la PR.
-   (Le `--skip` évite un crash d'environnement hors bundle applicatif ;
-   voir les échecs préexistants listés dans `STATUS.md`.)
+3. `swift test` avant de proposer la PR. (Le `--skip CalendarImportEventTests`
+   historique n'est plus nécessaire depuis que `MeetingNotificationService`
+   n'instancie `UNUserNotificationCenter` que dans un bundle `.app`.)
 4. Mettre à jour `STATUS.md` en fin de session : état, prochaine action, date.
 5. Pas de dépendance nouvelle sans justification dans la PR.
 6. En cas de doute sur un choix structurant : proposer, ne pas décider.
