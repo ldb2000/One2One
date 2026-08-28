@@ -163,6 +163,18 @@ enum TeamsAutoRecordState {
             // rendra compte comme après un arrêt.
             return (.finalizing, [.retryTranscription])
 
+        case (.detected, .callDetected(let eventID)),
+             (.snoozed, .callDetected(let eventID)):
+            // Un popup laissé sans réponse ne doit pas bloquer l'appel suivant :
+            // on le remplace. Même identifiant de requête → la bannière précédente
+            // disparaît, « Démarrer » ne peut pas viser le mauvais événement.
+            return (.detected, [.emitDetectedNotification(eventID: eventID)])
+
+        case (.readyForAI, .callDetected(let eventID)):
+            // Le rapport n'a pas été demandé : le nouvel appel prime, comme un
+            // « Plus tard » implicite.
+            return (.detected, [.emitDetectedNotification(eventID: eventID)])
+
         default:
             return (phase, [])
         }

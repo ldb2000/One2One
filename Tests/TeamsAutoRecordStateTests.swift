@@ -134,6 +134,31 @@ struct TeamsAutoRecordStateTests {
         #expect(effects.isEmpty)
     }
 
+    @Test("Un popup sans réponse est remplacé par l'appel suivant, pas conservé")
+    func supersessionWhilePopupIsUp() {
+        for phase in [TeamsAutoRecordPhase.detected, .snoozed] {
+            let (next, effects) = reduce(phase, .callDetected(eventID: "EVT-2"))
+            #expect(next == .detected)
+            #expect(effects == [.emitDetectedNotification(eventID: "EVT-2")])
+        }
+    }
+
+    @Test("Un appel détecté alors que le rapport n'a pas été demandé repart de zéro")
+    func detectionWhileReadyForAI_startsOver() {
+        let (phase, effects) = reduce(.readyForAI, .callDetected(eventID: "EVT-2"))
+        #expect(phase == .detected)
+        #expect(effects == [.emitDetectedNotification(eventID: "EVT-2")])
+    }
+
+    @Test("Une détection pendant la finalisation ou la génération reste inerte")
+    func detectionWhileFinalizingOrReportingIsInert() {
+        for phase in [TeamsAutoRecordPhase.finalizing, .reporting] {
+            let (next, effects) = reduce(phase, .callDetected(eventID: "EVT-2"))
+            #expect(next == phase)
+            #expect(effects.isEmpty)
+        }
+    }
+
     @Test("Un événement hors séquence ne change rien")
     func outOfOrderEventIsInert() {
         let (phase, effects) = reduce(.idle, .userStopAndFinalize)

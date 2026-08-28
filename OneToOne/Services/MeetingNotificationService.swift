@@ -2,6 +2,7 @@ import Foundation
 import UserNotifications
 import SwiftData
 import AppKit
+import os
 
 @MainActor
 final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelegate {
@@ -17,8 +18,18 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
     /// historique. On ne l'instancie donc que si le bundle principal est bien un
     /// `.app` ; ailleurs le service devient un no-op silencieux. En production
     /// (`OneToOne.app`) le comportement est strictement inchangé.
-    private let center: UNUserNotificationCenter? =
-        Bundle.main.bundleURL.pathExtension == "app" ? UNUserNotificationCenter.current() : nil
+    ///
+    /// Le mode dégradé est silencieux pour l'utilisateur : on le trace au moins
+    /// une fois, sans quoi une app mal empaquetée n'émettrait aucune
+    /// notification sans le moindre indice.
+    private let center: UNUserNotificationCenter? = {
+        guard Bundle.main.bundleURL.pathExtension.lowercased() == "app" else {
+            Logger(subsystem: "com.onetoone.app", category: "notifications")
+                .warning("Pas de bundle .app : notifications systeme desactivees (mode degrade).")
+            return nil
+        }
+        return UNUserNotificationCenter.current()
+    }()
 
     enum Category {
         static let preStart = "MEETING_PRE_START"  // Outlook-style "starts in N min"

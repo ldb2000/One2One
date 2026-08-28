@@ -110,14 +110,17 @@ final class CalendarMeetingImportService: ObservableObject {
 
     // MARK: - Import
 
-    /// Imports a calendar event as a Meeting. Idempotent on `calendarEventID`:
-    /// re-importing the same event returns the existing Meeting unchanged.
+    /// Imports a calendar event as a Meeting. Idempotent on the couple
+    /// (`calendarEventID`, `scheduledStart`) : re-importing the same occurrence
+    /// returns the existing Meeting unchanged, tandis qu'une autre occurrence
+    /// d'une série récurrente — même identifiant, autre date — donne bien une
+    /// nouvelle réunion.
     /// Saves the context internally so the Meeting's storeIdentifier is stable
     /// before notifications reference it.
     func importEvent(_ event: CalendarMeetingEvent,
                      context: ModelContext,
                      settings: AppSettings) -> Meeting {
-        if let existing = findExisting(eventID: event.id, in: context) {
+        if let existing = findExisting(eventID: event.id, startDate: event.startDate, in: context) {
             return existing
         }
 
@@ -171,9 +174,16 @@ final class CalendarMeetingImportService: ObservableObject {
         return meeting
     }
 
-    private func findExisting(eventID: String, in context: ModelContext) -> Meeting? {
+    /// Retrouve la réunion déjà importée pour **cette occurrence**.
+    ///
+    /// Une occurrence d'un événement récurrent partage son
+    /// `calendarItemIdentifier` avec toutes les autres : l'identité d'une
+    /// réunion est le couple (identifiant, date de début), sans quoi chaque
+    /// semaine écraserait la précédente.
+    private func findExisting(eventID: String, startDate: Date, in context: ModelContext) -> Meeting? {
+        let start: Date? = startDate
         let descriptor = FetchDescriptor<Meeting>(
-            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID }
+            predicate: #Predicate<Meeting> { $0.calendarEventID == eventID && $0.scheduledStart == start }
         )
         return (try? context.fetch(descriptor))?.first
     }

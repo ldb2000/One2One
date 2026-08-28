@@ -23,8 +23,9 @@ final class CalendarImportEventTests: XCTestCase {
 
     private func event(id: String = "evt-1",
                        title: String = "Daily standup",
-                       teamsURL: String? = nil) -> CalendarMeetingEvent {
-        let start = Date(timeIntervalSince1970: 1_750_000_000)
+                       teamsURL: String? = nil,
+                       startOffset: TimeInterval = 0) -> CalendarMeetingEvent {
+        let start = Date(timeIntervalSince1970: 1_750_000_000).addingTimeInterval(startOffset)
         return CalendarMeetingEvent(
             id: id,
             title: title,
@@ -51,6 +52,35 @@ final class CalendarImportEventTests: XCTestCase {
         XCTAssertEqual(meeting.teamsJoinURL, "https://teams.microsoft.com/l/meetup-join/abc")
         XCTAssertEqual(meeting.calendarEventID, "evt-1")
         XCTAssertEqual(meeting.effectiveDuration, 1800, accuracy: 0.01)
+    }
+
+    /// Une occurrence d'un événement récurrent porte le même
+    /// `calendarItemIdentifier` que toutes les autres : seule la date de début
+    /// les distingue. Sans elle, la réunion de la semaine dernière serait
+    /// retrouvée — puis écrasée par l'enregistrement de celle-ci.
+    func test_importEvent_secondOccurrenceOfRecurringSeries_createsItsOwnMeeting() throws {
+        let first = service.importEvent(event(), context: context, settings: settings)
+        try context.save()
+        let nextWeek = event(startOffset: 7 * 24 * 3600)
+        let second = service.importEvent(nextWeek, context: context, settings: settings)
+        try context.save()
+
+        XCTAssertNotEqual(first.persistentModelID, second.persistentModelID)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Meeting>()), 2)
+        XCTAssertEqual(first.calendarEventID, second.calendarEventID, "Même série, même identifiant")
+        XCTAssertEqual(first.scheduledStart, Date(timeIntervalSince1970: 1_750_000_000))
+        XCTAssertEqual(second.scheduledStart, nextWeek.startDate)
+    }
+
+    /// Ré-importer la **même** occurrence reste idempotent : c'est le couple
+    /// (identifiant, date de début) qui fait l'identité, pas la date seule.
+    func test_importEvent_sameOccurrenceTwice_returnsTheSameMeeting() throws {
+        let evt = event(startOffset: 7 * 24 * 3600)
+        let first = service.importEvent(evt, context: context, settings: settings)
+        try context.save()
+        let second = service.importEvent(evt, context: context, settings: settings)
+        XCTAssertEqual(first.persistentModelID, second.persistentModelID)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Meeting>()), 1)
     }
 
     func test_importEvent_isIdempotent_returnsExistingOnSecondCall() throws {

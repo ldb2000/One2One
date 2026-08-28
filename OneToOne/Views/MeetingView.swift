@@ -1508,7 +1508,12 @@ struct MeetingView: View {
             LiveTranscriptionService.shared.abort()
             // Sans ce signal le coordinateur resterait en `.recording` sur une
             // capture qui n'existe pas, puis en `.finalizing` pour toujours.
-            TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
+            // Mais un double démarrage sur la MÊME réunion jette
+            // `alreadyRecording` alors que la capture, elle, tourne : le perdant
+            // de la course ne doit pas abattre le parcours du gagnant.
+            if !recorder.isRecording(for: meeting.ensuredStableID) {
+                TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
+            }
         }
     }
 

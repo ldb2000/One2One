@@ -34,8 +34,16 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         (try? context.fetch(FetchDescriptor<AppSettings>()))!.first!
     }
 
-    private func event(_ id: String = "EVT-1", title: String = "Comité hebdo") -> CalendarMeetingEvent {
-        let start = Date()
+    /// Date de début fixe : deux appels du helper pour le « même » événement
+    /// doivent produire la **même** occurrence, sinon les gardes par occurrence
+    /// ne veulent plus rien dire.
+    private let base = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    /// `startOffset` construit une autre occurrence de la même série : même
+    /// identifiant, autre date de début (cf. récurrences EventKit).
+    private func event(_ id: String = "EVT-1", title: String = "Comité hebdo",
+                       startOffset: TimeInterval = 0) -> CalendarMeetingEvent {
+        let start = base.addingTimeInterval(startOffset)
         return CalendarMeetingEvent(id: id, title: title,
                                     startDate: start, endDate: start.addingTimeInterval(3600),
                                     calendarTitle: "Pro", attendees: [],
@@ -89,15 +97,74 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertTrue(outbound.isEmpty)
     }
 
-    func test_secondDetectionWhilePopupIsUp_keepsFirstEvent() throws {
+    /// Une bannière que l'utilisateur laisse expirer ne produit aucune action :
+    /// sans remplacement, le parcours resterait en `.detected` pour la session.
+    func test_secondDetectionWhilePopupIsUp_supersedesIt() throws {
         coordinator.detected(event("EVT-A", title: "Réunion A"))
         coordinator.detected(event("EVT-B", title: "Réunion B"))
         XCTAssertEqual(coordinator.phase, .detected)
-        XCTAssertEqual(outbound, [.detectedPopup(eventTitle: "Réunion A")], "B n'est ni proposé ni retenu")
+        XCTAssertEqual(outbound, [.detectedPopup(eventTitle: "Réunion A"),
+                                  .detectedPopup(eventTitle: "Réunion B")])
         coordinator.handle(.userStarted)
         let meeting = try XCTUnwrap(try meetings().first)
-        XCTAssertEqual(meeting.calendarEventID, "EVT-A", "Démarrer agit sur l'événement du popup affiché")
+        XCTAssertEqual(meeting.calendarEventID, "EVT-B", "Démarrer agit sur le dernier popup émis")
         XCTAssertEqual(try meetings().count, 1)
+    }
+
+    func test_sameEventRedetectedWhilePopupIsUp_isIgnored() {
+        coordinator.detected(event("EVT-A", title: "Réunion A"))
+        coordinator.detected(event("EVT-A", title: "Réunion A"))
+        XCTAssertEqual(coordinator.phase, .detected)
+        XCTAssertEqual(outbound, [.detectedPopup(eventTitle: "Réunion A")],
+                       "Un même événement re-détecté ne re-notifie pas")
+    }
+
+    /// Le popup « Transcription prête » ignoré ne doit pas figer le parcours :
+    /// l'appel suivant prime, comme un « Plus tard » implicite.
+    func test_detectionWhileReadyForAI_startsNewParcours() throws {
+        let meetingID = try startRecording()
+        coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 5)
+        XCTAssertEqual(coordinator.phase, .readyForAI)
+        outbound = []
+
+        coordinator.detected(event("EVT-B", title: "Réunion B"))
+        XCTAssertEqual(coordinator.phase, .detected)
+        XCTAssertEqual(outbound.last, .detectedPopup(eventTitle: "Réunion B"))
+        XCTAssertNil(coordinator.consumePendingRequest(for: meetingID),
+                     "Le parcours abandonné ne laisse pas de demande derrière lui")
+    }
+
+    // MARK: - Récurrences
+
+    /// EventKit donne le même `calendarItemIdentifier` à toutes les occurrences
+    /// d'une série : sans la date de début, refuser le point hebdomadaire une
+    /// fois le refuserait pour toujours.
+    func test_secondOccurrenceOfHandledEvent_isProposed() {
+        coordinator.detected(event("EVT-A", title: "Point hebdo"))
+        coordinator.handle(.userDismissed)
+        XCTAssertEqual(coordinator.phase, .idle)
+        outbound = []
+
+        coordinator.detected(event("EVT-A", title: "Point hebdo", startOffset: 7 * 24 * 3600))
+        XCTAssertEqual(coordinator.phase, .detected)
+        XCTAssertEqual(outbound, [.detectedPopup(eventTitle: "Point hebdo")])
+    }
+
+    func test_secondOccurrence_createsItsOwnMeeting() throws {
+        let firstID = try startRecording()
+        coordinator.transcriptionDidFinish(meetingID: firstID, segmentCount: 3)
+        coordinator.handle(.userSkipReport)
+        XCTAssertEqual(coordinator.phase, .idle)
+
+        let nextWeek = event(startOffset: 7 * 24 * 3600)
+        coordinator.detected(nextWeek)
+        XCTAssertEqual(coordinator.phase, .detected)
+        coordinator.handle(.userStarted)
+
+        let all = try meetings()
+        XCTAssertEqual(all.count, 2, "La semaine suivante crée sa propre réunion")
+        XCTAssertEqual(Set(all.map(\.calendarEventID)), ["EVT-1"], "Même série, même identifiant")
+        XCTAssertEqual(Set(all.compactMap(\.scheduledStart)), [base, nextWeek.startDate])
     }
 
     // MARK: - Démarrage

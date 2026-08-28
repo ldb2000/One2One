@@ -60,9 +60,10 @@ final class TeamsAutoRecordCoordinator {
     /// Événement d'un second appel détecté pendant l'enregistrement, proposé à
     /// la liaison plutôt qu'à la création d'une seconde réunion (spec D-10).
     private var linkCandidateEvent: CalendarMeetingEvent?
-    /// Événements déjà démarrés, refusés ou liés : jamais re-proposés (spec §3).
+    /// Occurrences déjà démarrées, refusées ou liées : jamais re-proposées
+    /// (spec §3). Clés par `occurrenceKey`, pas par identifiant seul.
     private var handledEventIDs: Set<String> = []
-    /// Événements déjà proposés à la liaison pendant un enregistrement.
+    /// Occurrences déjà proposées à la liaison pendant un enregistrement.
     private var linkProposedEventIDs: Set<String> = []
     /// Vrai entre `.meetingDeleted` et le retour au repos : la fenêtre
     /// n'existe plus, on ne lui demande rien.
@@ -122,7 +123,12 @@ final class TeamsAutoRecordCoordinator {
         // est dans Teams. Une horloge de 30 s réévalue l'agenda ; la tolérance
         // de ±2 min de l'appariement et `handledEventIDs` font le reste.
         let timer = Timer(timeInterval: Self.clockInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.handleDetection() }
+            Task { @MainActor in
+                // Déclencheur 3 : l'heure de début ne compte que si Teams tourne
+                // — sinon c'est un simple rappel, que MEETING_START couvre déjà.
+                guard TeamsCallMonitor.isTeamsRunning() else { return }
+                self?.handleDetection()
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         clockTimer = timer
@@ -166,29 +172,44 @@ final class TeamsAutoRecordCoordinator {
             coordLog.debug("auto-record desactive par reglage")
             return
         }
-        guard !handledEventIDs.contains(event.id) else {
-            coordLog.debug("evenement deja traite — pas de re-popup")
+        guard !handledEventIDs.contains(Self.occurrenceKey(event)) else {
+            coordLog.debug("occurrence deja traitee — pas de re-popup")
             return
         }
-        if phase == .recording || phase == .callEnded {
+        switch phase {
+        case .idle:
+            currentEvent = event
+            handle(.callDetected(eventID: event.id))
+
+        case .detected, .snoozed:
+            // Même événement : rien à faire. Autre événement : il remplace le
+            // popup en attente — une bannière que l'utilisateur laisse expirer
+            // ne doit pas geler la fonctionnalité pour la session.
+            guard let current = currentEvent,
+                  Self.occurrenceKey(current) != Self.occurrenceKey(event) else { return }
+            snoozeTask?.cancel()
+            snoozeTask = nil
+            currentEvent = event
+            handle(.callDetected(eventID: event.id))
+
+        case .readyForAI:
+            // Le rapport n'a pas été demandé : on abandonne ce parcours pour le
+            // nouvel appel, comme un « Plus tard » implicite.
+            resetCurrent()
+            currentEvent = event
+            handle(.callDetected(eventID: event.id))
+
+        case .recording, .callEnded:
             // Un enregistrement tourne déjà : on propose de lier, pas de créer
-            // (spec D-10). Proposé une seule fois par événement.
-            guard !linkProposedEventIDs.contains(event.id) else { return }
-            linkProposedEventIDs.insert(event.id)
+            // (spec D-10). Proposé une seule fois par occurrence.
+            guard !linkProposedEventIDs.contains(Self.occurrenceKey(event)) else { return }
+            linkProposedEventIDs.insert(Self.occurrenceKey(event))
             linkCandidateEvent = event
             handle(.callDetectedWhileRecording(eventID: event.id))
-            return
-        }
-        // On ne retient l'événement que si la machine accepte la détection :
-        // une détection pendant un parcours en cours ne doit pas écraser
-        // l'événement de ce parcours.
-        let (next, _) = TeamsAutoRecordState.reduce(phase: phase, event: .callDetected(eventID: event.id))
-        guard next == .detected, next != phase else {
+
+        case .finalizing, .reporting:
             coordLog.debug("detection ignoree en phase \(String(describing: self.phase))")
-            return
         }
-        currentEvent = event
-        handle(.callDetected(eventID: event.id))
     }
 
     /// Traduit une action de notification en événement de la machine.
@@ -262,13 +283,21 @@ final class TeamsAutoRecordCoordinator {
         coordLog.debug("\(String(describing: self.phase)) --\(String(describing: event))--> \(String(describing: next))")
         // Le contexte est mis à jour AVANT les effets, qui le lisent.
         switch event {
-        case .userDismissed:  if let id = currentEvent?.id { handledEventIDs.insert(id) }
+        case .userDismissed:  if let event = currentEvent { handledEventIDs.insert(Self.occurrenceKey(event)) }
         case .meetingDeleted: meetingIsGone = true
         default: break
         }
         phase = next
         effects.forEach(apply)
         if next == .idle { resetCurrent() }
+    }
+
+    /// Identité d'une **occurrence**. EventKit déplie une série récurrente en
+    /// un `EKEvent` par occurrence, mais toutes portent le même
+    /// `calendarItemIdentifier` : sans la date de début, refuser le point
+    /// hebdomadaire de lundi le refuserait pour toujours.
+    private static func occurrenceKey(_ event: CalendarMeetingEvent) -> String {
+        "\(event.id)@\(event.startDate.timeIntervalSinceReferenceDate)"
     }
 
     private func resetCurrent() {
@@ -353,7 +382,7 @@ final class TeamsAutoRecordCoordinator {
 
         let stableID = meeting.ensuredStableID
         currentMeetingID = stableID
-        handledEventIDs.insert(event.id)
+        handledEventIDs.insert(Self.occurrenceKey(event))
         // Fenêtre déjà ouverte ou pas : la demande couvre les deux cas, le
         // token `autoStartRecording` ne couvre que l'ouverture.
         pendingRequest = (stableID, .startRecording)
@@ -373,7 +402,7 @@ final class TeamsAutoRecordCoordinator {
         meeting.calendarEventTitle = event.title
         if meeting.teamsJoinURL?.isEmpty ?? true { meeting.teamsJoinURL = event.teamsJoinURL }
         // Un événement lié n'a plus à être proposé pour son propre enregistrement.
-        handledEventIDs.insert(event.id)
+        handledEventIDs.insert(Self.occurrenceKey(event))
         linkCandidateEvent = nil
         do { try context.save() } catch { coordLog.error("liaison: \(error.localizedDescription)") }
     }

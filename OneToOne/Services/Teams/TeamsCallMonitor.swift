@@ -25,12 +25,22 @@ final class TeamsCallMonitor: NSObject {
 
     nonisolated static let teamsBundleIdentifiers: Set<String> = ["com.microsoft.teams", "com.microsoft.teams2"]
 
-    /// Cadence d'échantillonnage. Les seuils de `TeamsCallObservation` sont de
-    /// 5 s et 30 s : une seconde suffit largement et reste négligeable.
-    private static let tickInterval: TimeInterval = 1.0
+    /// Cadence d'échantillonnage au repos. L'énumération `SCShareableContent`
+    /// n'est pas gratuite : tant qu'aucun candidat n'est en cours de
+    /// confirmation, on l'espace (spec §1, « pas de balayage à haute
+    /// fréquence »). Les seuils de `TeamsCallObservation` étant de 5 s de
+    /// stabilité et 30 s d'absence, la latence de détection n'augmente au pire
+    /// que d'un tick lent — et les notifications `NSWorkspace` déclenchent de
+    /// toute façon un tick immédiat à l'activation de Teams.
+    private static let idleTickInterval: TimeInterval = 5.0
+    /// Cadence pendant la confirmation d'un candidat (`.observing`) : là, la
+    /// seconde compte, c'est elle qui mesure les 5 s de stabilité.
+    private static let observingTickInterval: TimeInterval = 1.0
 
     private var state = TeamsCallState()
     private var timer: Timer?
+    /// Cadence armée par `timer`, pour ne le reconstruire qu'au changement.
+    private var timerInterval: TimeInterval = TeamsCallMonitor.idleTickInterval
     private var workspaceObservers: [NSObjectProtocol] = []
 
     private override init() { super.init() }
@@ -50,9 +60,19 @@ final class TeamsCallMonitor: NSObject {
                     Task { @MainActor in await self?.tick() }
                 })
         }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) { [weak self] _ in
+        armTimer(interval: Self.idleTickInterval)
+    }
+
+    /// (Ré)arme l'horloge d'échantillonnage à la cadence donnée. Mode `.common`
+    /// pour que l'observation continue pendant qu'un menu est ouvert.
+    private func armTimer(interval: TimeInterval) {
+        timer?.invalidate()
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.tick() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        timerInterval = interval
     }
 
     /// Désarme l'observation et libère timer et observateurs.
@@ -62,7 +82,18 @@ final class TeamsCallMonitor: NSObject {
         workspaceObservers.removeAll()
         timer?.invalidate()
         timer = nil
+        timerInterval = Self.idleTickInterval
         state = TeamsCallState()
+    }
+
+    /// Teams est-il lancé ? Interrogation du seul registre des applications :
+    /// aucune permission, aucun coût d'énumération de fenêtres. Sert de garde
+    /// au déclencheur 3, dont l'horloge propose sinon tout événement Teams de
+    /// l'agenda même quand l'application n'est pas ouverte.
+    nonisolated static func isTeamsRunning() -> Bool {
+        teamsBundleIdentifiers.contains { bundleID in
+            !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
+        }
     }
 
     // MARK: - Sélection de fenêtre (pure)
@@ -95,6 +126,10 @@ final class TeamsCallMonitor: NSObject {
             teamsLog.info("teams call ended (source 1)")
             NotificationCenter.default.post(name: Self.callEndedNotification, object: nil)
         }
+
+        // Rapide seulement pendant la confirmation d'un candidat, lent sinon.
+        let wanted = state.phase == .observing ? Self.observingTickInterval : Self.idleTickInterval
+        if timer != nil, timerInterval != wanted { armTimer(interval: wanted) }
     }
 
     /// Titre de la fenêtre Teams pertinente, ou `nil`.
