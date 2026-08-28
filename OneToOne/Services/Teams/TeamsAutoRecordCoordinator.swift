@@ -64,6 +64,10 @@ final class TeamsAutoRecordCoordinator {
     private var container: ModelContainer?
     private var observers: [NSObjectProtocol] = []
     private var snoozeTask: Task<Void, Never>?
+    private var clockTimer: Timer?
+
+    /// Cadence de réévaluation de l'agenda pour le déclencheur 3.
+    private static let clockInterval: TimeInterval = 30
 
     private init() {}
 
@@ -71,7 +75,11 @@ final class TeamsAutoRecordCoordinator {
 
     /// Branche les trois déclencheurs et les retours d'action de notification.
     func start(container: ModelContainer) {
+        // Un second appel peut légitimement rafraîchir la référence au
+        // conteneur ; les observateurs et l'horloge, eux, ne doivent pas
+        // doubler.
         self.container = container
+        guard observers.isEmpty else { return }
         let nc = NotificationCenter.default
 
         // Déclencheur 1 : surveillance locale de Teams.
@@ -99,12 +107,24 @@ final class TeamsAutoRecordCoordinator {
                 Task { @MainActor in self?.handleAction(note.userInfo) }
             })
 
+        // Déclencheur 3, version robuste : `willPresent` ne tire qu'au premier
+        // plan, or l'heure de début arrive typiquement pendant que l'utilisateur
+        // est dans Teams. Une horloge de 30 s réévalue l'agenda ; la tolérance
+        // de ±2 min de l'appariement et `lastHandledEventID` font le reste.
+        let timer = Timer(timeInterval: Self.clockInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.handleDetection() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        clockTimer = timer
+
         TeamsCallMonitor.shared.start()
     }
 
     func stop() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
+        clockTimer?.invalidate()
+        clockTimer = nil
         TeamsCallMonitor.shared.stop()
         phase = .idle
         resetCurrent()
@@ -143,7 +163,7 @@ final class TeamsAutoRecordCoordinator {
         // une détection pendant un parcours en cours ne doit pas écraser
         // l'événement de ce parcours.
         let (next, _) = TeamsAutoRecordState.reduce(phase: phase, event: .callDetected(eventID: event.id))
-        guard next == .detected else {
+        guard next == .detected, next != phase else {
             coordLog.debug("detection ignoree en phase \(String(describing: self.phase))")
             return
         }
@@ -285,7 +305,8 @@ final class TeamsAutoRecordCoordinator {
     }
 
     /// Dépose une demande pour la réunion du parcours, la signale aux
-    /// fenêtres montées, et fait venir la fenêtre au premier plan.
+    /// fenêtres montées, et fait venir la fenêtre au premier plan — ou
+    /// l'ouvre si elle a été fermée.
     private func request(_ request: MeetingRequest) {
         guard let meetingID = currentMeetingID else { return }
         pendingRequest = (meetingID, request)

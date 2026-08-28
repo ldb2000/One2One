@@ -118,6 +118,15 @@ struct TeamsAutoRecordStateTests {
         #expect(effects == [.setMenuBarRecording(false), .emitTranscriptReadyNotification(segmentCount: 3)])
     }
 
+    @Test("Une suppression après l'arrêt rend la machine sans rien demander")
+    func deletionAfterStopReturnsToIdle() {
+        for phase in [TeamsAutoRecordPhase.finalizing, .readyForAI, .reporting] {
+            let (next, effects) = reduce(phase, .meetingDeleted)
+            #expect(next == .idle)
+            #expect(effects.isEmpty)
+        }
+    }
+
     @Test("Une détection pendant un enregistrement en cours ne relance rien")
     func detectionDuringRecordingIsIgnored() {
         let (phase, effects) = reduce(.recording, .callDetected(eventID: "EVT-2"))

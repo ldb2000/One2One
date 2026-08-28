@@ -112,6 +112,11 @@ enum TeamsAutoRecordState {
             // l'utilisateur peut retenter depuis la fenêtre (spec §10).
             return (.readyForAI, [.notifyReportFailure])
 
+        case (.finalizing, .meetingDeleted), (.readyForAI, .meetingDeleted), (.reporting, .meetingDeleted):
+            // La capture est déjà arrêtée ; il n'y a plus rien à demander à
+            // une fenêtre qui n'existe plus. On rend simplement la machine.
+            return (.idle, [])
+
         default:
             return (phase, [])
         }

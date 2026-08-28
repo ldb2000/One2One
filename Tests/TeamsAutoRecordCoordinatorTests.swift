@@ -89,6 +89,17 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertTrue(outbound.isEmpty)
     }
 
+    func test_secondDetectionWhilePopupIsUp_keepsFirstEvent() throws {
+        coordinator.detected(event("EVT-A", title: "Réunion A"))
+        coordinator.detected(event("EVT-B", title: "Réunion B"))
+        XCTAssertEqual(coordinator.phase, .detected)
+        XCTAssertEqual(outbound, [.detectedPopup(eventTitle: "Réunion A")], "B n'est ni proposé ni retenu")
+        coordinator.handle(.userStarted)
+        let meeting = try XCTUnwrap(try meetings().first)
+        XCTAssertEqual(meeting.calendarEventID, "EVT-A", "Démarrer agit sur l'événement du popup affiché")
+        XCTAssertEqual(try meetings().count, 1)
+    }
+
     // MARK: - Démarrage
 
     func test_start_createsLinkedMeeting_opensWindow_andLightsMenuBar() throws {
