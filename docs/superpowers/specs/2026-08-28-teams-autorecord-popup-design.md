@@ -773,7 +773,7 @@ brainstorming, pour traçabilité.
 |---|---|---|
 | 1 | Niveau d'intégration Microsoft | Surveillance locale, pas d'API |
 | 2 | Déclencheur du popup | 3 déclencheurs combinés, désormais tous trois spécifiés en §3 |
-| 3 | Contenu du popup | **À arbitrer** : §5 ne propose que Démarrer / Dans 5 min / Ignorer. Les trois modes de capture n'apparaissent nulle part ailleurs dans la spec — voir §15 |
+| 3 | Contenu du popup | **Corrigée** : pas de choix de mode. §5 fait foi — Démarrer / Dans 5 min / Ignorer. Le mode de capture se change dans la réunion une fois ouverte |
 | 4 | Source calendrier | EventKit natif |
 | 5 | Forme du popup | Notification système macOS |
 | 6 | Devenir si pas démarré | Réunion OneToOne, pas une note |
@@ -867,13 +867,22 @@ comme si la fusion existait. Elle n'existe pas —
 singleton n'admet qu'une source à la fois. Le mixage est le vrai morceau
 du chantier, pas `SCStream`.
 
-### Point resté ouvert
+### Quatrième incohérence, repérée pendant l'amendement
 
-L'annexe **Q3** décide que le popup propose « un choix entre 3 modes :
+L'annexe **Q3** décidait que le popup propose « un choix entre 3 modes :
 note texte / note + audio / audio seul ». Rien dans le corps de la spec
-ne reprend ces modes : `§5` ne déclare que `START_RECORD` / `SNOOZE_5MIN`
-/ `DISMISS`, et `§6.1` démarre systématiquement la capture complète.
-C'est une quatrième incohérence, repérée pendant l'amendement mais non
-tranchée. Deux issues plausibles : corriger Q3 comme périmée, ou ajouter
-les modes à la catégorie `TEAMS_CALL_DETECTED`. À arbitrer avant le plan
-d'implémentation.
+ne reprenait ces modes : `§5` ne déclare que `START_RECORD` /
+`SNOOZE_5MIN` / `DISMISS`, et `§6.1` démarre systématiquement la capture
+complète.
+
+**Tranchée comme Q12 : Q3 est périmée, `§5` fait foi.** Une notification
+macOS à trois actions est déjà chargée ; en ajouter deux la rendrait
+illisible, pour un choix fait en trois secondes sans voir la réunion. Le
+mode de capture se règle dans la fenêtre de réunion une fois ouverte, où
+l'utilisateur voit ce qu'il fait. Aucun impact sur `§5`, `§6.1` ni le
+plan d'implémentation.
+
+### Aucun point resté ouvert
+
+Les quatre incohérences sont résolues, les deux points « à confirmer »
+vérifiés. La spec est prête pour le plan d'implémentation.
