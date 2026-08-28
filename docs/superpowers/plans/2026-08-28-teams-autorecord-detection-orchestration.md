@@ -2257,3 +2257,41 @@ Ajouter l'état du chantier, la prochaine action (« plan 2 — double piste aud
 git add STATUS.md
 git commit -m "docs(status): parcours Teams auto-record verifie a l'ecran"
 ```
+
+---
+
+## Journal d'exécution (2026-08-28)
+
+Le plan a été exécuté tâche par tâche, chacune revue avant la suivante. Ce journal consigne
+ce qui a été livré **différemment** du texte des tâches ci-dessus, et pourquoi. Le code fait
+foi ; les tâches restent telles qu'écrites pour la traçabilité.
+
+### Écarts par tâche
+
+| Tâche | Écart | Raison |
+|---|---|---|
+| 1 | `lastEmittedAt` et le cooldown de 30 s supprimés de `TeamsCallObservation` ; test de cycle complet ajouté. | Code mort : avec 30 s d'absence avant `callEnded` et 5 s de stabilité, deux `callStarted` sont structurellement séparés d'au moins 35 s. La fusion « à moins de 30 s » de la spec §3 est honorée par construction. |
+| 2 | Test `allDayIsIgnored` ajouté. | La branche `isAllDay` était implémentée sans aucun test qui la traverse. |
+| 3 | `teamsBundleIdentifiers` déclaré `nonisolated` ; `tick()` construit son entrée en un seul `let`. | Diagnostic d'isolation d'acteur ; réaffectation redondante. |
+| 4 | Cinq catégories Teams au lieu de quatre (`TEAMS_CALL_LINK`) ; le routage de `didReceive` n'envoie que des valeurs `Sendable` dans la closure. | D-10 exige un libellé « Lier à la réunion en cours » que la catégorie de détection ne peut pas porter ; avertissement de capture. |
+| 5 | Deux tests ajoutés (`(snoozed, userDismissed)`, `(callEnded, meetingDeleted)`). | Transitions implémentées sans test. |
+| 6 | Pas de `isTemplate = false` ; timer de pulse en mode `.common`. | `contentTintColor` ne teinte que les images template ; le timer se figeait pendant qu'un menu était ouvert. |
+| 7 | **Refonte** : le coordinateur ne pilote plus `AudioRecorderService` ni `AIReportService`. Il dépose des `MeetingRequest` (`startRecording`, `stopAndFinalize`, `generateReport`, `retryTranscription`) que `MeetingView` consomme une fois, et la fenêtre lui rend compte (`transcriptionDidFinish`, `reportDidFinish`, `meetingWasDeleted`, `recordingDidFail`). Effets externes livrés par une valeur `Outbound` via `deliver`. Horloge de 30 s comme déclencheur 3 robuste. `OneToOneLaunchToken` égal par `meetingID` seul. `MeetingNotificationService.center` optionnel hors bundle `.app`. | Arrêt, transcription et rapport sont un pipeline privé de `MeetingView` (`JobQueue`, révisions, tâches, alertes, RAG) que le plan proposait de dupliquer ; aucun producteur n'existait pour `transcriptionFinalized`. `willPresent` ne tire qu'au premier plan. Un token différent par option ouvrait une seconde fenêtre. `UNUserNotificationCenter.current()` avortait le hôte de test — le `--skip CalendarImportEventTests` historique n'est plus nécessaire. |
+| 7b (ajoutée) | Hooks dans `MeetingView` : consommation des demandes à `onAppear` et sur notification ; comptes rendus après `saveContext()` ; hook de suppression placé **après** le teardown recorder/live de la vue. | Sans ces hooks le parcours s'arrête au premier popup. L'ordre du hook de suppression évite qu'un transcript live non drainé se colle à la réunion suivante. |
+| 8 | « Retenter le STT » implémenté (`.userRetrySTT` : `.idle → .finalizing`, la fenêtre relance `retranscribe`). `lastHandledEventID` remplacé par `handledEventIDs` et `linkProposedEventIDs`. | Bouton mort sur le popup d'erreur ; slot unique qui confondait deux garanties. |
+
+### Écarts par rapport à la spec v2.1
+
+- **§5, trace « Source : Outlook Calendar » dans `summary`** : non écrite. `summary` est le corps du
+  rapport, écrasé par `apply(report:)` ; `calendarEventID` / `calendarEventTitle` portent déjà le lien.
+- **§5, quatre catégories Teams** : cinq (voir tâche 4).
+- **§3, déclencheur 3** : `willPresent` conservé, doublé d'une horloge de 30 s dans le coordinateur.
+- **`swift test --skip CalendarImportEventTests`** : le `--skip` est devenu inutile (voir tâche 7).
+
+### Reports connus (revues de tâches, non bloquants)
+
+Consignés dans `STATUS.md` : aucun timeout par phase dans le coordinateur ; l'icône de barre de
+menus est pilotée par le coordinateur plutôt que par l'état réel du recorder ;
+`TeamsCallMonitor.stop()` n'annule pas un tick en vol ; mode dégradé silencieux hors `.app` ;
+un double démarrage sur la même réunion signale `recordingDidFail` ; un « Retenter » dont le
+`.wav` a disparu échoue silencieusement.
