@@ -1352,6 +1352,11 @@ struct MeetingView: View {
         meeting.title = event.title
         meeting.date = event.startDate
         meeting.calendarEventID = event.id
+        // Identité d'une occurrence = (identifiant, date de début) : sans
+        // `scheduledStart`, le parcours Teams ne retrouverait pas cette réunion
+        // et en créerait un doublon (cf. CalendarMeetingImportService.findExisting).
+        meeting.scheduledStart = event.startDate
+        meeting.scheduledEnd = event.endDate
         meeting.calendarEventTitle = event.title
         meeting.meetingDurationSeconds = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
 

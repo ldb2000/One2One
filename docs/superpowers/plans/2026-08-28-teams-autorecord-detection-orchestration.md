@@ -2325,6 +2325,9 @@ unique (commits `5c999e1` et suivant).
 - **Mode dégradé.** Hors bundle `.app`, `MeetingNotificationService` compare désormais
   `pathExtension.lowercased()` et trace une fois en `.warning` que les notifications système
   sont désactivées, au lieu de rester totalement muet.
+- **C1, suite — lien manuel au calendrier.** `importCalendarEvent` écrit désormais
+  `scheduledStart`/`scheduledEnd` : sans quoi l'identité (id, début) faisait créer un doublon
+  d'une réunion liée à la main.
 
 ### Reports connus (revues de tâches, non bloquants)
 

@@ -184,6 +184,22 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         ])
     }
 
+    func test_meetingLinkedByHand_isReusedByAutoRecord() throws {
+        // Une réunion liée depuis la feuille « lier au calendrier » porte
+        // calendarEventID ET scheduledStart : le parcours doit la retrouver.
+        let linked = Meeting(title: "Comité hebdo", date: base)
+        linked.calendarEventID = "EVT-1"
+        linked.calendarEventTitle = "Comité hebdo"
+        linked.scheduledStart = base
+        linked.scheduledEnd = base.addingTimeInterval(3600)
+        context.insert(linked)
+        try context.save()
+
+        let meetingID = try startRecording()
+        XCTAssertEqual(try meetings().count, 1, "Pas de doublon pour une réunion déjà liée")
+        XCTAssertEqual(meetingID, linked.ensuredStableID)
+    }
+
     func test_detectionDuringRecording_proposesLink_once() throws {
         let meetingID = try startRecording()
         outbound = []
