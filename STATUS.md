@@ -4,8 +4,12 @@ Dernière mise à jour : 2026-08-28 CEST
 
 ## Teams auto-record — détection & orchestration (plan 1/2) (2026-08-28)
 
-- **État** : les tâches 1 à 8 du plan `docs/superpowers/plans/2026-08-28-teams-autorecord-detection-orchestration.md`
-  sont implémentées et revues sur la branche `feat/teams-autorecord-popup` — détection pure,
+- **État — livré en production.** `master` à `69ceabf` (fast-forward de `bbad581` : les 23
+  commits du chantier y sont), build **754** (release) dans `/Applications`. **Rien n'est
+  poussé sur `origin`** : `origin/master` reste 94 commits en retard du `master` local —
+  situation antérieure à ce chantier, la décision appartient au propriétaire. Les tâches 1 à 8
+  du plan `docs/superpowers/plans/2026-08-28-teams-autorecord-detection-orchestration.md`
+  sont implémentées et revues — détection pure,
   appariement agenda, moniteur `NSWorkspace` + énumération opportuniste, cinq catégories de
   notification Teams (neuf enregistrées au total), machine à états pure, icône de barre de
   menus, coordinateur (trois déclencheurs + horloge 30 s gardée sur Teams en cours
@@ -24,7 +28,15 @@ Dernière mise à jour : 2026-08-28 CEST
   catégories `teams`, `teams-autorecord`, `capture` en particulier) ne remonte **aucune**
   entrée pour le process `OneToOne` — donc aucune erreur ; l'app quitte proprement via
   `osascript` (`pgrep` négatif ensuite) ; aucun rapport dans
-  `~/Library/Logs/DiagnosticReports/`.
+  `~/Library/Logs/DiagnosticReports/`. **À la livraison** : suite complète repassée sur
+  `69ceabf` — 335 Swift Testing + 1030 XCTest, aucun échec ; `Scripts/bump-and-build.sh prod`
+  sans `sudo` ni invite (`/Applications` écrivable), build 754, `default.metallib` MLX embarqué
+  depuis `Mickey.app`, copie de développement de `~/Applications` retirée par le script, app
+  relancée depuis `/Applications` et vivante, toujours aucun rapport de crash.
+- **⚠️ Livré sans avoir jamais été vu à l'écran.** Ce qui est prouvé : ça compile, la suite
+  passe, l'app se lance, tourne et quitte sans erreur ni crash. Ce qui ne l'est pas : qu'un
+  vrai appel déclenche le popup, que « Démarrer » enregistre, que « Arrêter et finaliser »
+  transcrive, que le rapport se génère. Le parcours complet reste à éprouver.
 - **Prochaine action — partenaire, à l'écran** (sept scénarios, aucun n'est faisable par un
   agent — il faut un vrai appel Microsoft Teams et un calendrier vivant) :
   0a. Réunion récurrente, deuxième occurrence : le popup est proposé et « Démarrer » crée une
