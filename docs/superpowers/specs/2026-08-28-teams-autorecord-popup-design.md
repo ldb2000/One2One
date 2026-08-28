@@ -4,7 +4,8 @@
 **Branche** : `feat/teams-autorecord-popup` (à créer à l'implémentation)
 **Spec de référence** : [`2026-05-12-calendar-teams-integration-design.md`](2026-05-12-calendar-teams-integration-design.md) (v1, approuvée)
 **Auteur** : laurent.deberti
-**Statut** : à valider (spec écrite depuis le brainstorming)
+**Statut** : v2.1 — amendée le 2026-08-28 après vérification dans le code.
+Journal des amendements en §15.
 
 ## 0. Résumé
 
@@ -16,8 +17,9 @@ système + transcription STT Whisper + diarisation on-device. Pendant
 l'enregistrement, l'icône de menu bar passe en rouge (pulse). À la fin de
 l'appel Teams, un popup propose d'arrêter et de finaliser la transcription ;
 une fois la transcription finalisée, un autre popup propose de générer un
-rapport via le provider IA configuré. Le rapport est inséré comme une
-section « Rapport » modifiable en bas de la réunion.
+rapport via le provider IA configuré. Le rapport emprunte le chemin
+existant (`AIReportService`), au même titre qu'une réunion enregistrée
+à la main.
 
 Cette spec **réutilise intégralement** les fondations calendrier / Teams de
 la spec v1 (EventKit, `CalendarMeetingImportService`, `ProjectMatchService`,
@@ -29,8 +31,8 @@ work »). Voir §2.
 
 ### Goals v2
 
-1. Détecter qu'un appel Teams est en cours — surveillance locale
-   `NSWorkspace` (sans API Microsoft).
+1. Détecter qu'un appel Teams est en cours, sans API Microsoft — trois
+   déclencheurs locaux convergents (§3).
 2. Faire correspondre cet appel à un événement EventKit à ±2 min.
 3. Proposer un popup système `UNUserNotificationCenter` qui, à l'acceptation,
    crée une réunion OneToOne liée à l'événement, ouvre sa fenêtre, démarre
@@ -39,9 +41,9 @@ work »). Voir §2.
    (rouge + pulse).
 5. Détecter la fin de l'appel Teams → popup « Arrêter et finaliser la
    transcription » → à la fin, popup « Générer le rapport ».
-6. Le rapport est produit par le provider IA configuré
-   (`DirectLLM`/`Ollama`/`OpenAI`) avec un prompt prédéfini
-   « Synthèse réunion OneToOne ».
+6. Le rapport est produit par `AIReportService`, avec le provider IA
+   configuré (`DirectLLM`/`Ollama`/`OpenAI`) et le `ReportTemplate` par
+   défaut du `kind` de la réunion.
 
 ### Non-goals v2 (explicites)
 
@@ -57,8 +59,10 @@ work »). Voir §2.
 - Pas d'intégration au chat Teams (lecture/envoi de messages).
 - Pas d'appel sortant via Teams (`TeamsLauncher` reste pour rejoindre
   manuellement, comme dans la spec v1).
-- Pas de détection des NSWindow Teams en arrière-plan (Teams doit être au
-  premier plan pour être détecté). Voir §3.
+- Pas de balayage périodique des fenêtres. L'énumération
+  `SCShareableContent` n'est consultée que si la permission
+  d'enregistrement d'écran est **déjà** accordée ; sans elle, la
+  surveillance se limite au premier plan. Voir §3.
 
 ## 2. Décisions (et rapport à la spec v1)
 
@@ -77,17 +81,17 @@ work »). Voir §2.
 
 | Ref v2 | Décision | Valeur |
 |---|---|---|
-| D-1 | Surveillance Teams | `NSWorkspace` + titre de fenêtre key (heuristique, voir §3) |
+| D-1 | Surveillance Teams | Trois déclencheurs convergents : `NSWorkspace` + titre, clic « Rejoindre Teams », horloge calendrier (voir §3) |
 | D-2 | Tolérance de correspondance EventKit | `±2 min` autour du `startDate` |
 | D-3 | Forme du popup | `UNUserNotificationCenter` avec boutons d'action |
 | D-4 | Permissions notifications | Demande au premier lancement, onboarding |
 | D-5 | Source audio | Micro interne + SystemAudio Teams, deux pistes |
 | D-6 | Fallback SystemAudio | Bandeau d'erreur non bloquant, micro seul |
-| D-7 | STT/diarisation | Whisper MLX + diarisation 3 locuteurs (moi / Teams distant / interlocuteur en présentiel) |
-| D-8 | Rapport IA | Insertion dans une section « Rapport » modifiable de la Meeting |
+| D-7 | STT/diarisation | Whisper MLX sur flux mixé ; provenance « moi » / « distant » par chronologie d'énergie, pas par diarisation (voir §6.1) |
+| D-8 | Rapport IA | **Annulée** : pas de section dédiée. `AIReportService` écrit dans les champs de rapport existants, déjà modifiables |
 | D-9 | Provider IA obligatoire | Si absent, la fonctionnalité rapport est désactivée et la popup l'indique |
 | D-10 | Concurrence | Si une réunion est en cours d'édition, proposer de lier au lieu de créer |
-| D-11 | Détection teams en arrière-plan | Non (v2). Doit être au premier plan |
+| D-11 | Détection Teams en arrière-plan | Oui si la permission écran est déjà accordée ; dégradé au premier plan sinon |
 
 ### Faux positifs / faux négatifs documentés (D-1)
 
@@ -95,13 +99,43 @@ Voir §3.
 
 ## 3. Surveillance locale de Teams
 
-### Ce qu'on observe
+### Trois déclencheurs, une seule machine à états
+
+`callStarted` peut être émis par trois sources indépendantes qui
+alimentent la même machine à états. Le cooldown de 30 s et
+`lastMatchedEventID` décrits plus bas les dédoublonnent — le mécanisme
+existe déjà, il sert simplement trois sources au lieu d'une.
+
+1. **Surveillance `NSWorkspace`** — l'heuristique décrite ci-dessous.
+   Couvre le cas où l'utilisateur rejoint depuis Teams sans passer par
+   OneToOne. C'est la source la moins fiable, et la seule qui puisse
+   produire un faux positif.
+2. **Clic « Rejoindre Teams »** — `TeamsLauncher.open` est déjà le point
+   de passage unique de l'action `JOIN_TEAMS` d'une notification et de
+   l'entrée correspondante du menu bar. L'utilisateur a explicitement
+   rejoint un événement connu : zéro faux positif, et l'événement EventKit
+   étant déjà identifié, l'appariement de §3 est court-circuité.
+3. **Horloge calendrier** — la notification `MEETING_START` que
+   `MeetingNotificationService.schedule` programme déjà pour toute réunion
+   ayant un `scheduledStart`. Couvre le cas où Teams est ouvert avant
+   l'heure, ou n'est jamais mis au premier plan.
+
+Seule la source 1 demande du code d'observation nouveau. Les sources 2 et
+3 sont des points d'émission greffés sur du code existant.
+
+### Ce qu'on observe (source 1)
 
 - `NSWorkspace.didActivateApplicationNotification`
 - `NSWorkspace.didDeactivateApplicationNotification`
 - `NSWorkspace.didLaunchApplicationNotification`
 - `NSWorkspace.didTerminateApplicationNotification`
 - Titre de la fenêtre key de Teams (`NSWorkspace.frontmostApplication`)
+- `SCShareableContent.current`, **uniquement si**
+  `CGPreflightScreenCaptureAccess()` répond déjà vrai. Le preflight ne
+  déclenche aucune demande de permission. L'énumération donne le titre et
+  l'app propriétaire de toutes les fenêtres, arrière-plan compris, ce qui
+  lève la restriction « Teams au premier plan ». `ScreenCaptureConfigView`
+  utilise déjà cette API.
 
 ### Ce qu'on ne peut PAS observer sans API Microsoft
 
@@ -115,12 +149,14 @@ Voir §3.
 
 On considère qu'il y a un appel actif si toutes ces conditions sont réunies :
 
-1. Teams est l'application au premier plan
-   (`com.microsoft.teams` ou `com.microsoft.teams2`).
-2. Le titre de la fenêtre key contient l'un des patterns
+1. Une fenêtre Teams (`com.microsoft.teams` ou `com.microsoft.teams2`)
+   est au premier plan — ou, si l'énumération `SCShareableContent` est
+   disponible, existe quelque part.
+2. Son titre contient l'un des motifs
    `/\b(call|meeting|appel|réunion|conference|meet|visio)\b/i`
-   (français et anglais).
-3. Teams est resté au premier plan au moins 5 secondes consécutives
+   (français et anglais). Cette liste reste **en dur** dans le code :
+   voir §14 Q12.
+3. La condition tient depuis au moins 5 secondes consécutives
    (anti-faux-positif sur un simple clic).
 
 ### Cooldown et déduplication
@@ -142,8 +178,10 @@ On considère qu'il y a un appel actif si toutes ces conditions sont réunies :
 
 ### Faux négatifs connus (documentés)
 
-- Teams en arrière-plan pendant tout l'appel → pas de popup. Mitigation
-  future : observer aussi les `NSWindow` de Teams (v3).
+- Teams en arrière-plan pendant tout l'appel **et** permission écran pas
+  encore accordée → la source 1 ne voit rien. Les sources 2 et 3 restent
+  opérantes. Dès le premier enregistrement à deux pistes la permission est
+  acquise, et le cas disparaît de lui-même.
 - Teams Web (Safari/Chrome) au lieu de Teams Desktop → non détecté
   (non-goal explicite).
 - Mode « picture-in-picture » Teams → détecté (la fenêtre reste key).
@@ -175,9 +213,12 @@ struct TeamsCallState {
 
 La logique de matching et la machine à états sont dans des fonctions pures
 `TeamsObservationInput → TeamsObservationDecision` testables sans UI. La
-classe `NSObject` se contente d'observer `NSWorkspace` et d'appeler la
-fonction pure. Tests unitaires couvrent : titre vide, titre français, titre
-anglais, 5 s pile, 30 s pile, app non-Teams, double détection rapide.
+classe `NSObject` se contente d'observer `NSWorkspace` — et, le cas
+échéant, d'interroger `SCShareableContent` — puis d'appeler la fonction
+pure. Les sources 2 et 3 entrent par le même point avec une décision déjà
+tranchée. Tests unitaires couvrent : titre vide, titre français, titre
+anglais, 5 s pile, 30 s pile, app non-Teams, double détection rapide, et
+deux sources différentes dans la fenêtre de cooldown.
 
 ## 4. Architecture
 
@@ -186,16 +227,17 @@ anglais, 5 s pile, 30 s pile, app non-Teams, double détection rapide.
 ```
 OneToOne/
   Services/
-    TeamsCallMonitor.swift              [NEW] — surveillance locale NSWorkspace
+    TeamsCallMonitor.swift              [NEW] — surveillance locale (source 1)
     TeamsCallMatchService.swift         [NEW] — appariement call ↔ EventKit
     TeamsAutoRecordCoordinator.swift    [NEW] — machine à états du cycle de vie
-    TeamsReportGenerator.swift          [NEW] — appel LLM pour le rapport
+    AudioRecorderService.swift          [MODIFIER] — 2e piste + mixage (§6.1)
+    MeetingNotificationService.swift    [MODIFIER] — 4 catégories de plus
+    TeamsLauncher.swift                 [MODIFIER] — émet le déclencheur 2
+    MenuBarController.swift             [MODIFIER] — état RECORDING rouge/pulse
   Models/
-    (pas de nouveau modèle, MeetingKind existant suffit)
+    (pas de nouveau modèle, MeetingKind existant suffit ; aucun champ d'état)
   Views/
     (pas de nouvelle vue ; MeetingView étendu)
-  Controllers/
-    MenuBarController.swift             [MODIFIER] — état RECORDING rouge/pulse
   App/
     AppSettings.swift                   [MODIFIER] — 2 nouvelles clés
 ```
@@ -255,10 +297,9 @@ OneToOne/
              │ (bouton « Générer le rapport »)
              ▼
       ┌──────────────┐
-      │ REPORTING    │ → TeamsReportGenerator appelle LLMProviderRegistry,
-      └──────┬───────┘   prompt « Synthèse réunion OneToOne »
-             │           résultat injecté dans section « Rapport »
-             │           en bas de la Meeting (Markdown modifiable)
+      │ REPORTING    │ → AIReportService.generate, template par défaut
+      └──────┬───────┘   du kind — le chemin exact du bouton existant
+             │           « Générer le rapport »
              ▼
       ┌──────────────┐
       │     DONE     │ → menu bar redevient normal,
@@ -267,8 +308,9 @@ OneToOne/
 
 ### Responsabilités par module
 
-- **`TeamsCallMonitor` (singleton, `@MainActor`)** : observe `NSWorkspace`,
-  publie `callStarted` / `callEnded`. Logique pure testable.
+- **`TeamsCallMonitor` (singleton, `@MainActor`)** : observe `NSWorkspace`
+  (source 1), publie `callStarted` / `callEnded`. Logique pure testable.
+  Les sources 2 et 3 s'adressent directement au coordinateur.
 - **`TeamsCallMatchService` (enum namespace, fonctions statiques pures)** :
   étant donné un instant T, parcourt les events EventKit du jour (via le
   cache de `CalendarAgendaService.eventsForDay`) et retourne l'event dont
@@ -280,10 +322,9 @@ OneToOne/
   déclenche la création de la Meeting + l'orchestration de la capture.
   Reçoit aussi les taps sur les boutons de notification (via
   `UNUserNotificationCenterDelegate`).
-- **`TeamsReportGenerator` (enum namespace, fonctions statiques)** : étant
-  donné une `Meeting` (transcription + métadonnées), construit le prompt
-  et appelle `LLMProviderRegistry.shared.activeProvider`. Pas
-  d'orchestration, pas d'état.
+- **`AIReportService` (existant, non modifié)** : le coordinateur appelle
+  `generate` comme le fait déjà le bouton « Générer le rapport ». Aucun
+  module ni prompt nouveau — voir §6.4.
 - **`MenuBarController` (MODIFIER)** : ajoute 2 états visuels :
   `RECORDING` (icône rouge fixe) et `RECORDING_PULSE` (icône rouge avec
   animation pulse 0.8 Hz). Click sur l'icône en mode `RECORDING` →
@@ -292,39 +333,45 @@ OneToOne/
 
 ### Capture audio (deux pistes)
 
-- **Micro interne** : via `AVAudioEngine` existant (déjà supporté pour
-  l'enregistrement des réunions OneToOne classiques). Le code de capture
-  existe déjà dans `Services/AudioRecorder.swift` (ou équivalent, à
-  confirmer à l'implémentation).
+- **Micro interne** : `Services/AudioRecorderService.swift`, singleton
+  `@MainActor .shared`. `AVAudioEngine` + `TapSink` (conversion 16 kHz
+  mono), pause/reprise, et `makeAudioStream() -> AsyncStream<[Float]>`
+  que `LiveTranscriptionService.begin(audioStream:)` consomme déjà.
 - **System Audio (Teams)** : via `ScreenCaptureKit` (`SCStream` avec
   `SCStreamConfiguration.captureAudio = true`), audio uniquement, pas de
-  vidéo. macOS 13+ requis — vérifier la deployment target de OneToOne à
-  l'implémentation.
-- Permission `NSScreenCaptureUsageDescription` à ajouter dans
-  `Info.plist` (actuellement absente — découverte de cette spec).
-  Si refusée, fallback automatique sur micro seul avec un bandeau
-  d'erreur non bloquant dans `MeetingView`.
+  vidéo. macOS 13+ requis ; `Package.swift` déclare `.macOS("15.0")`, la
+  contrainte est satisfaite.
+- **Aucune clé `Info.plist` à ajouter** : `NSScreenCaptureUsageDescription`
+  n'est pas le mécanisme TCC de ScreenCaptureKit, dont le prompt est émis
+  par le système. `ScreenCaptureService` capture déjà des fenêtres
+  aujourd'hui sans cette clé. Voir §8.
+- Si la permission écran est refusée, fallback automatique sur micro seul
+  avec un bandeau d'erreur non bloquant dans `MeetingView`.
 
 ### STT + diarisation
 
-Brique existante (cf. AGENTS.md, Whisper MLX + diarisation on-device). Le
+Brique existante : Whisper MLX + `PyannoteDiarizer`, on-device. Le
 coordinateur la déclenche au moment où la Meeting passe en `RECORDING`,
 avec l'audio de la réunion capturée. Si le STT échoue au démarrage
 (modèle pas chargé, RAM saturée), la Meeting continue en audio seul ;
 l'utilisateur peut retenter via un menu dans la fenêtre (cf. §6 edge
 cases).
 
-Diarisation étendue à 3 locuteurs : « moi » (micro interne),
-« Teams distant » (audio système), « interlocuteur en présentiel » (le
-cas échéant). Le label « Teams distant » est un nouveau tag du modèle
-de diarisation — à ajouter au modèle et aux tests.
+La provenance des locuteurs ne passe **pas** par la diarisation.
+`PyannoteDiarizer` fait du clustering non supervisé et *dérive*
+`numSpeakers` : il n'existe aucune taxonomie de labels où ajouter un tag
+« Teams distant ». L'attribution « moi » / « distant » vient de la piste
+d'origine, conservée sous forme de chronologie d'énergie (§6.1). La
+diarisation ne sert donc qu'à séparer les voix *à l'intérieur* de la
+piste distante — ce qu'elle sait déjà faire, sans modification.
 
 ### Rapport IA
 
-Le résultat est inséré en bas de la Meeting comme une **section
-« Rapport » modifiable** (Markdown). L'utilisateur peut le corriger à la
-main. Le prompt est stocké en dur dans `TeamsReportGenerator` (pas de
-prompt engineering dynamique en v2).
+Aucune section nouvelle. `AIReportService.generate` écrit déjà dans
+`summary`, `keyPointsJSON`, `decisionsJSON`, `openQuestionsJSON` et
+`reportRevisions`, tous modifiables depuis la vue existante. Le prompt
+vient du `ReportTemplate` par défaut du `kind` — éditable par
+l'utilisateur, donc rien n'est figé dans le binaire.
 
 ### Concurrence
 
@@ -343,15 +390,23 @@ popup « Démarrer quand même une nouvelle réunion » (chemin nominal).
 - `scheduledStart`, `scheduledEnd`, `teamsJoinURL`, `calendarEventID`.
 - `kind: MeetingKind` (`.oneToOne` / `.project` / `.manager` / `.global`).
 - `attendees: [Collaborator]`.
-- `transcript: [TranscriptChunk]` (déjà utilisé pour STT).
-- `summary: String` (champ texte libre Markdown).
+- `transcriptChunks: [TranscriptChunk]` et
+  `transcriptSegments: [TranscriptSegment]` (STT et diarisation).
+- `summary`, `shortSummary`, `keyPointsJSON`, `decisionsJSON`,
+  `openQuestionsJSON`, `reportRevisions`, `reportTemplate` — le rapport a
+  déjà toute sa structure, et elle est déjà modifiable.
 
-**Aucun ajout** de `callDetectedAt: Date?`, `audioSystemTrack: Data?`, etc.
-Justification : le moment de détection vit dans les logs du
-`TeamsAutoRecordCoordinator`, pas dans la Meeting. L'audio SystemAudio est
-écrit comme un `RecordingAttachment` (modèle déjà existant) au même titre
-que la piste micro. C'est la même structure de fichiers que la réunion
-OneToOne classique.
+**Aucun ajout** de `callDetectedAt: Date?`, `audioSystemTrack: Data?`, ni
+d'un quelconque champ d'état de cycle de vie. `Meeting` n'a aujourd'hui
+aucun champ d'état et n'en gagne pas : la machine à états de §4 vit en
+mémoire dans `TeamsAutoRecordCoordinator`. Le moment de détection vit dans
+les logs du coordinateur. Les deux pistes audio sont écrites comme des
+fichiers dans `AudioRecorderService.recordingsDirectory`, au même titre
+que la piste micro d'une réunion classique.
+
+Conséquence assumée : un crash de OneToOne pendant l'enregistrement perd
+l'état en cours, sans reprise possible. C'est la limitation déjà listée en
+§10, ici érigée en choix explicite plutôt que subie.
 
 ### Lien visuel avec l'event EventKit
 
@@ -364,6 +419,14 @@ L'`calendarEventID` (déjà spécifié v1 §4) reste le lien structurel entre
 l'event et la Meeting.
 
 ### Popups UNUserNotificationCenter — 4 catégories
+
+`MeetingNotificationService` déclare **déjà** quatre catégories
+(`MEETING_PRE_START`, `MEETING_START`, `MEETING_END`,
+`RECORDING_STARTED`) via `center.setNotificationCategories([...])`, appel
+qui **remplace** l'ensemble enregistré. Les quatre nouvelles catégories
+sont donc à ajouter dans `registerCategories()` du service existant, et
+non à enregistrer depuis le coordinateur — sinon elles effacent les
+quatre premières.
 
 ```swift
 // Catégorie 1 : appel Teams détecté, proposition de démarrer
@@ -421,7 +484,11 @@ UNNotificationCategory(
 ### Stabilité des IDs
 
 Chaque notification a un `requestIdentifier` dérivé de
-`meeting.persistentModelID.storeIdentifier + suffix`. Si on émet la même
+`meeting.ensuredStableID.uuidString + suffix`, comme le fait déjà
+`MeetingNotificationService.idPrefix(for:)`. **Pas**
+`persistentModelID.storeIdentifier` : le modèle documente explicitement
+que l'identifiant SwiftData n'est pas utilisable comme identifiant
+externe. Si on émet la même
 catégorie deux fois pour la même Meeting, la seconde écrase la première
 (comportement `UNUserNotificationCenter.add(_:)` par `requestIdentifier`).
 On évite ainsi les popups en double.
@@ -433,16 +500,28 @@ On évite ainsi les popups en double.
 `MeetingViewController.startRecording(mode: .teamsAutoRecord)` (méthode à
 ajouter, suit le pattern existant de l'enregistrement manuel) :
 
-1. Crée un `Recording` SwiftData lié à la Meeting (modèle déjà existant
-   pour les réunions classiques).
-2. Démarre `AVAudioEngine` pour la piste micro.
-3. Démarre `SCStream` en mode audio-only pour la piste SystemAudio. Si
+1. Démarre `AVAudioEngine` pour la piste micro (chemin existant).
+2. Démarre `SCStream` en mode audio-only pour la piste SystemAudio. Si
    la permission est refusée, on continue sans cette piste, on log un
    warning, et un bandeau d'erreur non bloquant apparaît dans
    `MeetingView` (déjà supporté pour d'autres erreurs).
-4. Démarre le STT Whisper + diarisation sur le flux fusionné. La
-   diarisation distingue « moi » / « Teams distant » / « interlocuteur
-   en présentiel » (3 locuteurs).
+3. **Mixe les deux pistes** en un seul buffer `[Float]` 16 kHz mono et
+   n'expose qu'un `AsyncStream<[Float]>` — celui que
+   `LiveTranscriptionService.begin(audioStream:)` consomme déjà. Tout
+   l'aval (VAD, Whisper, merger, diarisation) reste inchangé.
+4. **Conserve la provenance** : pour chaque bloc mixé, on enregistre
+   l'énergie de chacune des deux pistes, horodatée. Cette chronologie
+   permet d'attribuer après coup chaque segment transcrit à « moi » ou
+   « distant » sans le deviner au timbre.
+5. Démarre le STT Whisper sur le flux mixé.
+
+> **Point de risque — c'est ici, pas dans `SCStream`.** Ce mixage
+> n'existe pas aujourd'hui : `AudioRecorderService.concatenateWAVs` met
+> deux fichiers bout à bout, ce n'est pas un mixage. Et
+> `AudioRecorderService.shared` est un singleton à un seul moteur, un
+> seul `currentFileURL` et un seul `activeMeetingID` : lui faire
+> accepter une seconde source simultanée est la modification la plus
+> structurante du chantier.
 
 ### 6.2 Arrêt
 
@@ -452,8 +531,8 @@ ajouter, suit le pattern existant de l'enregistrement manuel) :
 2. Demande au STT de finir la transcription en cours. La transcription
    finale contient tous les chunks validés + le chunk résiduel.
 3. Sauvegarde la `Meeting` (`ModelContext.save`).
-4. Passe la Meeting en `state = .readyForFinalize` (nouvelle valeur de
-   l'enum d'état — à ajouter au modèle).
+4. Le coordinateur passe **sa propre** machine à états en `READY_FOR_AI`.
+   Aucun champ d'état n'est écrit sur la `Meeting` : voir §5.
 
 ### 6.3 Finalisation
 
@@ -464,20 +543,25 @@ ajouter, suit le pattern existant de l'enregistrement manuel) :
 
 ### 6.4 Rapport
 
-`TeamsReportGenerator.generate(for: meeting, in: context)` :
+`AIReportService.generate(...)` — le chemin exact du bouton « Générer le
+rapport » existant. Le coordinateur ne fait que l'appeler :
 
-- Construit le prompt : « Tu reçois la transcription et les métadonnées
-  d'une réunion OneToOne. Produis une synthèse structurée avec : (1)
-  Points clés discutés, (2) Décisions prises, (3) Actions à mener (avec
-  owner si mentionné), (4) Points en suspens. Sois concis. Utilise des
-  puces. » (Prompt en français, à raffiner à l'implémentation.)
-- Appelle `LLMProviderRegistry.shared.activeProvider.complete(prompt:)`.
-- Le résultat est inséré dans la section « Rapport » de la Meeting
-  (champ `summary` étendu avec un séparateur, ou nouveau champ à
-  arbitrer à l'implémentation — le plan d'implémentation tranchera).
+- **Pas de module nouveau.** `TeamsReportGenerator` est supprimé de la
+  spec.
+- **Pas de prompt nouveau.** `AIReportService` sélectionne déjà le
+  `ReportTemplate` par défaut du `kind`, et le pipeline existant couvre
+  les quatre rubriques visées — points clés, décisions, actions, points
+  en suspens — via `keyPointsJSON`, `decisionsJSON`, `openQuestionsJSON`
+  et `extractStructured`.
+- **Pas d'insertion à inventer.** Le résultat va là où va déjà tout
+  rapport, et y est déjà modifiable.
 - En cas d'échec du provider IA, on notifie l'utilisateur avec un
   message d'erreur non bloquant (« Le provider IA n'a pas pu générer le
   rapport. Tu peux le retenter plus tard depuis la réunion. »).
+
+Corollaire assumé : une réunion Teams produit exactement le même rapport
+qu'une réunion enregistrée à la main. La seule différence entre les deux
+parcours est le point d'entrée.
 
 ### Lien avec la capture existante
 
@@ -513,14 +597,15 @@ Réglages est proposée en v3).
 | Micro | `AVAudioSession` (déjà géré pour les réunions classiques) | Première utilisation de l'enregistrement | Bandeau d'erreur dans la Meeting, pas d'enregistrement. |
 | ScreenCapture (audio) | `CGPreflightScreenCaptureAccess()` + demande explicite | Première fois qu'on instancie `SCStream` en mode audio | Fallback automatique : micro seul, bandeau d'erreur non bloquant. `teamsAudioCaptureMode` passe à `.microOnly`. |
 
-### Info.plist à modifier
+### Info.plist — rien à modifier
 
-- Ajouter `NSScreenCaptureUsageDescription` (nouveau, pour la capture
-  audio système). Wording à arrêter à l'implémentation.
-- Vérifier que `NSMicrophoneUsageDescription` est bien présent (déjà le
-  cas pour l'enregistrement classique, à confirmer à l'implémentation).
-- Vérifier que `NSCalendarsFullAccessUsageDescription` couvre le nouveau
-  use-case (déjà le cas, pas de changement de wording nécessaire).
+- **Pas de `NSScreenCaptureUsageDescription`.** Cette clé n'est pas le
+  mécanisme TCC de ScreenCaptureKit : le prompt d'enregistrement d'écran
+  est émis par le système. `ScreenCaptureService` capture déjà des
+  fenêtres aujourd'hui sans elle. L'ajouter serait un commit sans effet.
+- `NSMicrophoneUsageDescription` : **présent**, vérifié dans `Info.plist`.
+- `NSCalendarsFullAccessUsageDescription` : couvre le nouveau use-case,
+  pas de changement de wording nécessaire.
 
 ## 9. Stratégie de test
 
@@ -529,7 +614,8 @@ Réglages est proposée en v3).
 - **`TeamsCallMonitor`** : titre vide → `idle`, titre matchant FR/EN →
   `stable` après 5 s, titre qui match puis plus pendant 30 s → `ended`,
   cooldown 30 s, app non-Teams ignorée, `lastMatchedEventID` empêche
-  re-popup.
+  re-popup, deux sources distinctes dans la fenêtre de cooldown → un seul
+  `callStarted`.
 - **`TeamsCallMatchService`** : event à T−1 min → match, T−3 min →
   pas de match, T+2 min → match, plusieurs events → `ambiguousMatch`,
   pas d'event → `nil`.
@@ -538,10 +624,15 @@ Réglages est proposée en v3).
   bouton `DISMISS` → retour `IDLE`, bouton `SNOOZE_5MIN` → re-détection
   après 5 min, bouton `CONTINUE_RECORDING` → retour `RECORDING`,
   concurrence (réunion existante) → proposition de liaison.
-- **`TeamsReportGenerator`** : prompt construit avec les bons champs
-  (titre, transcription, attendees), provider `DirectLLM` → appel
-  effectif, provider absent → erreur explicite, résultat vide/mal
-  formé → erreur remontée sans insertion.
+- **Mixeur audio** (fonction pure, sans `SCStream`) : deux buffers de
+  même longueur → somme bornée sans saturation ; une seule piste
+  présente → passe-plat ; longueurs inégales → alignement sans décalage
+  cumulatif ; chronologie d'énergie cohérente sur des pistes alternées ;
+  attribution d'un segment à « moi » / « distant » selon la piste
+  dominante.
+
+Aucun test de générateur de rapport : `AIReportService` est existant et
+déjà couvert.
 
 ### Integration (in-memory `ModelContext`)
 
@@ -586,8 +677,9 @@ Réglages est proposée en v3).
 - **Crash de Teams pendant l'enregistrement** → `callEnded` est émis
   via `NSWorkspace.didTerminateApplicationNotification`, le popup
   `TEAMS_CALL_ENDED` s'affiche, l'utilisateur peut arrêter proprement.
-- **Crash de OneToOne pendant l'enregistrement** → limitation v2 : pas
-  de recovery automatique. Documenter.
+- **Crash de OneToOne pendant l'enregistrement** → pas de reprise
+  automatique. Conséquence directe du choix de §5 (aucun état persisté
+  sur la `Meeting`), assumée pour la v2.
 - **Provider IA échoue au moment du rapport** → la Meeting reste en
   `READY_FOR_AI`, l'utilisateur peut retenter plus tard via un bouton
   « Générer le rapport » dans la vue Rapport de la Meeting.
@@ -607,26 +699,28 @@ Réglages est proposée en v3).
 1. **Foundation** (1-2 commits, testable en isolation) :
    - `TeamsCallMonitor` + `TeamsCallState` + tests unitaires.
    - `TeamsCallMatchService` + tests unitaires.
-   - Catégories UNUserNotification + tests.
+   - Les 4 catégories ajoutées dans
+     `MeetingNotificationService.registerCategories()` + tests.
 
 2. **Orchestration** (1 commit, intégrable) :
    - `TeamsAutoRecordCoordinator` + machine à états + tests unitaires.
+   - Les trois déclencheurs branchés : `TeamsCallMonitor`,
+     `TeamsLauncher.open`, `MEETING_START`.
    - Branchement au menu bar (état `RECORDING`) + click handler.
 
-3. **Capture audio** (1-2 commits, le plus risqué) :
+3. **Capture audio — deuxième piste** (1-2 commits, risqué) :
    - Permission `ScreenCaptureKit` + demande.
-   - Intégration `SCStream` audio-only au pipeline d'enregistrement
-     existant.
-   - Tests d'intégration avec un mock `SCStream` (ou un test manuel si
-     trop complexe à mocker).
+   - `SCStream` audio-only branché sur `AudioRecorderService`.
+   - Faire accepter au singleton une seconde source simultanée.
 
-4. **STT** (1 commit) :
-   - Extension de la diarisation à 3 locuteurs.
-   - Branchement au flux audio fusionné.
+4. **Mixage et provenance** (1-2 commits, aussi risqué que l'étape 3) :
+   - Mixage des deux pistes en un `AsyncStream<[Float]>` unique.
+   - Chronologie d'énergie par piste + attribution des segments.
+   - Tests unitaires du mixeur, en fonction pure.
 
-5. **Rapport IA** (1 commit) :
-   - `TeamsReportGenerator` + prompt.
-   - Insertion dans la Meeting.
+5. **Rapport IA** (1 commit, réduit) :
+   - Branchement du coordinateur sur `AIReportService.generate`.
+   - Aucun module ni prompt nouveau.
 
 6. **UI menu bar + bandeau d'erreur** (1 commit) :
    - État rouge + pulse.
@@ -641,8 +735,9 @@ Réglages est proposée en v3).
 
 - Branche : `feat/teams-autorecord-popup` partant de `master`.
 - PR séparée de la spec v1.
-- Commit de migration SwiftData : **aucun** (pas de nouveau champ).
-- Commit Info.plist : isoler le bump de `NSScreenCaptureUsageDescription`.
+- Commit de migration SwiftData : **aucun** — pas de nouveau champ, et
+  pas de champ d'état (voir §5).
+- Commit Info.plist : **aucun** — voir §8.
 
 **Critères d'acceptation** (gating la PR) :
 
@@ -659,7 +754,8 @@ Réglages est proposée en v3).
 
 ## 13. Hors scope v2, à noter pour v3
 
-- Détection des NSWindow Teams en arrière-plan (cf. §3).
+- Balayage périodique des fenêtres, pour couvrir le cas « Teams en
+  arrière-plan **et** permission écran pas encore accordée » (cf. §3).
 - Snooze configurable par l'utilisateur (durée, répétition).
 - Capture d'écran de Teams en parallèle de l'audio.
 - Lecture d'un `.mp4` exporté de Teams et transcription post-hoc.
@@ -676,8 +772,8 @@ brainstorming, pour traçabilité.
 | # | Question | Décision |
 |---|---|---|
 | 1 | Niveau d'intégration Microsoft | Surveillance locale, pas d'API |
-| 2 | Déclencheur du popup | 3 déclencheurs combinés (Teams key + click Rejoindre + horloge calendrier) |
-| 3 | Contenu du popup | Choix entre 3 modes : note texte / note + audio / audio seul |
+| 2 | Déclencheur du popup | 3 déclencheurs combinés, désormais tous trois spécifiés en §3 |
+| 3 | Contenu du popup | **À arbitrer** : §5 ne propose que Démarrer / Dans 5 min / Ignorer. Les trois modes de capture n'apparaissent nulle part ailleurs dans la spec — voir §15 |
 | 4 | Source calendrier | EventKit natif |
 | 5 | Forme du popup | Notification système macOS |
 | 6 | Devenir si pas démarré | Réunion OneToOne, pas une note |
@@ -685,11 +781,99 @@ brainstorming, pour traçabilité.
 | 8 | Comment | Audio système Teams en parallèle, double piste |
 | 9 | Transcription | STT Whisper MLX + diarisation on-device |
 | 10 | Fréquence | Toujours afficher le popup, opt-out par refus |
-| 11 | Type de réunion | Inférence calendrier, mots-clés, fallback |
-| 12 | Liste mots-clés | Configurable dans Réglages, défauts fournis |
+| 11 | Type de réunion | `ProjectMatchService.suggestKind` : manager (email), 1:1 (2 participants), projet (titre flou ≥ 0,7), fallback `.global` — sans mots-clés |
+| 12 | Liste mots-clés | **Corrigée** : aucune liste configurable. L'inférence de type est structurelle (Q11) ; les motifs de détection d'appel de §3 restent en dur |
 | 13 | Lien avec event calendrier | Ligne « Source : Outlook Calendar » dans le summary |
 | 14 | Action du bouton Démarrer | Crée, ouvre, démarre capture micro + SystemAudio + STT |
 | 15 | Premier plan | OneToOne passe au premier plan |
 | 16 | Fin d'appel Teams | Notification éphémère |
 | 17 | Provider IA | Nécessaire, sinon rapport désactivé |
-| 18 | Insertion du rapport | Section « Rapport » modifiable en bas |
+| 18 | Insertion du rapport | **Corrigée** : champs de rapport existants via `AIReportService`, déjà modifiables |
+
+## 15. Journal des amendements (2026-08-28, v2.1)
+
+La v2.0 avait été écrite depuis le brainstorming, sans relecture du code.
+Cinq points ont été vérifiés dans le dépôt, et six décisions prises. Ce
+journal existe pour que la relecture porte sur les écarts, pas sur la
+spec entière.
+
+### Les deux points « à confirmer » de la v2.0 : tranchés
+
+| Point | Verdict |
+|---|---|
+| Deployment target ≥ macOS 13 pour `SCStream.captureAudio` | `Package.swift` déclare `.macOS("15.0")`. Aucun risque. |
+| Existence de `Services/AudioRecorder.swift` | C'est `AudioRecorderService.swift`, singleton `@MainActor .shared` : `AVAudioEngine` + `TapSink` 16 kHz mono, pause/reprise, `makeAudioStream()`. |
+
+### Les six décisions
+
+| # | Sujet | Décision | Sections touchées |
+|---|---|---|---|
+| 1 | État de la `Meeting` | Aucun état persisté. La machine à états vit dans `TeamsAutoRecordCoordinator`. | §5, §6.2, §10, §12 |
+| 2 | Rapport IA | Réutilisation de `AIReportService`. `TeamsReportGenerator` supprimé, prompt en dur supprimé, D-8 annulée. | §0, §1, §2, §4, §6.4, §9, §11 |
+| 3 | Déclencheurs | Les trois de l'annexe Q2 sont retenus et spécifiés. Deux sont des points d'émission sur du code existant. | §3, §4, §9, §11, §14 |
+| 4 | Observation | Hybride : `NSWorkspace`, enrichi par `SCShareableContent` quand `CGPreflightScreenCaptureAccess()` est déjà vrai. D-11 passe de « non supporté » à « dégradé ». | §1, §2, §3, §13 |
+| 5 | Double piste | Mixage vers un flux STT unique, avec chronologie d'énergie par piste pour la provenance. La diarisation n'est pas modifiée. | §2, §4, §6.1, §9, §11 |
+| 6 | Mots-clés | Aucune liste configurable. Inférence structurelle par `ProjectMatchService` ; motifs de §3 en dur. | §3, §7, §14 |
+
+### Les trois incohérences internes de la v2.0
+
+1. **`§5` / `§12` contre `§6.2`** — la v2.0 promettait « aucun ajout au
+   modèle » et « migration : aucune », tout en introduisant
+   `state = .readyForFinalize`. La vérification a montré que `Meeting`
+   n'a **aucun** champ d'état : ce n'était pas une valeur d'énum à
+   ajouter mais une machine à états persistée à créer. Résolu par la
+   décision 1, en faveur de `§5` et `§12`.
+2. **`§3` contre l'annexe Q2** — trois déclencheurs décidés, un seul
+   spécifié, deux ni décrits ni renvoyés en v3. Résolu par la décision 3 :
+   les trois sont spécifiés, d'autant que les deux manquants existent
+   déjà en code.
+3. **`§7` contre l'annexe Q12** — une liste de mots-clés « configurable
+   dans Réglages » décidée, aucune clé prévue. La vérification a montré
+   que `ProjectMatchService.suggestKind` n'utilise aucun mot-clé (règles
+   structurelles : email du manager, nombre de participants,
+   correspondance floue de titre). Résolu par la décision 6 : Q12 est
+   corrigée, il n'y avait rien à construire.
+
+### Corrections factuelles, sans arbitrage
+
+- **`requestIdentifier`** (`§5`) — dérivé de `ensuredStableID.uuidString`,
+  pas de `persistentModelID.storeIdentifier`, que le modèle documente
+  explicitement comme inutilisable en identifiant externe.
+- **Enregistrement des catégories** (`§5`) —
+  `center.setNotificationCategories([...])` remplace l'ensemble : les
+  quatre nouvelles catégories doivent être fusionnées dans
+  `MeetingNotificationService.registerCategories()`, faute de quoi elles
+  effacent les quatre existantes.
+- **`NSScreenCaptureUsageDescription`** (`§8`, `§12`) — la v2.0 la
+  croyait requise et « absente, découverte de cette spec ». Elle est bien
+  absente, mais elle n'est pas le mécanisme TCC de ScreenCaptureKit :
+  `ScreenCaptureService` capture déjà des fenêtres sans elle. L'ajout et
+  son commit dédié sont supprimés.
+- **`NSMicrophoneUsageDescription`** — présent, vérifié.
+- **Emplacement de `MenuBarController`** (`§4`) — `Services/`, pas
+  `Controllers/`.
+- **Diarisation** (`§4`, `§6.1`) — la v2.0 annonçait « un nouveau tag
+  `Teams distant` à ajouter au modèle de diarisation ». `PyannoteDiarizer`
+  fait du clustering non supervisé et *dérive* `numSpeakers` : cette
+  taxonomie n'existe pas.
+
+### Ce que le solde change pour l'implémentation
+
+Un module en moins (trois au lieu de quatre), aucune migration SwiftData,
+aucun commit `Info.plist`, un faux négatif de détection en moins. Et un
+risque de plus, désormais nommé : `§6.1` disait « le flux fusionné »
+comme si la fusion existait. Elle n'existe pas —
+`AudioRecorderService.concatenateWAVs` concatène deux fichiers, et le
+singleton n'admet qu'une source à la fois. Le mixage est le vrai morceau
+du chantier, pas `SCStream`.
+
+### Point resté ouvert
+
+L'annexe **Q3** décide que le popup propose « un choix entre 3 modes :
+note texte / note + audio / audio seul ». Rien dans le corps de la spec
+ne reprend ces modes : `§5` ne déclare que `START_RECORD` / `SNOOZE_5MIN`
+/ `DISMISS`, et `§6.1` démarre systématiquement la capture complète.
+C'est une quatrième incohérence, repérée pendant l'amendement mais non
+tranchée. Deux issues plausibles : corriger Q3 comme périmée, ou ajouter
+les modes à la catégorie `TEAMS_CALL_DETECTED`. À arbitrer avant le plan
+d'implémentation.
