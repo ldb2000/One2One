@@ -59,6 +59,17 @@ struct TeamsCallMatchServiceTests {
                                             at: now) == .none)
     }
 
+    @Test("Un événement sur la journée entière est ignoré, même dans la fenêtre")
+    func allDayIsIgnored() {
+        let start = now
+        let e = CalendarMeetingEvent(id: "A", title: "Séminaire",
+                                     startDate: start, endDate: start.addingTimeInterval(86_400),
+                                     calendarTitle: "Pro", attendees: [],
+                                     teamsJoinURL: "https://teams.microsoft.com/l/meetup-join/A",
+                                     isCancelled: false, isAllDay: true)
+        #expect(TeamsCallMatchService.match(events: [e], at: now) == .none)
+    }
+
     @Test("Un événement sans lien Teams est ignoré")
     func withoutTeamsURLIsIgnored() {
         let start = now
