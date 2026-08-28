@@ -266,4 +266,55 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         XCTAssertEqual(outbound, [.menuBarRecording(false)], "Pas d'ouverture de fenêtre pour une réunion supprimée")
         XCTAssertNil(coordinator.consumePendingRequest(for: meetingID))
     }
+
+    func test_retrySTTAction_fromIdle_resumesAtFinalizing_andRequestsRetranscription() throws {
+        let meetingID = try startRecording()
+        coordinator.handle(.callEnded)
+        coordinator.handle(.userStopAndFinalize)
+        coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 0)
+        XCTAssertEqual(coordinator.phase, .idle)
+        outbound = []
+        coordinator.handleAction(actionID: MeetingNotificationService.TeamsAction.retrySTT, meetingID: meetingID)
+        XCTAssertEqual(coordinator.phase, .finalizing)
+        XCTAssertEqual(outbound, [.openWindow(meetingID: meetingID, autoStartRecording: false)])
+        XCTAssertEqual(coordinator.consumePendingRequest(for: meetingID), .retryTranscription)
+        coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 5)
+        XCTAssertEqual(coordinator.phase, .readyForAI, "La transcription relancée rend compte et rejoint le chemin nominal")
+    }
+
+    func test_retrySTTAction_outsideIdle_isIgnored() throws {
+        let meetingID = try startRecording()
+        outbound = []
+        coordinator.handleAction(actionID: MeetingNotificationService.TeamsAction.retrySTT, meetingID: meetingID)
+        XCTAssertEqual(coordinator.phase, .recording)
+        XCTAssertTrue(outbound.isEmpty)
+    }
+
+    func test_linkToCurrentAction_routesToLinking() throws {
+        let meetingID = try startRecording()
+        coordinator.detected(event("EVT-2", title: "Autre réunion"))
+        coordinator.handleAction(actionID: MeetingNotificationService.TeamsAction.linkToCurrent, meetingID: meetingID)
+        XCTAssertEqual(coordinator.phase, .recording)
+        XCTAssertEqual(try XCTUnwrap(try meetings().first).calendarEventID, "EVT-2")
+    }
+
+    func test_declinedLink_doesNotSuppressLaterProposalOfThatEvent() throws {
+        _ = try startRecording()
+        coordinator.detected(event("EVT-2", title: "Autre réunion"))
+        coordinator.handle(.userDismissed)          // refuse la liaison — inerte en .recording
+        coordinator.handle(.meetingDeleted)          // ramène la machine au repos
+        XCTAssertEqual(coordinator.phase, .idle)
+        outbound = []
+        coordinator.detected(event("EVT-2", title: "Autre réunion"))
+        XCTAssertEqual(coordinator.phase, .detected)
+        XCTAssertEqual(outbound, [.detectedPopup(eventTitle: "Autre réunion")])
+    }
+
+    func test_manualStopWithEmptyTranscript_turnsOffMenuBar_andRaisesSTTError() throws {
+        let meetingID = try startRecording()
+        outbound = []
+        coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 0)
+        XCTAssertEqual(coordinator.phase, .idle)
+        XCTAssertEqual(outbound, [.menuBarRecording(false), .sttErrorPopup(meetingID: meetingID)])
+    }
 }

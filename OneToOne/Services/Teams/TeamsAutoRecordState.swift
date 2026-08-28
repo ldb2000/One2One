@@ -34,6 +34,8 @@ enum TeamsAutoRecordEvent: Equatable {
     case transcriptionFinalized(segmentCount: Int)
     case userGenerateReport
     case userSkipReport
+    /// L'utilisateur relance la transcription depuis le popup « STT indisponible ».
+    case userRetrySTT
     case reportSucceeded
     case reportFailed
     /// La réunion créée par le parcours a été supprimée sous nos pieds.
@@ -56,6 +58,7 @@ enum TeamsAutoRecordEffect: Equatable {
     /// Le STT n'a rien produit : on propose de le retenter plutôt que de
     /// promettre un rapport (spec §10).
     case emitSTTErrorNotification
+    case retryTranscription
 }
 
 /// Réduction pure du parcours. Toute transition non listée est inerte : un
@@ -154,6 +157,11 @@ enum TeamsAutoRecordState {
             // La fenêtre nous dit qu'aucune capture ne lui appartient : l'icône
             // est déjà éteinte, on rend simplement la machine.
             return (.idle, [])
+
+        case (.idle, .userRetrySTT):
+            // On rejoint le parcours à la finalisation : la transcription
+            // rendra compte comme après un arrêt.
+            return (.finalizing, [.retryTranscription])
 
         default:
             return (phase, [])

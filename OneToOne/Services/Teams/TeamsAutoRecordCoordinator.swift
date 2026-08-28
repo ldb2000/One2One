@@ -24,6 +24,7 @@ final class TeamsAutoRecordCoordinator {
         case startRecording
         case stopAndFinalize
         case generateReport
+        case retryTranscription
     }
 
     /// Ce que le coordinateur émet vers l'extérieur. Passer par une valeur
@@ -59,9 +60,10 @@ final class TeamsAutoRecordCoordinator {
     /// Événement d'un second appel détecté pendant l'enregistrement, proposé à
     /// la liaison plutôt qu'à la création d'une seconde réunion (spec D-10).
     private var linkCandidateEvent: CalendarMeetingEvent?
-    /// Empêche de re-proposer le même appel après un refus ou un parcours
-    /// complet (spec §3).
-    private var lastHandledEventID: String?
+    /// Événements déjà démarrés, refusés ou liés : jamais re-proposés (spec §3).
+    private var handledEventIDs: Set<String> = []
+    /// Événements déjà proposés à la liaison pendant un enregistrement.
+    private var linkProposedEventIDs: Set<String> = []
     /// Vrai entre `.meetingDeleted` et le retour au repos : la fenêtre
     /// n'existe plus, on ne lui demande rien.
     private var meetingIsGone = false
@@ -110,13 +112,15 @@ final class TeamsAutoRecordCoordinator {
         // Boutons des popups.
         observers.append(nc.addObserver(
             forName: MeetingNotificationService.teamsActionNotification, object: nil, queue: .main) { [weak self] note in
-                Task { @MainActor in self?.handleAction(note.userInfo) }
+                guard let actionID = note.userInfo?["actionID"] as? String else { return }
+                let meetingID = (note.userInfo?["meetingID"] as? String).flatMap(UUID.init(uuidString:))
+                Task { @MainActor in self?.handleAction(actionID: actionID, meetingID: meetingID) }
             })
 
         // Déclencheur 3, version robuste : `willPresent` ne tire qu'au premier
         // plan, or l'heure de début arrive typiquement pendant que l'utilisateur
         // est dans Teams. Une horloge de 30 s réévalue l'agenda ; la tolérance
-        // de ±2 min de l'appariement et `lastHandledEventID` font le reste.
+        // de ±2 min de l'appariement et `handledEventIDs` font le reste.
         let timer = Timer(timeInterval: Self.clockInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.handleDetection() }
         }
@@ -134,7 +138,8 @@ final class TeamsAutoRecordCoordinator {
         TeamsCallMonitor.shared.stop()
         phase = .idle
         resetCurrent()
-        lastHandledEventID = nil
+        handledEventIDs.removeAll()
+        linkProposedEventIDs.removeAll()
     }
 
     // MARK: - Entrée des déclencheurs
@@ -161,15 +166,16 @@ final class TeamsAutoRecordCoordinator {
             coordLog.debug("auto-record desactive par reglage")
             return
         }
-        guard event.id != lastHandledEventID else {
+        guard !handledEventIDs.contains(event.id) else {
             coordLog.debug("evenement deja traite — pas de re-popup")
             return
         }
         if phase == .recording || phase == .callEnded {
             // Un enregistrement tourne déjà : on propose de lier, pas de créer
             // (spec D-10). Proposé une seule fois par événement.
+            guard !linkProposedEventIDs.contains(event.id) else { return }
+            linkProposedEventIDs.insert(event.id)
             linkCandidateEvent = event
-            lastHandledEventID = event.id
             handle(.callDetectedWhileRecording(eventID: event.id))
             return
         }
@@ -186,18 +192,24 @@ final class TeamsAutoRecordCoordinator {
     }
 
     /// Traduit une action de notification en événement de la machine.
-    private func handleAction(_ userInfo: [AnyHashable: Any]?) {
-        guard let actionID = userInfo?["actionID"] as? String else { return }
+    /// Interne pour être testable sans `UNUserNotificationCenter`.
+    func handleAction(actionID: String, meetingID: UUID?) {
         switch actionID {
         case MeetingNotificationService.TeamsAction.startRecord:       handle(.userStarted)
-        case MeetingNotificationService.TeamsAction.linkToCurrent:
-            if let candidate = linkCandidateEvent { handle(.userLinkedToCurrentMeeting(eventID: candidate.id)) }
         case MeetingNotificationService.TeamsAction.snooze5:           handle(.userSnoozed)
         case MeetingNotificationService.TeamsAction.dismiss:           handle(.userDismissed)
         case MeetingNotificationService.TeamsAction.stopAndFinalize:   handle(.userStopAndFinalize)
         case MeetingNotificationService.TeamsAction.continueRecording: handle(.userContinue)
         case MeetingNotificationService.TeamsAction.generateReport:    handle(.userGenerateReport)
         case MeetingNotificationService.TeamsAction.skipReport:        handle(.userSkipReport)
+        case MeetingNotificationService.TeamsAction.linkToCurrent:
+            if let candidate = linkCandidateEvent { handle(.userLinkedToCurrentMeeting(eventID: candidate.id)) }
+        case MeetingNotificationService.TeamsAction.retrySTT:
+            // Le parcours est au repos et a oublié la réunion : on la reprend
+            // depuis l'identifiant porté par la notification.
+            guard phase == .idle, let meetingID else { return }
+            currentMeetingID = meetingID
+            handle(.userRetrySTT)
         default: break
         }
     }
@@ -250,7 +262,7 @@ final class TeamsAutoRecordCoordinator {
         coordLog.debug("\(String(describing: self.phase)) --\(String(describing: event))--> \(String(describing: next))")
         // Le contexte est mis à jour AVANT les effets, qui le lisent.
         switch event {
-        case .userDismissed:  lastHandledEventID = currentEvent?.id
+        case .userDismissed:  if let id = currentEvent?.id { handledEventIDs.insert(id) }
         case .meetingDeleted: meetingIsGone = true
         default: break
         }
@@ -315,6 +327,9 @@ final class TeamsAutoRecordCoordinator {
             guard let id = currentMeetingID else { return }
             deliver(.sttErrorPopup(meetingID: id))
 
+        case .retryTranscription:
+            request(.retryTranscription)
+
         case .generateReport:
             request(.generateReport)
 
@@ -338,7 +353,7 @@ final class TeamsAutoRecordCoordinator {
 
         let stableID = meeting.ensuredStableID
         currentMeetingID = stableID
-        lastHandledEventID = event.id
+        handledEventIDs.insert(event.id)
         // Fenêtre déjà ouverte ou pas : la demande couvre les deux cas, le
         // token `autoStartRecording` ne couvre que l'ouverture.
         pendingRequest = (stableID, .startRecording)
@@ -357,6 +372,8 @@ final class TeamsAutoRecordCoordinator {
         meeting.calendarEventID = event.id
         meeting.calendarEventTitle = event.title
         if meeting.teamsJoinURL?.isEmpty ?? true { meeting.teamsJoinURL = event.teamsJoinURL }
+        // Un événement lié n'a plus à être proposé pour son propre enregistrement.
+        handledEventIDs.insert(event.id)
         linkCandidateEvent = nil
         do { try context.save() } catch { coordLog.error("liaison: \(error.localizedDescription)") }
     }

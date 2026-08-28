@@ -156,4 +156,20 @@ struct TeamsAutoRecordStateTests {
         #expect(next == .idle)
         #expect(effects.isEmpty)
     }
+
+    @Test("Retenter le STT depuis le repos rejoint la finalisation")
+    func retrySTTFromIdleResumesAtFinalizing() {
+        let (phase, effects) = reduce(.idle, .userRetrySTT)
+        #expect(phase == .finalizing)
+        #expect(effects == [.retryTranscription])
+    }
+
+    @Test("Retenter le STT hors du repos est inerte")
+    func retrySTTOutsideIdleIsInert() {
+        for phase in [TeamsAutoRecordPhase.recording, .finalizing, .readyForAI] {
+            let (next, effects) = reduce(phase, .userRetrySTT)
+            #expect(next == phase)
+            #expect(effects.isEmpty)
+        }
+    }
 }

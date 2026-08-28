@@ -1461,6 +1461,13 @@ struct MeetingView: View {
             Task { await startRecording() }
         case .stopAndFinalize: Task { await stopRecordingAndTranscribe() }
         case .generateReport:  Task { await generateReport() }
+        case .retryTranscription:
+            guard let url = meeting.wavFileURL else {
+                // Rien à retranscrire : on le dit au coordinateur plutôt que de le laisser attendre.
+                TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
+                return
+            }
+            Task { await retranscribe(wavURL: url) }
         }
     }
 
