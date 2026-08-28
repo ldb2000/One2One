@@ -23,8 +23,6 @@ struct TeamsCallState: Equatable {
     var stableSince: Date?
     /// Instant depuis lequel la fenêtre a disparu, alors qu'on était en `stable`.
     var absentSince: Date?
-    /// Dernier `callStarted` émis — sert au cooldown.
-    var lastEmittedAt: Date?
 }
 
 /// Entrée d'un tick d'observation. `isTeamsWindowPresent` vaut vrai si une
@@ -46,9 +44,13 @@ enum TeamsCallObservation {
     /// Durée de présence ininterrompue avant de conclure à un appel.
     static let stabilityDelay: TimeInterval = 5
     /// Durée d'absence avant de conclure à la fin de l'appel.
+    ///
+    /// Avec `stabilityDelay`, elle garantit aussi qu'au moins 35 s séparent
+    /// deux `callStarted` : repasser par `idle` coûte 30 s d'absence, puis
+    /// revenir à `stable` coûte 5 s de présence. C'est ainsi qu'est honorée
+    /// la fusion « à moins de 30 s » de la spec §3 — sans compteur dédié,
+    /// qui serait du code mort.
     static let absenceDelay: TimeInterval = 30
-    /// Deux `callStarted` séparés de moins que ça sont fusionnés.
-    static let cooldown: TimeInterval = 30
 
     /// Mots, en forme normalisée (minuscules, sans accents), dont la présence
     /// dans le titre d'une fenêtre Teams fait suspecter un appel. Liste **en
@@ -107,12 +109,6 @@ enum TeamsCallObservation {
             guard let since = state.stableSince,
                   input.now.timeIntervalSince(since) >= stabilityDelay else { return .none }
             state.phase = .stable
-            if let last = state.lastEmittedAt,
-               input.now.timeIntervalSince(last) < cooldown {
-                // Même appel, détecté à nouveau : on ne redemande rien.
-                return .none
-            }
-            state.lastEmittedAt = input.now
             return .callStarted
 
         case .stable:
