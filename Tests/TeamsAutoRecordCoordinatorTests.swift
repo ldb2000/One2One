@@ -117,13 +117,49 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         ])
     }
 
-    func test_detectionDuringRecording_doesNotReplaceCurrentEvent() throws {
-        _ = try startRecording()
+    func test_detectionDuringRecording_proposesLink_once() throws {
+        let meetingID = try startRecording()
         outbound = []
         coordinator.detected(event("EVT-2", title: "Autre réunion"))
         XCTAssertEqual(coordinator.phase, .recording)
+        XCTAssertEqual(outbound, [.linkProposalPopup(eventTitle: "Autre réunion", meetingID: meetingID)])
+        XCTAssertEqual(try meetings().count, 1, "Pas de seconde réunion")
+        outbound = []
+        coordinator.detected(event("EVT-2", title: "Autre réunion"))
+        XCTAssertTrue(outbound.isEmpty, "Un second appel n'est proposé qu'une fois")
+    }
+
+    func test_linking_attachesSecondEvent_keepsRecording() throws {
+        let meetingID = try startRecording()
+        coordinator.detected(event("EVT-2", title: "Autre réunion"))
+        outbound = []
+        coordinator.handle(.userLinkedToCurrentMeeting(eventID: "EVT-2"))
+        XCTAssertEqual(coordinator.phase, .recording)
         XCTAssertTrue(outbound.isEmpty)
-        XCTAssertEqual(try meetings().count, 1)
+        let meeting = try XCTUnwrap(try meetings().first)
+        XCTAssertEqual(meeting.calendarEventID, "EVT-2")
+        XCTAssertEqual(meeting.calendarEventTitle, "Autre réunion")
+        XCTAssertEqual(meeting.ensuredStableID, meetingID)
+    }
+
+    func test_transcriptReady_withoutProvider_saysReportUnavailable() throws {
+        settings.provider = .anthropic
+        settings.cloudToken = ""
+        let meetingID = try startRecording()
+        outbound = []
+        coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 9)
+        XCTAssertEqual(outbound, [.menuBarRecording(false),
+                                  .transcriptReadyPopup(segmentCount: 9, meetingID: meetingID, reportAvailable: false)])
+    }
+
+    func test_emptyTranscript_raisesSTTError_andReturnsToIdle() throws {
+        let meetingID = try startRecording()
+        coordinator.handle(.callEnded)
+        coordinator.handle(.userStopAndFinalize)
+        outbound = []
+        coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 0)
+        XCTAssertEqual(coordinator.phase, .idle)
+        XCTAssertEqual(outbound, [.sttErrorPopup(meetingID: meetingID)])
     }
 
     // MARK: - Chemin nominal
@@ -147,7 +183,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
 
         coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 12)
         XCTAssertEqual(coordinator.phase, .readyForAI)
-        XCTAssertEqual(outbound, [.transcriptReadyPopup(segmentCount: 12, meetingID: meetingID)])
+        XCTAssertEqual(outbound, [.transcriptReadyPopup(segmentCount: 12, meetingID: meetingID, reportAvailable: true)])
         outbound = []
 
         coordinator.handle(.userGenerateReport)
@@ -200,7 +236,7 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         coordinator.transcriptionDidFinish(meetingID: meetingID, segmentCount: 4)
         XCTAssertEqual(coordinator.phase, .readyForAI)
         XCTAssertEqual(outbound, [.menuBarRecording(false),
-                                  .transcriptReadyPopup(segmentCount: 4, meetingID: meetingID)])
+                                  .transcriptReadyPopup(segmentCount: 4, meetingID: meetingID, reportAvailable: true)])
     }
 
     func test_reportFailure_keepsMeetingReady_andNotifies() throws {

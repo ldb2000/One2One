@@ -18,6 +18,10 @@ enum TeamsAutoRecordPhase: Equatable {
 enum TeamsAutoRecordEvent: Equatable {
     /// Un des trois déclencheurs de §3 a conclu à un appel.
     case callDetected(eventID: String)
+    /// Un appel est détecté alors qu'un enregistrement tourne déjà (spec D-10).
+    case callDetectedWhileRecording(eventID: String)
+    /// L'utilisateur accepte de rattacher ce second appel à la réunion en cours.
+    case userLinkedToCurrentMeeting(eventID: String)
     case userStarted
     /// La capture n'a pas pu démarrer, ou n'appartient pas à cette réunion.
     case recordingFailed
@@ -47,6 +51,11 @@ enum TeamsAutoRecordEffect: Equatable {
     case generateReport
     case notifyReportFailure
     case setMenuBarRecording(Bool)
+    case emitLinkProposal(eventID: String)
+    case linkEventToCurrentMeeting(eventID: String)
+    /// Le STT n'a rien produit : on propose de le retenter plutôt que de
+    /// promettre un rapport (spec §10).
+    case emitSTTErrorNotification
 }
 
 /// Réduction pure du parcours. Toute transition non listée est inerte : un
@@ -89,6 +98,24 @@ enum TeamsAutoRecordState {
 
         case (.callEnded, .meetingDeleted):
             return (.idle, [.stopRecording, .setMenuBarRecording(false)])
+
+        case (.recording, .callDetectedWhileRecording(let eventID)),
+             (.callEnded, .callDetectedWhileRecording(let eventID)):
+            return (phase, [.emitLinkProposal(eventID: eventID)])
+
+        case (.recording, .userLinkedToCurrentMeeting(let eventID)),
+             (.callEnded, .userLinkedToCurrentMeeting(let eventID)):
+            return (phase, [.linkEventToCurrentMeeting(eventID: eventID)])
+
+        case (.recording, .transcriptionFinalized(let count)) where count == 0,
+             (.callEnded, .transcriptionFinalized(let count)) where count == 0:
+            // Arrêt manuel, mais le STT n'a rien produit : on coupe l'icône
+            // et on propose de retenter plutôt que de promettre un rapport.
+            return (.idle, [.setMenuBarRecording(false), .emitSTTErrorNotification])
+
+        case (.finalizing, .transcriptionFinalized(let count)) where count == 0:
+            // Rien à résumer : inutile de proposer un rapport.
+            return (.idle, [.emitSTTErrorNotification])
 
         case (.recording, .transcriptionFinalized(let count)),
              (.callEnded, .transcriptionFinalized(let count)):

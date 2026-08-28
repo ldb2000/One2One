@@ -305,10 +305,35 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                   suffix: "teams.ended")
     }
 
-    func notifyTeamsTranscriptReady(segmentCount: Int, meetingStableID: String) {
-        postTeams(category: TeamsCategory.transcriptReady,
+    /// Popup « un appel Teams a été détecté pendant un enregistrement ».
+    func notifyTeamsCallLinkProposal(eventTitle: String, meetingStableID: String) {
+        postTeams(category: TeamsCategory.link,
+                  title: "Appel Teams détecté : \(eventTitle)",
+                  body: "Un enregistrement est déjà en cours. Lier cet appel à la réunion en cours ?",
+                  meetingStableID: meetingStableID,
+                  suffix: "teams.link")
+    }
+
+    /// Popup « le STT n'a rien produit ».
+    func notifyTeamsSTTUnavailable(meetingStableID: String) {
+        postTeams(category: TeamsCategory.error,
+                  title: "STT indisponible",
+                  body: "L'enregistrement audio est conservé. Transcription à retenter.",
+                  meetingStableID: meetingStableID,
+                  suffix: "teams.error")
+    }
+
+    /// Quand `reportAvailable` est faux, la notification informe que la
+    /// transcription est prête mais ne propose pas de rapport : la catégorie
+    /// sans action évite un bouton qui échouerait (spec D-9).
+    func notifyTeamsTranscriptReady(segmentCount: Int,
+                                    meetingStableID: String,
+                                    reportAvailable: Bool = true) {
+        postTeams(category: reportAvailable ? TeamsCategory.transcriptReady : Category.recording,
                   title: "Transcription prête (\(segmentCount) segments)",
-                  body: "Générer le rapport avec le provider IA ?",
+                  body: reportAvailable
+                      ? "Générer le rapport avec le provider IA ?"
+                      : "Aucun provider IA configuré — rapport indisponible.",
                   meetingStableID: meetingStableID,
                   suffix: "teams.transcript")
     }

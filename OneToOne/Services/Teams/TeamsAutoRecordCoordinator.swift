@@ -32,7 +32,9 @@ final class TeamsAutoRecordCoordinator {
     enum Outbound: Equatable {
         case detectedPopup(eventTitle: String)
         case endedPopup(meetingID: UUID)
-        case transcriptReadyPopup(segmentCount: Int, meetingID: UUID)
+        case transcriptReadyPopup(segmentCount: Int, meetingID: UUID, reportAvailable: Bool)
+        case linkProposalPopup(eventTitle: String, meetingID: UUID)
+        case sttErrorPopup(meetingID: UUID)
         case reportFailedPopup(meetingID: UUID)
         case openWindow(meetingID: UUID, autoStartRecording: Bool)
         case menuBarRecording(Bool)
@@ -54,6 +56,9 @@ final class TeamsAutoRecordCoordinator {
     /// Événement d'agenda du parcours en cours, et réunion créée pour lui.
     private var currentEvent: CalendarMeetingEvent?
     private var currentMeetingID: UUID?
+    /// Événement d'un second appel détecté pendant l'enregistrement, proposé à
+    /// la liaison plutôt qu'à la création d'une seconde réunion (spec D-10).
+    private var linkCandidateEvent: CalendarMeetingEvent?
     /// Empêche de re-proposer le même appel après un refus ou un parcours
     /// complet (spec §3).
     private var lastHandledEventID: String?
@@ -160,6 +165,14 @@ final class TeamsAutoRecordCoordinator {
             coordLog.debug("evenement deja traite — pas de re-popup")
             return
         }
+        if phase == .recording || phase == .callEnded {
+            // Un enregistrement tourne déjà : on propose de lier, pas de créer
+            // (spec D-10). Proposé une seule fois par événement.
+            linkCandidateEvent = event
+            lastHandledEventID = event.id
+            handle(.callDetectedWhileRecording(eventID: event.id))
+            return
+        }
         // On ne retient l'événement que si la machine accepte la détection :
         // une détection pendant un parcours en cours ne doit pas écraser
         // l'événement de ce parcours.
@@ -177,6 +190,8 @@ final class TeamsAutoRecordCoordinator {
         guard let actionID = userInfo?["actionID"] as? String else { return }
         switch actionID {
         case MeetingNotificationService.TeamsAction.startRecord:       handle(.userStarted)
+        case MeetingNotificationService.TeamsAction.linkToCurrent:
+            if let candidate = linkCandidateEvent { handle(.userLinkedToCurrentMeeting(eventID: candidate.id)) }
         case MeetingNotificationService.TeamsAction.snooze5:           handle(.userSnoozed)
         case MeetingNotificationService.TeamsAction.dismiss:           handle(.userDismissed)
         case MeetingNotificationService.TeamsAction.stopAndFinalize:   handle(.userStopAndFinalize)
@@ -247,6 +262,7 @@ final class TeamsAutoRecordCoordinator {
     private func resetCurrent() {
         currentEvent = nil
         currentMeetingID = nil
+        linkCandidateEvent = nil
         meetingIsGone = false
         pendingRequest = nil
         snoozeTask?.cancel()
@@ -283,7 +299,21 @@ final class TeamsAutoRecordCoordinator {
 
         case .emitTranscriptReadyNotification(let count):
             guard let id = currentMeetingID else { return }
-            deliver(.transcriptReadyPopup(segmentCount: count, meetingID: id))
+            let available = settings().map {
+                TeamsReportAvailability.isAvailable(provider: $0.provider, cloudToken: $0.cloudToken)
+            } ?? false
+            deliver(.transcriptReadyPopup(segmentCount: count, meetingID: id, reportAvailable: available))
+
+        case .emitLinkProposal:
+            guard let event = linkCandidateEvent, let id = currentMeetingID else { return }
+            deliver(.linkProposalPopup(eventTitle: event.title, meetingID: id))
+
+        case .linkEventToCurrentMeeting:
+            linkCandidateEventToCurrentMeeting()
+
+        case .emitSTTErrorNotification:
+            guard let id = currentMeetingID else { return }
+            deliver(.sttErrorPopup(meetingID: id))
 
         case .generateReport:
             request(.generateReport)
@@ -315,6 +345,20 @@ final class TeamsAutoRecordCoordinator {
         NotificationCenter.default.post(name: Self.meetingRequestNotification, object: nil,
                                         userInfo: ["meetingID": stableID.uuidString])
         deliver(.openWindow(meetingID: stableID, autoStartRecording: true))
+    }
+
+    /// Rattache le second événement d'agenda à la réunion en cours, sans
+    /// toucher à la capture ni aux participants d'origine (spec §9).
+    private func linkCandidateEventToCurrentMeeting() {
+        guard let container, let meetingID = currentMeetingID, let event = linkCandidateEvent else { return }
+        let context = container.mainContext
+        let all = (try? context.fetch(FetchDescriptor<Meeting>())) ?? []
+        guard let meeting = all.first(where: { $0.stableID == meetingID }) else { return }
+        meeting.calendarEventID = event.id
+        meeting.calendarEventTitle = event.title
+        if meeting.teamsJoinURL?.isEmpty ?? true { meeting.teamsJoinURL = event.teamsJoinURL }
+        linkCandidateEvent = nil
+        do { try context.save() } catch { coordLog.error("liaison: \(error.localizedDescription)") }
     }
 
     /// Dépose une demande pour la réunion du parcours, la signale aux
@@ -349,8 +393,14 @@ final class TeamsAutoRecordCoordinator {
             MeetingNotificationService.shared.notifyTeamsCallDetected(eventTitle: title, meetingStableID: "")
         case .endedPopup(let id):
             MeetingNotificationService.shared.notifyTeamsCallEnded(meetingStableID: id.uuidString)
-        case .transcriptReadyPopup(let count, let id):
-            MeetingNotificationService.shared.notifyTeamsTranscriptReady(segmentCount: count, meetingStableID: id.uuidString)
+        case .transcriptReadyPopup(let count, let id, let reportAvailable):
+            MeetingNotificationService.shared.notifyTeamsTranscriptReady(
+                segmentCount: count, meetingStableID: id.uuidString, reportAvailable: reportAvailable)
+        case .linkProposalPopup(let title, let id):
+            MeetingNotificationService.shared.notifyTeamsCallLinkProposal(
+                eventTitle: title, meetingStableID: id.uuidString)
+        case .sttErrorPopup(let id):
+            MeetingNotificationService.shared.notifyTeamsSTTUnavailable(meetingStableID: id.uuidString)
         case .reportFailedPopup(let id):
             MeetingNotificationService.shared.notifyTeamsReportFailed(meetingStableID: id.uuidString)
         case .openWindow(let id, let autoStart):
