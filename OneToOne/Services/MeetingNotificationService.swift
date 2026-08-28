@@ -10,18 +10,49 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
 
     private let center = UNUserNotificationCenter.current()
 
-    private enum Category {
+    enum Category {
         static let preStart = "MEETING_PRE_START"  // Outlook-style "starts in N min"
         static let start    = "MEETING_START"
         static let end      = "MEETING_END"
         static let recording = "RECORDING_STARTED"
     }
 
-    private enum Action {
+    enum Action {
         static let open  = "OPEN_MEETING"
         static let teams = "JOIN_TEAMS"
         static let snooze5 = "SNOOZE_5"
     }
+
+    /// Catégories du parcours Teams auto-record (spec §5). Distinctes de
+    /// `Category`, qui reste privé aux notifications de réunion.
+    enum TeamsCategory {
+        static let detected = "TEAMS_CALL_DETECTED"
+        /// Variante émise quand un enregistrement tourne déjà : on propose de
+        /// lier l'appel à la réunion en cours plutôt que d'en créer une
+        /// seconde (spec D-10).
+        static let link = "TEAMS_CALL_LINK"
+        static let ended = "TEAMS_CALL_ENDED"
+        static let transcriptReady = "TEAMS_TRANSCRIPT_READY"
+        static let error = "TEAMS_RECORDING_ERROR"
+    }
+
+    /// Actions du parcours Teams. Les identifiants voyagent jusqu'au
+    /// coordinateur via `teamsActionNotification`.
+    enum TeamsAction {
+        static let startRecord = "START_RECORD"
+        static let linkToCurrent = "LINK_TO_CURRENT"
+        static let snooze5 = "SNOOZE_TEAMS_5"
+        static let dismiss = "DISMISS_TEAMS"
+        static let stopAndFinalize = "STOP_AND_FINALIZE"
+        static let continueRecording = "CONTINUE_RECORDING"
+        static let generateReport = "GENERATE_REPORT"
+        static let skipReport = "SKIP_REPORT"
+        static let retrySTT = "RETRY_STT"
+    }
+
+    /// Posted quand l'utilisateur touche une action du parcours Teams.
+    /// `userInfo` porte `actionID: String` et, si connue, `meetingID: String`.
+    static let teamsActionNotification = Notification.Name("OneToOne.MeetingNotificationService.teamsAction")
 
     /// Posted when the user taps "Open" on a meeting notification. UserInfo
     /// carries `meetingID` (PersistentIdentifier.storeIdentifier as String).
@@ -148,12 +179,29 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
+        let actionID = response.actionIdentifier
+        let teamsActions: Set<String> = [
+            TeamsAction.startRecord, TeamsAction.linkToCurrent,
+            TeamsAction.snooze5, TeamsAction.dismiss,
+            TeamsAction.stopAndFinalize, TeamsAction.continueRecording,
+            TeamsAction.generateReport, TeamsAction.skipReport, TeamsAction.retrySTT
+        ]
+        if teamsActions.contains(actionID) {
+            let teamsMeetingID = (userInfo["meetingID"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            DispatchQueue.main.async {
+                var info: [AnyHashable: Any] = ["actionID": actionID]
+                if let teamsMeetingID { info["meetingID"] = teamsMeetingID }
+                NotificationCenter.default.post(name: Self.teamsActionNotification,
+                                                object: nil, userInfo: info)
+            }
+            completionHandler()
+            return
+        }
         guard let meetingID = userInfo["meetingID"] as? String, !meetingID.isEmpty else {
             completionHandler()
             return
         }
         let teamsURL = userInfo["teamsURL"] as? String
-        let actionID = response.actionIdentifier
 
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
@@ -217,31 +265,116 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         }
     }
 
+    /// Popup « appel Teams détecté ». `meetingStableID` peut être vide tant
+    /// que la réunion n'existe pas : le coordinateur la crée à l'acceptation.
+    func notifyTeamsCallDetected(eventTitle: String, meetingStableID: String) {
+        postTeams(category: TeamsCategory.detected,
+                  title: "Appel Teams détecté : \(eventTitle)",
+                  body: "Démarrer l'enregistrement dans OneToOne ?",
+                  meetingStableID: meetingStableID,
+                  suffix: "teams.detected")
+    }
+
+    func notifyTeamsCallEnded(meetingStableID: String) {
+        postTeams(category: TeamsCategory.ended,
+                  title: "Appel Teams terminé",
+                  body: "Arrêter l'enregistrement et finaliser la transcription ?",
+                  meetingStableID: meetingStableID,
+                  suffix: "teams.ended")
+    }
+
+    func notifyTeamsTranscriptReady(segmentCount: Int, meetingStableID: String) {
+        postTeams(category: TeamsCategory.transcriptReady,
+                  title: "Transcription prête (\(segmentCount) segments)",
+                  body: "Générer le rapport avec le provider IA ?",
+                  meetingStableID: meetingStableID,
+                  suffix: "teams.transcript")
+    }
+
+    /// Émission commune. Le `requestIdentifier` est dérivé du `stableID` de la
+    /// réunion — **pas** de `persistentModelID`, que le modèle documente comme
+    /// inutilisable en identifiant externe. Réémettre la même catégorie pour la
+    /// même réunion écrase la précédente, ce qui évite les popups en double.
+    private func postTeams(category: String, title: String, body: String,
+                           meetingStableID: String, suffix: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.categoryIdentifier = category
+        content.interruptionLevel = .timeSensitive
+        content.userInfo = ["meetingID": meetingStableID]
+        let id = meetingStableID.isEmpty ? "teams.\(suffix)" : "\(meetingStableID).\(suffix)"
+        let request = UNNotificationRequest(
+            identifier: id, content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false))
+        center.add(request) { error in
+            if let error { print("[MeetingNotificationService] teams: \(error)") }
+        }
+    }
+
     // MARK: - Internals
 
     private func registerCategories() {
+        center.setNotificationCategories(Set(Self.makeCategories()))
+    }
+
+    /// Catalogue **unique** des catégories de l'application.
+    ///
+    /// `setNotificationCategories` remplace l'ensemble enregistré : tout ajout
+    /// doit passer par ici, jamais par un second appel depuis un autre service.
+    nonisolated static func makeCategories() -> [UNNotificationCategory] {
         let openAction = UNNotificationAction(identifier: Action.open,
-                                              title: "Ouvrir",
-                                              options: [.foreground])
+                                              title: "Ouvrir", options: [.foreground])
         let teamsAction = UNNotificationAction(identifier: Action.teams,
-                                               title: "Rejoindre Teams",
-                                               options: [.foreground])
+                                               title: "Rejoindre Teams", options: [.foreground])
         let snoozeAction = UNNotificationAction(identifier: Action.snooze5,
-                                                title: "Rappeler dans 5 min",
-                                                options: [])
-        let preStartCat = UNNotificationCategory(identifier: Category.preStart,
-                                                  actions: [teamsAction, openAction, snoozeAction],
-                                                  intentIdentifiers: [])
-        let startCat = UNNotificationCategory(identifier: Category.start,
-                                              actions: [teamsAction, openAction],
-                                              intentIdentifiers: [])
-        let endCat = UNNotificationCategory(identifier: Category.end,
-                                             actions: [openAction],
-                                             intentIdentifiers: [])
-        let recordingCat = UNNotificationCategory(identifier: Category.recording,
-                                          actions: [],
-                                          intentIdentifiers: [])
-        center.setNotificationCategories([preStartCat, startCat, endCat, recordingCat])
+                                                title: "Rappeler dans 5 min", options: [])
+
+        let startRecord = UNNotificationAction(identifier: TeamsAction.startRecord,
+                                               title: "Démarrer", options: [.foreground])
+        let linkToCurrent = UNNotificationAction(identifier: TeamsAction.linkToCurrent,
+                                                 title: "Lier à la réunion en cours",
+                                                 options: [.foreground])
+        let snoozeTeams = UNNotificationAction(identifier: TeamsAction.snooze5,
+                                               title: "Dans 5 min", options: [])
+        let dismissTeams = UNNotificationAction(identifier: TeamsAction.dismiss,
+                                                title: "Ignorer", options: [.destructive])
+        let stopAndFinalize = UNNotificationAction(identifier: TeamsAction.stopAndFinalize,
+                                                   title: "Arrêter et finaliser", options: [.foreground])
+        let continueRecording = UNNotificationAction(identifier: TeamsAction.continueRecording,
+                                                     title: "Continuer l'enregistrement", options: [])
+        let generateReport = UNNotificationAction(identifier: TeamsAction.generateReport,
+                                                  title: "Générer le rapport", options: [.foreground])
+        let skipReport = UNNotificationAction(identifier: TeamsAction.skipReport,
+                                              title: "Plus tard", options: [])
+        let retrySTT = UNNotificationAction(identifier: TeamsAction.retrySTT,
+                                            title: "Retenter le STT", options: [.foreground])
+
+        return [
+            UNNotificationCategory(identifier: Category.preStart,
+                                   actions: [teamsAction, openAction, snoozeAction],
+                                   intentIdentifiers: []),
+            UNNotificationCategory(identifier: Category.start,
+                                   actions: [teamsAction, openAction], intentIdentifiers: []),
+            UNNotificationCategory(identifier: Category.end,
+                                   actions: [openAction], intentIdentifiers: []),
+            UNNotificationCategory(identifier: Category.recording,
+                                   actions: [], intentIdentifiers: []),
+            UNNotificationCategory(identifier: TeamsCategory.detected,
+                                   actions: [startRecord, snoozeTeams, dismissTeams],
+                                   intentIdentifiers: []),
+            UNNotificationCategory(identifier: TeamsCategory.link,
+                                   actions: [linkToCurrent, dismissTeams],
+                                   intentIdentifiers: []),
+            UNNotificationCategory(identifier: TeamsCategory.ended,
+                                   actions: [stopAndFinalize, continueRecording],
+                                   intentIdentifiers: []),
+            UNNotificationCategory(identifier: TeamsCategory.transcriptReady,
+                                   actions: [generateReport, skipReport], intentIdentifiers: []),
+            UNNotificationCategory(identifier: TeamsCategory.error,
+                                   actions: [retrySTT, openAction], intentIdentifiers: [])
+        ]
     }
 
     private func schedule(id: String, title: String, body: String,
