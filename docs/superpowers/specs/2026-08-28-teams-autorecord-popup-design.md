@@ -401,9 +401,10 @@ popup « Démarrer quand même une nouvelle réunion » (chemin nominal).
 d'un quelconque champ d'état de cycle de vie. `Meeting` n'a aujourd'hui
 aucun champ d'état et n'en gagne pas : la machine à états de §4 vit en
 mémoire dans `TeamsAutoRecordCoordinator`. Le moment de détection vit dans
-les logs du coordinateur. Les deux pistes audio sont écrites comme des
-fichiers dans `AudioRecorderService.recordingsDirectory`, au même titre
-que la piste micro d'une réunion classique.
+les logs du coordinateur. Le WAV de la réunion contient le **mixage**
+micro + audio système — un seul fichier, même chemin que la réunion
+classique ; toute retranscription entend donc les deux voix. Pas de
+fichier séparé par piste en v2.
 
 Conséquence assumée : un crash de OneToOne pendant l'enregistrement perd
 l'état en cours, sans reprise possible. C'est la limitation déjà listée en

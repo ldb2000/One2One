@@ -50,6 +50,31 @@ struct AudioTrackMixerTests {
         #expect(AudioTrackMixer.rms([]) == 0)
     }
 
+    // MARK: - Prélèvement aligné
+
+    @Test("Le prélèvement ne dépasse jamais la taille du bloc micro")
+    func takeNeverExceedsMicBlock() {
+        var pending: [Float] = [1, 2, 3, 4, 5]
+        let taken = AudioTrackMixer.takeAligned(from: &pending, count: 3)
+        #expect(taken == [1, 2, 3])
+        #expect(pending == [4, 5])
+    }
+
+    @Test("Un reliquat court est prélevé en entier, le silence comblera")
+    func shortPendingIsTakenWhole() {
+        var pending: [Float] = [1, 2]
+        let taken = AudioTrackMixer.takeAligned(from: &pending, count: 8)
+        #expect(taken == [1, 2])
+        #expect(pending.isEmpty)
+    }
+
+    @Test("Le reliquat est borné en jetant le plus ancien")
+    func remainderIsCappedDroppingOldest() {
+        var pending = [Float](repeating: 0, count: 10) + [1, 2, 3]
+        _ = AudioTrackMixer.takeAligned(from: &pending, count: 0, capRemainder: 3)
+        #expect(pending == [1, 2, 3])
+    }
+
     // MARK: - Provenance
 
     private let timeline: [TrackEnergySample] = [

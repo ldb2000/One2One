@@ -1476,6 +1476,14 @@ struct MeetingView: View {
         }
     }
 
+    /// Seule une réunion liée à un événement Teams demande la seconde piste :
+    /// une réunion en présentiel n'a pas d'audio distant à capter, et le mode
+    /// classique reste strictement inchangé. Partagé par les deux démarrages —
+    /// une reprise d'enregistrement doit capter les mêmes pistes que le premier.
+    private var captureMode: TeamsAudioCaptureMode {
+        (meeting.teamsJoinURL?.isEmpty == false) ? settings.teamsAudioCaptureMode : .microOnly
+    }
+
     private func startRecording() async {
         if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
             recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
@@ -1490,13 +1498,9 @@ struct MeetingView: View {
         // jamais terminé → hang infini.
         let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
             ? recorder.makeAudioStream() : nil
-        // Seule une réunion liée à un événement Teams demande la seconde piste :
-        // une réunion en présentiel n'a pas d'audio distant à capter, et le mode
-        // classique reste strictement inchangé.
-        let mode: TeamsAudioCaptureMode =
-            (meeting.teamsJoinURL?.isEmpty == false) ? settings.teamsAudioCaptureMode : .microOnly
         do {
-            let url = try await recorder.start(meetingID: meeting.ensuredStableID, captureMode: mode)
+            let url = try await recorder.start(meetingID: meeting.ensuredStableID,
+                                               captureMode: captureMode)
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {
@@ -1546,7 +1550,8 @@ struct MeetingView: View {
         let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
             ? recorder.makeAudioStream() : nil
         do {
-            let url = try await recorder.start(meetingID: meeting.ensuredStableID)
+            let url = try await recorder.start(meetingID: meeting.ensuredStableID,
+                                               captureMode: captureMode)
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {

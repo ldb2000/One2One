@@ -53,6 +53,30 @@ enum AudioTrackMixer {
         return out
     }
 
+    /// Reliquat système maximal conservé entre deux blocs micro : 2 s à 16 kHz.
+    /// Au-delà, l'horloge système a dérivé — on jette le plus ancien plutôt que
+    /// d'allonger le flux publié, qui doit rester verrouillé sur l'horloge micro.
+    static let maxPendingSystemSamples = 32_000
+
+    /// Prélève au plus `count` échantillons en tête de `pending` (le reliquat
+    /// attendra le bloc suivant), puis borne le reliquat à `capRemainder` en
+    /// jetant le plus ancien. Retourne le prélèvement.
+    ///
+    /// C'est la politique qui garde le flux mixé de la même longueur que le
+    /// bloc micro : `mix` complète un prélèvement court par du silence, et ne
+    /// dépasse jamais puisque le prélèvement ne dépasse pas `count`.
+    static func takeAligned(from pending: inout [Float],
+                            count: Int,
+                            capRemainder: Int = maxPendingSystemSamples) -> [Float] {
+        let take = Swift.min(pending.count, count)
+        let taken = Array(pending.prefix(take))
+        pending.removeFirst(take)
+        if pending.count > capRemainder {
+            pending.removeFirst(pending.count - capRemainder)
+        }
+        return taken
+    }
+
     /// Énergie efficace du buffer, dans `[0, 1]`. Un buffer vide vaut 0 plutôt
     /// que `NaN`.
     static func rms(_ samples: [Float]) -> Float {

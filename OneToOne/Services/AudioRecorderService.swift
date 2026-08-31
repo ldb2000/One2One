@@ -171,7 +171,6 @@ final class AudioRecorderService: NSObject, ObservableObject {
 
         provenanceTimeline = []
         systemAudioUnavailable = false
-        recordingStartedAt = Date()
 
         let fileURL = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
         let settings: [String: Any] = [
@@ -223,10 +222,23 @@ final class AudioRecorderService: NSObject, ObservableObject {
             pausedAccumulated = 0
             pauseStartDate = nil
             startDate = Date()
+            // Même instant que l'horloge de durée : la chronologie de provenance
+            // date depuis le démarrage du moteur audio, pas depuis la demande
+            // d'enregistrement (0,1 à 0,5 s plus tôt, le temps de la permission
+            // et de l'ouverture du fichier). Un décalage constant de cet ordre
+            // fausserait l'attribution sur des fenêtres de dominance de 2 s.
+            recordingStartedAt = startDate
             activeMeetingID = meetingID
             notifyRecordingStartedIfEnabled(meetingID: meetingID)
             startElapsedTimer()
-            await startSystemTrackIfRequested(captureMode, sink: sink)
+            // Volontairement non attendu : `start()` ne doit plus se suspendre
+            // une fois `isRecording` posé. L'armement de la capture système peut
+            // durer (prompt ScreenCaptureKit la première fois) ; si un `stop()`
+            // tombait dans cette fenêtre, `start()` rendrait quand même son URL
+            // et `MeetingView` lancerait la transcription live sur un flux déjà
+            // terminé — session bloquée (`isLive`) jusqu'au redémarrage de l'app.
+            // La garde `isRecording, self.sink === sink` traite l'arrivée tardive.
+            Task { await startSystemTrackIfRequested(captureMode, sink: sink) }
             audioLog.info("AudioRecorder(engine): start \(fileURL.path, privacy: .public)")
             return fileURL
         } catch {
@@ -453,8 +465,12 @@ final class TapSink: @unchecked Sendable {
     /// mixe rien et ne date rien.
     private var systemTrackStartedAt: Date?
     /// Échantillons système reçus depuis le dernier bloc micro publié, en
-    /// attente d'être mixés avec le prochain.
+    /// attente d'être mixés avec le prochain. Prélevé bloc à bloc, jamais vidé
+    /// d'un coup : le flux publié reste calé sur l'horloge micro.
     private var pendingSystemSamples: [Float] = []
+    /// Le plafond du reliquat n'est signalé qu'une fois : il se déclenche à
+    /// chaque bloc tant que la dérive dure, et noierait le journal.
+    private var didReportPendingOverflow = false
 
     init(converter: AVAudioConverter, targetFormat: AVAudioFormat,
          file: AVAudioFile, continuation: AsyncStream<[Float]>.Continuation?,
@@ -514,34 +530,64 @@ final class TapSink: @unchecked Sendable {
             }
             guard err == nil, outBuf.frameLength > 0,
                   let ptr = outBuf.floatChannelData?[0] else { return nil }
-            try? file?.write(from: outBuf)
             let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
-            publish(micSamples: samples)
+            publish(micSamples: samples, converted: outBuf)
             // Les meters restent un niveau **d'entrée micro** : le vumètre dit
             // ce que capte le micro, pas ce que contient le mixage.
             return samples
         }
     }
 
-    /// Mixe le bloc micro avec l'audio système en attente, note l'énergie des
-    /// deux pistes, et publie le résultat dans le flux unique consommé par
-    /// `LiveTranscriptionService`. Toujours appelée depuis `queue`, jamais
-    /// ailleurs : c'est l'unique point de publication du flux live.
-    private func publish(micSamples: [Float]) {
+    /// Écrit le bloc dans le WAV **et** le publie dans le flux unique consommé
+    /// par `LiveTranscriptionService` — le fichier et le flux reçoivent
+    /// exactement la même donnée. En double piste, le bloc micro est mixé avec
+    /// un prélèvement d'audio système de sa propre taille : le flux publié et le
+    /// fichier restent verrouillés sur l'horloge micro, seule horloge dont
+    /// `LiveVADSegmenter` déduit ses horodatages (il compte les échantillons).
+    /// Toujours appelée depuis `queue`, jamais ailleurs : c'est l'unique point
+    /// d'écriture et de publication.
+    private func publish(micSamples: [Float], converted: AVAudioPCMBuffer) {
         guard let startedAt = systemTrackStartedAt else {
-            // Enregistrement classique : publication directe, inchangée.
+            // Enregistrement classique : le buffer converti part au fichier tel
+            // quel et les échantillons au flux — donnée et ordre inchangés.
+            try? file?.write(from: converted)
             continuation?.yield(micSamples)
             return
         }
-        let systemSamples = pendingSystemSamples
-        pendingSystemSamples.removeAll(keepingCapacity: true)
+        let pendingBefore = pendingSystemSamples.count
+        let systemSamples = AudioTrackMixer.takeAligned(from: &pendingSystemSamples,
+                                                        count: micSamples.count)
+        let dropped = pendingBefore - systemSamples.count - pendingSystemSamples.count
+        if dropped > 0, !didReportPendingOverflow {
+            didReportPendingOverflow = true
+            audioLog.error("AudioRecorder: reliquat audio systeme plafonne, \(dropped, privacy: .public) echantillons jetes (derive d'horloge)")
+        }
         onProvenance?(TrackEnergySample(
             time: Date().timeIntervalSince(startedAt),
             micEnergy: AudioTrackMixer.rms(micSamples),
             systemEnergy: AudioTrackMixer.rms(systemSamples)))
-        // `mix` rend la piste micro telle quelle quand l'autre est vide : un
-        // bloc sans audio distant traverse sans être modifié.
-        continuation?.yield(AudioTrackMixer.mix(mic: micSamples, system: systemSamples))
+        // `mix` rend la piste micro telle quelle quand l'autre est vide, et
+        // complète de silence un prélèvement plus court : la sortie fait
+        // toujours exactement la taille du bloc micro.
+        let mixed = AudioTrackMixer.mix(mic: micSamples, system: systemSamples)
+        writeToFile(mixed)
+        continuation?.yield(mixed)
+    }
+
+    /// Recompose un buffer dans le format du fichier (Float32 mono 16 kHz,
+    /// `processingFormat` du WAV) pour y écrire le mixage. Sans cela le fichier
+    /// ne contiendrait que le micro, et toute retranscription ultérieure
+    /// perdrait la voix distante.
+    private func writeToFile(_ samples: [Float]) {
+        guard let file, !samples.isEmpty,
+              let buffer = AVAudioPCMBuffer(pcmFormat: targetFormat,
+                                            frameCapacity: AVAudioFrameCount(samples.count)),
+              let channel = buffer.floatChannelData?[0] else { return }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { src in
+            if let base = src.baseAddress { channel.update(from: base, count: samples.count) }
+        }
+        try? file.write(from: buffer)
     }
 
     /// Ferme le fichier (finalise le header WAV) et termine le flux live.
@@ -550,6 +596,7 @@ final class TapSink: @unchecked Sendable {
             file = nil
             systemTrackStartedAt = nil
             pendingSystemSamples = []
+            didReportPendingOverflow = false
         }
         continuation?.finish()
     }
