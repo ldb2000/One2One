@@ -282,6 +282,16 @@ struct MeetingView: View {
             .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
+            if recorder.systemAudioUnavailable {
+                Label("Audio Teams non capturé — enregistrement du micro seul. " +
+                      "Autorisez l'enregistrement de l'écran dans Réglages Système pour capter les participants distants.",
+                      systemImage: "speaker.slash")
+                    .font(.callout)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.yellow.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+            }
+
             transcriptionPhaseBanner
 
             mainPanel

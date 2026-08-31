@@ -38,8 +38,10 @@ final class SystemAudioCapture: NSObject, SCStreamOutput {
     }
 
     /// Vrai si la permission d'enregistrement d'écran est **déjà** accordée.
-    /// Ne déclenche aucune demande : c'est `start` qui provoquera le prompt
-    /// système, au moment où l'utilisateur a demandé un enregistrement.
+    /// Ne déclenche aucune demande — et comme l'armement de la seconde piste
+    /// est gardé par ce préflight, l'app ne provoque jamais le prompt système
+    /// elle-même : l'octroi passe par Réglages Système → Confidentialité →
+    /// Enregistrement de l'écran (le bandeau de repli l'indique).
     nonisolated static func isPermissionGranted() -> Bool {
         CGPreflightScreenCaptureAccess()
     }

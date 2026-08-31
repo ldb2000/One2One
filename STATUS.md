@@ -1,6 +1,52 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-28 CEST
+Dernière mise à jour : 2026-08-31 CEST
+
+## Teams auto-record — double piste audio (plan 2/2) (2026-08-31)
+
+Branche `feat/teams-audio-double-piste`, **non fusionnée et non poussée** — voir le
+[plan](docs/superpowers/plans/2026-08-28-teams-autorecord-double-piste-audio.md). Suite du
+plan 1 ci-dessous.
+
+- **État** : plan 2 « double piste audio », tâches 1 à 3 implémentées et revues sur
+  `feat/teams-audio-double-piste` — mixeur pur avec provenance (`AudioTrackMixer`),
+  capture système `SCStream` audio-only (`SystemAudioCapture`), intégration dans
+  `AudioRecorderService` (flux STT verrouillé sur l'horloge micro, **WAV mixé** — toute
+  retranscription entend les deux voix, spec §5 amendée), bandeau de repli micro seul.
+  Reste : tâche 5 (frontières de chunks sur les silences + transcription bornée-parallèle).
+- **Vérifié cette session** : suite complète verte — `swift test` (sans `--skip`) :
+  **358 tests Swift Testing (62 suites) + 1030 tests XCTest (1 ignoré), aucun échec** ;
+  aucun nouvel avertissement de compilation sur les deux fichiers touchés. App construite
+  via `Scripts/bump-and-build.sh dev`, sans `sudo` ni invite, build **761** ; process actif
+  20 s après lancement (`pgrep`) ; `log show --last 1m --predicate 'subsystem ==
+  "com.onetoone.app"'` ne remonte **aucune** entrée (donc aucune erreur) ; quittée
+  proprement (process disparu après coupure) ; aucun rapport dans
+  `~/Library/Logs/DiagnosticReports/`. Une autre session ayant un processus `OneToOne`
+  homonyme actif en tâche de fond (binaire release d'un autre worktree), le contrôle du
+  bon process a été fait par chemin d'exécutable plutôt que par `pgrep -x`/`osascript`
+  seuls, sans toucher à ce processus tiers.
+- **Prochaine action — partenaire, à l'écran** (aucun scénario faisable par un agent) :
+  1. **Double piste nominale** : permission écran accordée, vrai appel Teams, accepter le
+     popup, faire parler l'interlocuteur puis soi-même → la transcription contient les
+     deux voix ; **retranscrire ensuite le WAV** (« Retenter le STT ») → les deux voix
+     encore. Pas de bandeau jaune.
+  2. **Permission refusée** : retirer l'app de Réglages Système → Enregistrement de
+     l'écran, relancer, enregistrement Teams → démarre quand même, bandeau jaune, voix
+     locale seule, aucune erreur bloquante.
+  3. **Non-régression classique** : réunion sans lien Teams → une seule piste, aucun
+     bandeau, aucune chronologie de provenance.
+  4. **Appel long (> 20 min)** : surveiller l'apparition du log unique
+     « reliquat audio systeme plafonne » (dérive d'horloge système) et vérifier en fin
+     d'appel que l'attribution moi/distant reste correcte sur les derniers segments.
+  5. **Vumètre** : pendant que seul l'interlocuteur distant parle, le vumètre reste plat
+     (il ne lit que le micro) — juger si c'est acceptable ou s'il faut l'alimenter du mix
+     (à noter comme report si gênant).
+  6. **Import audio > 5 min** (après la tâche 5) : timestamps des segments qui suivent
+     les coupes, barre « Segment n / N ».
+- **Reports connus** (issus des revues, non bloquants) : vumètre micro seul ;
+  `provenanceTimeline` publié ~12×/s sans lecteur pendant l'enregistrement ; doc TapSink
+  en retard sur son contrat ; test `idleTimelineIsEmpty` assert sur l'état partagé du
+  singleton.
 
 ## Teams auto-record — détection & orchestration (plan 1/2) (2026-08-28)
 
