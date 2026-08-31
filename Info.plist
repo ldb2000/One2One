@@ -22,6 +22,10 @@
 	<string>473</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>OneToOne lit votre agenda pour retrouver vos réunions, détecter les appels Teams et pré-remplir vos comptes rendus.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>OneToOne lit votre agenda pour retrouver vos réunions, détecter les appels Teams et pré-remplir vos comptes rendus.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>OneToOne récupère la photo de profil de vos collaborateurs depuis vos Contacts macOS pour enrichir les listes de participants.</string>
 	<key>NSMicrophoneUsageDescription</key>
