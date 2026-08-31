@@ -282,7 +282,10 @@ struct MeetingView: View {
             .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
-            if recorder.systemAudioUnavailable {
+            // Le drapeau vit sur le singleton : sans `isRecordingThisMeeting`
+            // le bandeau s'afficherait dans *toutes* les fenêtres réunion, et
+            // survivrait à l'arrêt de l'enregistrement.
+            if isRecordingThisMeeting, recorder.systemAudioUnavailable {
                 Label("Audio Teams non capturé — enregistrement du micro seul. " +
                       "Autorisez l'enregistrement de l'écran dans Réglages Système pour capter les participants distants.",
                       systemImage: "speaker.slash")

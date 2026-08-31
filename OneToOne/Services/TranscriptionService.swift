@@ -25,8 +25,9 @@ struct STTResult {
     let text: String
     let language: String
     let durationSeconds: TimeInterval
-    /// Segments timestampés (1 par chunk de 60s par défaut). Vide pour
-    /// les chemins legacy qui n'auraient pas conservé les segments.
+    /// Segments timestampés, un par morceau : la découpe suit les silences,
+    /// vise ~60 s et plafonne à 65 s (cible + rayon). Vide pour les chemins
+    /// legacy qui n'auraient pas conservé les segments.
     let segments: [STTSegment]
     /// Embeddings 256-dim par cluster issus de la diarisation (vide si pas
     /// de diarisation ou si SpeechVAD indisponible). Indexé par identifiant de
@@ -271,7 +272,8 @@ final class TranscriptionService: ObservableObject {
         }
     }
 
-    /// Transcription seule par chunks 60s, moteur pluggable.
+    /// Transcription seule, moteur pluggable. Les morceaux sont découpés sur
+    /// les silences : cible ~60 s, plafond 65 s (cible + rayon).
     private func transcribeChunks(audioURL: URL,
                                   engine: STTEngine,
                                   settings: AppSettings,
@@ -294,11 +296,17 @@ final class TranscriptionService: ObservableObject {
         // 65 s max par morceau (60 s de cible + 5 s de rayon).
         let perSegmentMaxTokens = max(1024, Int(65.0 * 30.0 * 1.5))
 
-        /// Deux transcriptions en vol au plus : le GPU sérialise le gros du
-        /// calcul, le gain vient du recouvrement pré/post-traitement. Au-delà,
-        /// la mémoire des clips ne paie plus rien. (À exposer en paramètre le
-        /// jour où un moteur distant rejoint `STTEngineKind`.)
-        let maxConcurrent = 2
+        /// Une seule transcription en vol. Le vrai gain, ce sont les
+        /// frontières posées sur les silences ; deux `generate` simultanés
+        /// partageraient l'état `MLXArray` du modèle, que mlx-swift documente
+        /// explicitement comme **non thread-safe** (« MLXArray is not thread
+        /// safe… It is not safe to create `c` in one thread and consume /
+        /// evaluate it in another »), pour un gain limité au recouvrement du
+        /// pré/post-traitement — sur un GPU qui sérialise de toute façon.
+        /// La structure de groupe borné est conservée : relever la borne reste
+        /// un jeton à changer le jour où un moteur distant, lui vraiment
+        /// parallélisable, rejoindra `STTEngineKind`.
+        let maxConcurrent = 1
         var texts = [String](repeating: "", count: ranges.count)
         var completed = 0
         try await withThrowingTaskGroup(of: (Int, String).self) { group in

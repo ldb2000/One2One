@@ -41,7 +41,12 @@ final class AudioRecorderService: NSObject, ObservableObject {
     /// C'est elle qui conserve la provenance que le mixage effacerait
     /// (spec §6.1). Vidée à chaque nouveau démarrage — pas au `stop()` : c'est
     /// après l'enregistrement qu'on s'en sert pour attribuer les segments.
-    @Published private(set) var provenanceTimeline: [TrackEnergySample] = []
+    ///
+    /// **Pas `@Published`** : elle est réécrite ~12 fois par seconde sur un
+    /// singleton observé par *toutes* les fenêtres réunion, alors que rien ne la
+    /// lit pendant l'enregistrement — la publier invaliderait ces vues pour
+    /// personne. Elle reste lisible (tests, et le consommateur à venir).
+    private(set) var provenanceTimeline: [TrackEnergySample] = []
 
     /// Vrai quand la seconde piste a été demandée mais n'a pas pu démarrer.
     /// `MeetingView` en fait un bandeau d'erreur non bloquant ; l'enregistrement
@@ -101,7 +106,10 @@ final class AudioRecorderService: NSObject, ObservableObject {
     // point de publication) ; seule la chronologie de provenance remonte au
     // main actor, et uniquement quand la seconde piste est engagée.
     private var systemCapture: SystemAudioCapture?
-    /// Début de l'enregistrement, origine des temps de `provenanceTimeline`.
+    /// Début de l'enregistrement. Ne sert plus que de marqueur d'engagement de
+    /// la seconde piste : les temps de `provenanceTimeline` sont comptés en
+    /// échantillons publiés par le `TapSink` (cf. `publishedSampleCount`), la
+    /// seule horloge que la pause fige comme le fait le flux lui-même.
     private var recordingStartedAt: Date?
 
     // MARK: - Permissions
@@ -269,8 +277,12 @@ final class AudioRecorderService: NSObject, ObservableObject {
         let capture = SystemAudioCapture()
         do {
             try await capture.start { [weak sink] samples in
-                // `SystemAudioCapture` livre sur le main actor ; on repart
-                // aussitôt sur la file du sink, seul endroit où l'on mixe.
+                // Livré directement depuis la file `SCStream`, sans détour par
+                // le main actor : un main thread bouchonné y transformait le
+                // retard en décalage permanent (cf. `SampleHandlerBox`).
+                // `appendSystemSamples` bascule aussitôt sur la file du sink,
+                // seul endroit où l'on mixe — et ne bloque pas la file de
+                // capture, comme l'exige le contrat du callback.
                 sink?.appendSystemSamples(samples)
             }
             // Le démarrage du `SCStream` peut durer — la validation du prompt
@@ -445,11 +457,22 @@ final class AudioRecorderService: NSObject, ObservableObject {
 
 // MARK: - TapSink
 
-/// Reçoit les buffers du tap `AVAudioEngine` (hors main actor), les convertit en
-/// Float32 16 kHz mono, écrit le WAV et diffuse les samples sur le flux live —
-/// le tout sérialisé sur une file dédiée. `@unchecked Sendable` : tout l'état
-/// mutable est protégé par `queue`. La `continuation` d'`AsyncStream` est
-/// Sendable et peut être appelée depuis n'importe quel thread.
+/// Cœur de la capture, hors main actor. Reçoit les buffers du tap
+/// `AVAudioEngine` **et** les blocs de la seconde piste (audio système), et
+/// possède toute la chaîne :
+///
+/// 1. conversion des buffers micro en Float32 16 kHz mono ;
+/// 2. tampon des échantillons système en attente du prochain bloc micro ;
+/// 3. mixage des deux pistes quand la seconde est engagée ;
+/// 4. écriture du WAV — le fichier reçoit exactement ce qui est publié ;
+/// 5. horodatage de la provenance sur l'horloge du flux (échantillons publiés) ;
+/// 6. diffusion sur le flux live consommé par `LiveTranscriptionService`.
+///
+/// Le tout est sérialisé sur une file dédiée : un seul point d'écriture, un seul
+/// point de publication, donc aucun entrelacement possible entre les deux
+/// pistes. `@unchecked Sendable` : tout l'état mutable est protégé par `queue`.
+/// La `continuation` d'`AsyncStream` est Sendable et peut être appelée depuis
+/// n'importe quel thread.
 final class TapSink: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.onetoone.audio.write")
     private let converter: AVAudioConverter
@@ -471,6 +494,13 @@ final class TapSink: @unchecked Sendable {
     /// Le plafond du reliquat n'est signalé qu'une fois : il se déclenche à
     /// chaque bloc tant que la dérive dure, et noierait le journal.
     private var didReportPendingOverflow = false
+    /// Horloge du flux : nombre d'échantillons déjà publiés. C'est *exactement*
+    /// celle que compte `LiveVADSegmenter` pour dater ses segments, et la pause
+    /// la fige comme elle fige le flux (aucun bloc n'est publié). Une horloge
+    /// murale, elle, continuerait de tourner : après la moindre pause — un clic
+    /// — toute la chronologie de provenance serait décalée de la durée mise en
+    /// pause, et l'attribution tomberait à côté jusqu'à la fin.
+    private var publishedSampleCount = 0
 
     init(converter: AVAudioConverter, targetFormat: AVAudioFormat,
          file: AVAudioFile, continuation: AsyncStream<[Float]>.Continuation?,
@@ -485,15 +515,18 @@ final class TapSink: @unchecked Sendable {
     func setCapturing(_ on: Bool) { queue.sync { capturing = on } }
 
     /// Engage la seconde piste : à partir de là, chaque bloc publié est mixé et
-    /// horodaté depuis `startedAt`. Appelée une fois, au démarrage réussi de la
-    /// capture système.
+    /// sa provenance datée sur l'horloge du flux. `startedAt` ne sert plus qu'à
+    /// marquer l'engagement (« la seconde piste tourne ») ; il ne date rien.
+    /// Appelée une fois, au démarrage réussi de la capture système.
     func engageSystemTrack(startedAt: Date) { queue.sync { systemTrackStartedAt = startedAt } }
 
     /// Dépose des échantillons système dans le tampon du prochain bloc micro.
-    /// `async` et non `sync` : appelée pour chaque buffer capturé depuis le main
-    /// actor, la bloquer sur une file qui écrit un fichier gèlerait l'UI. Ce qui
-    /// arrive avant l'engagement est jeté plutôt que retenu — aucun tampon ne
-    /// doit pouvoir grossir sans jamais être drainé.
+    /// `async` et non `sync` : appelée pour chaque buffer capturé, directement
+    /// depuis la file de `SCStream`, la bloquer sur une file qui écrit un
+    /// fichier ferait décrocher la capture. L'ordre est préservé — une seule
+    /// file émettrice, une seule file réceptrice. Ce qui arrive avant
+    /// l'engagement est jeté plutôt que retenu : aucun tampon ne doit pouvoir
+    /// grossir sans jamais être drainé.
     func appendSystemSamples(_ samples: [Float]) {
         queue.async {
             guard self.systemTrackStartedAt != nil else { return }
@@ -547,11 +580,15 @@ final class TapSink: @unchecked Sendable {
     /// Toujours appelée depuis `queue`, jamais ailleurs : c'est l'unique point
     /// d'écriture et de publication.
     private func publish(micSamples: [Float], converted: AVAudioPCMBuffer) {
-        guard let startedAt = systemTrackStartedAt else {
+        // Instant du début de ce bloc dans l'horloge du flux, lu avant de la
+        // faire avancer (cf. `publishedSampleCount`).
+        let blockStart = Double(publishedSampleCount) / AudioRecorderService.sampleRate
+        guard systemTrackStartedAt != nil else {
             // Enregistrement classique : le buffer converti part au fichier tel
             // quel et les échantillons au flux — donnée et ordre inchangés.
             try? file?.write(from: converted)
             continuation?.yield(micSamples)
+            publishedSampleCount += micSamples.count
             return
         }
         let pendingBefore = pendingSystemSamples.count
@@ -563,7 +600,7 @@ final class TapSink: @unchecked Sendable {
             audioLog.error("AudioRecorder: reliquat audio systeme plafonne, \(dropped, privacy: .public) echantillons jetes (derive d'horloge)")
         }
         onProvenance?(TrackEnergySample(
-            time: Date().timeIntervalSince(startedAt),
+            time: blockStart,
             micEnergy: AudioTrackMixer.rms(micSamples),
             systemEnergy: AudioTrackMixer.rms(systemSamples)))
         // `mix` rend la piste micro telle quelle quand l'autre est vide, et
@@ -572,6 +609,7 @@ final class TapSink: @unchecked Sendable {
         let mixed = AudioTrackMixer.mix(mic: micSamples, system: systemSamples)
         writeToFile(mixed)
         continuation?.yield(mixed)
+        publishedSampleCount += mixed.count
     }
 
     /// Recompose un buffer dans le format du fichier (Float32 mono 16 kHz,
@@ -597,6 +635,7 @@ final class TapSink: @unchecked Sendable {
             systemTrackStartedAt = nil
             pendingSystemSamples = []
             didReportPendingOverflow = false
+            publishedSampleCount = 0
         }
         continuation?.finish()
     }
