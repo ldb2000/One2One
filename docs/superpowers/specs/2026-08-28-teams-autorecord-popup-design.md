@@ -88,7 +88,7 @@ work »). Voir §2.
 | D-4 | Permissions notifications | Demande au premier lancement, onboarding |
 | D-5 | Source audio | Micro interne + SystemAudio Teams, deux pistes |
 | D-6 | Fallback SystemAudio | Bandeau d'erreur non bloquant, micro seul |
-| D-7 | STT/diarisation | Whisper MLX sur flux mixé ; provenance « moi » / « distant » par chronologie d'énergie, pas par diarisation (voir §6.1) |
+| D-7 | STT/diarisation | Whisper MLX sur flux mixé ; provenance « moi » / « distant » par chronologie d'énergie, pas par diarisation (voir §6.1). **Livré en v2 : la chronologie seulement.** L'attribution n'est pas encore posée sur les segments — chantier de suite, voir §6.1(4) |
 | D-8 | Rapport IA | **Annulée** : pas de section dédiée. `AIReportService` écrit dans les champs de rapport existants, déjà modifiables |
 | D-9 | Provider IA obligatoire | Si absent, la fonctionnalité rapport est désactivée et la popup l'indique |
 | D-10 | Concurrence | Si une réunion est en cours d'édition, proposer de lier au lieu de créer |
@@ -366,6 +366,12 @@ d'origine, conservée sous forme de chronologie d'énergie (§6.1). La
 diarisation ne sert donc qu'à séparer les voix *à l'intérieur* de la
 piste distante — ce qu'elle sait déjà faire, sans modification.
 
+> **État réel après la v2 (branche `feat/teams-audio-double-piste`) — la
+> chronologie est produite, l'attribution ne l'est pas.** Voir §6.1(4) : le
+> mécanisme de décision existe et est testé (`AudioTrackMixer.provenance`),
+> mais **aucun segment transcrit ne porte de provenance**. Ce paragraphe
+> décrit donc une intention, pas un comportement observable.
+
 ### Rapport IA
 
 Aucune section nouvelle. `AIReportService.generate` écrit déjà dans
@@ -515,6 +521,27 @@ ajouter, suit le pattern existant de l'enregistrement manuel) :
    l'énergie de chacune des deux pistes, horodatée. Cette chronologie
    permet d'attribuer après coup chaque segment transcrit à « moi » ou
    « distant » sans le deviner au timbre.
+
+   > **Amendement 2026-08-31 — ce que la v2 livre vraiment.** La branche
+   > `feat/teams-audio-double-piste` **produit** la chronologie et rien de
+   > plus. `AudioRecorderService.provenanceTimeline` se remplit bloc par
+   > bloc pendant l'enregistrement en double piste, et la fonction de
+   > décision `AudioTrackMixer.provenance(forRange:in:)` existe, est pure
+   > et est couverte par ses tests. Mais **personne ne la consomme** :
+   > aucun `TranscriptSegment` ne porte l'attribution « moi » / « distant »,
+   > rien ne l'affiche, et la chronologie ne vit qu'en mémoire — elle est
+   > perdue dès que l'enregistrement se termine (vidée au `start()`
+   > suivant, jamais persistée). La promesse de ce point 4 et de D-7 reste
+   > donc **non tenue en v2**.
+   >
+   > Le câblage est un **chantier de suite**, pas un correctif : il faut
+   > décider comment un segment reçoit sa provenance (un `speakerID`
+   > réservé ? un champ dédié ?) et surtout **où la chronologie survit**.
+   > Le WAV, lui, ne peut plus répondre : il contient le mixage, la
+   > provenance y est détruite à l'écriture — une retranscription du
+   > fichier (« Retenter le STT ») ne pourra jamais la retrouver. La
+   > persistance de la chronologie fait donc partie du chantier, elle n'en
+   > est pas un détail.
 5. Démarre le STT Whisper sur le flux mixé.
 
 > **Point de risque — c'est ici, pas dans `SCStream`.** Ce mixage

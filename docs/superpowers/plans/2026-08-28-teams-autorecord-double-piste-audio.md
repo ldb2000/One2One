@@ -1021,3 +1021,28 @@ segments suivent les coupes et que la barre affiche “Segment n / N” ».
 git add OneToOne/Services/STT/SilenceAwareChunker.swift OneToOne/Services/TranscriptionService.swift Tests/SilenceAwareChunkerTests.swift
 git commit -m "feat(stt): frontieres de chunks sur les silences et transcription bornee-parallele"
 ```
+
+## Journal d'exécution
+
+**2026-08-31 — vague de correction unique après la revue de branche.** Écarts au plan,
+tous assumés :
+
+- **`maxConcurrent` : 2 → 1** (tâche 5). Deux `model.generate` en vol partageaient l'état
+  `MLXArray` du modèle, que mlx-swift documente comme non thread-safe, pour un gain limité
+  au recouvrement du pré/post-traitement sur un GPU qui sérialise de toute façon. Les
+  frontières posées sur les silences — le vrai apport de la tâche — sont conservées, ainsi
+  que la structure de groupe borné : relever la borne restera un jeton à changer.
+- **Livraison des blocs système sortie du main actor** (tâche 3). Le `Task { @MainActor }`
+  par bloc transformait un bouchon du main thread en retard **permanent** de la voix
+  distante (une fois la rafale absorbée, le débit entrant redevient égal au débit sortant,
+  le retard ne se résorbe plus). Les blocs sont désormais livrés depuis la file `SCStream`,
+  le callback étant protégé par une boîte verrouillée (`SampleHandlerBox`).
+- **Provenance horodatée sur l'horloge des échantillons publiés**, plus sur l'horloge
+  murale (tâche 3). C'est l'horloge que compte `LiveVADSegmenter`, et la pause la fige
+  comme elle fige le flux ; une horloge murale décalait toute la chronologie de la durée
+  mise en pause.
+- **Attribution « moi » / « distant » reportée.** Le plan promettait la provenance ; la
+  branche livre la chronologie et le mécanisme de décision, mais **aucun consommateur**.
+  Le câblage (segments → `speakerID`) et la persistance qui va avec — le WAV est mixé,
+  la provenance y est détruite — sont un chantier de suite. Spec §6.1(4), D-7 et `STATUS.md`
+  ont été amendés pour le dire.

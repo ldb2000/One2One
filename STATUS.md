@@ -8,15 +8,35 @@ Branche `feat/teams-audio-double-piste`, **non fusionnée et non poussée** — 
 [plan](docs/superpowers/plans/2026-08-28-teams-autorecord-double-piste-audio.md). Suite du
 plan 1 ci-dessous.
 
-- **État** : plan 2 « double piste audio », tâches 1 à 3 implémentées et revues sur
-  `feat/teams-audio-double-piste` — mixeur pur avec provenance (`AudioTrackMixer`),
-  capture système `SCStream` audio-only (`SystemAudioCapture`), intégration dans
-  `AudioRecorderService` (flux STT verrouillé sur l'horloge micro, **WAV mixé** — toute
-  retranscription entend les deux voix, spec §5 amendée), bandeau de repli micro seul.
-  Reste : tâche 5 (frontières de chunks sur les silences + transcription bornée-parallèle).
+- **État** : plan 2 « double piste audio », **les cinq tâches sont implémentées, revues et
+  closes** sur `feat/teams-audio-double-piste` — mixeur pur avec provenance
+  (`AudioTrackMixer`), capture système `SCStream` audio-only (`SystemAudioCapture`),
+  intégration dans `AudioRecorderService` (flux STT verrouillé sur l'horloge micro,
+  **WAV mixé** — toute retranscription entend les deux voix, spec §5 amendée), bandeau de
+  repli micro seul, frontières de chunks sur les silences. La revue de branche a été suivie
+  d'une vague de correction unique : livraison des blocs système directement depuis la file
+  `SCStream` (le détour par le main actor figeait le retard de la voix distante quand le
+  main thread bouchonnait), horodatage de la provenance sur l'horloge des échantillons
+  publiés (une horloge murale se décalait de toute la durée d'une pause), bandeau de repli
+  restreint à la réunion qui enregistre, et **une seule transcription en vol** —
+  `maxConcurrent` ramené de 2 à 1, deux `model.generate` simultanés partageant un état
+  `MLXArray` que mlx-swift documente comme non thread-safe.
+- **Ce que la branche ne livre PAS — l'attribution « moi » / « distant »** : la chronologie
+  d'énergie par piste est **produite** (`provenanceTimeline` se remplit, la fonction de
+  décision `AudioTrackMixer.provenance` existe et est testée) mais **n'est consommée par
+  personne**. Aucun segment transcrit ne porte de provenance, rien ne l'affiche, et la
+  chronologie ne vit qu'en mémoire : elle est perdue à la fin de l'enregistrement. La spec
+  §6.1(4) et D-7 le disent désormais explicitement. Le câblage (segments → `speakerID`) est
+  un **chantier de suite**, avec la question de persistance qui vient avec : le WAV étant
+  mixé, la provenance y est détruite et une retranscription du fichier ne la retrouvera
+  jamais.
 - **Vérifié cette session** : suite complète verte — `swift test` (sans `--skip`) :
-  **358 tests Swift Testing (62 suites) + 1030 tests XCTest (1 ignoré), aucun échec** ;
-  aucun nouvel avertissement de compilation sur les deux fichiers touchés. App construite
+  **366 tests Swift Testing (63 suites) + 1030 tests XCTest (1 ignoré), aucun échec** ;
+  aucun nouvel avertissement de compilation sur les quatre fichiers touchés par la vague de
+  correction (`AudioRecorderService`, `SystemAudioCapture`, `TranscriptionService`,
+  `MeetingView`). Le bump de `CFBundleVersion` laissé par un run du script de build a été
+  rendu à son état committé — `Info.plist` n'est pas modifié par ce chantier.
+- **Vérifié à la session précédente** (tâche 4, toujours valable) : app construite
   via `Scripts/bump-and-build.sh dev`, sans `sudo` ni invite, build **761** ; process actif
   20 s après lancement (`pgrep`) ; `log show --last 1m --predicate 'subsystem ==
   "com.onetoone.app"'` ne remonte **aucune** entrée (donc aucune erreur) ; quittée
@@ -24,7 +44,7 @@ plan 1 ci-dessous.
   `~/Library/Logs/DiagnosticReports/`. **Attention** : `Scripts/bump-and-build.sh` tue
   **tout** processus nommé `OneToOne` (`pkill -x`, non scopé par chemin) — l'instance
   homonyme d'une autre session a été tuée puis relancée pendant cette vérification
-  (changement de PID observé). Les contrôles de lancement/arrêt de cette session ont, eux,
+  (changement de PID observé). Les contrôles de lancement/arrêt de cette vérification-là ont, eux,
   été scopés par chemin d'exécutable et ciblés par PID. Risque résiduel connu : lancer ce
   script pendant qu'une autre instance tourne l'interrompt ; un `pkill` scopé par chemin
   dans le script est à faire (report).
@@ -38,18 +58,26 @@ plan 1 ci-dessous.
      locale seule, aucune erreur bloquante.
   3. **Non-régression classique** : réunion sans lien Teams → une seule piste, aucun
      bandeau, aucune chronologie de provenance.
-  4. **Appel long (> 20 min)** : surveiller l'apparition du log unique
-     « reliquat audio systeme plafonne » (dérive d'horloge système) et vérifier en fin
-     d'appel que l'attribution moi/distant reste correcte sur les derniers segments.
+  4. **Appel long (> 20 min)** : deux choses observables, et deux seulement.
+     (a) Le log unique « reliquat audio systeme plafonne » apparaît-il (dérive d'horloge
+     système) ? Il ne doit jamais se répéter. (b) En fin d'appel, la voix distante est-elle
+     toujours **synchrone** dans la transcription, ou a-t-elle pris du retard sur la
+     locale ? Ne pas chercher d'attribution moi/distant : elle n'existe pas encore
+     (voir plus haut).
   5. **Vumètre** : pendant que seul l'interlocuteur distant parle, le vumètre reste plat
      (il ne lit que le micro) — juger si c'est acceptable ou s'il faut l'alimenter du mix
      (à noter comme report si gênant).
-  6. **Import audio > 5 min** (après la tâche 5) : timestamps des segments qui suivent
-     les coupes, barre « Segment n / N ».
-- **Reports connus** (issus des revues, non bloquants) : vumètre micro seul ;
-  `provenanceTimeline` publié ~12×/s sans lecteur pendant l'enregistrement ; doc TapSink
-  en retard sur son contrat ; test `idleTimelineIsEmpty` assert sur l'état partagé du
-  singleton.
+  6. **Import audio > 5 min** : timestamps des segments qui suivent les coupes, barre
+     « Segment n / N ».
+- **Reports connus** (issus des revues, non bloquants) : vumètre micro seul (il ne lit que
+  le micro, pas le mix) ; test `idleTimelineIsEmpty` assert sur l'état partagé du singleton ;
+  `writeToFile` avale son `guard` en silence ; la branche double piste engagée (mix +
+  écriture) n'a pas de test unitaire — c'est la vérification à l'écran qui la couvre ;
+  `chunksTileTheSignal` ne vérifie pas la non-vacuité du **dernier** intervalle ; fenêtre
+  étroite (65,0 s ; 65,2 s] où le dernier morceau peut tomber à ~0,2 s ; `pkill -x` non
+  scopé par chemin dans `Scripts/bump-and-build.sh`. Repliés par la vague de correction et
+  donc retirés de cette liste : `provenanceTimeline` publié sans lecteur, doc `TapSink` en
+  retard sur son contrat, commentaires « chunks 60s » périmés.
 
 ## Teams auto-record — détection & orchestration (plan 1/2) (2026-08-28)
 
