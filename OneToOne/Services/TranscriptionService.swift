@@ -287,26 +287,50 @@ final class TranscriptionService: ObservableObject {
         let (_, audio) = try loadAudioArray(from: audioURL, sampleRate: 16_000)
         let sampleCount = audio.shape.last ?? 0
         let durationSec = Double(sampleCount) / 16_000.0
-        let segmentSamples = 60 * 16_000
-        let segmentCount = max(1, Int(ceil(Double(sampleCount) / Double(segmentSamples))))
-        let perSegmentMaxTokens = max(1024, Int(60.0 * 30.0 * 1.5))
+        onProgress?(0, "Découpage sur les silences…")
+        let floats = audio.asArray(Float.self)
+        let energies = SilenceAwareChunker.frameEnergies(floats)
+        let ranges = SilenceAwareChunker.chunkRanges(sampleCount: sampleCount, energies: energies)
+        // 65 s max par morceau (60 s de cible + 5 s de rayon).
+        let perSegmentMaxTokens = max(1024, Int(65.0 * 30.0 * 1.5))
+
+        /// Deux transcriptions en vol au plus : le GPU sérialise le gros du
+        /// calcul, le gain vient du recouvrement pré/post-traitement. Au-delà,
+        /// la mémoire des clips ne paie plus rien. (À exposer en paramètre le
+        /// jour où un moteur distant rejoint `STTEngineKind`.)
+        let maxConcurrent = 2
+        var texts = [String](repeating: "", count: ranges.count)
+        var completed = 0
+        try await withThrowingTaskGroup(of: (Int, String).self) { group in
+            var next = 0
+            func addTask(_ index: Int) {
+                // Le clip est tranché ici, dans le contexte de l'acteur ; la
+                // sous-tâche ne capture que sa tranche.
+                let clip = audio[ranges[index].lowerBound..<ranges[index].upperBound]
+                group.addTask {
+                    (index, await engine.transcribe(clip: clip, language: self.language,
+                                                    maxTokens: perSegmentMaxTokens))
+                }
+            }
+            while next < min(maxConcurrent, ranges.count) { addTask(next); next += 1 }
+            while let (index, raw) = try await group.next() {
+                try Task.checkCancellation()
+                texts[index] = Self.collapseRepetitions(raw)
+                completed += 1
+                onProgress?(Double(completed) / Double(ranges.count),
+                            "Segment \(completed) / \(ranges.count)")
+                if next < ranges.count { addTask(next); next += 1 }
+            }
+        }
+
         var pieces: [String] = []
         var sttSegments: [STTSegment] = []
-        for i in 0..<segmentCount {
-            try Task.checkCancellation()
-            let start = i * segmentSamples
-            let end = min(start + segmentSamples, sampleCount)
-            onProgress?(Double(i) / Double(segmentCount), "Segment \(i + 1) / \(segmentCount)")
-            let clip = audio[start..<end]
-            let segText = await engine.transcribe(clip: clip, language: self.language, maxTokens: perSegmentMaxTokens)
-            let segClean = Self.collapseRepetitions(segText)
-            pieces.append(segClean)
-            if !segClean.isEmpty {
-                sttSegments.append(STTSegment(
-                    startSeconds: Double(start) / 16_000.0,
-                    endSeconds: Double(end) / 16_000.0,
-                    text: segClean))
-            }
+        for (index, range) in ranges.enumerated() where !texts[index].isEmpty {
+            pieces.append(texts[index])
+            sttSegments.append(STTSegment(
+                startSeconds: Double(range.lowerBound) / 16_000.0,
+                endSeconds: Double(range.upperBound) / 16_000.0,
+                text: texts[index]))
         }
         onProgress?(1.0, "Terminé")
         let combined = pieces.filter { !$0.isEmpty }.joined(separator: "\n")
