@@ -21,10 +21,13 @@ plan 1 ci-dessous.
   20 s après lancement (`pgrep`) ; `log show --last 1m --predicate 'subsystem ==
   "com.onetoone.app"'` ne remonte **aucune** entrée (donc aucune erreur) ; quittée
   proprement (process disparu après coupure) ; aucun rapport dans
-  `~/Library/Logs/DiagnosticReports/`. Une autre session ayant un processus `OneToOne`
-  homonyme actif en tâche de fond (binaire release d'un autre worktree), le contrôle du
-  bon process a été fait par chemin d'exécutable plutôt que par `pgrep -x`/`osascript`
-  seuls, sans toucher à ce processus tiers.
+  `~/Library/Logs/DiagnosticReports/`. **Attention** : `Scripts/bump-and-build.sh` tue
+  **tout** processus nommé `OneToOne` (`pkill -x`, non scopé par chemin) — l'instance
+  homonyme d'une autre session a été tuée puis relancée pendant cette vérification
+  (changement de PID observé). Les contrôles de lancement/arrêt de cette session ont, eux,
+  été scopés par chemin d'exécutable et ciblés par PID. Risque résiduel connu : lancer ce
+  script pendant qu'une autre instance tourne l'interrompt ; un `pkill` scopé par chemin
+  dans le script est à faire (report).
 - **Prochaine action — partenaire, à l'écran** (aucun scénario faisable par un agent) :
   1. **Double piste nominale** : permission écran accordée, vrai appel Teams, accepter le
      popup, faire parler l'interlocuteur puis soi-même → la transcription contient les
