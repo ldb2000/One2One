@@ -37,6 +37,17 @@ final class AudioRecorderService: NSObject, ObservableObject {
     @Published var lastError: String?
     @Published private(set) var activeMeetingID: UUID?
 
+    /// Chronologie d'énergie des deux pistes, échantillonnée à chaque bloc.
+    /// C'est elle qui conserve la provenance que le mixage effacerait
+    /// (spec §6.1). Vidée à chaque nouveau démarrage — pas au `stop()` : c'est
+    /// après l'enregistrement qu'on s'en sert pour attribuer les segments.
+    @Published private(set) var provenanceTimeline: [TrackEnergySample] = []
+
+    /// Vrai quand la seconde piste a été demandée mais n'a pas pu démarrer.
+    /// `MeetingView` en fait un bandeau d'erreur non bloquant ; l'enregistrement
+    /// continue en micro seul.
+    @Published private(set) var systemAudioUnavailable = false
+
     // MARK: - Propriété de l'enregistrement
     //
     // Le service est un singleton observé par **toutes** les fenêtres réunion :
@@ -57,6 +68,14 @@ final class AudioRecorderService: NSObject, ObservableObject {
         return activeMeetingID == meetingID
     }
 
+    /// Mode de capture effectif. Une permission d'écran absente **dégrade** la
+    /// capture au micro seul ; elle n'empêche jamais d'enregistrer (spec D-6).
+    nonisolated static func resolvedCaptureMode(requested: TeamsAudioCaptureMode,
+                                                hasScreenPermission: Bool) -> TeamsAudioCaptureMode {
+        guard requested == .microAndSystem, hasScreenPermission else { return .microOnly }
+        return .microAndSystem
+    }
+
     // MARK: - Internals (engine)
     private let engine = AVAudioEngine()
     /// Encapsule conversion + écriture WAV + diffusion live, protégé par sa
@@ -69,6 +88,21 @@ final class AudioRecorderService: NSObject, ObservableObject {
     private var pauseStartDate: Date?
     /// Throttle de publication des meters (~0.1 s).
     private var lastMeterPublish: TimeInterval = 0
+
+    // MARK: - Internals (seconde piste)
+    //
+    // Choix d'exécuteur : la seconde piste est **rapatriée sur la file du
+    // `TapSink`**, pas l'inverse. Les blocs micro sont convertis, écrits et
+    // publiés de façon synchrone sur `com.onetoone.audio.write` ; les faire
+    // sauter sur le main actor pour les mixer ajouterait un saut de contexte
+    // par bloc au chemin classique et exposerait l'ordre des blocs à
+    // l'ordonnancement des `Task`. Le tampon système, l'horodatage et le
+    // mixage vivent donc dans le `TapSink` (une seule file série, un seul
+    // point de publication) ; seule la chronologie de provenance remonte au
+    // main actor, et uniquement quand la seconde piste est engagée.
+    private var systemCapture: SystemAudioCapture?
+    /// Début de l'enregistrement, origine des temps de `provenanceTimeline`.
+    private var recordingStartedAt: Date?
 
     // MARK: - Permissions
     func requestMicrophonePermission() async -> Bool {
@@ -125,11 +159,19 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     // MARK: - Lifecycle
+    /// `captureMode` vaut `.microOnly` par défaut : l'enregistrement classique
+    /// d'une réunion OneToOne est strictement inchangé. Seul le parcours Teams
+    /// demande `.microAndSystem`.
     @discardableResult
-    func start(meetingID: UUID? = nil) async throws -> URL {
+    func start(meetingID: UUID? = nil,
+               captureMode: TeamsAudioCaptureMode = .microOnly) async throws -> URL {
         guard !isRecording else { throw AudioError.alreadyRecording }
         let granted = await requestMicrophonePermission()
         guard granted else { throw AudioError.permissionDenied }
+
+        provenanceTimeline = []
+        systemAudioUnavailable = false
+        recordingStartedAt = Date()
 
         let fileURL = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
         let settings: [String: Any] = [
@@ -150,8 +192,16 @@ final class AudioRecorderService: NSObject, ObservableObject {
             guard let conv = AVAudioConverter(from: inputFormat, to: targetFormat) else {
                 throw AudioError.startFailed
             }
+            // La chronologie est datée sur la file du sink, puis remontée ici.
+            // L'ordre d'arrivée des `Task` n'est pas garanti, mais chaque
+            // échantillon porte son propre `time` et `AudioTrackMixer.provenance`
+            // filtre sur ce temps : un tableau non trié reste exploitable.
+            let onProvenance: @Sendable (TrackEnergySample) -> Void = { [weak self] sample in
+                Task { @MainActor in self?.appendProvenance(sample) }
+            }
             let sink = TapSink(converter: conv, targetFormat: targetFormat,
-                               file: file, continuation: streamContinuation)
+                               file: file, continuation: streamContinuation,
+                               onProvenance: onProvenance)
             self.sink = sink
             self.currentFileURL = fileURL
 
@@ -176,6 +226,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
             activeMeetingID = meetingID
             notifyRecordingStartedIfEnabled(meetingID: meetingID)
             startElapsedTimer()
+            await startSystemTrackIfRequested(captureMode, sink: sink)
             audioLog.info("AudioRecorder(engine): start \(fileURL.path, privacy: .public)")
             return fileURL
         } catch {
@@ -184,6 +235,66 @@ final class AudioRecorderService: NSObject, ObservableObject {
             try? FileManager.default.removeItem(at: fileURL)
             throw AudioError.startFailed
         }
+    }
+
+    // MARK: - Seconde piste (audio système)
+
+    /// Arme la capture système quand le mode la demande **et** que la permission
+    /// d'écran est déjà accordée. Toute défaillance dégrade vers le micro seul :
+    /// on lève le drapeau du bandeau, jamais une erreur (spec D-6).
+    private func startSystemTrackIfRequested(_ requested: TeamsAudioCaptureMode,
+                                            sink: TapSink) async {
+        let effective = Self.resolvedCaptureMode(
+            requested: requested,
+            hasScreenPermission: SystemAudioCapture.isPermissionGranted())
+        guard effective == .microAndSystem else {
+            // Demandée mais refusée faute de permission : bandeau, pas d'échec.
+            // Rien n'est publié dans le cas `.microOnly`, pour que le chemin
+            // classique n'émette pas de changement d'état superflu.
+            if requested == .microAndSystem { systemAudioUnavailable = true }
+            return
+        }
+        let capture = SystemAudioCapture()
+        do {
+            try await capture.start { [weak sink] samples in
+                // `SystemAudioCapture` livre sur le main actor ; on repart
+                // aussitôt sur la file du sink, seul endroit où l'on mixe.
+                sink?.appendSystemSamples(samples)
+            }
+            // Le démarrage du `SCStream` peut durer — la validation du prompt
+            // système, la première fois. Si l'enregistrement s'est arrêté
+            // entre-temps (ou qu'un autre a pris la main), on referme tout de
+            // suite : un `SCStream` sans lecteur continuerait de capturer
+            // l'écran, témoin allumé, jusqu'à l'arrêt de l'app.
+            guard isRecording, self.sink === sink else {
+                await capture.stop()
+                return
+            }
+            systemCapture = capture
+            // Engagée seulement après un démarrage réussi : sinon la
+            // chronologie se remplirait d'une piste distante inexistante.
+            sink.engageSystemTrack(startedAt: recordingStartedAt ?? Date())
+        } catch {
+            // Dégradation, pas échec : l'enregistrement micro continue.
+            systemAudioUnavailable = true
+            audioLog.error("AudioRecorder: audio systeme indisponible \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Point d'entrée main actor de la chronologie, alimenté depuis la file du
+    /// `TapSink` (un saut par bloc, uniquement en double piste).
+    private func appendProvenance(_ sample: TrackEnergySample) {
+        provenanceTimeline.append(sample)
+    }
+
+    /// Arrête la capture système. Appelée depuis `resetState()` — donc par
+    /// `stop()`, `cancel()` **et** l'échec de démarrage : un `SCStream` oublié
+    /// continuerait d'enregistrer l'écran après la réunion.
+    private func stopSystemTrack() {
+        recordingStartedAt = nil
+        guard let capture = systemCapture else { return }
+        systemCapture = nil
+        Task { await capture.stop() }   // `stop()` est idempotent
     }
 
     func pause() {
@@ -276,6 +387,10 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     private func resetState() {
+        stopSystemTrack()
+        // `provenanceTimeline` survit à l'arrêt : c'est après l'enregistrement
+        // qu'on attribue les segments transcrits. Elle n'est vidée qu'au
+        // prochain `start()`.
         currentFileURL = nil
         isRecording = false
         isPaused = false
@@ -329,23 +444,57 @@ final class TapSink: @unchecked Sendable {
     private let targetFormat: AVAudioFormat
     private var file: AVAudioFile?
     private let continuation: AsyncStream<[Float]>.Continuation?
+    /// Remonte l'énergie des deux pistes au service (main actor), un appel par
+    /// bloc publié. `nil` quand personne n'écoute.
+    private let onProvenance: (@Sendable (TrackEnergySample) -> Void)?
     private var capturing = true
+    /// Origine des temps de la chronologie, posée quand la seconde piste est
+    /// engagée. `nil` = enregistrement classique, une seule piste : le sink ne
+    /// mixe rien et ne date rien.
+    private var systemTrackStartedAt: Date?
+    /// Échantillons système reçus depuis le dernier bloc micro publié, en
+    /// attente d'être mixés avec le prochain.
+    private var pendingSystemSamples: [Float] = []
 
     init(converter: AVAudioConverter, targetFormat: AVAudioFormat,
-         file: AVAudioFile, continuation: AsyncStream<[Float]>.Continuation?) {
+         file: AVAudioFile, continuation: AsyncStream<[Float]>.Continuation?,
+         onProvenance: (@Sendable (TrackEnergySample) -> Void)? = nil) {
         self.converter = converter
         self.targetFormat = targetFormat
         self.file = file
         self.continuation = continuation
+        self.onProvenance = onProvenance
     }
 
     func setCapturing(_ on: Bool) { queue.sync { capturing = on } }
+
+    /// Engage la seconde piste : à partir de là, chaque bloc publié est mixé et
+    /// horodaté depuis `startedAt`. Appelée une fois, au démarrage réussi de la
+    /// capture système.
+    func engageSystemTrack(startedAt: Date) { queue.sync { systemTrackStartedAt = startedAt } }
+
+    /// Dépose des échantillons système dans le tampon du prochain bloc micro.
+    /// `async` et non `sync` : appelée pour chaque buffer capturé depuis le main
+    /// actor, la bloquer sur une file qui écrit un fichier gèlerait l'UI. Ce qui
+    /// arrive avant l'engagement est jeté plutôt que retenu — aucun tampon ne
+    /// doit pouvoir grossir sans jamais être drainé.
+    func appendSystemSamples(_ samples: [Float]) {
+        queue.async {
+            guard self.systemTrackStartedAt != nil else { return }
+            self.pendingSystemSamples.append(contentsOf: samples)
+        }
+    }
 
     /// Convertit, écrit le WAV et diffuse. Renvoie les samples convertis pour le
     /// calcul des meters, ou `nil` si en pause / erreur de conversion.
     func process(_ buffer: AVAudioPCMBuffer) -> [Float]? {
         queue.sync {
-            guard capturing else { return nil }
+            guard capturing else {
+                // En pause on ne retient rien : le bloc micro est ignoré, et
+                // sans ce vidage le tampon système grossirait toute la pause.
+                pendingSystemSamples.removeAll(keepingCapacity: true)
+                return nil
+            }
             let ratio = targetFormat.sampleRate / buffer.format.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
             guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return nil }
@@ -367,14 +516,41 @@ final class TapSink: @unchecked Sendable {
                   let ptr = outBuf.floatChannelData?[0] else { return nil }
             try? file?.write(from: outBuf)
             let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
-            continuation?.yield(samples)
+            publish(micSamples: samples)
+            // Les meters restent un niveau **d'entrée micro** : le vumètre dit
+            // ce que capte le micro, pas ce que contient le mixage.
             return samples
         }
     }
 
+    /// Mixe le bloc micro avec l'audio système en attente, note l'énergie des
+    /// deux pistes, et publie le résultat dans le flux unique consommé par
+    /// `LiveTranscriptionService`. Toujours appelée depuis `queue`, jamais
+    /// ailleurs : c'est l'unique point de publication du flux live.
+    private func publish(micSamples: [Float]) {
+        guard let startedAt = systemTrackStartedAt else {
+            // Enregistrement classique : publication directe, inchangée.
+            continuation?.yield(micSamples)
+            return
+        }
+        let systemSamples = pendingSystemSamples
+        pendingSystemSamples.removeAll(keepingCapacity: true)
+        onProvenance?(TrackEnergySample(
+            time: Date().timeIntervalSince(startedAt),
+            micEnergy: AudioTrackMixer.rms(micSamples),
+            systemEnergy: AudioTrackMixer.rms(systemSamples)))
+        // `mix` rend la piste micro telle quelle quand l'autre est vide : un
+        // bloc sans audio distant traverse sans être modifié.
+        continuation?.yield(AudioTrackMixer.mix(mic: micSamples, system: systemSamples))
+    }
+
     /// Ferme le fichier (finalise le header WAV) et termine le flux live.
     func finish() {
-        queue.sync { file = nil }
+        queue.sync {
+            file = nil
+            systemTrackStartedAt = nil
+            pendingSystemSamples = []
+        }
         continuation?.finish()
     }
 }

@@ -1490,8 +1490,13 @@ struct MeetingView: View {
         // jamais terminé → hang infini.
         let liveStream: AsyncStream<[Float]>? = settings.liveTranscriptionEnabled
             ? recorder.makeAudioStream() : nil
+        // Seule une réunion liée à un événement Teams demande la seconde piste :
+        // une réunion en présentiel n'a pas d'audio distant à capter, et le mode
+        // classique reste strictement inchangé.
+        let mode: TeamsAudioCaptureMode =
+            (meeting.teamsJoinURL?.isEmpty == false) ? settings.teamsAudioCaptureMode : .microOnly
         do {
-            let url = try await recorder.start(meetingID: meeting.ensuredStableID)
+            let url = try await recorder.start(meetingID: meeting.ensuredStableID, captureMode: mode)
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {
