@@ -56,9 +56,11 @@ struct SilenceAwareChunkerTests {
 
     @Test("La frontière tombe dans le trou de silence proche de la cible")
     func boundaryLandsInTheSilenceGap() {
-        // 57 s de voix, 2 s de silence, 71 s de voix : la cible à 60 s a un
-        // creux à portée (57–59 s, dans le rayon de ±5 s).
-        let samples = voice(seconds: 57) + silence(seconds: 2) + voice(seconds: 71)
+        // 57 s de voix, 2 s de silence, 60 s de voix : la cible à 60 s a un
+        // creux à portée (57–59 s, dans le rayon de ±5 s). Total 119 s : après
+        // la coupe à 57 s il reste 62 s, sous le seuil « cible + rayon » (65 s),
+        // donc exactement deux morceaux — pas de troisième coupe forcée.
+        let samples = voice(seconds: 57) + silence(seconds: 2) + voice(seconds: 60)
         let result = ranges(for: samples)
         #expect(result.count == 2)
         let boundary = result[0].upperBound
