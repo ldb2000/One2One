@@ -30,6 +30,8 @@
 | `OneToOne/Services/Teams/AudioTrackMixer.swift` | **Créé.** Fonctions pures : mixage borné de deux buffers, énergie RMS, attribution de provenance. Zéro import framework au-delà de Foundation. |
 | `OneToOne/Services/Teams/SystemAudioCapture.swift` | **Créé.** Enveloppe `SCStream` audio-only. Une seule responsabilité : produire des `[Float]` 16 kHz mono depuis l'audio système. |
 | `OneToOne/Services/AudioRecorderService.swift` | **Modifié.** Accueille une seconde source, mixe, tient la chronologie de provenance. C'est la modification la plus structurante du chantier. |
+| `OneToOne/Services/STT/SilenceAwareChunker.swift` | **Créé** (tâche 5). Fonctions pures : frontières de morceaux posées sur les creux d'énergie. Zéro I/O, zéro MLX. |
+| `OneToOne/Services/TranscriptionService.swift` | **Modifié** (tâche 5). `transcribeChunks` : frontières silence + transcription bornée-parallèle, ordre préservé. |
 
 > **Pourquoi le risque est ici et pas dans `SCStream`.** `AudioRecorderService`
 > est un singleton à un seul moteur, un seul `currentFileURL` et un seul
@@ -718,4 +720,302 @@ Consigner l'état, la prochaine action et la date.
 ```bash
 git add OneToOne/Views/MeetingView.swift STATUS.md
 git commit -m "feat(audio): bandeau de repli micro seul et verification a l'ecran"
+```
+
+
+---
+
+### Task 5 : import audio long — frontières sur les silences et transcription bornée-parallèle
+
+> **Décision du 2026-08-31** : avance l'item v3 « transcription d'un audio importé »,
+> inspiré du pipeline d'import d'Open WebUI (`split_on_silence` + chunks en parallèle,
+> `backend/open_webui/routers/audio.py`). Chez nous le découpage existe déjà —
+> `transcribeChunks` coupe en fenêtres **fixes de 60 s**, séquentiellement — donc la
+> tâche est : poser chaque frontière sur le creux d'énergie voisin (fini les mots coupés
+> à 60 s pile), et borner une parallélisation qui préserve l'ordre. Bénéficie à
+> l'import (`AudioImportService` → `retranscribe`) **et** à la retranscription des
+> réunions enregistrées — même chemin.
+
+**Files:**
+- Create: `OneToOne/Services/STT/SilenceAwareChunker.swift`
+- Modify: `OneToOne/Services/TranscriptionService.swift` (uniquement `transcribeChunks`)
+- Test: `Tests/SilenceAwareChunkerTests.swift`
+
+**Interfaces:**
+- Consumes: `STTEngine.transcribe(clip:language:maxTokens:)` (existant, `async` non-throwing) ;
+  `loadAudioArray(from:sampleRate:)` (existant) ; `Self.collapseRepetitions`, `STTSegment`,
+  `STTResult` (existants).
+- Produces: `SilenceAwareChunker.frameEnergies(_:)`, `SilenceAwareChunker.chunkRanges(sampleCount:energies:frameSamples:targetChunkSamples:searchRadiusSamples:)`.
+
+> **Honnêteté sur la parallélisation.** Open WebUI parallélise des appels *réseau* — le
+> gain est linéaire. Notre STT est un GPU local : le calcul se sérialise sur Metal, le
+> gain vient du recouvrement pré/post-traitement (découpage, détokenisation) avec le
+> GPU. D'où une borne à **2 en vol** — au-delà, la mémoire des clips ne paie plus rien.
+> Le jour où un moteur distant rejoint `STTEngineKind`, la borne devient un paramètre.
+
+- [ ] **Step 1: Write the failing test**
+
+Créer `Tests/SilenceAwareChunkerTests.swift` :
+
+```swift
+import Testing
+import Foundation
+@testable import OneToOne
+
+/// Couper à 60 s pile tombe au milieu d'un mot ; couper au creux d'énergie le
+/// plus proche tombe entre deux phrases. Ces tests verrouillent le contrat :
+/// couverture totale, aucun recouvrement, frontière dans la fenêtre de
+/// recherche, et sur le creux quand il existe.
+@Suite("SilenceAwareChunker — frontières sur les silences")
+struct SilenceAwareChunkerTests {
+
+    /// Signal déterministe : `seconds` de « voix » (sinusoïde d'amplitude 0,5).
+    private func voice(seconds: Int) -> [Float] {
+        (0..<(seconds * 16_000)).map { 0.5 * sin(Float($0) * 0.3) }
+    }
+
+    private func silence(seconds: Int) -> [Float] {
+        [Float](repeating: 0, count: seconds * 16_000)
+    }
+
+    // MARK: - Énergie par trame
+
+    @Test("Le silence a une énergie nulle, la voix non")
+    func energiesSeparateSilenceFromVoice() {
+        let energies = SilenceAwareChunker.frameEnergies(voice(seconds: 1) + silence(seconds: 1))
+        let half = energies.count / 2
+        #expect(energies.prefix(half).allSatisfy { $0 > 0.1 })
+        #expect(energies.suffix(half).allSatisfy { $0 < 0.001 })
+    }
+
+    @Test("Un signal vide n'a pas de trames")
+    func emptySignalHasNoFrames() {
+        #expect(SilenceAwareChunker.frameEnergies([]).isEmpty)
+    }
+
+    @Test("La dernière trame, incomplète, est mesurée quand même")
+    func partialLastFrameIsMeasured() {
+        let energies = SilenceAwareChunker.frameEnergies(
+            [Float](repeating: 0.5, count: SilenceAwareChunker.frameSamples + 100))
+        #expect(energies.count == 2)
+        #expect(energies[1] > 0.1)
+    }
+
+    // MARK: - Bornes des morceaux
+
+    private func ranges(for samples: [Float]) -> [Range<Int>] {
+        SilenceAwareChunker.chunkRanges(sampleCount: samples.count,
+                                        energies: SilenceAwareChunker.frameEnergies(samples))
+    }
+
+    @Test("Un signal court tient dans un seul morceau")
+    func shortSignalIsOneChunk() {
+        let samples = voice(seconds: 30)
+        #expect(ranges(for: samples) == [0..<samples.count])
+    }
+
+    @Test("La frontière tombe dans le trou de silence proche de la cible")
+    func boundaryLandsInTheSilenceGap() {
+        // 57 s de voix, 2 s de silence, 71 s de voix : la cible à 60 s a un
+        // creux à portée (57–59 s, dans le rayon de ±5 s).
+        let samples = voice(seconds: 57) + silence(seconds: 2) + voice(seconds: 71)
+        let result = ranges(for: samples)
+        #expect(result.count == 2)
+        let boundary = result[0].upperBound
+        #expect(boundary >= 57 * 16_000 && boundary <= 59 * 16_000,
+                "la coupe doit tomber dans le silence, pas à 60 s pile")
+    }
+
+    @Test("Sans creux à portée, la frontière reste dans la fenêtre de recherche")
+    func withoutGapBoundaryStaysInWindow() {
+        let samples = voice(seconds: 130)
+        let result = ranges(for: samples)
+        #expect(result.count >= 2)
+        let boundary = result[0].upperBound
+        #expect(boundary >= 55 * 16_000 && boundary <= 65 * 16_000)
+    }
+
+    @Test("Les morceaux couvrent tout le signal, sans recouvrement ni trou")
+    func chunksTileTheSignal() {
+        for seconds in [30, 61, 130, 200] {
+            let samples = voice(seconds: 40) + silence(seconds: 1) + voice(seconds: max(0, seconds - 41))
+            let result = ranges(for: samples)
+            #expect(result.first?.lowerBound == 0)
+            #expect(result.last?.upperBound == samples.count)
+            for (a, b) in zip(result, result.dropFirst()) {
+                #expect(a.upperBound == b.lowerBound)
+                #expect(!a.isEmpty)
+            }
+        }
+    }
+
+    @Test("Un signal vide ne produit aucun morceau")
+    func emptySignalHasNoChunks() {
+        #expect(SilenceAwareChunker.chunkRanges(sampleCount: 0, energies: []).isEmpty)
+    }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `swift test --filter SilenceAwareChunkerTests`
+Expected: échec de compilation — « cannot find 'SilenceAwareChunker' in scope ».
+
+- [ ] **Step 3: Write minimal implementation**
+
+Créer `OneToOne/Services/STT/SilenceAwareChunker.swift` :
+
+```swift
+import Foundation
+
+/// Découpe un signal 16 kHz mono en morceaux d'environ une minute dont les
+/// frontières tombent sur le creux d'énergie le plus proche de la cible — au
+/// lieu de couper au milieu d'un mot à 60 s pile. Inspiré du pipeline
+/// d'import d'Open WebUI (`split_on_silence`), adapté à un STT par fenêtres.
+///
+/// Fonctions pures : pas d'I/O, pas de MLX — testables sur des signaux
+/// synthétiques.
+enum SilenceAwareChunker {
+
+    /// Taille de trame pour la mesure d'énergie : 200 ms à 16 kHz.
+    static let frameSamples = 3_200
+    /// Longueur visée d'un morceau : 60 s, comme les fenêtres historiques.
+    static let targetChunkSamples = 60 * 16_000
+    /// Rayon de recherche du creux autour de la cible : ±5 s.
+    static let searchRadiusSamples = 5 * 16_000
+
+    /// Énergie RMS par trame de `frameSamples`. La dernière trame, incomplète,
+    /// est mesurée sur ce qu'il reste.
+    static func frameEnergies(_ samples: [Float]) -> [Float] {
+        guard !samples.isEmpty else { return [] }
+        var energies: [Float] = []
+        energies.reserveCapacity(samples.count / frameSamples + 1)
+        var start = 0
+        while start < samples.count {
+            let end = min(start + frameSamples, samples.count)
+            var sum: Float = 0
+            for i in start..<end { sum += samples[i] * samples[i] }
+            energies.append((sum / Float(end - start)).squareRoot())
+            start = end
+        }
+        return energies
+    }
+
+    /// Bornes des morceaux couvrant `0..<sampleCount`, contiguës et sans
+    /// recouvrement. Chaque frontière est posée au début de la trame la moins
+    /// énergique dans `[cible − rayon, cible + rayon]` ; à égalité, la
+    /// première gagne (déterministe).
+    static func chunkRanges(sampleCount: Int,
+                            energies: [Float],
+                            frameSamples: Int = frameSamples,
+                            targetChunkSamples: Int = targetChunkSamples,
+                            searchRadiusSamples: Int = searchRadiusSamples) -> [Range<Int>] {
+        guard sampleCount > 0 else { return [] }
+        var ranges: [Range<Int>] = []
+        var cursor = 0
+        // Tant qu'il reste plus d'un morceau « cible + rayon », on coupe ; le
+        // reste part d'un bloc — jamais de miette finale d'une poignée de
+        // secondes, que Whisper hallucinerait.
+        while sampleCount - cursor > targetChunkSamples + searchRadiusSamples {
+            let target = cursor + targetChunkSamples
+            let windowStart = max(cursor + frameSamples, target - searchRadiusSamples)
+            let windowEnd = min(sampleCount - frameSamples, target + searchRadiusSamples)
+            var bestBoundary = target
+            var bestEnergy = Float.greatestFiniteMagnitude
+            var frame = windowStart / frameSamples
+            while frame * frameSamples <= windowEnd {
+                let boundary = frame * frameSamples
+                if boundary > cursor, frame < energies.count, energies[frame] < bestEnergy {
+                    bestEnergy = energies[frame]
+                    bestBoundary = boundary
+                }
+                frame += 1
+            }
+            ranges.append(cursor..<bestBoundary)
+            cursor = bestBoundary
+        }
+        ranges.append(cursor..<sampleCount)
+        return ranges
+    }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `swift test --filter SilenceAwareChunkerTests`
+Expected: PASS, 8 tests.
+
+- [ ] **Step 5: Brancher `transcribeChunks` — frontières silence + parallélisation bornée**
+
+Dans `OneToOne/Services/TranscriptionService.swift`, remplacer dans `transcribeChunks`
+le bloc allant de `let segmentSamples = 60 * 16_000` à la fin de la boucle `for`
+(exclues : les lignes `onProgress?(1.0, …)` et suivantes, inchangées) par :
+
+```swift
+        onProgress?(0, "Découpage sur les silences…")
+        let floats = audio.asArray(Float.self)
+        let energies = SilenceAwareChunker.frameEnergies(floats)
+        let ranges = SilenceAwareChunker.chunkRanges(sampleCount: sampleCount, energies: energies)
+        // 65 s max par morceau (60 s de cible + 5 s de rayon).
+        let perSegmentMaxTokens = max(1024, Int(65.0 * 30.0 * 1.5))
+
+        /// Deux transcriptions en vol au plus : le GPU sérialise le gros du
+        /// calcul, le gain vient du recouvrement pré/post-traitement. Au-delà,
+        /// la mémoire des clips ne paie plus rien. (À exposer en paramètre le
+        /// jour où un moteur distant rejoint `STTEngineKind`.)
+        let maxConcurrent = 2
+        var texts = [String](repeating: "", count: ranges.count)
+        var completed = 0
+        try await withThrowingTaskGroup(of: (Int, String).self) { group in
+            var next = 0
+            func addTask(_ index: Int) {
+                // Le clip est tranché ici, dans le contexte de l'acteur ; la
+                // sous-tâche ne capture que sa tranche.
+                let clip = audio[ranges[index].lowerBound..<ranges[index].upperBound]
+                group.addTask {
+                    (index, await engine.transcribe(clip: clip, language: self.language,
+                                                    maxTokens: perSegmentMaxTokens))
+                }
+            }
+            while next < min(maxConcurrent, ranges.count) { addTask(next); next += 1 }
+            while let (index, raw) = try await group.next() {
+                try Task.checkCancellation()
+                texts[index] = Self.collapseRepetitions(raw)
+                completed += 1
+                onProgress?(Double(completed) / Double(ranges.count),
+                            "Segment \(completed) / \(ranges.count)")
+                if next < ranges.count { addTask(next); next += 1 }
+            }
+        }
+
+        var pieces: [String] = []
+        var sttSegments: [STTSegment] = []
+        for (index, range) in ranges.enumerated() where !texts[index].isEmpty {
+            pieces.append(texts[index])
+            sttSegments.append(STTSegment(
+                startSeconds: Double(range.lowerBound) / 16_000.0,
+                endSeconds: Double(range.upperBound) / 16_000.0,
+                text: texts[index]))
+        }
+```
+
+La suite de la fonction (jointure, `collapseRepetitions`, `STTResult`) est inchangée.
+Si le compilateur exige `Sendable` sur la capture du clip `MLXArray` dans
+`group.addTask`, résoudre au minimum (capture explicite `[clip]`, ou
+`nonisolated(unsafe) let` local) et **le consigner dans le rapport** — ne pas convertir
+le clip en `[Float]` (ça doublerait la mémoire).
+
+- [ ] **Step 6: Run the full suite**
+
+Run: `swift test`
+Expected: PASS, aucun échec nouveau (la suite passe sans `--skip` depuis le plan 1). La
+retranscription réelle d'un fichier relève de la vérification à l'écran de la tâche 4 —
+ajouter à ses scénarios : « importer un audio > 5 min, vérifier que les timestamps des
+segments suivent les coupes et que la barre affiche “Segment n / N” ».
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add OneToOne/Services/STT/SilenceAwareChunker.swift OneToOne/Services/TranscriptionService.swift Tests/SilenceAwareChunkerTests.swift
+git commit -m "feat(stt): frontieres de chunks sur les silences et transcription bornee-parallele"
 ```
