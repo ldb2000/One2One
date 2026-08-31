@@ -23,8 +23,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
     static let shared = AudioRecorderService()
 
     // MARK: - Config
-    static let sampleRate: Double = 16_000
-    static let channels: UInt32 = 1
+    nonisolated static let sampleRate: Double = 16_000
+    nonisolated static let channels: UInt32 = 1
     var maxDurationSeconds: TimeInterval = 3 * 60 * 60
 
     // MARK: - Published state

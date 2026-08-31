@@ -20,24 +20,6 @@ final class SystemAudioCapture: NSObject, SCStreamOutput {
     private var stream: SCStream?
     private let sampleQueue = DispatchQueue(label: "com.onetoone.system-audio", qos: .userInitiated)
 
-    /// Miroirs de `AudioRecorderService.sampleRate`/`.channels` (16 kHz mono).
-    ///
-    /// `AudioRecorderService` est `@MainActor` : ses constantes le sont donc
-    /// aussi, et `makeConfiguration()` doit rester `nonisolated` (appelée
-    /// telle quelle, hors acteur, par `SystemAudioCaptureTests` et par le
-    /// futur appelant synchrone de Task 3). Une lecture directe de
-    /// `AudioRecorderService.sampleRate` depuis ce contexte `nonisolated`
-    /// compile mais avertit (« main actor-isolated static property … can not
-    /// be referenced from a nonisolated context ; this is an error in the
-    /// Swift 6 language mode ») — `MainActor.assumeIsolated` a été essayé et
-    /// **plante** ici (signal 5) : Swift Testing exécute les suites en
-    /// parallèle sur le pool coopératif, pas garanti sur le fil principal.
-    /// Dupliquer est donc le choix le plus sûr ; `SystemAudioCaptureTests.
-    /// sampleRateMatchesRecorder`/`monoChannel` comparent les deux sources et
-    /// échoueraient si elles divergeaient.
-    private nonisolated static let recorderSampleRate = 16_000
-    private nonisolated static let recorderChannelCount = 1
-
     /// Configuration du flux : audio seul, aligné sur la piste micro.
     ///
     /// `width`/`height` sont posés au minimum légal parce que `SCStream` exige
@@ -47,8 +29,8 @@ final class SystemAudioCapture: NSObject, SCStreamOutput {
         let config = SCStreamConfiguration()
         config.capturesAudio = true
         config.excludesCurrentProcessAudio = true
-        config.sampleRate = recorderSampleRate
-        config.channelCount = recorderChannelCount
+        config.sampleRate = Int(AudioRecorderService.sampleRate)
+        config.channelCount = Int(AudioRecorderService.channels)
         config.width = 2
         config.height = 2
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
@@ -65,6 +47,10 @@ final class SystemAudioCapture: NSObject, SCStreamOutput {
     /// Démarre la capture. Lance une erreur si la permission manque ou si
     /// aucun écran n'est partageable — à l'appelant de retomber sur micro seul.
     func start(onSamples: @escaping ([Float]) -> Void) async throws {
+        // Jamais deux flux : un second démarrage orphelinerait le premier
+        // SCStream (session d'enregistrement d'écran jamais arrêtée, audio
+        // livré deux fois au même callback). Même garde que le micro.
+        guard stream == nil else { throw AudioError.alreadyRecording }
         self.onSamples = onSamples
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard let display = content.displays.first else {

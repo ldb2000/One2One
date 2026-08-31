@@ -16,6 +16,7 @@ struct SystemAudioCaptureTests {
         // Vidéo réduite au minimum légal : on ne veut pas d'image (spec §1).
         #expect(config.width == 2)
         #expect(config.height == 2)
+        #expect(config.minimumFrameInterval == CMTime(value: 1, timescale: 1))
     }
 
     @Test("Le taux d'échantillonnage suit celui du micro")
