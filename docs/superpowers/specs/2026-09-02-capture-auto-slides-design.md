@@ -162,8 +162,11 @@ fond opaque. Fenêtre absente de `SCShareableContent` → `nil`.
 
 ### 4.7 `WindowCatalog`
 
-`shareableWindows(excludingAppNames:)` : fenêtres à l'écran, côté ≥ 200 pt, titre non vide,
-exclusion des fenêtres de OneToOne (`onetoone`, `one2one`) et de `AppSettings.captureBlacklist`.
+`shareableWindows(excludingAppNames:)` : `onScreenWindowsOnly: false` comme
+`WindowFrameSource` (une réunion Teams en plein écran vit sur son propre Space et n'est pas
+« à l'écran »), côté ≥ 200 pt, titre non vide, calque `0` seulement (pas de panneau flottant
+ni d'incrustation), hors-écran gardé uniquement pour une fenêtre de réunion, exclusion des
+fenêtres de OneToOne (`onetoone`, `one2one`) et de `AppSettings.captureBlacklist`.
 Tri `prioritized(_:)`, fonction pure testée : réunion en tête (bundle `com.microsoft.teams2`,
 `com.microsoft.teams`, `us.zoom.xos`, ou titre contenant « Meet »), puis surface décroissante.
 
@@ -209,9 +212,10 @@ première a disparu, en gardant la zone.
 | --- | --- | --- |
 | `beginSession(configuration:meeting:context:appendTo:)` | `idle` | Crée l'attachment `kind: "slides"` **ou** reprend `appendTo` (réamorce le détecteur depuis ses PNG), crée le dossier `recordings/<uuid>/slides/` **tout de suite** (échec immédiat si non inscriptible), `lastError = nil`, état `running`. Ne lance pas la boucle. |
 | `start(…)` | `idle` | `beginSession` puis lance la boucle. |
-| `resume()` | `stopped` | Republie `running`, relance la boucle. Même attachment, même détecteur. |
+| `resume()` | `stopped` **et** jeton non `nil` | Republie `running`, relance la boucle. Même attachment, même détecteur. Le jeton écarte la fenêtre d'attente OCR de `finish()`, qui publie `stopped` avant d'attendre. Idem pour `updateSource(windowID:title:)`. |
 | `stop()` | `running`, `paused` | Annule la boucle, publie `stopped`. Rien d'autre. |
-| `finish()` | session ouverte | `stop()`, invalide la session (jeton à `nil` **avant** toute attente), attend les tâches OCR avec `ocrProgress`, sauvegarde, réindexation RAG, `currentAttachment = nil`, état `idle`. |
+| `finish()` | session ouverte | `stop()`, invalide la session (jeton à `nil` **avant** toute attente), attend les tâches OCR avec `ocrProgress` — un OCR qui se termine là écrit **bien** son texte : la tâche OCR ne consulte pas le jeton, elle vérifie la vivacité de ses modèles —, sauvegarde, annule toute boucle relancée entre-temps, `currentAttachment = nil`, réindexation RAG, état `idle`. |
+| `abandon()` | — | Ferme sans **rien** sauvegarder ni réindexer : boucle et tâches OCR annulées, tout relâché, état `idle`. Chemin de la réunion supprimée (`MeetingView.onDisappear`), dont la cascade emporte l'attachment. |
 | `snapshot()` | `running` | Capture immédiate, hors boucle : recadre et écrit sans consulter le détecteur, puis `seed` l'empreinte dans l'historique. |
 | `tick()` | — | Un cycle. Appelable directement par les tests. |
 | `deleteSlide(_:)` | — | Inchangé. |
@@ -232,9 +236,12 @@ detector.consume(empreinte) == .newSlide → écrire
 ```
 
 Le jeton de session est un `UUID` régénéré à chaque `beginSession` et remis à `nil` par
-`finish()` **avant** la première attente. Chaque étape après un `await` revérifie le jeton :
-un tick suspendu pendant `finish()` n'écrit ni ne publie rien (piège 12 des specs sources).
-`guard !Task.isCancelled` ne suffirait pas : `tick()` est aussi appelé hors boucle.
+`finish()` **avant** la première attente. Chaque étape après un `await` revérifie le jeton
+**et que l'état est toujours running/paused** : un tick suspendu pendant `finish()` ou
+`stop()` n'écrit ni ne publie rien (piège 12 des specs sources) — sans le contrôle d'état, un
+tick relâché après `stop()` publierait `.paused` par-dessus `.stopped`, dont `resume()` ne
+sait pas repartir. `guard !Task.isCancelled` ne suffirait pas : `tick()` est aussi appelé hors
+boucle.
 
 La boucle : `Task { [weak self] in while !Task.isCancelled { guard let self else { break }
 await self.tick(); sleep(période) } }`. Le test du propriétaire à chaque itération empêche
@@ -244,7 +251,9 @@ une tâche fantôme.
 
 Inchangé dans l'esprit, précisé :
 
-- fichiers `slide-NNNN-HHmmss.png` (**quatre** chiffres), index = `attachment.slides.count + 1` ;
+- fichiers `slide-NNNN-HHmmss.png` (**quatre** chiffres), index de départ =
+  `(attachment.slides.map(\.index).max() ?? 0) + 1` — le maximum et non le nombre de slides,
+  qu'une suppression rendrait faux (index déjà pris) ;
 - l'encodage PNG (`CGImageDestination`) s'exécute dans une tâche détachée ; l'insertion
   SwiftData revient sur le `MainActor` ;
 - `SlideCapture.perceptualHash` reste dans le schéma, n'est plus alimenté (chaîne vide).
