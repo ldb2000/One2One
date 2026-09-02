@@ -116,4 +116,14 @@ struct NormalizedRectTests {
         let data = try JSONEncoder().encode(zone)
         #expect(try JSONDecoder().decode(NormalizedRect.self, from: data) == zone)
     }
+
+    @Test("un JSON hors bornes est borné au décodage, comme à la construction")
+    func decodingClampsOutOfRangeValues() throws {
+        let json = Data(#"{"x":-5,"y":0.8,"width":3,"height":3}"#.utf8)
+        let zone = try JSONDecoder().decode(NormalizedRect.self, from: json)
+        #expect(zone == NormalizedRect(x: -5, y: 0.8, width: 3, height: 3))
+        #expect(zone.x == 0)
+        #expect(zone.width == 1)
+        #expect(abs(zone.height - 0.2) < 1e-12)
+    }
 }

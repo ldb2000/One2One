@@ -40,6 +40,21 @@ struct NormalizedRect: Equatable, Sendable, Codable {
         )
     }
 
+    // MARK: - Codable
+
+    enum CodingKeys: String, CodingKey {
+        case x, y, width, height
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let x = try container.decode(Double.self, forKey: .x)
+        let y = try container.decode(Double.self, forKey: .y)
+        let width = try container.decode(Double.self, forKey: .width)
+        let height = try container.decode(Double.self, forKey: .height)
+        self.init(x: x, y: y, width: width, height: height)
+    }
+
     /// Vrai si la zone n'a pas de surface exploitable.
     var isEmpty: Bool { width <= 0 || height <= 0 }
 
