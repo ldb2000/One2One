@@ -4,9 +4,13 @@ Dernière mise à jour : 2026-09-02 CEST
 
 ## Le dépôt n'a plus qu'une branche (2026-09-02, fin de session)
 
-`master` est à **`ee8a4b3`**, écart 0 avec `origin/master`. **17 branches locales et 10
-distantes ont été supprimées**, toutes vérifiées entièrement contenues dans `master` avant
-suppression. Il ne reste que `master` et une branche en sursis (voir plus bas).
+`master` est à **`ee8a4b3`**, écart 0 avec `origin/master`. **18 branches locales et 11
+distantes ont été supprimées** : il ne reste plus que `master`, local et distant, et plus
+aucun worktree hors la copie principale. Toutes ont été vérifiées entièrement contenues dans
+`master` avant suppression, **sauf quatre**, supprimées en connaissance de cause — trois
+dépassées par du code plus récent (voir plus bas) et `worktree-agenda-project-picker-search`,
+détruite sur décision explicite avec un apport réel dedans, décrit ci-dessous pour qu'il
+puisse être réécrit.
 
 - **Dernière fusion de code : `fix/code-review-data-safety-perf`** (`ee8a4b3`). ⚠️ **La
   prémisse de ce fichier était fausse** : il présentait cette branche comme la seule copie de
@@ -33,13 +37,23 @@ suppression. Il ne reste que `master` et une branche en sursis (voir plus bas).
   `master` porte), `feat/agent-taches-claude-wip` (seize fichiers identiques à l'octet près)
   et `fix/meeting-stable-id-optional` (`master` porte `stableID: UUID?` plus le backfill
   `ensuredStableID`, généralisé à tous les modèles).
-- **⚠️ Une branche survit : `worktree-agenda-project-picker-search`** (`9bd4716`, locale et
-  sur `origin`), avec son worktree `.claude/worktrees/agenda-project-picker-search`. Elle fige
-  784 lignes qui n'étaient commitées nulle part. Analyse faite : ses trois fichiers
-  distinctifs (`AgendaProjectRule.swift`, `AgendaProjectResolver.swift` et leurs tests) sont
-  **déjà sur `master`, identiques** ; ses quatorze autres fichiers sont des versions
-  **antérieures** que `master` a dépassées. Le commit n'a été ni relu ni testé : c'est une
-  sauvegarde. **Décision due** : reprendre ce qui vaut la peine, ou supprimer.
+- **`worktree-agenda-project-picker-search` supprimée** (locale, `origin` et son worktree),
+  sur décision explicite : nettoyage net. Elle figeait 784 lignes commitées nulle part.
+  L'essentiel du chantier « affectation événement d'agenda → projet » est **déjà sur
+  `master`, à l'identique** : `AgendaProjectRule`, `AgendaProjectResolver` et ses 159 lignes
+  de tests, la relation `Project.agendaRules`, la version de schéma, la liste de gestion des
+  règles dans `SettingsView`.
+- **⚠️ Ce qui a été détruit avec elle, et qu'il faudra réécrire si on le veut.** Son seul
+  apport réel — celui que son nom annonce — était le **sélecteur de projet du panneau
+  Agenda**. Sur `master`, la pastille de projet ouvre un `Menu` listant **tous** les projets
+  à plat, sans filtre : pénible passé quelques dizaines de projets. La branche le remplaçait
+  par un popover de 300 pt dans `AgendaInspectorPanel.swift` : champ « Filtrer les projets… »
+  insensible à la casse, confirmation en un clic de la suggestion automatique en tête, liste
+  filtrée dans un `ScrollView` borné à 320 pt, état vide distinguant « aucun projet dans la
+  base » de « aucun résultat », et « Ignorer ce titre » / « Retirer la règle » en pied.
+  Environ cent lignes. Ce n'était **pas** fusionnable tel quel : le fichier de la branche
+  (364 lignes) partait d'une base antérieure à la version actuelle de `master` (283 lignes),
+  il aurait fallu reporter le popover, pas remplacer le fichier.
 - **Worktrees retirés** : `agent-claude`, `pastille-participant`, `teams-autorecord-popup`
   (tous propres) et `paperclip/-issue` (outil tiers, son dossier `web/` non suivi est perdu —
   suppression demandée). La copie de travail principale est passée sur `master` et est propre.
