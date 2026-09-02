@@ -290,6 +290,7 @@ struct ScreenCaptureConfigView: View {
             windows = []
             catalogError = "Aucune fenêtre partageable. Ouvrez la réunion, puis rafraîchissez."
         } catch {
+            windows = []
             catalogError = error.localizedDescription
         }
     }
@@ -298,12 +299,17 @@ struct ScreenCaptureConfigView: View {
         preview = nil
         previewError = nil
         do {
-            guard let image = try await WindowFrameSource(windowID: window.id).captureFrame() else {
+            let image = try await WindowFrameSource(windowID: window.id).captureFrame()
+            // Une sélection plus récente a pu arriver pendant la capture : ne pas écraser son aperçu.
+            guard selectedWindowID == window.id else { return }
+            guard let image else {
                 previewError = "fenêtre introuvable"
                 return
             }
             preview = image
         } catch {
+            // Une sélection plus récente a pu arriver pendant la capture : ne pas écraser son aperçu.
+            guard selectedWindowID == window.id else { return }
             if SlideCaptureError.isPermissionDenial(error) { permissionDenied = true }
             previewError = error.localizedDescription
         }
