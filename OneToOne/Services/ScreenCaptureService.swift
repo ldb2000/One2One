@@ -97,7 +97,11 @@ final class ScreenCaptureService: ObservableObject {
     /// en vol (tick + snapshot) ne peuvent pas se partager un numéro.
     private var nextIndex = 1
     private var loop: Task<Void, Never>?
-    private var ocrTasks: [Task<Void, Never>] = []
+    /// L'OCR d'un slide est détaché de `tick()` (ne doit pas le bloquer) mais reste
+    /// associé à son slide : `deleteSlide` peut ainsi annuler la tâche encore en vol
+    /// avant de supprimer le modèle qu'elle vise, plutôt que de la laisser écrire dans
+    /// le vide.
+    private var ocrTasks: [(slideID: PersistentIdentifier, task: Task<Void, Never>)] = []
 
     init(
         recordingsRoot: URL? = nil,
@@ -211,8 +215,8 @@ final class ScreenCaptureService: ObservableObject {
         ocrTasks = []
         if !tasks.isEmpty {
             ocrProgress = (0, tasks.count)
-            for (index, task) in tasks.enumerated() {
-                await task.value
+            for (index, entry) in tasks.enumerated() {
+                await entry.task.value
                 ocrProgress = (index + 1, tasks.count)
             }
         }
@@ -282,14 +286,20 @@ final class ScreenCaptureService: ObservableObject {
     }
 
     /// Corps attendable de `snapshot()` (visible des tests).
+    ///
+    /// N'amorce le détecteur avec cette empreinte qu'**après** confirmation de
+    /// l'écriture (`writeSlide` réussi) : si l'écriture échoue (jeton périmé, panne
+    /// d'encodage…), le détecteur ne doit pas croire connaître un slide qui n'existe
+    /// pas sur disque.
     func snapshotForTesting() async {
         guard state == .running, let token = sessionToken, let source, let crop = configuration?.crop else { return }
         guard let frame = try? await source.captureFrame(), sessionToken == token,
               let cropped = crop.apply(to: frame) else { return }
-        if let fingerprint = SlideFingerprint(image: cropped) {
+        let fingerprint = SlideFingerprint(image: cropped)
+        let wrote = await writeSlide(cropped, token: token)
+        if wrote, let fingerprint {
             detector.seed([fingerprint])
         }
-        await writeSlide(cropped, token: token)
     }
 
     /// Annule la boucle sans changer l'état (tests : piloter les ticks à la main).
@@ -301,19 +311,25 @@ final class ScreenCaptureService: ObservableObject {
     /// Attend la fin de tous les OCR en vol, sans clore la session (tests uniquement).
     ///
     /// `writeSlide` détache l'OCR pour ne pas bloquer `tick()` ; seul `finish()` les
-    /// attend en production. Un test qui écrit un slide puis rend la main sans passer
-    /// par `finish()` laisse cette tâche détachée continuer après son propre retour :
-    /// dans le harnais de tests (`ModelContainer` en mémoire, un par test), le
-    /// `ModelContainer` du test peut alors être libéré pendant que la tâche OCR est
-    /// encore en train d'écrire sur le `SlideCapture` qu'il possédait, ce qui plante
-    /// (« this model instance was destroyed by calling ModelContext.reset »). Ce point
-    /// d'entrée donne aux tests un moyen d'attendre cette fin avant de rendre la main.
+    /// attend en production. La tâche OCR revérifie elle-même le jeton de session et
+    /// la vivacité du `SlideCapture` (`slide.modelContext != nil`) avant d'écrire quoi
+    /// que ce soit, donc un test qui ne l'attend pas ne risque plus de crash — ce point
+    /// d'entrée reste une simple commodité pour un test qui veut observer l'OCR terminé
+    /// (texte reconnu, `ocrProgress`) sans passer par `finish()`.
     func drainOCRTasksForTesting() async {
-        for task in ocrTasks { await task.value }
+        for entry in ocrTasks { await entry.task.value }
     }
 
     func deleteSlide(_ slide: SlideCapture) {
         guard let context = modelContext ?? slide.modelContext else { return }
+        // L'OCR de ce slide peut encore être en vol : l'annuler et l'oublier avant de
+        // supprimer le modèle qu'il vise, plutôt que de le laisser toucher un
+        // `SlideCapture` supprimé (crash SwiftData).
+        let slideID = slide.persistentModelID
+        for entry in ocrTasks where entry.slideID == slideID {
+            entry.task.cancel()
+        }
+        ocrTasks.removeAll { $0.slideID == slideID }
         let path = slide.imagePath
         context.delete(slide)
         try? FileManager.default.removeItem(atPath: path)
@@ -339,11 +355,14 @@ final class ScreenCaptureService: ObservableObject {
 
     // MARK: - Écriture
 
-    private func writeSlide(_ image: CGImage, token: UUID) async {
+    /// Renvoie `true` si le `SlideCapture` a bien été inséré (utilisé par
+    /// `snapshotForTesting` pour n'amorcer le détecteur qu'en cas de succès réel).
+    @discardableResult
+    private func writeSlide(_ image: CGImage, token: UUID) async -> Bool {
         guard sessionToken == token,
               let attachment = currentAttachment,
               let context = modelContext,
-              let directory = slidesDirectory else { return }
+              let directory = slidesDirectory else { return false }
 
         let index = nextIndex
         nextIndex += 1
@@ -353,15 +372,15 @@ final class ScreenCaptureService: ObservableObject {
         do {
             try await ScreenCaptureService.encodePNG(image, to: fileURL)
         } catch {
-            guard sessionToken == token else { return }
+            guard sessionToken == token else { return false }
             lastError = "Écriture du slide \(index) impossible : \(error.localizedDescription)"
-            return
+            return false
         }
 
         guard sessionToken == token else {
             // La session a été close pendant l'encodage : ce slide ne lui appartient plus.
             try? FileManager.default.removeItem(at: fileURL)
-            return
+            return false
         }
 
         let slide = SlideCapture(index: index, capturedAt: date, imagePath: fileURL.path)
@@ -371,11 +390,20 @@ final class ScreenCaptureService: ObservableObject {
         objectWillChange.send()
         captureLog.info("Slide \(index) écrit")
 
+        // OCR détaché de `tick()` (ne doit pas le bloquer). Rien n'est touché au réveil
+        // sans revérifier : (1) `Task.isCancelled` — `deleteSlide` annule la tâche visant
+        // ce slide avant de le supprimer ; (2) le jeton de session — une session close
+        // ou une nouvelle session ouverte pendant l'OCR ne doit pas hériter de ce texte ;
+        // (3) `slide.modelContext != nil` — un modèle supprimé (même sans passer par
+        // `deleteSlide`, ou une annulation ratée) n'a plus de contexte utilisable et
+        // touche à ses propriétés y planterait (« this model instance was destroyed »).
         let ocr = self.ocr
         let task = Task { [weak self] in
             do {
                 let text = try await ocr(image)
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard self?.sessionToken == token, slide.modelContext != nil else { return }
                     slide.ocrText = text
                     self?.rebuildAttachmentText()
                 }
@@ -383,7 +411,8 @@ final class ScreenCaptureService: ObservableObject {
                 captureLog.error("OCR du slide \(index) échoué : \(error.localizedDescription)")
             }
         }
-        ocrTasks.append(task)
+        ocrTasks.append((slideID: slide.persistentModelID, task: task))
+        return true
     }
 
     private func rebuildAttachmentText() {

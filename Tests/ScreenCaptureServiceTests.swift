@@ -5,12 +5,15 @@ import ImageIO
 import SwiftData
 @testable import OneToOne
 
-// `.serialized` : plusieurs `ModelContainer` construits en parallèle pour le même
-// schéma versionné entrent en course entre eux côté SwiftData (crash observé :
-// « this model instance was destroyed by calling ModelContext.reset », reproductible
-// uniquement quand les 14 tests tournent ensemble, jamais isolément). Chaque test
-// reste indépendant (son propre conteneur en mémoire) ; seule l'exécution est
-// séquentielle.
+// `.serialized` : la cause réelle d'un crash observé plus tôt (« this model instance
+// was destroyed by calling ModelContext.reset ») était une tâche OCR détachée
+// (`writeSlide`) qui survivait au retour d'un test n'appelant pas `finish()`, et
+// touchait ensuite un `SlideCapture` dont le `ModelContainer` en mémoire du test
+// (propre à chaque test) avait déjà été libéré. La tâche OCR revérifie désormais
+// elle-même le jeton de session et `slide.modelContext != nil` avant d'écrire quoi
+// que ce soit (cf. `writeSlide`), ce qui couvre ce cas en production. `.serialized`
+// reste ici en ceinture-et-bretelles : plusieurs `ModelContainer` en mémoire pour le
+// même schéma versionné, construits en parallèle, ne sont pas garantis indépendants.
 @Suite("ScreenCaptureService", .serialized)
 @MainActor
 struct ScreenCaptureServiceTests {
@@ -233,6 +236,34 @@ struct ScreenCaptureServiceTests {
         #expect(try pngNames(service) == namesAtFinish, "PNG apparus APRÈS la clôture")
         #expect(attachment.slides.count == 1)
         #expect(service.state == .idle)
+    }
+
+    @Test("un tick en vol relâché après finish puis un nouveau beginSession n'écrit pas dans la nouvelle session")
+    func inFlightTickFromOldSessionCannotWriteIntoNewSession() async throws {
+        let first = banded(0.2), second = banded(0.8)
+        let source = SuspendingFrameSource(immediateFrames: [first, first, first, first, second, second])
+        let service = makeService(source: source)
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<6 { await service.tick() }
+        let oldAttachment = try #require(service.currentAttachment)
+        #expect(oldAttachment.slides.count == 1)
+
+        let inFlight = Task { @MainActor in await service.tick() }
+        await source.waitUntilSuspended()
+        await service.finish()
+
+        // Nouvelle session : configuration, attachment et dossier sont à nouveau non nuls.
+        // Seul le jeton distingue le tick en vol de la session courante.
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        let newAttachment = try #require(service.currentAttachment)
+        #expect(newAttachment !== oldAttachment)
+
+        source.resume(with: second)
+        await inFlight.value
+
+        #expect(newAttachment.slides.isEmpty, "le tick de l'ancienne session a écrit dans la nouvelle")
+        #expect(oldAttachment.slides.count == 1)
+        #expect(try pngNames(service).count == 1)
     }
 
     @Test("snapshot écrit l'image courante sans attendre la stabilisation, et le détecteur la connaît ensuite")
