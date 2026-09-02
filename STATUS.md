@@ -2,6 +2,69 @@
 
 Dernière mise à jour : 2026-09-02 CEST
 
+## Capture automatique de slides (2026-09-02)
+
+Branche `feat/capture-auto-slides`, HEAD **`3574054`**, basée sur `master` à `553458f`.
+Huit tâches livrées (Task 8 = cette section). Spec :
+`docs/superpowers/specs/2026-09-02-capture-auto-slides-design.md`. ADR :
+`docs/adr/2026-09-02-capture-slides-polling-empreinte.md`.
+
+- **Livré** : nouveau module pur `OneToOne/Services/SlideCapture/` (`SlideFingerprint`,
+  `NormalizedRect`, `SlideCaptureSettings` à deux seuils, `SlideDetector`,
+  `FrameSource`/`ShareableWindow`/`SlideCaptureError`, `WindowCatalog`, `WindowFrameSource`,
+  `ScreenRecordingSettingsLink`) ; `ScreenCaptureService` réécrit (états
+  idle/running/paused/stopped, arrêter conserve la session, reprendre, terminer clôt, jeton
+  de session revérifié après chaque `await`, tâche OCR gardée par un contrôle de vivacité,
+  ajout à un lot précédent avec réamorçage du détecteur, noms de fichiers à 4 chiffres) ;
+  `ScreenCaptureConfigView` réécrit en trois faces plus la face de refus d'autorisation ;
+  `CropSelectionView` nouveau ; `PerceptualHasher.swift` et `RectSelectorOverlay.swift`
+  supprimés ; `AppSettings.slideCaptureSensitivityRaw` ajouté (migration légère) ;
+  `Info.plist` reçoit `NSScreenCaptureUsageDescription` ; les barres et `MeetingView`
+  affichent l'état réel avec Reprendre/Terminer, et `onDisappear` clôt une session ouverte
+  après les gardes de suppression.
+- **Tests ajoutés** (Task 7) : `SlideFingerprintTests` (8), `NormalizedRectTests` (12),
+  `SlideDetectorTests` (10), `SlideCaptureErrorTests` (4), `WindowCatalogTests` (3),
+  `ScreenRecordingSettingsLinkTests` (3), `ScreenCaptureServiceTests` (16). Preuves de
+  mutation faites sur l'axe Y, la dérive lente et le jeton de tick (Test A). Suite complète
+  à la Task 7 : **XCTest 1030 exécutés, 1 ignoré, 0 échec ; Swift Testing 522 tests en 77
+  suites, 0 échec** ; build propre à part un avertissement préexistant dans
+  `PyannoteDiarizer.swift`.
+- **Points ouverts mineurs** (revue différée à la revue finale) : `fromDrag` avec une vue de
+  taille nulle renvoie `.full` au lieu de `current` ; balayage anti-doublon linéaire ;
+  `onScreenWindowsOnly: false` dans `WindowFrameSource` est délibéré (capturer une fenêtre
+  occultée) contre `true` dans le catalogue ; la tâche d'instantané n'est pas attendue par
+  `finish()` ; écrire la sensibilité est un no-op si aucune ligne `AppSettings` n'existe
+  encore ; `MeetingView` réinitialise toujours `lastError` directement pour fermer le
+  bandeau (accepté).
+- **Build** : `Scripts/bump-and-build.sh dev` exécuté pour cette Task 8 — voir le résumé
+  de build ci-dessous.
+
+### Validation manuelle — à faire par l'utilisateur
+
+Aucune validation manuelle n'a été effectuée. À dérouler sur une vraie présentation (Teams,
+Zoom ou Meet, ou un Keynote/PowerPoint en plein écran dans une autre fenêtre) :
+
+- [ ] Ouvrir une réunion → « Capture » → autorisation demandée la première fois ; refuser
+      une fois pour voir l'écran de refus et le bouton « Ouvrir les Réglages » ; accorder ;
+      relancer.
+- [ ] Choisir la fenêtre, tracer une zone : vérifier que **le haut et le bas** du slide
+      écrit correspondent au tracé (ouvrir le PNG dans
+      `~/Library/Application Support/OneToOne/recordings/<uuid>/slides/`).
+- [ ] Faire défiler trois slides : trois fichiers, pas plus. Revenir sur le premier : rien
+      de plus.
+- [ ] Déplacer puis redimensionner la fenêtre source : la zone suit.
+- [ ] Fermer la fenêtre source : pastille orange « En pause » ; la rouvrir : bleu, reprise
+      seule.
+- [ ] Arrêter → « Arrêtée · N » ; Reprendre → numérotation continue ; Terminer → OCR, texte
+      agrégé visible dans la galerie, lot clos.
+- [ ] Rouvrir « Capture » : « Ajouter au lot précédent » proposé ; un slide déjà présent
+      n'est pas réécrit ; un nouveau l'est avec l'index suivant.
+- [ ] Fenêtre source **entièrement** recouverte par une autre : la capture continue-t-elle ?
+      Noter le résultat (non couvert par la sonde du prototype).
+
+**Prochaine action** : validation manuelle des huit points ci-dessus, puis push et PR.
+Chantier séparé en attente : auto-start avec l'auto-record Teams.
+
 ## Le dépôt n'a plus qu'une branche (2026-09-02, fin de session)
 
 `master` est à **`ee8a4b3`**, écart 0 avec `origin/master`. **18 branches locales et 11
