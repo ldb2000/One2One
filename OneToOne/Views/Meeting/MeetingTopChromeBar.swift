@@ -302,7 +302,7 @@ struct MeetingTopChromeBar: View {
                         Label("Changer la source…", systemImage: "rectangle.dashed.badge.record")
                     }
                     Button(role: .destructive) {
-                        Task { await captureService.stop() }
+                        captureService.stop()
                     } label: {
                         Label("Arrêter la capture", systemImage: "stop.circle")
                     }

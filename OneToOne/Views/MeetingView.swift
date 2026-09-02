@@ -254,7 +254,7 @@ struct MeetingView: View {
                 hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
                 showPlayback: showPlayback,
                 onSnapshot: { captureService.snapshot() },
-                onStopCapture: { Task { await captureService.stop() } },
+                onStopCapture: { captureService.stop() },
                 onSeek: { player.seek(to: $0) },
                 onSkip: { player.skip(by: $0) },
                 errors: [

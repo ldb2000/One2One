@@ -12,9 +12,6 @@ struct ScreenCaptureConfigView: View {
     @State private var sources: SCShareableContent?
     @State private var selectedWindowID: CGWindowID?
     @State private var captureType: CaptureType = .window
-    @State private var mode: ScreenCaptureService.CaptureMode = .manual
-    @State private var interval: Double = 2.0
-    @State private var threshold: Double = 12.0
     @State private var selectedRect: CGRect?
     @State private var selectedDisplayID: CGDirectDisplayID?
 
@@ -89,30 +86,7 @@ struct ScreenCaptureConfigView: View {
             }
             
             Divider()
-            
-            Text("Mode").font(.headline)
-            Picker("Mode de capture", selection: $mode) {
-                Text("Manuel (snapshot)").tag(ScreenCaptureService.CaptureMode.manual)
-                Text("Auto (changement de slide)").tag(ScreenCaptureService.CaptureMode.auto)
-            }
-            .pickerStyle(.radioGroup)
-            
-            if mode == .auto {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Intervalle : \(Int(interval))s")
-                        Slider(value: $interval, in: 1...5, step: 1)
-                    }
-                    HStack {
-                        Text("Seuil : \(Int(threshold))")
-                        Slider(value: $threshold, in: 5...30, step: 1)
-                    }
-                    Text("Un seuil plus bas est plus sensible aux petits changements.")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-            
+
             HStack {
                 Button("Annuler") { dismiss() }
                 Spacer()
@@ -180,41 +154,9 @@ struct ScreenCaptureConfigView: View {
         }
     }
     
-    /// Configure la source du service puis démarre la capture. En mode `.rect`,
-    /// résout le `SCDisplay` correspondant au `selectedDisplayID` ; si cet ID
-    /// n'est plus disponible (écran déconnecté), retombe sur le premier écran.
+    /// Configure la source du service puis démarre la capture.
+    // TODO Task 6 : reconstruire cet écran sur la nouvelle API de session
+    // (`ScreenCaptureService.SessionConfiguration` + `beginSession`/`start`).
     private func startCapture() {
-        guard let sources = sources else { return }
-        
-        if captureType == .window {
-            guard let windowID = selectedWindowID,
-                  let window = sources.windows.first(where: { $0.windowID == windowID }) else { return }
-            service.selectedSource = .window(window)
-        } else {
-            guard let rect = selectedRect else { return }
-            // Résout le SCDisplay qui correspond au CGDirectDisplayID renvoyé
-            // par le sélecteur multi-écrans. Fallback sur le premier display
-            // si l'ID n'est pas trouvé (cas dégénéré : écran déconnecté).
-            let display: SCDisplay
-            if let id = selectedDisplayID,
-               let match = sources.displays.first(where: { $0.displayID == id }) {
-                display = match
-            } else if let first = sources.displays.first {
-                display = first
-            } else {
-                return
-            }
-            service.selectedSource = .display(display, rect)
-        }
-        
-        Task {
-            await service.start(
-                mode: mode,
-                interval: interval,
-                threshold: Int(threshold),
-                meeting: meeting,
-                context: context
-            )
-        }
     }
 }
