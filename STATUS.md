@@ -2,6 +2,48 @@
 
 Dernière mise à jour : 2026-09-02 CEST
 
+## Le dépôt n'a plus qu'une branche (2026-09-02, fin de session)
+
+`master` est à **`ee8a4b3`**, écart 0 avec `origin/master`. **17 branches locales et 10
+distantes ont été supprimées**, toutes vérifiées entièrement contenues dans `master` avant
+suppression. Il ne reste que `master` et une branche en sursis (voir plus bas).
+
+- **Dernière fusion de code : `fix/code-review-data-safety-perf`** (`ee8a4b3`). ⚠️ **La
+  prémisse de ce fichier était fausse** : il présentait cette branche comme la seule copie de
+  huit correctifs jamais repris. En réalité `master` avait déjà implémenté les mêmes
+  correctifs, **en mieux**. Les quatre conflits ont donc été résolus **en gardant `master`** :
+  `TranscriptEditService` (master sauvegarde le contexte partagé *avant* toute coupe audio et
+  documente son rollback), `AudioFileEditor` (master factorise la garde d'allocation dans
+  `tamponDeLecture(format:capacite:operation:)`), `AIClient` (la branche réintroduisait
+  `callClaudeCLI`, supprimé depuis) et `MeetingView` (la branche portait l'ancienne API
+  `onStartRecording` / `onRetranscribe`, refactorisée depuis en `makeMenuActions()` — la
+  prendre aurait cassé la compilation).
+- **Six correctifs sont quand même entrés**, réellement absents de `master` et sans
+  régression : déduplication des `TranscriptChunk` au démarrage, lecture texte avec repli
+  CP1252 / ISO Latin-1, mention explicite de troncature dans le bloc « documents joints » du
+  rapport, `ImageCache` (`CachedNSImage.swift`) pour les photos de collaborateurs, recherche
+  **debouncée** dans la barre latérale, et construction du contexte du chatbot sortie du
+  chemin synchrone.
+- **Vérifié sur la fusion** : `swift test`, build à froid — **1030 XCTest (1 ignoré, 0 échec)
+  + 466 tests Swift Testing en 70 suites**, code de sortie 0, **aucune erreur de
+  compilation**, et **zéro avertissement sur les sept fichiers touchés**. Les 698
+  avertissements du log sont ceux, préexistants, que tout build à froid réémet.
+- **Écartées comme dépassées, sans perte** : `feat/agent-taches-claude` (sa spec est sur
+  `master` à l'identique, son commit Spotlight est une variante plus ancienne de ce que
+  `master` porte), `feat/agent-taches-claude-wip` (seize fichiers identiques à l'octet près)
+  et `fix/meeting-stable-id-optional` (`master` porte `stableID: UUID?` plus le backfill
+  `ensuredStableID`, généralisé à tous les modèles).
+- **⚠️ Une branche survit : `worktree-agenda-project-picker-search`** (`9bd4716`, locale et
+  sur `origin`), avec son worktree `.claude/worktrees/agenda-project-picker-search`. Elle fige
+  784 lignes qui n'étaient commitées nulle part. Analyse faite : ses trois fichiers
+  distinctifs (`AgendaProjectRule.swift`, `AgendaProjectResolver.swift` et leurs tests) sont
+  **déjà sur `master`, identiques** ; ses quatorze autres fichiers sont des versions
+  **antérieures** que `master` a dépassées. Le commit n'a été ni relu ni testé : c'est une
+  sauvegarde. **Décision due** : reprendre ce qui vaut la peine, ou supprimer.
+- **Worktrees retirés** : `agent-claude`, `pastille-participant`, `teams-autorecord-popup`
+  (tous propres) et `paperclip/-issue` (outil tiers, son dossier `web/` non suivi est perdu —
+  suppression demandée). La copie de travail principale est passée sur `master` et est propre.
+
 ## Tout le travail local est sur `origin` (2026-09-02)
 
 Session sans code : mise à jour du dépôt distant, qui n'avait rien reçu depuis le
@@ -462,7 +504,7 @@ Six commits sur `master` (`8401536..d806a4b`), suite verte vérifiée par le coo
 
 Applique les trois correctifs de l'axe « sûreté des données » de la
 [spec de reprise](docs/superpowers/specs/2026-08-09-revue-code-data-safety-perf-design.md),
-issue de la branche `fix/code-review-data-safety-perf` jamais fusionnée :
+issue de la branche `fix/code-review-data-safety-perf` (fusionnée et supprimée le 2026-09-02) :
 
 1. **Dédoublonnage d'identifiants UUID au démarrage.** La règle vit dans
    `Services/IdentifierRepair.swift` (testée hors SwiftData) ; `repairStoreIfNeeded()`
@@ -493,10 +535,11 @@ fichier rendu non inscriptible serait possible mais fragile (WAL SQLite). Le com
 du `rollback` n'est vérifié que par lecture de code.
 
 **Reste dû :** les huit autres correctifs de la spec (axes « fil principal » et
-« robustesse des entrées »), volontairement non traités. La branche
-`fix/code-review-data-safety-perf` **est sur `origin`** (`0c627ee`, constaté le 2026-09-02) ;
-elle reste la seule copie du code des huit correctifs restants — son commit n'est pas dans
-`master` — et ne doit pas être supprimée avant qu'ils soient repris.
+« robustesse des entrées »), volontairement non traités à l'époque. **Soldé le 2026-09-02** :
+la branche `fix/code-review-data-safety-perf` a été fusionnée (`ee8a4b3`) puis supprimée.
+Six de ces correctifs sont entrés dans `master` ; les autres avaient été **dépassés** par du
+code écrit depuis, en mieux — voir la section en tête de ce fichier pour le détail de la
+résolution, conflit par conflit.
 
 ---
 
