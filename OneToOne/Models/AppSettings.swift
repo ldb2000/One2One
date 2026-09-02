@@ -190,6 +190,14 @@ final class AppSettings {
     /// d'écran. Stockée en JSON pour migration douce.
     var captureBlacklistJSON: String = "[]"
 
+    /// Sensibilité de la capture automatique de slides. Stockée en `…Raw`
+    /// (contournement du bug SwiftData sur les énumérations persistées).
+    var slideCaptureSensitivityRaw: String = SlideCaptureSettings.Sensitivity.normal.rawValue
+    var slideCaptureSensitivity: SlideCaptureSettings.Sensitivity {
+        get { SlideCaptureSettings.Sensitivity(rawValue: slideCaptureSensitivityRaw) ?? .normal }
+        set { slideCaptureSensitivityRaw = newValue.rawValue }
+    }
+
     /// Layout configuré de la sidebar droite des réunions.
     /// JSON : `[{"id":"actions","visible":true}, …]`. Vide → defaultLayout
     /// est appliqué par le helper computed.
