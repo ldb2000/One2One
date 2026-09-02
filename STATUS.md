@@ -1,10 +1,52 @@
 # État du projet
 
-Dernière mise à jour : 2026-08-31 CEST
+Dernière mise à jour : 2026-09-02 CEST
+
+## Tout le travail local est sur `origin` (2026-09-02)
+
+Session sans code : mise à jour du dépôt distant, qui n'avait rien reçu depuis le
+2026-08-28. `origin/master` est à **`8548b8d`**, écart 0 avec le `master` local.
+
+- **16 commits poussés sur `master`** : les 13 qui étaient en retard (double piste audio,
+  frontières de chunks sur les silences, vague de correction de la revue, clés d'usage
+  calendrier) et trois commits de fusion — `feat/pastille-participant-fil-ariane` (spec),
+  `feat/teams-audio-double-piste` (spec « détection d'appel universelle »)
+  et `feat/agent-claude` (noyau du service d'agent Claude, son dossier de travail,
+  sept fichiers de tests, la spec).
+- **Cinq branches créées sur `origin`**, sauvegardées telles quelles avant toute fusion :
+  `feat/agent-claude`, `feat/agent-taches-claude`, `feat/agent-taches-claude-wip`,
+  `feat/pastille-participant-fil-ariane`, `feat/teams-audio-double-piste`. Les autres
+  branches locales sont entièrement contenues dans `master` — les pousser n'aurait ajouté
+  que des étiquettes.
+- **`feat/agent-taches-claude` n'a PAS été fusionnée**, seul écart à la consigne « tout
+  fusionner », et il est délibéré : elle conflictait sur `MeetingView.swift` et
+  `SpotlightMeetingIndexTests.swift`, et son commit Spotlight est une variante **plus
+  ancienne** de ce que `master` a déjà reçu par `feat/fusion-note-reunion` (`indexAll` avec
+  réunions et notes, `makeMeetingItem`, exclusion des transcriptions). Résoudre les conflits
+  revenait à écraser du code plus récent. Sa spec est entrée par `feat/agent-claude`.
+  `feat/agent-taches-claude-wip` était, elle, intégralement absorbée : ses seize fichiers
+  sont sur `master`, identiques à l'octet près. Les deux branches restent sur `origin`.
+- **Vérifié** : `swift test` complet sur la fusion, build à froid dans un worktree jetable —
+  **1030 XCTest (1 ignoré, 0 échec) + 466 tests Swift Testing en 70 suites**, code de sortie 0.
+  Le `--skip CalendarImportEventTests` reste inutile. La copie de travail n'a pas été touchée.
+- **Non committés, donc non poussés** — fichiers non suivis de la copie de travail :
+  `docs/adr/README.md` (convention de nommage des ADR), `docs/architecture/`
+  (`branch-status.md`, instantané du 10 août **périmé** — il décrit `feat/fusion-note-reunion`
+  comme active alors qu'elle est fusionnée ; plus `cartographie.docx` et `diagram.html`) et
+  `design_handoff_editor_blocs/` (892 K : README de spec visuelle, cinq captures, maquette
+  HTML de référence). ⚠️ **Ce fichier-ci cite `design_handoff_editor_blocs/README.md`**
+  comme point de départ du chantier éditeur, dans la section « Éditeur de blocs » : le lien
+  pointe aujourd'hui vers un dossier qui n'existe dans aucun commit. À verser, ou à
+  déréférencer.
+- **Ce que ce push ne change pas** : rien n'a été vérifié à l'écran. Les treize scénarios des
+  deux plans Teams auto-record restent dus (voir les deux sections suivantes), l'attribution
+  « moi » / « distant » n'est toujours câblée nulle part, et la spec « détection d'appel
+  universelle » (2026-08-31, statut « à valider ») n'a **pas de plan écrit**.
 
 ## Teams auto-record — double piste audio (plan 2/2) (2026-08-31)
 
-Branche `feat/teams-audio-double-piste`, **non fusionnée et non poussée** — voir le
+Branche `feat/teams-audio-double-piste`, **fusionnée dans `master` et poussée le 2026-09-02**
+(voir la section du jour en tête de ce fichier) — voir le
 [plan](docs/superpowers/plans/2026-08-28-teams-autorecord-double-piste-audio.md). Suite du
 plan 1 ci-dessous.
 
@@ -82,9 +124,9 @@ plan 1 ci-dessous.
 ## Teams auto-record — détection & orchestration (plan 1/2) (2026-08-28)
 
 - **État — livré en production.** `master` à `69ceabf` (fast-forward de `bbad581` : les 23
-  commits du chantier y sont), build **754** (release) dans `/Applications`. **Rien n'est
-  poussé sur `origin`** : `origin/master` reste 94 commits en retard du `master` local —
-  situation antérieure à ce chantier, la décision appartient au propriétaire. Les tâches 1 à 8
+  commits du chantier y sont), build **754** (release) dans `/Applications`. ~~Rien n'est
+  poussé sur `origin`~~ — **résolu le 2026-09-02** : tout est sur `origin/master`, voir la
+  section en tête de ce fichier. Les tâches 1 à 8
   du plan `docs/superpowers/plans/2026-08-28-teams-autorecord-detection-orchestration.md`
   sont implémentées et revues — détection pure,
   appariement agenda, moniteur `NSWorkspace` + énumération opportuniste, cinq catégories de
@@ -259,7 +301,8 @@ Le chantier actif est la refonte de l'éditeur Markdown en éditeur de blocs,
 
 ## Fusion Note / Réunion (2026-08-10)
 
-Branche `feat/fusion-note-reunion`, 43 commits, **non fusionnée et non poussée**.
+Branche `feat/fusion-note-reunion`, 43 commits, **fusionnée dans `master` et poussée** —
+constaté le 2026-09-02 : elle n'a plus aucun commit hors `master`.
 
 **Livré.** `MeetingKind.note` et l'exclusion des statistiques (`MeetingStatsScope`) ;
 `NoteFactory` ; les onglets et le chrome de `MeetingView` filtrés par kind ; l'indexation
@@ -444,8 +487,9 @@ du `rollback` n'est vérifié que par lecture de code.
 
 **Reste dû :** les huit autres correctifs de la spec (axes « fil principal » et
 « robustesse des entrées »), volontairement non traités. La branche
-`fix/code-review-data-safety-perf` n'a jamais été poussée ; elle reste la seule copie du
-code des huit correctifs restants et ne doit pas être supprimée avant qu'ils soient repris.
+`fix/code-review-data-safety-perf` **est sur `origin`** (`0c627ee`, constaté le 2026-09-02) ;
+elle reste la seule copie du code des huit correctifs restants — son commit n'est pas dans
+`master` — et ne doit pas être supprimée avant qu'ils soient repris.
 
 ---
 
