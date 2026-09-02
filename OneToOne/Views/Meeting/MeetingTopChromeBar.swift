@@ -280,36 +280,41 @@ struct MeetingTopChromeBar: View {
 
     @ViewBuilder
     private var captureButton: some View {
-        if captureService.isCapturing {
+        if captureService.hasOpenSession {
             HStack(spacing: 4) {
                 Button(action: onShowSlides) {
                     HStack(spacing: 4) {
-                        Circle().fill(Color.blue).frame(width: 6, height: 6)
-                        Text("\(captureService.capturedSlidesCount) slides")
+                        Circle().fill(captureStatusColor).frame(width: 6, height: 6)
+                        Text(captureStatusText)
                     }
                     .font(.caption)
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Capsule().fill(Color.blue.opacity(0.15)))
-                    .foregroundColor(.blue)
+                    .background(Capsule().fill(captureStatusColor.opacity(0.15)))
+                    .foregroundColor(captureStatusColor)
                 }
                 .buttonStyle(.plain)
-                .help("Voir les slides capturées")
+                .help(captureStatusHelp)
 
                 Menu {
-                    Button {
-                        onShowCaptureSetup()
-                    } label: {
-                        Label("Changer la source…", systemImage: "rectangle.dashed.badge.record")
+                    Button { onShowCaptureSetup() } label: {
+                        Label("Configurer…", systemImage: "rectangle.dashed.badge.record")
                     }
-                    Button(role: .destructive) {
-                        captureService.stop()
-                    } label: {
-                        Label("Arrêter la capture", systemImage: "stop.circle")
+                    if captureService.isCapturing {
+                        Button { captureService.stop() } label: {
+                            Label("Arrêter la capture", systemImage: "stop.circle")
+                        }
+                    } else {
+                        Button { captureService.resume() } label: {
+                            Label("Reprendre la capture", systemImage: "play.circle")
+                        }
+                        Button(role: .destructive) { Task { await captureService.finish() } } label: {
+                            Label("Terminer le lot", systemImage: "checkmark.circle")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.caption)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(captureStatusColor)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -336,6 +341,30 @@ struct MeetingTopChromeBar: View {
             }
             .buttonStyle(.bordered)
         }
+    }
+
+    /// Bleu en cours, orange en pause, gris arrêtée : l'état réel, pas déduit.
+    private var captureStatusColor: Color {
+        switch captureService.state {
+        case .running: return .blue
+        case .paused: return .orange
+        case .stopped, .idle: return .gray
+        }
+    }
+
+    private var captureStatusText: String {
+        let count = captureService.capturedSlidesCount
+        switch captureService.state {
+        case .running: return "\(count) slides"
+        case .paused: return "En pause · \(count)"
+        case .stopped: return "Arrêtée · \(count)"
+        case .idle: return ""
+        }
+    }
+
+    private var captureStatusHelp: String {
+        if case .paused(let reason) = captureService.state { return reason }
+        return "Voir les slides capturées"
     }
 
     // MARK: - Report button

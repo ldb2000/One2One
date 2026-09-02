@@ -255,6 +255,7 @@ struct MeetingView: View {
                 showPlayback: showPlayback,
                 onSnapshot: { captureService.snapshot() },
                 onStopCapture: { captureService.stop() },
+                onResumeCapture: { captureService.resume() },
                 onSeek: { player.seek(to: $0) },
                 onSkip: { player.skip(by: $0) },
                 errors: [
@@ -279,7 +280,7 @@ struct MeetingView: View {
                 }
             )
             .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
-            .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
+            .animation(.easeInOut(duration: 0.15), value: captureService.hasOpenSession)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
             // Le drapeau vit sur le singleton : sans `isRecordingThisMeeting`
@@ -399,6 +400,9 @@ struct MeetingView: View {
         // Court-circuité pendant une suppression : voir isBeingDeleted, et
         // MeetingScreenRegistry pour celle prononcée par un autre écran.
         .onDisappear {
+            // Une session de capture ouverte est close avec l'écran : rien ne reste en
+            // vol, le lot est réindexé.
+            if captureService.hasOpenSession { Task { await captureService.finish() } }
             let id = meeting.persistentModelID
             // En dernier, une fois les lectures faites : jusque-là, l'écran
             // qui interroge se compte lui-même.
