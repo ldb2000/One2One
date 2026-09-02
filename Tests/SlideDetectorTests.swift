@@ -62,7 +62,9 @@ struct SlideDetectorTests {
 
     @Test("une sensibilité faible ignore un changement qu'une sensibilité élevée détecte")
     func sensitivityChangesOutcome() throws {
-        let modest = banded(0.52) // écart ≈ 0,019 depuis 0,50
+        // écart ≈ 0,029 depuis 0,50 : au-dessus du seuil d'identité (0,020) et du seuil
+        // élevé (0,010), sous le seuil faible (0,045).
+        let modest = banded(0.53)
         func detected(_ s: SlideCaptureSettings.Sensitivity) throws -> Int {
             var d = SlideDetector(settings: SlideCaptureSettings(sensitivity: s))
             _ = try feed(&d, banded(0.5), times: 4)
