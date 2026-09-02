@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>OneToOne — Architecture</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    max-width: 1200px;
+    margin: 24px auto;
+    padding: 0 24px;
+    color: #1d1d1f;
+    background: #fff;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin-top: 32px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 24px; }
+  .note { background: #fef8e7; border-left: 3px solid #c98e2a; padding: 8px 12px; border-radius: 4px; margin: 12px 0; font-size: 13px; }
+  .diagram {
+    background: #fafafa;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    border: 1px solid #eee;
+  }
+  .diagram pre {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 0;
+    color: #1d1d1f;
+  }
+  .diagram-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    align-items: center;
+    font-size: 12px;
+    color: #666;
+  }
+  button.render {
+    font-family: -apple-system, sans-serif;
+    font-size: 12px;
+    padding: 4px 10px;
+    border: 1px solid #ccc;
+    background: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  button.render:hover { background: #f0f0f0; }
+  ul.legend { font-size: 13px; color: #444; }
+  ul.legend li { margin: 3px 0; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>OneToOne — Architecture</h1>
+<p class="subtitle">Diagramme d'enchaînement des modules et des services. Base : 257 fichiers Swift, ~60 000 LOC. Généré le 10 août 2026.</p>
+
+<div class="note">
+  <strong>Rendu des diagrammes :</strong> ce document utilise la syntaxe Mermaid (source en clair ci-dessous).
+  Pour visualiser un diagramme rendu : cliquer sur <em>Ouvrir dans Mermaid Live</em> (ouvre <a href="https://mermaid.live/" target="_blank" rel="noopener">mermaid.live</a> avec le diagramme prérempli),
+  ou coller la source dans VS Code (extension Mermaid Preview).
+  Choix délibéré : pas de dépendance à un CDN JavaScript non signé (SRI) dans un document de doc interne.
+</div>
+
+<h2>1. Vue macro — couches applicatives</h2>
+<div class="diagram">
+<pre id="d1">flowchart TB
+  App[OneToOneApp SwiftUI App root]
+  Sidebar[Sidebar NavigationSplitView]
+  Menubar[MenuBarController + QuickNotePopover]
+
+  subgraph VIEWS [Views SwiftUI]
+    MeetingView
+    MeetingsListView
+    DetailsViews[DetailsViews Collab/Project]
+    AllNotesView
+    ChatbotView
+    ManagerTrackingView
+    SettingsView
+    MailBrowserView
+  end
+
+  subgraph EDITOR [Markdown editor TextKit 1]
+    MTE[MarkdownTextEditor wrapper SwiftUI]
+    ER[EditorRepresentable]
+    ETV[EditorTextView : NSTextView]
+    MLM[MarkdownLayoutManager]
+    Parser[MarkdownParser / Serializer]
+    Slash[SlashController]
+    Mention[MentionController]
+  end
+
+  subgraph SERVICES [Services metier]
+    Transcription[TranscriptionService + STT]
+    AIReport[AIReportService]
+    Templating[ReportTemplating]
+    Prep[PrepCarryoverService]
+    Mail[MailService + MailProjectMatcher]
+    Recorder[AudioRecorderService]
+    Player[AudioPlayerService]
+    Editor[AudioFileEditor]
+    Diar[PyannoteDiarizer + SpeakerMatcher]
+    Backup[BackupService]
+    Spotlight[SpotlightIndexService]
+    RAG[RAGService + EmbeddingService]
+    LLM[AIClient / DirectLLMClient]
+    Agent[Services/Agent]
+  end
+
+  subgraph MODELS [Models SwiftData]
+    Meeting
+    Collaborator
+    Project
+    ActionTask
+    ReportTemplate
+    TranscriptSegment
+    OtherModels[AppSettings / MeetingTag / SavedPrompt]
+  end
+
+  App --> Sidebar
+  App --> Menubar
+  Sidebar --> VIEWS
+
+  MeetingView --> EDITOR
+  DetailsViews --> EDITOR
+  AllNotesView --> EDITOR
+  ChatbotView --> EDITOR
+
+  MTE --> ER --> ETV
+  ETV --> MLM
+  ETV --> Slash
+  ETV --> Mention
+  ER --> Parser
+
+  MeetingView --> Transcription
+  MeetingView --> AIReport
+  MeetingView --> Recorder
+  MeetingView --> Player
+  MeetingView --> Editor
+
+  DetailsViews --> Prep
+  DetailsViews --> Mail
+  DetailsViews --> Backup
+
+  Transcription --> Diar
+  Transcription --> Templating
+  AIReport --> Templating
+  AIReport --> LLM
+  Templating --> MODELS
+  Prep --> MODELS
+  Mail --> Templating
+  Mail --> LLM
+  RAG --> LLM
+  RAG --> MODELS
+  Agent --> LLM
+  Spotlight --> MODELS
+
+  SERVICES --> MODELS
+  Parser --> MODELS</pre>
+<div class="diagram-actions">
+  <button class="render" onclick="openInMermaid('d1')">Ouvrir dans Mermaid Live</button>
+  <span>Couleurs : voir légende ci-dessous.</span>
+</div>
+</div>
+
+<ul class="legend">
+  <li>Vues SwiftUI — composent l'UI, appellent les services.</li>
+  <li>Éditeur markdown — TextKit 1 natif, le markdown est la source de vérité.</li>
+  <li>Services métier — logique domaine, IA, audio, calendrier, mail.</li>
+  <li>Modèles SwiftData — persistance ; source unique de vérité des entités.</li>
+</ul>
+
+<h2>2. Pipeline transcription (réunion enregistrée)</h2>
+<div class="diagram">
+<pre id="d2">flowchart LR
+  Rec[AudioRecorderService enregistre .wav] --> Store[Meeting.wavFilePath]
+  Store --> Diar[PyannoteDiarizer segments + embeddings]
+  Store --> STT[STT Cohere ou local]
+  Diar --> Match[SpeakerMatcher matching Collaborator]
+  STT --> Aligner[TurnAligner.align merge par cluster]
+  Match --> Canon[canonicalizeClusters 1 cluster canonique par collab]
+  Aligner --> Canon
+  Canon --> Persist[TranscriptSegment persistes]
+  Persist --> Report[AIReportService.generate]
+  Report --> Templating[ReportTemplating variables]
+  Templating --> LLM[AIClient Claude/GPT/local]
+  LLM --> Meeting[meeting.summary + report]</pre>
+<div class="diagram-actions">
+  <button class="render" onclick="openInMermaid('d2')">Ouvrir dans Mermaid Live</button>
+</div>
+</div>
+
+<h2>3. Pipeline génération rapport IA</h2>
+<div class="diagram">
+<pre id="d3">flowchart TB
+  UI[MeetingView bouton Generer] --> AIRS[AIReportService.generate]
+  AIRS --> Template[ReportTemplate selectionne]
+  Template --> Resolver[TemplateVariableResolver.resolveOne]
+  Resolver -->|transcript| TB1[TranscriptTextBuilder + marqueurs IMPORTANT]
+  Resolver -->|transcript.highlights| TH[TranscriptHighlightsBuilder]
+  Resolver -->|collab.projects_context| PC1[ProjectsContextBuilder.build]
+  Resolver -->|team.projects_context| PC2[ProjectsContextBuilder.buildForTeam]
+  Resolver -->|historique_n| Hist[HistoryContextBuilder]
+  Resolver -->|participants| Meta[Meeting props]
+  AIRS --> Prompt[Prompt final]
+  Prompt --> Fallback[Fallback append si placeholder absent]
+  Fallback --> LLM[AIClient.stream]
+  LLM --> Save[meeting.summary/report]
+  Save --> ReportHTML[ReportHTMLBuilder]
+  ReportHTML --> UI2[Onglet Rapport]</pre>
+<div class="diagram-actions">
+  <button class="render" onclick="openInMermaid('d3')">Ouvrir dans Mermaid Live</button>
+</div>
+</div>
+
+<h2>4. Éditeur markdown — modules internes</h2>
+<div class="diagram">
+<pre id="d4">flowchart LR
+  subgraph Public
+    MTE[MarkdownTextEditor]
+    Feat[MarkdownFeature]
+    Mods[Modifiers .markdown]
+  end
+  subgraph Core
+    ER[EditorRepresentable]
+    ETV[EditorTextView]
+    MLM[MarkdownLayoutManager]
+    Style[StyleRenderer]
+    BR[BlockRange]
+    BMC[BlockMoveCommands]
+    LEC[ListEditingCommands]
+    TEC[TableEditCommands]
+    TMC[TableMoveCommands]
+    TCL[TableControlLayout]
+    TL[TableLayout]
+    BGL[BlockGutterLayout step 1]
+    LML[ListMarkerLayout]
+    BRL[BlockquoteRuleLayout]
+    SD[ShortcutDetector]
+    MEC[MarkdownEditingCommands]
+    MBC[MarkdownBlockCommands]
+  end
+  subgraph Markdown
+    MP[MarkdownParser]
+    MS[MarkdownSerializer]
+  end
+  subgraph Slash
+    SC[SlashController]
+    SCat[SlashCatalog]
+    SPan[SlashPanel]
+  end
+  subgraph Mention
+    MC[MentionController]
+    MPan[MentionPanel]
+  end
+  subgraph Blocks
+    Mermaid[MermaidRenderer + Cache/Factory/Layout]
+    Img[ImageAttachmentFactory]
+  end
+
+  MTE --> Mods --> ER --> ETV
+  ETV --> MLM
+  MLM --> Style
+  MLM --> BGL
+  MLM --> TCL
+  MLM --> LML
+  MLM --> BRL
+  MLM --> Mermaid
+  ETV --> SD
+  ETV --> BMC
+  ETV --> LEC
+  ETV --> TEC
+  ETV --> TMC
+  ETV --> SC
+  ETV --> MC
+  ER --> MP
+  ER --> MS
+  BMC --> BR
+  TEC --> TL</pre>
+<div class="diagram-actions">
+  <button class="render" onclick="openInMermaid('d4')">Ouvrir dans Mermaid Live</button>
+</div>
+</div>
+
+<h2>5. Menubar + Quick note + Spotlight</h2>
+<div class="diagram">
+<pre id="d5">flowchart LR
+  App[OneToOneApp] --> MBC[MenuBarController]
+  MBC --> QNP[QuickNotePopover]
+  QNP --> NF[NoteFactory cree Meeting kind=note]
+  NF --> Store[SwiftData ModelContainer]
+  MBC --> Hotkey[GlobalHotkeyService]
+  App --> URL[QuickLaunchURLHandler onetoone://]
+  URL --> Router[QuickLaunchRouter]
+  Router --> MeetingView
+  App --> Spot[SpotlightIndexService]
+  Spot --> Store
+  Spot --> CoreSpotlight[CoreSpotlight]</pre>
+<div class="diagram-actions">
+  <button class="render" onclick="openInMermaid('d5')">Ouvrir dans Mermaid Live</button>
+</div>
+</div>
+
+<h2>6. Mail + Suggestions + Classification</h2>
+<div class="diagram">
+<pre id="d6">flowchart TB
+  MB[MailBrowserView] --> MailSvc[MailService]
+  MailSvc --> Store[MailScanStore]
+  MailSvc --> Matcher[MailProjectMatcher heuristique + emails projet]
+  MailSvc --> Classif[MailLLMClassifier]
+  Classif --> LLM[AIClient]
+  Matcher --> Projects[Project.mailAddresses]
+  Store --> Suggest[MailSuggestionService]
+  Suggest --> Sheet[MailSuggestionReviewSheet]
+  MailSvc --> Auto[MailAutoIndexService indexation periodique]</pre>
+<div class="diagram-actions">
+  <button class="render" onclick="openInMermaid('d6')">Ouvrir dans Mermaid Live</button>
+</div>
+</div>
+
+<script>
+// Encode le contenu du <pre> et ouvre mermaid.live avec le diagramme prerempli.
+// Aucun code executable importe, aucun script CDN charge par cette page.
+function openInMermaid(id) {
+  const src = document.getElementById(id).textContent.trim();
+  const payload = { code: src, mermaid: { theme: 'default' }, autoSync: true, updateDiagram: true };
+  // pako non requis pour l'URL courte : on utilise le format base64 non-compresse
+  // (mermaid.live accepte /edit#base64:...)
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  window.open('https://mermaid.live/edit#base64:' + b64, '_blank', 'noopener');
+}
+</script>
+
+</body>
+</html>

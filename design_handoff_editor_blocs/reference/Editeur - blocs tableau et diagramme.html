@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>body{margin:0;background:#f0eee9;font-family:-apple-system,"SF Pro Text",system-ui,sans-serif}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 -apple-system,system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.5)}a{color:#0a6cff}a:hover{color:#0757cc}</style></helmet>
+
+<section class="dv-turn" id="t3" style="background:#f7f5f1">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Le bloc comme objet déplaçable</span></div>
+<p style="max-width:760px;margin:-8px 0 22px;font:12.5px/1.6 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.58)">Le point manquant : un tableau ou un diagramme n'est pas du texte, c'est un <strong>objet</strong> dans le flux. Il lui faut donc les trois choses que le texte n'a pas besoin d'afficher — une <strong>prise</strong> (où saisir), une <strong>limite</strong> (jusqu'où va le bloc) et une <strong>cible</strong> (où il va atterrir). Règle : la gouttière gauche appartient au bloc, l'intérieur du cadre appartient au contenu. Les contrôles ligne/colonne du tour <a href="#t1">1</a> ne vivent qu'à l'intérieur ; la poignée ne vit qu'à l'extérieur — aucun recouvrement possible.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="3a">
+<div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Gouttière de bloc — vivant, glisse les blocs pour les réordonner</div>
+<div class="dv-card" style="width:660px;background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:26px 26px 26px 8px">
+<sc-for list="{{ blocks }}" as="b" hint-placeholder-count="4">
+<div style="{{ b.wrapStyle }}" onDragOver="{{ b.onDragOver }}" onDrop="{{ b.onDrop }}" onMouseEnter="{{ b.onEnter }}" onMouseLeave="{{ b.onLeave }}">
+<div style="{{ b.dropStyle }}"></div>
+<div style="width:58px;flex:none;display:flex;justify-content:flex-end;align-items:flex-start;gap:3px;padding:2px 12px 0 0">
+<button type="button" title="Insérer un bloc" style="{{ b.plusStyle }}" style-hover="background:rgba(0,0,0,.06)">+</button>
+<button type="button" draggable="{{ b.draggable }}" title="Glisser pour déplacer" style="{{ b.handleStyle }}" style-hover="background:rgba(0,0,0,.06)" onDragStart="{{ b.onDragStart }}" onDragEnd="{{ b.onDragEnd }}" onClick="{{ b.onSelect }}">⠿</button>
+</div>
+<div style="{{ b.bodyStyle }}">
+<sc-if value="{{ b.isText }}" hint-placeholder-val="{{ true }}"><p style="margin:0;font:13.5px/1.7 -apple-system,system-ui,sans-serif;color:#1d1d1f">{{ b.text }}</p></sc-if>
+<sc-if value="{{ b.isTable }}"><table style="width:100%;border-collapse:collapse;font:12.5px/1.45 -apple-system,system-ui,sans-serif;color:#1d1d1f;table-layout:fixed;border:1px solid #dedbd5"><tbody>
+<tr style="background:rgba(0,0,0,.035)"><td style="border:1px solid #e4e1db;padding:5px 9px;font-weight:600">Étape</td><td style="border:1px solid #e4e1db;padding:5px 9px;font-weight:600">Responsable</td><td style="border:1px solid #e4e1db;padding:5px 9px;font-weight:600">Échéance</td></tr>
+<tr><td style="border:1px solid #e4e1db;padding:5px 9px">Cadrage</td><td style="border:1px solid #e4e1db;padding:5px 9px;color:rgba(0,0,0,.62)">Léa</td><td style="border:1px solid #e4e1db;padding:5px 9px;color:rgba(0,0,0,.62)">12 sept.</td></tr>
+<tr><td style="border:1px solid #e4e1db;padding:5px 9px">Recette</td><td style="border:1px solid #e4e1db;padding:5px 9px;color:rgba(0,0,0,.62)">Marc</td><td style="border:1px solid #e4e1db;padding:5px 9px;color:rgba(0,0,0,.62)">3 oct.</td></tr>
+</tbody></table></sc-if>
+<sc-if value="{{ b.isDiagram }}"><div style="border:1px solid #e6e3dd;border-radius:8px;background:#fff;padding:16px;display:grid;place-items:center"><div style="display:flex;align-items:center;gap:12px;color:#3c3c43">
+<div style="padding:7px 15px;border:1.5px solid #8a8f98;border-radius:7px;font:12px/1 -apple-system,system-ui;background:#f4f4f6">Cadrage</div>
+<div style="width:26px;height:1.5px;background:#8a8f98;position:relative"><span style="position:absolute;right:-1px;top:-3.5px;width:0;height:0;border-top:4.5px solid transparent;border-bottom:4.5px solid transparent;border-left:6px solid #8a8f98"></span></div>
+<div style="padding:7px 15px;border:1.5px solid #8a8f98;border-radius:7px;font:12px/1 -apple-system,system-ui;background:#f4f4f6">Recette</div>
+</div></div></sc-if>
+</div>
+</div>
+</sc-for>
+<p style="margin:16px 0 0 58px;font:11.5px/1.55 -apple-system,system-ui;color:rgba(0,0,0,.45)">Survole un bloc : la poignée <span style="font-family:ui-monospace,Menlo,monospace">⠿</span> et le <span style="font-family:ui-monospace,Menlo,monospace">+</span> apparaissent dans la gouttière, hors du contenu. Glisse la poignée : le bloc s'estompe et un trait bleu montre l'atterrissage. Clique la poignée pour sélectionner le bloc entier (cadre bleu) — ⌫ le supprime d'un coup.</p>
+</div>
+</div>
+
+<div class="dv-opt" id="3b">
+<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Les états, un par un</div>
+<div class="dv-card" style="width:520px;display:flex;flex-direction:column;gap:14px">
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:18px 20px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:11px">1 · Repos — rien</div>
+<div style="display:flex"><div style="width:56px"></div><div style="flex:1;border:1px solid #e4e1db;border-radius:6px;padding:9px 11px;font:12.5px/1 -apple-system,system-ui;color:rgba(0,0,0,.55)">Tableau</div></div>
+<p style="margin:9px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Aucune poignée permanente. Un document de 30 blocs ne doit pas afficher 30 prises.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:18px 20px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:11px">2 · Survol — la prise apparaît</div>
+<div style="display:flex;align-items:flex-start"><div style="width:56px;display:flex;justify-content:flex-end;gap:3px;padding-right:12px;box-sizing:border-box"><span style="width:17px;height:22px;display:grid;place-items:center;border-radius:4px;font:13px/1 -apple-system,system-ui;color:rgba(0,0,0,.35)">+</span><span style="width:17px;height:22px;display:grid;place-items:center;border-radius:4px;background:rgba(0,0,0,.06);font:12px/1 ui-monospace,Menlo,monospace;color:rgba(0,0,0,.42)">⠿</span></div><div style="flex:1;border:1px solid #e4e1db;border-radius:6px;padding:9px 11px;background:rgba(0,0,0,.018);font:12.5px/1 -apple-system,system-ui;color:rgba(0,0,0,.55)">Tableau</div></div>
+<p style="margin:9px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Fond du bloc à peine teinté : ça dit « ce bloc-ci », sans surligner le contenu. <span style="font-family:ui-monospace,Menlo,monospace">+</span> insère un bloc au-dessus, <span style="font-family:ui-monospace,Menlo,monospace">⠿</span> saisit et ouvre le menu au clic droit.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:18px 20px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:11px">3 · Sélectionné — le bloc entier</div>
+<div style="display:flex;align-items:flex-start"><div style="width:56px"></div><div style="flex:1;border:1.5px solid #0a6cff;border-radius:6px;padding:9px 11px;background:#f4f8ff;font:12.5px/1 -apple-system,system-ui;color:#1d1d1f">Tableau</div></div>
+<p style="margin:9px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Distinct du curseur <em>dans</em> une cellule : ici c'est l'objet qui est visé. ⌘X / ⌘C / ⌫ agissent sur le bloc, ⌥↑ ⌥↓ le déplacent d'un cran sans souris.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:18px 20px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:11px">4 · En cours de glissement</div>
+<div style="display:flex;align-items:flex-start;opacity:.4"><div style="width:56px"></div><div style="flex:1;border:1px solid #e4e1db;border-radius:6px;padding:9px 11px;font:12.5px/1 -apple-system,system-ui;color:rgba(0,0,0,.55)">Tableau</div></div>
+<div style="display:flex;align-items:center;gap:6px;margin:9px 0 0 56px"><span style="width:7px;height:7px;border-radius:50%;background:#0a6cff"></span><div style="flex:1;height:2px;background:#0a6cff;border-radius:1px"></div></div>
+<div style="display:flex;align-items:flex-start;margin-top:9px"><div style="width:56px"></div><div style="flex:1;border:1px solid #e4e1db;border-radius:6px;padding:9px 11px;font:12.5px/1 -apple-system,system-ui;color:rgba(0,0,0,.55)">Paragraphe</div></div>
+<p style="margin:9px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Le bloc reste en place à 40 % (l'origine ne disparaît pas), et le trait bleu marque la ligne d'insertion — pas un rectangle de zone, une <em>ligne</em>, parce qu'un bloc s'insère entre deux blocs.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:18px 20px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:11px">5 · Menu du bloc (clic sur ⠿)</div>
+<div style="width:224px;padding:4px;background:rgba(247,247,249,.98);border:.5px solid rgba(0,0,0,.14);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.16);font:13px/1 -apple-system,system-ui">
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Monter</span><span style="opacity:.45;font-size:11px">⌥↑</span></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Descendre</span><span style="opacity:.45;font-size:11px">⌥↓</span></div>
+<div style="height:1px;background:rgba(0,0,0,.1);margin:4px 6px"></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Dupliquer</span><span style="opacity:.45;font-size:11px">⌘D</span></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Modifier le source</span><span style="opacity:.45;font-size:11px">⏎</span></div>
+<div style="height:1px;background:rgba(0,0,0,.1);margin:4px 6px"></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px;color:#c8342b" style-hover="background:#c8342b;color:#fff"><span>Supprimer le bloc</span><span style="opacity:.55;font-size:11px">⌘⌫</span></div>
+</div>
+<p style="margin:9px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Le clavier double la souris. Sans ça, déplacer un bloc en bas d'un long document oblige à un drag interminable.</p>
+</div>
+
+</div>
+</div>
+
+</div>
+<p class="dv-next">Question ouverte : le <span style="font-family:ui-monospace,Menlo,monospace">+</span> de la gouttière insère-t-il <em>au-dessus</em> du bloc survolé (Notion) ou <em>en dessous</em> ? Dis-moi et j'aligne <a href="#3a">3a</a>.</p>
+</section>
+
+<section class="dv-turn" id="t2" style="background:#fbf9f6">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Blocs <code style="font:600 12px ui-monospace,Menlo,monospace">/diagramme</code> et <code style="font:600 12px ui-monospace,Menlo,monospace">/tableau</code> dans l'éditeur</span></div>
+<p style="max-width:720px;margin:-8px 0 22px;font:12.5px/1.6 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.58)">Ce que montre la capture : le bloc mermaid réserve une hauteur fixe (220 pt) répartie sur les lignes du source, donc deux lignes de code deviennent deux bandes de 110 pt, le fond gris du bloc de code déborde sur toute la largeur, et le source reste visible sous le placeholder. Les maquettes ci-dessous partent d'un principe inverse : <strong>la hauteur suit le contenu</strong>, le source garde un interligne normal, et le cadre est un objet fini, pas une zone réservée.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Diagramme — les quatre états du bloc</div>
+<div class="dv-card" style="width:680px;display:flex;flex-direction:column;gap:14px">
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:20px 22px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:12px">1 · Rendu en cours</div>
+<div style="position:relative;border:1px solid #e0ddd7;border-radius:8px;background:#faf8f5;height:104px;display:grid;place-items:center;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;font:12px/1 -apple-system,system-ui;color:rgba(0,0,0,.42)">
+<span style="width:11px;height:11px;border:1.5px solid rgba(0,0,0,.18);border-top-color:rgba(0,0,0,.42);border-radius:50%;display:inline-block"></span>Diagramme…</div>
+<span style="position:absolute;top:7px;right:8px;font:500 10px/1 ui-monospace,Menlo,monospace;color:rgba(0,0,0,.3);background:rgba(0,0,0,.04);padding:3px 6px;border-radius:4px">mermaid</span>
+</div>
+<p style="margin:10px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Hauteur provisoire fixe et modeste (104 pt), une seule ligne dans le layout — jamais 220 pt répartis sur les lignes du source, et le source est masqué dès la pose du placeholder.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:20px 22px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:12px">2 · Rendu — survol</div>
+<div style="position:relative;border:1px solid #e6e3dd;border-radius:8px;background:#fff;padding:18px 16px;display:grid;place-items:center">
+<div style="display:flex;flex-direction:column;align-items:center;gap:12px;color:#3c3c43">
+<div style="padding:9px 18px;border:1.5px solid #8a8f98;border-radius:7px;font:12.5px/1 -apple-system,system-ui;background:#f4f4f6">Début</div>
+<div style="width:1.5px;height:22px;background:#8a8f98;position:relative"><span style="position:absolute;bottom:-1px;left:-3.5px;width:0;height:0;border-left:4.5px solid transparent;border-right:4.5px solid transparent;border-top:6px solid #8a8f98"></span></div>
+<div style="padding:9px 18px;border:1.5px solid #8a8f98;border-radius:7px;font:12.5px/1 -apple-system,system-ui;background:#f4f4f6">Fin</div>
+</div>
+<div style="position:absolute;top:8px;right:8px;display:flex;gap:2px;padding:3px;background:rgba(250,250,252,.92);border:1px solid #dedbd5;border-radius:7px;box-shadow:0 1px 3px rgba(0,0,0,.07)">
+<button type="button" style="height:22px;padding:0 9px;border:none;background:transparent;border-radius:5px;font:11.5px/1 -apple-system,system-ui;color:#3c3c43;cursor:default" style-hover="background:rgba(0,0,0,.07)">Modifier</button>
+<span style="width:1px;background:#e2dfd9;margin:3px 1px"></span>
+<button type="button" title="Copier l'image" style="width:24px;height:22px;border:none;background:transparent;border-radius:5px;font:12px/1 -apple-system,system-ui;color:#3c3c43;cursor:default" style-hover="background:rgba(0,0,0,.07)">⧉</button>
+</div>
+</div>
+<p style="margin:10px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Le cadre s'ajuste au SVG rendu (largeur max = colonne de texte, hauteur libre). La barre d'actions n'apparaît qu'au survol — rien de permanent au-dessus du contenu.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:20px 22px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:12px">3 · Source ouvert (clic sur le diagramme)</div>
+<div style="border:1px solid #d4d1cb;border-radius:8px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;background:#f5f3ef;border-bottom:1px solid #e4e1db">
+<span style="font:500 10.5px/1 ui-monospace,Menlo,monospace;color:rgba(0,0,0,.42)">mermaid</span>
+<div style="flex:1"></div>
+<button type="button" style="height:21px;padding:0 10px;border:1px solid #cfccc6;border-radius:5px;background:#fff;font:11.5px/1 -apple-system,system-ui;color:#3c3c43;cursor:default" style-hover="background:#f0eeea">Terminé</button>
+</div>
+<div style="display:flex;font:12.5px/1.55 ui-monospace,Menlo,monospace;background:#fcfbf9">
+<div style="padding:10px 0 10px 10px;color:rgba(0,0,0,.22);text-align:right;user-select:none">1<br>2</div>
+<pre style="margin:0;padding:10px 12px;color:#1d1d1f;white-space:pre">flowchart TD
+    A[Début] --&gt; B[Fin]</pre>
+</div>
+</div>
+<p style="margin:10px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Interligne normal (1,55), gouttière de numéros, en-tête discret qui dit ce qu'on édite. Le diagramme se re-rend à la fermeture — c'est l'inverse exact de la capture, où le source s'affichait <em>sous</em> le placeholder à 110 pt la ligne.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:20px 22px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:12px">4 · Diagramme invalide</div>
+<div style="border:1px solid #e9b8b3;background:#fdf6f5;border-radius:8px;padding:14px 16px">
+<div style="display:flex;align-items:center;gap:7px;font:600 12.5px/1 -apple-system,system-ui;color:#c0392f;margin-bottom:7px"><span style="width:14px;height:14px;border-radius:50%;background:#d9483b;color:#fff;font:700 10px/14px -apple-system,system-ui;text-align:center">!</span>Diagramme invalide</div>
+<p style="margin:0 0 11px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#8a3a31">Parse error on line 2: expected 'NODE_STRING'</p>
+<button type="button" style="height:22px;padding:0 10px;border:1px solid #dcb5b0;border-radius:5px;background:#fff;font:11.5px/1 -apple-system,system-ui;color:#8a3a31;cursor:default" style-hover="background:#fbeeec">Ouvrir le source</button>
+</div>
+<p style="margin:10px 0 0;font:11.5px/1.5 -apple-system,system-ui;color:rgba(0,0,0,.45)">Cadre teinté plutôt qu'un liseré rouge vif ; le message de mermaid en monospace, tronqué à deux lignes. Le source reste intact dans le document.</p>
+</div>
+
+</div>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Tableau — ce que <code style="font:600 11px ui-monospace,Menlo,monospace">/tableau</code> devrait insérer</div>
+<div class="dv-card" style="width:600px;background:#fff;border:1px solid #e3e0da;border-radius:10px;padding:22px">
+<div style="font:600 10.5px/1 -apple-system,system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.38);margin-bottom:12px">Insertion par défaut · 3 colonnes × 2 rangées</div>
+<table style="width:100%;border-collapse:collapse;font:13px/1.45 -apple-system,system-ui,sans-serif;color:#1d1d1f;table-layout:fixed;border:1px solid #dedbd5">
+<tbody>
+<tr style="background:rgba(0,0,0,.035)">
+<td style="border:1px solid #e4e1db;padding:6px 9px;font-weight:600">Colonne 1</td>
+<td style="border:1px solid #e4e1db;padding:6px 9px;font-weight:600;color:rgba(0,0,0,.3)">Colonne 2</td>
+<td style="border:1px solid #e4e1db;padding:6px 9px;font-weight:600;color:rgba(0,0,0,.3)">Colonne 3</td>
+</tr>
+<tr>
+<td style="border:1px solid #e4e1db;padding:6px 9px;height:19px"><span style="display:inline-block;width:1px;height:19px;background:#1d1d1f;vertical-align:-4px"></span></td>
+<td style="border:1px solid #e4e1db;padding:6px 9px;height:19px"><span style="display:inline-block;width:1px;height:19px"></span></td>
+<td style="border:1px solid #e4e1db;padding:6px 9px;height:19px"><span style="display:inline-block;width:1px;height:19px"></span></td>
+</tr>
+<tr>
+<td style="border:1px solid #e4e1db;padding:6px 9px;height:19px"><span style="display:inline-block;width:1px;height:19px"></span></td>
+<td style="border:1px solid #e4e1db;padding:6px 9px;height:19px"><span style="display:inline-block;width:1px;height:19px"></span></td>
+<td style="border:1px solid #e4e1db;padding:6px 9px;height:19px"><span style="display:inline-block;width:1px;height:19px"></span></td>
+</tr>
+</tbody>
+</table>
+<ul style="margin:14px 0 0;padding-left:16px;font:11.5px/1.65 -apple-system,system-ui;color:rgba(0,0,0,.5)">
+<li>Le tableau occupe toute la colonne de texte, colonnes de largeur égale.</li>
+<li>En-tête : fond très léger + gras, pas de bordure épaisse.</li>
+<li>Les libellés « Colonne 2/3 » sont des <em>placeholders</em> grisés, pas du texte inséré — ils disparaissent à la frappe. Le curseur se place dans la première cellule d'en-tête.</li>
+<li>Les contrôles ligne/colonne suivent le tour <a class="dv-oid" href="#1a">1a</a> — rien de visible tant que le curseur n'est pas dans le tableau.</li>
+</ul>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Je n'ai pas de capture du défaut <code style="font:600 11px ui-monospace,Menlo,monospace">/tableau</code> — <a href="#2b">2b</a> montre l'état visé. Envoie-moi une capture si le problème est ailleurs (largeur, bordures, curseur, hauteur de rangée).</p>
+</section>
+
+<section class="dv-turn" id="t0" style="background:#fff">
+<div style="max-width:760px;font:13px/1.65 -apple-system,system-ui,sans-serif;color:#1d1d1f">
+<h1 style="font:600 19px/1.3 -apple-system,system-ui,sans-serif;margin:0 0 12px">Table editing controls — macOS</h1>
+<p style="margin:0 0 10px;color:rgba(0,0,0,.62)">What makes the current version read as unpolished: the red ✕ and blue ✚ badges are always visible, saturated, and float over content, so the controls compete with the data. Mac apps hide destructive actions behind menus and keep persistent affordances low-contrast and anchored to structure (header, gutter, footer bar).</p>
+<p style="margin:0 0 10px;color:rgba(0,0,0,.62)">Four directions below, all on the same table. <a class="dv-oid" href="#1a">1a</a> is live — hover a column header or a row, open the ⌄ menu, use the footer buttons.</p>
+<p style="margin:0;color:rgba(0,0,0,.42);font-size:12px">Assumptions: light appearance, SF/system type, 13px table text, ⌘-key conventions. No design system files were available, so this follows stock AppKit / System Settings styling.</p>
+</div>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Row &amp; column editing affordances</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Header menus + footer segmented control — native, interactive</div>
+<div class="dv-card" style="width:640px;background:#fff;border:1px solid #d5d5d8;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);overflow:hidden;position:relative">
+<div style="overflow:hidden">
+<table style="width:100%;border-collapse:collapse;font:13px/1.4 -apple-system,system-ui,sans-serif;color:#1d1d1f;table-layout:fixed">
+<thead><tr style="background:linear-gradient(#fdfdfd,#f4f4f6)">
+<th style="width:30px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;padding:0"></th>
+<sc-for list="{{ headers }}" as="h" hint-placeholder-count="4">
+<th style="{{ h.thStyle }}" onMouseEnter="{{ h.onEnter }}" onMouseLeave="{{ h.onLeave }}">
+<div style="display:flex;align-items:center;gap:6px;justify-content:space-between">
+<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ h.label }}</span>
+<button type="button" style="{{ h.menuStyle }}" style-hover="background:#e3e3e8" onClick="{{ h.onMenu }}">⌄</button>
+</div>
+</th>
+</sc-for>
+</tr></thead>
+<tbody>
+<sc-for list="{{ rows }}" as="r" hint-placeholder-count="3">
+<tr onMouseEnter="{{ r.onEnter }}" onMouseLeave="{{ r.onLeave }}">
+<td style="{{ r.gutterStyle }}"><span style="{{ r.gripStyle }}">⌄</span></td>
+<sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="4">
+<td style="{{ c.tdStyle }}">{{ c.value }}</td>
+</sc-for>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-top:1px solid #e2e2e6;background:#f7f7f9">
+<div style="display:flex">
+<button type="button" title="Add row" style="width:26px;height:22px;border:1px solid #cfcfd4;border-right:none;border-radius:5px 0 0 5px;background:linear-gradient(#fff,#f6f6f8);color:#3c3c43;font:14px/1 -apple-system,system-ui;cursor:default;display:grid;place-items:center" style-hover="background:#ededf1" onClick="{{ addRow }}">+</button>
+<button type="button" title="Remove selected row" style="width:26px;height:22px;border:1px solid #cfcfd4;border-radius:0 5px 5px 0;background:linear-gradient(#fff,#f6f6f8);color:#3c3c43;font:14px/1 -apple-system,system-ui;cursor:default;display:grid;place-items:center" style-hover="background:#ededf1" onClick="{{ removeRow }}">−</button>
+</div>
+<span style="font:11px/1 -apple-system,system-ui;color:rgba(0,0,0,.42)">{{ rowLabel }}</span>
+<div style="flex:1"></div>
+<button type="button" style="height:22px;padding:0 9px;border:1px solid #cfcfd4;border-radius:5px;background:linear-gradient(#fff,#f6f6f8);color:#3c3c43;font:11.5px/1 -apple-system,system-ui;cursor:default" style-hover="background:#ededf1" onClick="{{ addCol }}">Add Column</button>
+</div>
+<div style="{{ menuStyle }}">
+<sc-for list="{{ menuItems }}" as="m" hint-placeholder-count="0">
+<div style="{{ m.style }}" style-hover="background:#0a6cff;color:#fff" onClick="{{ m.onClick }}"><span>{{ m.label }}</span><span style="opacity:.45;font-size:11px">{{ m.key }}</span></div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Insertion rails — hovering the gap shows where the new column lands</div>
+<div class="dv-card" style="width:640px;background:#fff;border:1px solid #d5d5d8;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);position:relative;overflow:hidden">
+<table style="width:100%;border-collapse:collapse;font:13px/1.4 -apple-system,system-ui,sans-serif;color:#1d1d1f;table-layout:fixed">
+<thead><tr style="background:linear-gradient(#fdfdfd,#f4f4f6);color:rgba(0,0,0,.55);font:600 11.5px/1 -apple-system,system-ui">
+<th style="width:26px;border-bottom:1px solid #dcdce0"></th>
+<th style="text-align:left;padding:7px 10px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font-weight:600">Name</th>
+<th style="text-align:left;padding:7px 10px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font-weight:600">Type</th>
+<th style="text-align:left;padding:7px 10px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font-weight:600">Default</th>
+<th style="text-align:left;padding:7px 10px;border-bottom:1px solid #dcdce0;font-weight:600">Notes</th>
+</tr></thead>
+<tbody>
+<tr><td style="border-right:1px solid #e6e6ea;background:#fafafc"></td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">title</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">String</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">—</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;color:rgba(0,0,0,.6)">Shown in list</td></tr>
+<tr><td style="border-right:1px solid #e6e6ea;background:#fafafc;text-align:center;color:rgba(0,0,0,.3);font-size:11px">⌃</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;background:#f5f8ff">count</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6);background:#f5f8ff">Number</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;background:#f5f8ff">0</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;background:#f5f8ff"></td></tr>
+<tr><td style="border-right:1px solid #e6e6ea;background:#fafafc"></td><td style="padding:6px 10px;border-right:1px solid #f0f0f4">active</td><td style="padding:6px 10px;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">Boolean</td><td style="padding:6px 10px;border-right:1px solid #f0f0f4">true</td><td style="padding:6px 10px;color:rgba(0,0,0,.6)"></td></tr>
+</tbody>
+</table>
+<div style="position:absolute;left:0;right:0;top:0;bottom:33px;pointer-events:none">
+<div style="position:absolute;left:49.6%;top:0;bottom:0;width:2px;background:#0a6cff;box-shadow:0 0 0 .5px rgba(10,108,255,.25)"></div>
+<div style="position:absolute;left:49.6%;top:-9px;transform:translateX(-50%);width:18px;height:18px;border-radius:9px;background:#0a6cff;color:#fff;display:grid;place-items:center;font:600 13px/1 -apple-system,system-ui;box-shadow:0 1px 3px rgba(0,0,0,.25)">+</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #e2e2e6;background:#f7f7f9;font:11px/1 -apple-system,system-ui;color:rgba(0,0,0,.45)">
+<span style="color:#0a6cff;font-weight:600">Insert column after “Type”</span><span>·</span><span>Row 2 selected — ⌘⌫ to delete</span>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Toolbar-driven, spreadsheet gutter — nothing floats over the data</div>
+<div class="dv-card" style="width:640px;background:#fff;border:1px solid #cfcfd4;border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 30px rgba(0,0,0,.12);overflow:hidden">
+<div style="display:flex;align-items:center;gap:12px;padding:0 12px;height:46px;background:linear-gradient(#f6f6f8,#ececf0);border-bottom:1px solid #d8d8dd">
+<div style="display:flex;gap:8px"><span style="width:12px;height:12px;border-radius:6px;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:6px;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:6px;background:#28c840"></span></div>
+<span style="font:600 13px/1 -apple-system,system-ui;color:#1d1d1f;margin-left:6px">Schema — Untitled</span>
+<div style="flex:1"></div>
+<div style="display:flex;gap:6px">
+<button type="button" title="Add row" style="width:30px;height:24px;border:1px solid #cbcbd1;border-radius:6px;background:linear-gradient(#fff,#f4f4f7);display:grid;place-items:center;cursor:default" style-hover="background:#e9e9ee"><svg width="13" height="13" viewBox="0 0 13 13"><rect x="1" y="2" width="11" height="4" rx="1" fill="none" stroke="#5b5b62" stroke-width="1.1"></rect><path d="M6.5 8v4M4.5 10h4" stroke="#0a6cff" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+<button type="button" title="Add column" style="width:30px;height:24px;border:1px solid #cbcbd1;border-radius:6px;background:linear-gradient(#fff,#f4f4f7);display:grid;place-items:center;cursor:default" style-hover="background:#e9e9ee"><svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="1" width="4" height="11" rx="1" fill="none" stroke="#5b5b62" stroke-width="1.1"></rect><path d="M10 4.5v4M8 6.5h4" stroke="#0a6cff" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:18px;background:#d3d3d9;margin:3px 2px"></span>
+<button type="button" title="Delete selection" style="width:30px;height:24px;border:1px solid #cbcbd1;border-radius:6px;background:linear-gradient(#fff,#f4f4f7);display:grid;place-items:center;cursor:default" style-hover="background:#e9e9ee"><svg width="13" height="13" viewBox="0 0 13 13"><path d="M2.5 3.5h8M5 3.5V2.2h3v1.3M3.6 3.5l.5 7.3h4.8l.5-7.3" fill="none" stroke="#5b5b62" stroke-width="1.1" stroke-linecap="round"></path></svg></button>
+</div>
+</div>
+<table style="width:100%;border-collapse:collapse;font:13px/1.4 -apple-system,system-ui,sans-serif;color:#1d1d1f;table-layout:fixed">
+<thead><tr style="background:#f2f2f5;color:rgba(0,0,0,.45);font:11px/1 ui-monospace,Menlo,monospace">
+<th style="width:28px;border-bottom:1px solid #dcdce0;border-right:1px solid #e2e2e6"></th>
+<th style="padding:6px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font-weight:400">A</th>
+<th style="padding:6px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font-weight:400">B</th>
+<th style="padding:6px;border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font-weight:400;background:#dfe8fb;color:#0a4fbf">C</th>
+<th style="padding:6px;border-bottom:1px solid #dcdce0;font-weight:400">D</th>
+</tr></thead>
+<tbody>
+<tr><td style="text-align:center;background:#f2f2f5;border-right:1px solid #e2e2e6;font:11px/1 ui-monospace,Menlo;color:rgba(0,0,0,.4)">1</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;font-weight:600">Name</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;font-weight:600">Type</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;font-weight:600;background:#f2f6ff">Default</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;font-weight:600">Notes</td></tr>
+<tr><td style="text-align:center;background:#f2f2f5;border-right:1px solid #e2e2e6;font:11px/1 ui-monospace,Menlo;color:rgba(0,0,0,.4)">2</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">title</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">String</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;background:#f2f6ff">—</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;color:rgba(0,0,0,.6)">Shown in list</td></tr>
+<tr><td style="text-align:center;background:#f2f2f5;border-right:1px solid #e2e2e6;font:11px/1 ui-monospace,Menlo;color:rgba(0,0,0,.4)">3</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">count</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">Number</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;background:#f2f6ff">0</td><td style="padding:6px 10px;border-bottom:1px solid #eeeef2"></td></tr>
+<tr><td style="text-align:center;background:#f2f2f5;border-right:1px solid #e2e2e6;font:11px/1 ui-monospace,Menlo;color:rgba(0,0,0,.4)">4</td><td style="padding:6px 10px;border-right:1px solid #f0f0f4">active</td><td style="padding:6px 10px;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">Boolean</td><td style="padding:6px 10px;border-right:1px solid #f0f0f4;background:#f2f6ff">true</td><td style="padding:6px 10px"></td></tr>
+</tbody>
+</table>
+<div style="padding:6px 12px;border-top:1px solid #e2e2e6;background:#f7f7f9;font:11px/1.4 -apple-system,system-ui;color:rgba(0,0,0,.45)">Column C selected · 3 rows, 4 columns</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Ghost row/column + contextual menu for removal</div>
+<div class="dv-card" style="width:640px;background:#fff;border:1px solid #d5d5d8;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);position:relative">
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 34px;font:13px/1.4 -apple-system,system-ui,sans-serif;color:#1d1d1f">
+<div style="padding:7px 10px;background:linear-gradient(#fdfdfd,#f4f4f6);border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font:600 11.5px/1.2 -apple-system,system-ui;color:rgba(0,0,0,.55)">Name</div>
+<div style="padding:7px 10px;background:linear-gradient(#fdfdfd,#f4f4f6);border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font:600 11.5px/1.2 -apple-system,system-ui;color:rgba(0,0,0,.55)">Type</div>
+<div style="padding:7px 10px;background:linear-gradient(#fdfdfd,#f4f4f6);border-bottom:1px solid #dcdce0;border-right:1px solid #e6e6ea;font:600 11.5px/1.2 -apple-system,system-ui;color:rgba(0,0,0,.55)">Default</div>
+<div style="display:grid;place-items:center;background:linear-gradient(#fdfdfd,#f4f4f6);border-bottom:1px solid #dcdce0;color:rgba(0,0,0,.32);font:15px/1 -apple-system,system-ui;cursor:default" style-hover="background:#ececf1;color:#0a6cff">+</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">title</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">String</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">—</div>
+<div style="border-bottom:1px solid #eeeef2"></div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">count</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">Number</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">0</div>
+<div style="border-bottom:1px solid #eeeef2"></div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">active</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">Boolean</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">true</div>
+<div style="border-bottom:1px solid #eeeef2"></div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">slug</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">String</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">—</div>
+<div style="border-bottom:1px solid #eeeef2"></div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">updatedAt</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4;color:rgba(0,0,0,.6)">Date</div>
+<div style="padding:6px 10px;border-bottom:1px solid #eeeef2;border-right:1px solid #f0f0f4">now()</div>
+<div style="border-bottom:1px solid #eeeef2"></div>
+<div style="grid-column:1 / span 3;padding:6px 10px;color:rgba(0,0,0,.38);border-top:1px dashed #dcdce4;cursor:default" style-hover="background:#f7f9ff;color:#0a6cff">+ &nbsp;New row</div>
+<div style="border-top:1px dashed #dcdce4"></div>
+</div>
+<div style="position:absolute;left:150px;top:74px;width:214px;padding:4px;background:rgba(247,247,249,.98);border:.5px solid rgba(0,0,0,.14);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.2);font:13px/1 -apple-system,system-ui;backdrop-filter:blur(20px)">
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Insert Row Above</span></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Insert Row Below</span><span style="opacity:.45;font-size:11px">⌘⏎</span></div>
+<div style="height:1px;background:rgba(0,0,0,.1);margin:4px 6px"></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px" style-hover="background:#0a6cff;color:#fff"><span>Duplicate Row</span><span style="opacity:.45;font-size:11px">⌘D</span></div>
+<div style="height:1px;background:rgba(0,0,0,.1);margin:4px 6px"></div>
+<div style="display:flex;justify-content:space-between;padding:5px 9px;border-radius:4px;color:#c8342b" style-hover="background:#c8342b;color:#fff"><span>Delete Row</span><span style="opacity:.55;font-size:11px">⌘⌫</span></div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: “make <a class="dv-oid" href="#1a">1a</a> dark appearance” · “combine <a class="dv-oid" href="#1a">1a</a>’s menus with <a class="dv-oid" href="#1c">1c</a>’s toolbar” · “show the delete confirmation and drag-to-reorder states”</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:1400},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;regular&quot;,&quot;compact&quot;],&quot;default&quot;:&quot;regular&quot;,&quot;tsType&quot;:&quot;'regular'|'compact'&quot;,&quot;section&quot;:&quot;Table 1a&quot;},&quot;zebra&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Table 1a&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#0a6cff&quot;,&quot;options&quot;:[&quot;#0a6cff&quot;,&quot;#8944ab&quot;,&quot;#3a8a3f&quot;,&quot;#c8342b&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Table 1a&quot;}}">
+class Component extends DCLogic {
+  state = {
+    cols: ['Name', 'Type', 'Default', 'Notes'],
+    rows: [
+      ['title', 'String', '—', 'Shown in list'],
+      ['count', 'Number', '0', ''],
+      ['active', 'Boolean', 'true', '']
+    ],
+    hCol: null, hRow: null, sel: 1, menu: null,
+    blocks: [
+      { id: 1, type: 'text', text: "Le lancement se fait en deux temps. Voici le découpage retenu et le flux correspondant." },
+      { id: 2, type: 'table' },
+      { id: 3, type: 'diagram' },
+      { id: 4, type: 'text', text: "Chaque étape est validée avant de passer à la suivante." }
+    ],
+    hBlock: null, dragBlock: null, dropAt: null, selBlock: null
+  };
+
+  moveBlock(from, to) {
+    const b = this.state.blocks.slice();
+    const [m] = b.splice(from, 1);
+    b.splice(from < to ? to - 1 : to, 0, m);
+    this.setState({ blocks: b, dragBlock: null, dropAt: null, selBlock: m.id });
+  }
+
+  componentDidMount() {
+    this._close = (e) => { if (!e.target.closest || !e.target.closest('[data-menu]')) this.setState({ menu: null }); };
+    document.addEventListener('mousedown', this._close);
+  }
+  componentWillUnmount() { document.removeEventListener('mousedown', this._close); }
+
+  insertCol(i) {
+    const cols = this.state.cols.slice(); cols.splice(i, 0, 'Untitled');
+    const rows = this.state.rows.map(r => { const c = r.slice(); c.splice(i, 0, ''); return c; });
+    this.setState({ cols, rows, menu: null });
+  }
+  deleteCol(i) {
+    if (this.state.cols.length <= 1) return;
+    this.setState({ cols: this.state.cols.filter((_, k) => k !== i), rows: this.state.rows.map(r => r.filter((_, k) => k !== i)), menu: null, hCol: null });
+  }
+  insertRow(i) {
+    const rows = this.state.rows.slice(); rows.splice(i, 0, this.state.cols.map(() => ''));
+    this.setState({ rows, sel: i, menu: null });
+  }
+  deleteRow(i) {
+    if (this.state.rows.length <= 1) return;
+    this.setState({ rows: this.state.rows.filter((_, k) => k !== i), sel: Math.max(0, i - 1), hRow: null });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const pad = (this.props.density ?? 'regular') === 'compact' ? '4px 10px' : '7px 10px';
+    const zebra = this.props.zebra ?? false;
+    const accent = this.props.accent ?? '#0a6cff';
+
+    const headers = s.cols.map((label, i) => ({
+      label,
+      thStyle: {
+        textAlign: 'left', padding: '6px 8px 6px 10px', borderBottom: '1px solid #dcdce0',
+        borderRight: i === s.cols.length - 1 ? 'none' : '1px solid #e6e6ea',
+        font: '600 11.5px/1.2 -apple-system, system-ui, sans-serif',
+        color: 'rgba(0,0,0,.55)', background: s.menu && s.menu.col === i ? '#e6e6ec' : 'transparent'
+      },
+      menuStyle: {
+        width: 16, height: 16, borderRadius: 4, border: 'none', padding: 0, cursor: 'default',
+        background: 'transparent', color: 'rgba(0,0,0,.5)', font: '11px/1 -apple-system, system-ui',
+        opacity: s.hCol === i || (s.menu && s.menu.col === i) ? 1 : 0, transition: 'opacity .12s'
+      },
+      onEnter: () => this.setState({ hCol: i }),
+      onLeave: () => this.setState({ hCol: null }),
+      onMenu: (e) => { e.stopPropagation(); this.setState({ menu: s.menu && s.menu.col === i ? null : { col: i, x: e.currentTarget.closest('th').offsetLeft } }); }
+    }));
+
+    const rows = s.rows.map((cells, ri) => ({
+      cells: cells.map((value, ci) => ({
+        value,
+        tdStyle: {
+          padding: pad,
+          borderBottom: ri === s.rows.length - 1 ? 'none' : '1px solid #eeeef2',
+          borderRight: ci === cells.length - 1 ? 'none' : '1px solid #f0f0f4',
+          color: ci === 0 ? '#1d1d1f' : 'rgba(0,0,0,.62)',
+          background: s.sel === ri ? '#f4f7ff' : (zebra && ri % 2 ? '#fafafc' : 'transparent'),
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }
+      })),
+      gutterStyle: {
+        borderRight: '1px solid #e6e6ea', background: s.sel === ri ? '#eaf0ff' : '#fafafc',
+        textAlign: 'center', width: 30, cursor: 'default'
+      },
+      gripStyle: {
+        display: 'inline-block', font: '11px/1 -apple-system, system-ui', color: 'rgba(0,0,0,.4)',
+        opacity: s.hRow === ri ? 1 : 0, transition: 'opacity .12s'
+      },
+      onEnter: () => this.setState({ hRow: ri }),
+      onLeave: () => this.setState({ hRow: null })
+    }));
+
+    const mi = s.menu ? s.menu.col : 0;
+    const item = (label, key, onClick, danger) => ({
+      label, key: key || '', onClick,
+      style: {
+        display: 'flex', justifyContent: 'space-between', gap: 24, padding: '5px 9px',
+        borderRadius: 4, color: danger ? '#c8342b' : '#1d1d1f', cursor: 'default'
+      }
+    });
+
+    const blocks = s.blocks.map((b, i) => {
+      const hov = s.hBlock === i, dragging = s.dragBlock === i, selected = s.selBlock === b.id;
+      return {
+        isText: b.type === 'text', isTable: b.type === 'table', isDiagram: b.type === 'diagram',
+        text: b.text, draggable: true,
+        wrapStyle: { position: 'relative', display: 'flex', alignItems: 'flex-start', padding: '5px 0', opacity: dragging ? .4 : 1 },
+        dropStyle: {
+          position: 'absolute', left: 58, right: 0, top: 0, height: 2, borderRadius: 1,
+          background: accent,
+          top: s.dropAt === i ? 0 : 'auto', bottom: s.dropAt === i ? 'auto' : 0,
+          display: s.dropAt === i || (i === s.blocks.length - 1 && s.dropAt === s.blocks.length) ? 'block' : 'none'
+        },
+        handleStyle: {
+          width: 17, height: 22, display: 'grid', placeItems: 'center', border: 'none', padding: 0,
+          borderRadius: 4, background: 'transparent', cursor: 'grab',
+          font: '12px/1 ui-monospace, Menlo, monospace', color: 'rgba(0,0,0,.42)',
+          opacity: hov || dragging ? 1 : 0, transition: 'opacity .12s'
+        },
+        plusStyle: {
+          width: 17, height: 22, display: 'grid', placeItems: 'center', border: 'none', padding: 0,
+          borderRadius: 4, background: 'transparent', cursor: 'default',
+          font: '13px/1 -apple-system, system-ui', color: 'rgba(0,0,0,.35)',
+          opacity: hov && !dragging ? 1 : 0, transition: 'opacity .12s'
+        },
+        bodyStyle: {
+          flex: 1, minWidth: 0, padding: '9px 11px', borderRadius: 6,
+          border: selected ? '1.5px solid ' + accent : '1.5px solid transparent',
+          background: selected ? '#f4f8ff' : (hov && !dragging ? 'rgba(0,0,0,.018)' : 'transparent'),
+          transition: 'background .12s'
+        },
+        onEnter: () => this.setState({ hBlock: i }),
+        onLeave: () => this.setState(st => (st.hBlock === i ? { hBlock: null } : null)),
+        onSelect: () => this.setState({ selBlock: selected ? null : b.id }),
+        onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; this.setState({ dragBlock: i, selBlock: null }); },
+        onDragEnd: () => this.setState({ dragBlock: null, dropAt: null }),
+        onDragOver: (e) => {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          const at = e.clientY < r.top + r.height / 2 ? i : i + 1;
+          if (this.state.dropAt !== at) this.setState({ dropAt: at });
+        },
+        onDrop: (e) => {
+          e.preventDefault();
+          const at = this.state.dropAt;
+          if (this.state.dragBlock !== null && at !== null) this.moveBlock(this.state.dragBlock, at);
+          else this.setState({ dragBlock: null, dropAt: null });
+        }
+      };
+    });
+
+    return {
+      headers, rows, blocks,
+      rowLabel: s.rows.length + ' rows · ' + s.cols.length + ' columns',
+      addRow: () => this.insertRow(s.rows.length),
+      removeRow: () => this.deleteRow(s.sel),
+      addCol: () => this.insertCol(s.cols.length),
+      menuStyle: {
+        position: 'absolute', top: 30, left: 30 + (s.menu ? s.menu.x : 0), width: 208, padding: 4,
+        background: 'rgba(247,247,249,.98)', border: '.5px solid rgba(0,0,0,.14)', borderRadius: 7,
+        boxShadow: '0 8px 24px rgba(0,0,0,.2)', font: '13px/1 -apple-system, system-ui',
+        backdropFilter: 'blur(20px)', zIndex: 5, display: s.menu ? 'block' : 'none'
+      },
+      menuItems: s.menu ? [
+        item('Insert Column Before', '', () => this.insertCol(mi)),
+        item('Insert Column After', '⌘⌥→', () => this.insertCol(mi + 1)),
+        item('Sort Ascending', '', () => {
+          const rows = this.state.rows.slice().sort((a, b) => String(a[mi]).localeCompare(String(b[mi])));
+          this.setState({ rows, menu: null });
+        }),
+        item('Delete Column', '⌘⌫', () => this.deleteCol(mi), true)
+      ] : [],
+      accent
+    };
+  }
+}
+</script>
+</body>
+</html>
