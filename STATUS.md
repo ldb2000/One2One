@@ -29,15 +29,22 @@ Session sans code : mise à jour du dépôt distant, qui n'avait rien reçu depu
 - **Vérifié** : `swift test` complet sur la fusion, build à froid dans un worktree jetable —
   **1030 XCTest (1 ignoré, 0 échec) + 466 tests Swift Testing en 70 suites**, code de sortie 0.
   Le `--skip CalendarImportEventTests` reste inutile. La copie de travail n'a pas été touchée.
-- **Non committés, donc non poussés** — fichiers non suivis de la copie de travail :
-  `docs/adr/README.md` (convention de nommage des ADR), `docs/architecture/`
-  (`branch-status.md`, instantané du 10 août **périmé** — il décrit `feat/fusion-note-reunion`
-  comme active alors qu'elle est fusionnée ; plus `cartographie.docx` et `diagram.html`) et
-  `design_handoff_editor_blocs/` (892 K : README de spec visuelle, cinq captures, maquette
-  HTML de référence). ⚠️ **Ce fichier-ci cite `design_handoff_editor_blocs/README.md`**
-  comme point de départ du chantier éditeur, dans la section « Éditeur de blocs » : le lien
-  pointe aujourd'hui vers un dossier qui n'existe dans aucun commit. À verser, ou à
-  déréférencer.
+- **Quatorze documents versés** qui ne vivaient que sur le disque, dans aucun commit :
+  `design_handoff_editor_blocs/` (handoff de design des blocs `/tableau` et `/diagramme` :
+  README de spec visuelle, cinq captures, maquette HTML de référence) — **ce fichier-ci le
+  citait déjà** comme point de départ du chantier éditeur, le lien pointait vers un dossier
+  absent du dépôt ; les specs `2026-08-05-commandes-slash-manquantes.md` (inventaire des
+  commandes slash d'AppFlowy, 364 lignes) et `2026-08-10-json-canonique-notes-design.md`
+  (étude Markdown → JSON canonique, 591 lignes, aucune décision prise) ; `docs/adr/README.md`
+  (convention de nommage des ADR) ; et `docs/architecture/` (`branch-status.md`,
+  `cartographie.docx`, `diagram.html`). `branch-status.md` est un instantané du 10 août
+  devenu faux — il décrit `feat/fusion-note-reunion` comme active alors qu'elle est
+  fusionnée : versé tel quel, avec une ligne d'archivage en tête qui le dit. Aucun de ces
+  fichiers ne tombe dans un répertoire de cible SwiftPM (`OneToOne/`, `Tests/`,
+  `Vendor/BeautifulMermaidSwift/Sources`) : le build n'est pas touché.
+- **Restent non suivis dans la copie de travail, et c'est sans conséquence** : quinze
+  fichiers `OneToOne/Services/Agent/*.swift` et `Tests/Agent*.swift`, copies **identiques à
+  l'octet près** de ce que `master` porte désormais. Ils peuvent être supprimés.
 - **Ce que ce push ne change pas** : rien n'a été vérifié à l'écran. Les treize scénarios des
   deux plans Teams auto-record restent dus (voir les deux sections suivantes), l'attribution
   « moi » / « distant » n'est toujours câblée nulle part, et la spec « détection d'appel
