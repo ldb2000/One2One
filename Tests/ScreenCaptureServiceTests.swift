@@ -14,6 +14,30 @@ import SwiftData
 // que ce soit (cf. `writeSlide`), ce qui couvre ce cas en production. `.serialized`
 // reste ici en ceinture-et-bretelles : plusieurs `ModelContainer` en mémoire pour le
 // même schéma versionné, construits en parallèle, ne sont pas garantis indépendants.
+
+/// Fabrique de sources qui rend la source suivante à chaque appel (la dernière est
+/// répétée au-delà) : sert à donner à une "nouvelle session" une source distincte de
+/// celle de la session précédente dans un même test, sans toucher aux doublures
+/// partagées (`ScreenCaptureServiceTestDoubles.swift`).
+private final class SwitchingFrameSourceFactory: @unchecked Sendable {
+    private let sources: [any FrameSource]
+    private var index = 0
+    private let lock = NSLock()
+
+    init(_ sources: [any FrameSource]) {
+        precondition(!sources.isEmpty)
+        self.sources = sources
+    }
+
+    func next(_ windowID: CGWindowID) -> any FrameSource {
+        lock.withLock {
+            let source = sources[min(index, sources.count - 1)]
+            index += 1
+            return source
+        }
+    }
+}
+
 @Suite("ScreenCaptureService", .serialized)
 @MainActor
 struct ScreenCaptureServiceTests {
@@ -238,30 +262,69 @@ struct ScreenCaptureServiceTests {
         #expect(service.state == .idle)
     }
 
-    @Test("un tick en vol relâché après finish puis un nouveau beginSession n'écrit pas dans la nouvelle session")
-    func inFlightTickFromOldSessionCannotWriteIntoNewSession() async throws {
-        let first = banded(0.2), second = banded(0.8)
-        let source = SuspendingFrameSource(immediateFrames: [first, first, first, first, second, second])
+    @Test("un tick en vol relâché après finish + nouvelle session ne publie pas d'état sur la nouvelle session")
+    func inFlightTickFromOldSessionCannotPublishState() async throws {
+        let image = banded(0.3)
+        let source = SuspendingFrameSource(immediateFrames: [image, image, image, image])
         let service = makeService(source: source)
         try service.beginSession(configuration: config(), meeting: meeting, context: context)
-        for _ in 0..<6 { await service.tick() }
-        let oldAttachment = try #require(service.currentAttachment)
-        #expect(oldAttachment.slides.count == 1)
+        for _ in 0..<4 { await service.tick() }
 
         let inFlight = Task { @MainActor in await service.tick() }
         await source.waitUntilSuspended()
         await service.finish()
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        #expect(service.state == .running)
 
-        // Nouvelle session : configuration, attachment et dossier sont à nouveau non nuls.
-        // Seul le jeton distingue le tick en vol de la session courante.
+        source.resume(with: nil) // « fenêtre disparue » pour l'ancienne session
+        await inFlight.value
+
+        #expect(service.state == .running, "le tick périmé a publié une pause sur la nouvelle session")
+        #expect(service.lastError == nil)
+    }
+
+    @Test("un tick en vol qui détecte un slide après finish + nouvelle session n'écrit pas dans la nouvelle session")
+    func inFlightTickFromOldSessionCannotWriteIntoNewSession() async throws {
+        let first = banded(0.2), second = banded(0.8)
+        // 4 ticks stables sur "first" (slide 1 de l'ancienne session), puis le 5e tick se
+        // suspend à l'intérieur de `captureFrame()`. La nouvelle session utilise sa PROPRE
+        // source scriptée (`SuspendingFrameSource` ne garde qu'une continuation à la fois :
+        // la réutiliser pour la nouvelle session écraserait celle du tick périmé).
+        let staleSource = SuspendingFrameSource(immediateFrames: [first, first, first, first])
+        let newSource = ScriptedFrameSource(frames: [second, second])
+        let factory = SwitchingFrameSourceFactory([staleSource, newSource])
+        let service = ScreenCaptureService(
+            recordingsRoot: root,
+            frameSourceFactory: { factory.next($0) },
+            ocr: { _ in "" },
+            reindex: { _, _ in }
+        )
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<4 { await service.tick() }
+        let oldAttachment = try #require(service.currentAttachment)
+        #expect(oldAttachment.slides.count == 1)
+
+        let inFlight = Task { @MainActor in await service.tick() }
+        await staleSource.waitUntilSuspended()
+        await service.finish()
+
         try service.beginSession(configuration: config(), meeting: meeting, context: context)
         let newAttachment = try #require(service.currentAttachment)
         #expect(newAttachment !== oldAttachment)
 
-        source.resume(with: second)
+        // Deux ticks de la nouvelle session sur `newSource` (jamais suspendue) : amorcent
+        // son détecteur — settling sur le premier "second", puis un tick stable (armé,
+        // stableTicks = 1) sur le second.
+        await service.tick()
+        await service.tick()
+
+        // Relâche le tick périmé : son empreinte ("second") complète la stabilisation sur
+        // le détecteur de la nouvelle session (déjà armé, stableTicks = 1) et obtient
+        // `.newSlide` — seul le jeton vérifié dans `writeSlide` doit empêcher l'écriture.
+        staleSource.resume(with: second)
         await inFlight.value
 
-        #expect(newAttachment.slides.isEmpty, "le tick de l'ancienne session a écrit dans la nouvelle")
+        #expect(newAttachment.slides.isEmpty, "le tick périmé a écrit dans la nouvelle session")
         #expect(oldAttachment.slides.count == 1)
         #expect(try pngNames(service).count == 1)
     }
