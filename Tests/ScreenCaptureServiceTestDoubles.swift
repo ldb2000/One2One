@@ -100,3 +100,58 @@ final class SuspendingFrameSource: FrameSource, @unchecked Sendable {
         continuation?.resume(returning: image)
     }
 }
+
+/// OCR sous contrôle du test : `recognize` se suspend jusqu'à `release(text:)`.
+/// Permet de tenir un OCR « en vol » pendant que `finish()` l'attend, sans dépendre
+/// du minutage de l'ordonnanceur.
+final class GatedOCR: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<String, Error>?
+    private var suspendedContinuation: CheckedContinuation<Void, Never>?
+    /// Texte livré par un `release(text:)` arrivé avant la suspension.
+    private var pending: String?
+
+    func recognize(_ image: CGImage) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.withLock {
+                if let pending {
+                    self.pending = nil
+                    continuation.resume(returning: pending)
+                    return
+                }
+                self.continuation = continuation
+                if let suspendedContinuation {
+                    self.suspendedContinuation = nil
+                    suspendedContinuation.resume()
+                }
+            }
+        }
+    }
+
+    /// Ne rend la main qu'une fois un appel à `recognize` effectivement suspendu.
+    func waitUntilSuspended() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if self.continuation != nil { continuation.resume() }
+                else { self.suspendedContinuation = continuation }
+            }
+        }
+    }
+
+    func release(text: String) {
+        let continuation: CheckedContinuation<String, Error>? = lock.withLock {
+            defer { self.continuation = nil }
+            if self.continuation == nil { self.pending = text }
+            return self.continuation
+        }
+        continuation?.resume(returning: text)
+    }
+}
+
+/// Compte les réindexations demandées au service : `abandon()` ne doit en demander
+/// aucune, `finish()` exactement une.
+@MainActor
+final class ReindexRecorder {
+    private(set) var count = 0
+    func record() { count += 1 }
+}

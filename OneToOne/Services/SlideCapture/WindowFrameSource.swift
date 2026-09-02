@@ -7,6 +7,9 @@ import ScreenCaptureKit
 /// déplacement, le redimensionnement et le changement d'écran de la fenêtre source sans
 /// aucun code de reconfiguration. Ne pas le mettre en cache « pour optimiser ».
 ///
+/// `onScreenWindowsOnly: false` est délibéré : capturer une fenêtre occultée (ou en
+/// plein écran sur un autre Space) est la prémisse même de la fonctionnalité.
+///
 /// ⚠️ `SCScreenshotManager` plante (`CGS_REQUIRE_INIT`) hors session graphique : les
 /// tests ne construisent jamais ce type, ils remplacent `FrameSource`.
 struct WindowFrameSource: FrameSource {

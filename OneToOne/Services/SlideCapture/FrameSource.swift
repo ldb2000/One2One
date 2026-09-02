@@ -18,13 +18,30 @@ struct ShareableWindow: Identifiable, Equatable, Sendable {
     let appName: String
     let bundleIdentifier: String?
     let frame: CGRect
+    /// Faux pour une fenêtre d'un autre Space ou masquée : le catalogue les propose
+    /// quand même si ce sont des fenêtres de réunion (Teams en plein écran vit sur
+    /// son propre Space).
+    let isOnScreen: Bool
+    /// Niveau de fenêtre (`SCWindow.windowLayer`). Seul `0` est une vraie fenêtre de
+    /// document : au-dessus vivent les panneaux flottants, infobulles et incrustations.
+    let layer: Int
 
-    init(id: CGWindowID, title: String, appName: String, bundleIdentifier: String?, frame: CGRect) {
+    init(
+        id: CGWindowID,
+        title: String,
+        appName: String,
+        bundleIdentifier: String?,
+        frame: CGRect,
+        isOnScreen: Bool = true,
+        layer: Int = 0
+    ) {
         self.id = id
         self.title = title
         self.appName = appName
         self.bundleIdentifier = bundleIdentifier
         self.frame = frame
+        self.isOnScreen = isOnScreen
+        self.layer = layer
     }
 
     /// Identifiants des applications de réunion à placer en tête.

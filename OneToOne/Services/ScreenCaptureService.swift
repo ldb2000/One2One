@@ -18,9 +18,12 @@ private let captureLog = Logger(subsystem: "com.onetoone.app", category: "captur
 /// - `stop()` annule la boucle et publie `stopped` **sans** clore la session : `resume()`
 ///   reprend le même attachment, le même détecteur, la même numérotation.
 /// - `finish()` clôt : attente OCR, sauvegarde, réindexation, puis `idle`.
+/// - `abandon()` ferme sans rien sauvegarder ni réindexer (réunion supprimée).
 /// - `tick()` est la plus petite unité de travail et est appelable directement : les tests
-///   pilotent la capture sans horloge. Après chaque `await`, il revérifie le **jeton de
-///   session** : un tick suspendu pendant `finish()` ne doit ni écrire ni publier.
+///   pilotent la capture sans horloge. Après chaque `await`, il revérifie **jeton de session
+///   et état** (`sessionIsLive`) : un tick suspendu pendant `stop()` ou `finish()` ne doit ni
+///   écrire ni publier — publier `.paused` par-dessus `.stopped` serait irrécupérable
+///   (`resume()` exige `.stopped`).
 @MainActor
 final class ScreenCaptureService: ObservableObject {
 
@@ -47,12 +50,14 @@ final class ScreenCaptureService: ObservableObject {
 
     enum SessionError: Error, Equatable, LocalizedError {
         case sessionAlreadyOpen
-        case noOpenSession
+        case attachmentBelongsToAnotherMeeting
 
         var errorDescription: String? {
             switch self {
-            case .sessionAlreadyOpen: return "Une session de capture est déjà ouverte."
-            case .noOpenSession: return "Aucune session de capture n'est ouverte."
+            case .sessionAlreadyOpen:
+                return "Une session de capture est déjà ouverte."
+            case .attachmentBelongsToAnotherMeeting:
+                return "Ce lot de slides appartient à une autre réunion."
             }
         }
     }
@@ -85,8 +90,10 @@ final class ScreenCaptureService: ObservableObject {
 
     // MARK: - État interne de session
 
-    /// Régénéré à chaque `beginSession`, remis à `nil` par `finish()` **avant** la
-    /// première attente. Toute étape après un `await` compare son jeton local à celui-ci.
+    /// Régénéré à chaque `beginSession`, remis à `nil` par `finish()` et `abandon()`
+    /// **avant** toute attente. Toute étape de capture après un `await` compare son jeton
+    /// local à celui-ci — et vérifie l'état, cf. `sessionIsLive(_:)`. La tâche OCR, elle,
+    /// ne le consulte pas : elle doit pouvoir écrire son texte pendant la clôture.
     private var sessionToken: UUID?
     private var source: (any FrameSource)?
     private var detector = SlideDetector(settings: SlideCaptureSettings())
@@ -129,6 +136,9 @@ final class ScreenCaptureService: ObservableObject {
         appendTo existing: MeetingAttachment? = nil
     ) throws {
         guard state == .idle, currentAttachment == nil else { throw SessionError.sessionAlreadyOpen }
+        if let existing, existing.meeting !== meeting {
+            throw SessionError.attachmentBelongsToAnotherMeeting
+        }
 
         let directory = recordingsRoot
             .appendingPathComponent(meeting.ensuredStableID.uuidString, isDirectory: true)
@@ -161,7 +171,9 @@ final class ScreenCaptureService: ObservableObject {
         self.source = frameSourceFactory(configuration.windowID)
         self.slidesDirectory = directory
         self.modelContext = context
-        self.nextIndex = attachment.slides.count + 1
+        // Maximum + 1, et non `count + 1` : une suppression laisse un trou et
+        // `count + 1` redonnerait un index déjà pris.
+        self.nextIndex = (attachment.slides.map(\.index).max() ?? 0) + 1
         self.currentAttachment = attachment
         self.sessionToken = UUID()
         clearError()
@@ -181,8 +193,13 @@ final class ScreenCaptureService: ObservableObject {
     }
 
     /// Reprend une session arrêtée : même attachment, même détecteur, même numérotation.
+    ///
+    /// Le jeton est exigé en plus de l'état : `finish()` publie `stopped` puis **attend**
+    /// les OCR, et pendant cette attente la session est déjà invalidée (jeton `nil`).
+    /// Reprendre là relancerait une boucle que `finish()` ne connaît pas — boucle fantôme
+    /// qui bloquerait ensuite `launchLoop()` de la session suivante.
     func resume() {
-        guard state == .stopped, currentAttachment != nil else { return }
+        guard state == .stopped, sessionToken != nil, currentAttachment != nil else { return }
         clearError()
         state = .running
         launchLoop()
@@ -223,6 +240,11 @@ final class ScreenCaptureService: ObservableObject {
         ocrProgress = nil
 
         try? context.save()
+        // Après les attentes seulement : une boucle a pu être relancée entre-temps
+        // (bouton Reprendre, notification…). Aucune ne doit survivre à la clôture,
+        // sinon `launchLoop()` refuserait celle de la session suivante.
+        loop?.cancel()
+        loop = nil
         currentAttachment = nil
         configuration = nil
         slidesDirectory = nil
@@ -232,9 +254,31 @@ final class ScreenCaptureService: ObservableObject {
         await reindex(attachment, context)
     }
 
+    /// Abandonne la session : boucle et OCR annulés, tout est relâché, **rien** n'est
+    /// sauvegardé ni réindexé.
+    ///
+    /// C'est le chemin de la réunion supprimée : la cascade emporte l'attachment de
+    /// capture, sauvegarder ou réindexer pendant sa suppression n'aurait pas de sens.
+    func abandon() {
+        loop?.cancel()
+        loop = nil
+        for entry in ocrTasks { entry.task.cancel() }
+        ocrTasks = []
+        sessionToken = nil
+        source = nil
+        currentAttachment = nil
+        configuration = nil
+        slidesDirectory = nil
+        modelContext = nil
+        ocrProgress = nil
+        state = .idle
+        clearError()
+        captureLog.info("Session de capture abandonnée (rien sauvegardé, rien réindexé)")
+    }
+
     /// Change de fenêtre source sans toucher à la zone. Autorisé en `stopped` seulement.
     func updateSource(windowID: CGWindowID, title: String) {
-        guard state == .stopped, var configuration else { return }
+        guard state == .stopped, sessionToken != nil, var configuration else { return }
         configuration.windowID = windowID
         configuration.windowTitle = title
         self.configuration = configuration
@@ -251,13 +295,13 @@ final class ScreenCaptureService: ObservableObject {
         do {
             frame = try await source.captureFrame()
         } catch {
-            guard sessionToken == token else { return }
+            guard sessionIsLive(token) else { return }
             lastError = error.localizedDescription
             state = .paused("Capture impossible : \(error.localizedDescription)")
             return
         }
 
-        guard sessionToken == token else { return }
+        guard sessionIsLive(token) else { return }
 
         guard let frame else {
             state = .paused("Fenêtre source introuvable. La capture reprendra si elle réapparaît.")
@@ -293,7 +337,7 @@ final class ScreenCaptureService: ObservableObject {
     /// pas sur disque.
     func snapshotForTesting() async {
         guard state == .running, let token = sessionToken, let source, let crop = configuration?.crop else { return }
-        guard let frame = try? await source.captureFrame(), sessionToken == token,
+        guard let frame = try? await source.captureFrame(), sessionIsLive(token),
               let cropped = crop.apply(to: frame) else { return }
         let fingerprint = SlideFingerprint(image: cropped)
         let wrote = await writeSlide(cropped, token: token)
@@ -301,6 +345,9 @@ final class ScreenCaptureService: ObservableObject {
             detector.seed([fingerprint])
         }
     }
+
+    /// Vrai si une boucle périodique est armée (tests : détecter une boucle fantôme).
+    var hasLoopForTesting: Bool { loop != nil }
 
     /// Annule la boucle sans changer l'état (tests : piloter les ticks à la main).
     func cancelLoopForTesting() {
@@ -311,9 +358,9 @@ final class ScreenCaptureService: ObservableObject {
     /// Attend la fin de tous les OCR en vol, sans clore la session (tests uniquement).
     ///
     /// `writeSlide` détache l'OCR pour ne pas bloquer `tick()` ; seul `finish()` les
-    /// attend en production. La tâche OCR revérifie elle-même le jeton de session et
-    /// la vivacité du `SlideCapture` (`slide.modelContext != nil`) avant d'écrire quoi
-    /// que ce soit, donc un test qui ne l'attend pas ne risque plus de crash — ce point
+    /// attend en production. La tâche OCR revérifie elle-même la vivacité de ses modèles
+    /// (`slide.modelContext != nil`, `attachment.modelContext != nil`) avant d'écrire
+    /// quoi que ce soit, donc un test qui ne l'attend pas ne risque plus de crash — ce point
     /// d'entrée reste une simple commodité pour un test qui veut observer l'OCR terminé
     /// (texte reconnu, `ocrProgress`) sans passer par `finish()`.
     func drainOCRTasksForTesting() async {
@@ -331,9 +378,13 @@ final class ScreenCaptureService: ObservableObject {
         }
         ocrTasks.removeAll { $0.slideID == slideID }
         let path = slide.imagePath
+        // `slide.attachment` et non `currentAttachment` : la galerie permet de supprimer
+        // un slide hors session, quand aucun attachment n'est courant. Lu **avant** la
+        // suppression, qui casse la relation.
+        let attachment = slide.attachment
         context.delete(slide)
         try? FileManager.default.removeItem(atPath: path)
-        rebuildAttachmentText()
+        if let attachment { rebuildAttachmentText(for: attachment) }
         objectWillChange.send()
         try? context.save()
     }
@@ -359,7 +410,7 @@ final class ScreenCaptureService: ObservableObject {
     /// `snapshotForTesting` pour n'amorcer le détecteur qu'en cas de succès réel).
     @discardableResult
     private func writeSlide(_ image: CGImage, token: UUID) async -> Bool {
-        guard sessionToken == token,
+        guard sessionIsLive(token),
               let attachment = currentAttachment,
               let context = modelContext,
               let directory = slidesDirectory else { return false }
@@ -372,13 +423,14 @@ final class ScreenCaptureService: ObservableObject {
         do {
             try await ScreenCaptureService.encodePNG(image, to: fileURL)
         } catch {
-            guard sessionToken == token else { return false }
+            guard sessionIsLive(token) else { return false }
             lastError = "Écriture du slide \(index) impossible : \(error.localizedDescription)"
             return false
         }
 
-        guard sessionToken == token else {
-            // La session a été close pendant l'encodage : ce slide ne lui appartient plus.
+        guard sessionIsLive(token) else {
+            // La session a été close ou arrêtée pendant l'encodage : ce slide ne lui
+            // appartient plus.
             try? FileManager.default.removeItem(at: fileURL)
             return false
         }
@@ -390,22 +442,27 @@ final class ScreenCaptureService: ObservableObject {
         objectWillChange.send()
         captureLog.info("Slide \(index) écrit")
 
-        // OCR détaché de `tick()` (ne doit pas le bloquer). Rien n'est touché au réveil
-        // sans revérifier : (1) `Task.isCancelled` — `deleteSlide` annule la tâche visant
-        // ce slide avant de le supprimer ; (2) le jeton de session — une session close
-        // ou une nouvelle session ouverte pendant l'OCR ne doit pas hériter de ce texte ;
-        // (3) `slide.modelContext != nil` — un modèle supprimé (même sans passer par
-        // `deleteSlide`, ou une annulation ratée) n'a plus de contexte utilisable et
-        // touche à ses propriétés y planterait (« this model instance was destroyed »).
+        // OCR détaché de `tick()` (ne doit pas le bloquer). Il écrit dans **son** slide et
+        // **son** attachment, capturés ici : surtout pas dans `currentAttachment`, qui peut
+        // déjà être celui d'une autre session. Le jeton de session n'est délibérément
+        // **pas** consulté : `finish()` l'invalide avant d'attendre les OCR, et un OCR
+        // attendu par la clôture doit justement pouvoir écrire son texte. Seule la
+        // vivacité est vérifiée : (1) `Task.isCancelled` — `deleteSlide` et `abandon()`
+        // annulent les tâches en vol ; (2) `slide.modelContext != nil` et
+        // (3) `attachment.modelContext != nil` — un modèle supprimé n'a plus de contexte
+        // utilisable et toucher à ses propriétés planterait (« this model instance was
+        // destroyed »).
         let ocr = self.ocr
         let task = Task { [weak self] in
             do {
                 let text = try await ocr(image)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard self?.sessionToken == token, slide.modelContext != nil else { return }
+                    guard !Task.isCancelled,
+                          slide.modelContext != nil,
+                          attachment.modelContext != nil else { return }
                     slide.ocrText = text
-                    self?.rebuildAttachmentText()
+                    self?.rebuildAttachmentText(for: attachment)
                 }
             } catch {
                 captureLog.error("OCR du slide \(index) échoué : \(error.localizedDescription)")
@@ -415,8 +472,15 @@ final class ScreenCaptureService: ObservableObject {
         return true
     }
 
+    /// Texte agrégé du lot **courant** (chemin du tick et de `deleteSlide`).
     private func rebuildAttachmentText() {
         guard let attachment = currentAttachment else { return }
+        rebuildAttachmentText(for: attachment)
+    }
+
+    /// Texte agrégé d'un lot désigné : ne dépend pas de `currentAttachment`, donc reste
+    /// valable pour un OCR qui se termine pendant ou après la clôture de la session.
+    private func rebuildAttachmentText(for attachment: MeetingAttachment) {
         let slides = attachment.slides.sorted(by: { $0.index < $1.index })
         var fullText = ""
         for slide in slides {
@@ -425,6 +489,14 @@ final class ScreenCaptureService: ObservableObject {
             fullText += slide.ocrText + "\n\n"
         }
         attachment.extractedText = fullText
+    }
+
+    /// Vrai si le tick appartient toujours à la session courante **et** que la capture
+    /// est encore active. Les deux conditions comptent : le jeton écarte un tick d'une
+    /// session close, l'état écarte un tick suspendu pendant `stop()` — qui publierait
+    /// sinon `.paused` par-dessus `.stopped`, état dont `resume()` ne sait pas repartir.
+    private func sessionIsLive(_ token: UUID) -> Bool {
+        sessionToken == token && isCapturing
     }
 
     /// Seul endroit qui remet le message de panne à zéro : appelé sur **tous** les

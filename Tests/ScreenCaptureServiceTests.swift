@@ -10,8 +10,9 @@ import SwiftData
 // (`writeSlide`) qui survivait au retour d'un test n'appelant pas `finish()`, et
 // touchait ensuite un `SlideCapture` dont le `ModelContainer` en mémoire du test
 // (propre à chaque test) avait déjà été libéré. La tâche OCR revérifie désormais
-// elle-même le jeton de session et `slide.modelContext != nil` avant d'écrire quoi
-// que ce soit (cf. `writeSlide`), ce qui couvre ce cas en production. `.serialized`
+// elle-même la vivacité de ses modèles (`slide.modelContext != nil` et
+// `attachment.modelContext != nil`) avant d'écrire quoi que ce soit (cf. `writeSlide`),
+// ce qui couvre ce cas en production. `.serialized`
 // reste ici en ceinture-et-bretelles : plusieurs `ModelContainer` en mémoire pour le
 // même schéma versionné, construits en parallèle, ne sont pas garantis indépendants.
 
@@ -74,6 +75,16 @@ struct ScreenCaptureServiceTests {
             ocr: { _ in "" },
             reindex: { _, _ in }
         )
+    }
+
+    /// Rend la main dès que la condition est vraie (bornée : ne bloque jamais la suite).
+    /// Sert à attendre qu'une tâche `finish()` lancée à côté ait franchi sa partie
+    /// synchrone, sans dormir.
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<1000 {
+            if condition() { return }
+            await Task.yield()
+        }
     }
 
     private func pngNames(_ service: ScreenCaptureService) throws -> [String] {
@@ -385,6 +396,182 @@ struct ScreenCaptureServiceTests {
         #expect(service.state == .idle)
         #expect(service.currentAttachment == nil)
         #expect(meeting.attachments.isEmpty)
+    }
+
+    @Test("finish attend l'OCR en vol et conserve son texte")
+    func finishWaitsForInFlightOCRAndKeepsItsText() async throws {
+        let image = banded(0.3)
+        let gated = GatedOCR()
+        let source = ScriptedFrameSource(frames: Array(repeating: image, count: 4))
+        let service = ScreenCaptureService(
+            recordingsRoot: root,
+            frameSourceFactory: { _ in source },
+            ocr: { try await gated.recognize($0) },
+            reindex: { _, _ in }
+        )
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<4 { await service.tick() }
+        let attachment = try #require(service.currentAttachment)
+        let slide = try #require(attachment.slides.first)
+
+        let finishing = Task { @MainActor in await service.finish() }
+        await gated.waitUntilSuspended()
+        await waitUntil { service.state == .stopped }
+        #expect(service.state == .stopped)
+
+        gated.release(text: "Texte OCR")
+        await finishing.value
+
+        #expect(slide.ocrText == "Texte OCR", "le texte OCR arrivé pendant la clôture a été jeté")
+        #expect(attachment.extractedText.contains("Texte OCR"))
+        #expect(service.state == .idle)
+    }
+
+    @Test("un tick en vol pendant stop ne publie pas de pause par-dessus stopped")
+    func inFlightTickDuringStopDoesNotPublish() async throws {
+        let first = banded(0.2)
+        let source = SuspendingFrameSource(immediateFrames: [first, first, first, first])
+        let service = makeService(source: source)
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<4 { await service.tick() }
+
+        let inFlight = Task { @MainActor in await service.tick() }
+        await source.waitUntilSuspended()
+        service.stop()
+        #expect(service.state == .stopped)
+
+        source.resume(with: nil) // « fenêtre disparue » pour le tick en vol
+        await inFlight.value
+
+        #expect(service.state == .stopped, "le tick en vol a publié une pause par-dessus stopped")
+        await service.drainOCRTasksForTesting()
+    }
+
+    @Test("un tick en vol pendant stop n'écrit pas de slide")
+    func inFlightTickDuringStopDoesNotWrite() async throws {
+        let first = banded(0.2), second = banded(0.8)
+        // 4 ticks stables sur first → slide 1 ; 2 ticks sur second → détecteur armé.
+        // Le septième tick, celui qui est mis en vol, confirmerait le second slide.
+        let source = SuspendingFrameSource(immediateFrames: [first, first, first, first, second, second])
+        let service = makeService(source: source)
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<6 { await service.tick() }
+        #expect(service.capturedSlidesCount == 1)
+
+        let inFlight = Task { @MainActor in await service.tick() }
+        await source.waitUntilSuspended()
+        service.stop()
+
+        source.resume(with: second)
+        await inFlight.value
+
+        #expect(service.capturedSlidesCount == 1, "le tick en vol a écrit un slide après stop")
+        #expect(try pngNames(service).count == 1)
+        #expect(service.state == .stopped)
+        await service.drainOCRTasksForTesting()
+    }
+
+    @Test("resume est refusé pendant l'attente OCR de finish et ne laisse pas de boucle fantôme")
+    func resumeDuringFinishIsRefusedAndLeavesNoGhostLoop() async throws {
+        let image = banded(0.3)
+        let gated = GatedOCR()
+        let source = ScriptedFrameSource(frames: Array(repeating: image, count: 4))
+        let service = ScreenCaptureService(
+            recordingsRoot: root,
+            frameSourceFactory: { _ in source },
+            ocr: { try await gated.recognize($0) },
+            reindex: { _, _ in }
+        )
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<4 { await service.tick() }
+
+        let finishing = Task { @MainActor in await service.finish() }
+        await gated.waitUntilSuspended()
+        await waitUntil { service.state == .stopped }
+
+        service.resume()
+        #expect(service.state == .stopped, "resume a été accepté pendant la clôture")
+        #expect(service.hasLoopForTesting == false, "une boucle fantôme a été lancée pendant la clôture")
+
+        gated.release(text: "")
+        await finishing.value
+        #expect(service.state == .idle)
+        #expect(service.hasLoopForTesting == false, "finish laisse une boucle armée derrière elle")
+
+        // La session suivante obtient bien sa boucle : `launchLoop` n'est pas bloqué.
+        try service.start(configuration: config(), meeting: meeting, context: context)
+        #expect(service.hasLoopForTesting, "la session suivante n'a pas obtenu sa boucle")
+        service.cancelLoopForTesting()
+        service.abandon()
+    }
+
+    @Test("abandon clôt la session sans sauvegarder ni réindexer")
+    func abandonClosesWithoutSavingOrReindexing() async throws {
+        let image = banded(0.3)
+        let source = ScriptedFrameSource(frames: Array(repeating: image, count: 8))
+        let recorder = ReindexRecorder()
+        let service = ScreenCaptureService(
+            recordingsRoot: root,
+            frameSourceFactory: { _ in source },
+            ocr: { _ in "" },
+            reindex: { _, _ in recorder.record() }
+        )
+        try service.beginSession(configuration: config(), meeting: meeting, context: context)
+        for _ in 0..<4 { await service.tick() }
+        #expect(service.capturedSlidesCount == 1)
+
+        service.abandon()
+        #expect(service.state == .idle)
+        #expect(service.currentAttachment == nil)
+        #expect(service.configuration == nil)
+        #expect(service.hasLoopForTesting == false)
+        #expect(recorder.count == 0, "abandon a réindexé")
+
+        await service.tick() // inerte
+        #expect(service.state == .idle)
+        #expect(try pngNames(service).count == 1)
+    }
+
+    @Test("appendTo refuse un attachment appartenant à une autre réunion")
+    func appendToForeignAttachmentThrows() throws {
+        let other = Meeting(title: "Autre réunion", date: Date())
+        context.insert(other)
+        let foreign = MeetingAttachment(url: URL(fileURLWithPath: "slides-autre.slides"), kind: "slides")
+        foreign.meeting = other
+        context.insert(foreign)
+
+        let service = makeService(source: ScriptedFrameSource(frames: []))
+        #expect(throws: ScreenCaptureService.SessionError.attachmentBelongsToAnotherMeeting) {
+            try service.beginSession(configuration: config(), meeting: meeting, context: context, appendTo: foreign)
+        }
+        #expect(service.state == .idle)
+        #expect(service.currentAttachment == nil)
+    }
+
+    @Test("appendTo reprend après le plus grand index, pas après le nombre de slides")
+    func appendToFollowsMaximumIndexNotCount() async throws {
+        // Lot d'où un slide a été supprimé : un seul élément restant, mais d'index 2.
+        // `slides.count + 1` redonnerait l'index 2 et créerait un doublon.
+        let dir = root.appendingPathComponent(meeting.ensuredStableID.uuidString).appendingPathComponent("slides")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let existingURL = dir.appendingPathComponent("slide-0002-090000.png")
+        try SlideImageFixtures.writePNG(banded(0.2), to: existingURL)
+        let previous = MeetingAttachment(url: URL(fileURLWithPath: "slides-old.slides"), kind: "slides")
+        previous.meeting = meeting
+        context.insert(previous)
+        let existing = SlideCapture(index: 2, capturedAt: Date(), imagePath: existingURL.path)
+        existing.attachment = previous
+        context.insert(existing)
+        try context.save()
+
+        let fresh = banded(0.8)
+        let service = makeService(source: ScriptedFrameSource(frames: Array(repeating: fresh, count: 4)))
+        try service.beginSession(configuration: config(), meeting: meeting, context: context, appendTo: previous)
+        for _ in 0..<4 { await service.tick() }
+
+        let indices = previous.slides.map(\.index).sorted()
+        #expect(indices == [2, 3], "index dupliqué : la numérotation suit le nombre de slides, pas le maximum")
+        await service.drainOCRTasksForTesting()
     }
 
     @Test("updateSource n'agit qu'en stopped et conserve la zone")

@@ -406,8 +406,10 @@ struct MeetingView: View {
             defer { MeetingScreenRegistry.shared.screenDisappeared(id) }
             guard !isBeingDeleted, !MeetingScreenRegistry.shared.isDeleted(id) else {
                 // Réunion supprimée : la cascade emporte l'attachment de capture, il n'y a
-                // rien à sauvegarder ni à réindexer. On coupe seulement la boucle.
-                captureService.stop()
+                // rien à sauvegarder ni à réindexer. On abandonne la session — boucle et
+                // OCR annulés, tout relâché : `stop()` la laisserait ouverte, et la
+                // prochaine capture se heurterait à `sessionAlreadyOpen`.
+                captureService.abandon()
                 return
             }
             adoptPendingLiveNotes()

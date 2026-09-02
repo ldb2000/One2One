@@ -120,7 +120,10 @@ struct ScreenCaptureConfigView: View {
                 Spacer()
                 Button("Commencer") { startCapture() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(selectedWindowID == nil)
+                    // `selectedWindow`, pas `selectedWindowID` : un identifiant qui ne
+                    // correspond plus à aucune fenêtre de la liste ferait un bouton actif
+                    // dont l'action ne fait rien (`startCapture` sort sur le même test).
+                    .disabled(selectedWindow == nil)
             }
         }
     }
@@ -284,6 +287,14 @@ struct ScreenCaptureConfigView: View {
         do {
             windows = try await WindowCatalog.shareableWindows(excludingAppNames: blacklist)
             permissionDenied = false
+            // La fenêtre choisie a disparu entre-temps : oublier la sélection et son
+            // aperçu, plutôt que de laisser un choix fantôme dont « Commencer » ne
+            // pourrait rien faire.
+            if let selectedWindowID, !windows.contains(where: { $0.id == selectedWindowID }) {
+                self.selectedWindowID = nil
+                preview = nil
+                previewError = nil
+            }
         } catch let error as SlideCaptureError where error == .screenRecordingDenied {
             permissionDenied = true
         } catch let error as SlideCaptureError where error == .noShareableWindows {
