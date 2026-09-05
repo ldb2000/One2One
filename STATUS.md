@@ -2,6 +2,44 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — persistance du toggle tool calling (B2-ui v2) (2026-09-05)
+
+Branche `feat/rag-tool-calling-toggle-persist`, sur `master` (+0 commit avant
+cette session). Corrige B2-ui (PR #10) : le toggle « Recherche active » de
+`ChatbotView` était un `@State private var useToolCalling: Bool = false`, donc
+revenait à `off` à chaque réouverture de la vue.
+
+- Nouveau champ `AppSettings.chatbotToolCallingEnabled: Bool = false`, à côté
+  des autres toggles IA (`useAIForWeeklyExport`, etc.) — pas de migration
+  SwiftData nécessaire (nouveau champ optionnel-like avec défaut, pas de bump
+  de `SchemaVersions.swift`).
+- `ChatbotView` : `useToolCalling` devient une propriété calculée qui lit
+  `settings.chatbotToolCallingEnabled` ; le `Toggle` écrit désormais via un
+  `Binding` explicite (`settings.chatbotToolCallingEnabled = $0; try?
+  context.save()`) au lieu de `$useToolCalling`.
+- **Corrigé au passage** : `ChatbotView.settings` faisait
+  `settingsList.canonicalSettings ?? AppSettings()` — si aucun `AppSettings`
+  n'existait encore en base (l'app ne force sa création qu'à l'ouverture de
+  `SettingsView`), l'instance de repli n'était jamais insérée dans le
+  `modelContext` et toute écriture (dont ce nouveau toggle) était perdue en
+  silence. `settings` insère désormais et sauvegarde un `AppSettings` de
+  secours si besoin, comme `SettingsView.settings` le fait déjà.
+- **Tests** : `Tests/ChatbotViewTests.swift` —
+  `toolCallingTogglePersistsInAppSettings` (round-trip SwiftData : un
+  `AppSettings` avec `chatbotToolCallingEnabled = true` sauvegardé, puis relu
+  depuis un second `ModelContext` sur le même conteneur, reste `true`).
+- **Vérifié** : `swift build` propre ; `swift test` complet — 604 tests
+  Swift Testing (92 suites), 0 échec.
+- **Hors périmètre** (volontaire) : le toggle n'est pas exposé dans
+  `SettingsView` — il reste local à `ChatbotView` mais persisté via
+  `AppSettings`. Une future PR pourra l'y exposer pour cohérence avec les
+  autres toggles IA.
+- **Non poussé, pas de merge** (consigne de la tâche).
+
+**Prochaine action** : décider si le toggle doit apparaître dans
+`SettingsView` (cohérence avec les autres réglages IA), sinon poursuivre sur
+D (batch d'indexation globale) selon priorisation de l'ADR RAG.
+
 ## RAG — hybrid search BM25 + cosine via RRF (B3) (2026-09-05)
 
 Branche `feat/rag-hybrid-search-b3`, sur `master` (C déjà fusionné, PR #11). ADR :
