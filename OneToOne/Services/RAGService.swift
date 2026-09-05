@@ -4,6 +4,15 @@ import os
 
 private let ragLog = Logger(subsystem: "com.onetoone.app", category: "rag")
 
+// MARK: - RAGService
+
+/// Namespace léger exposant la référence du modèle d'embedding courant, pour
+/// les appelants qui n'ont besoin que de cette valeur (ex. `RAGIndexingSweep`)
+/// sans dépendre directement de `EmbeddingService`.
+enum RAGService {
+    static var embeddingModel: String { EmbeddingService.model }
+}
+
 // MARK: - Chunker
 
 /// Découpe un texte en chunks ~targetChars avec overlap.
