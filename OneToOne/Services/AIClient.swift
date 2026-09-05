@@ -9,24 +9,40 @@ enum AIClient {
     /// main actor s'il met à jour de l'UI.
     typealias ProgressCallback = @Sendable (String) async -> Void
 
+    enum Activity: Equatable, Sendable {
+        case waiting
+        case reasoning(Int)
+        case writing(Int)
+    }
+    typealias ActivityCallback = @Sendable (Activity) async -> Void
+
     /// Send a prompt and get a text response, routing based on provider settings.
     /// `onProgress` reçoit le texte au fur et à mesure pour les providers qui
-    /// supportent le streaming (Directe MLX, OpenAI-compat, Anthropic). Gemini
+    /// supportent le streaming (endpoints compatibles OpenAI, Anthropic). Gemini
     /// OAuth appelle `onProgress` une seule fois à la fin avec le texte complet.
+    @MainActor
     static func send(
         prompt: String,
         settings: AppSettings,
-        onProgress: ProgressCallback? = nil
+        onProgress: ProgressCallback? = nil,
+        onActivity: ActivityCallback? = nil
     ) async throws -> String {
+        let configuration = try AIConfigurationStore.resolve(settings)
+        if configuration.profile.provider.usesCompatibleEndpoint {
+            return try await OpenAICompatibleClient().send(prompt: prompt, configuration: configuration, onProgress: onProgress, onActivity: onActivity)
+        }
+        // Copie détachée pour les adaptateurs historiques : le profil et la clé
+        // sont figés avant le réseau, même si les réglages changent entre-temps.
+        let settings = AppSettings(cloudToken: configuration.apiKey,
+                                   apiEndpoint: configuration.profile.baseURL,
+                                   modelName: configuration.profile.model,
+                                   provider: configuration.profile.provider)
+        settings.directModelRepo = configuration.profile.model
+        await onActivity?(.waiting)
         do {
             switch settings.provider {
             case .direct:
-                // LLM MLX in-process (Gemma) — streame via onProgress.
-                return try await DirectLLMClient.send(
-                    prompt: prompt,
-                    modelRepo: settings.directModelRepo,
-                    onProgress: onProgress
-                )
+                throw AIEndpointError.retiredProvider
             case .geminiOAuth:
                 let out = try await GeminiOAuthClient.shared.sendMessage(
                     prompt: prompt,

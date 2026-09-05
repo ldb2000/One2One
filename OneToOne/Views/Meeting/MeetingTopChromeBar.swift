@@ -21,6 +21,8 @@ struct MeetingTopChromeBar: View {
     let isGeneratingReport: Bool
     let reportProgressChars: Int
     let reportElapsedSeconds: Int
+    let reportStatus: String
+    let reportWaitWarning: String?
     let capturedSlidesCount: Int
 
     /// Source d'actions partagée avec les menus natifs (cf. MeetingMenuActions).
@@ -380,12 +382,12 @@ struct MeetingTopChromeBar: View {
             HStack(spacing: 6) {
                 if isGeneratingReport {
                     ProgressView().controlSize(.small).tint(.white)
-                    if reportProgressChars > 0 {
-                        Text("\(reportProgressChars) car. · \(formatElapsed(reportElapsedSeconds))")
-                            .font(.caption.monospacedDigit())
-                    } else {
-                        Text("Rapport… \(formatElapsed(reportElapsedSeconds))")
-                            .font(.caption.monospacedDigit())
+                    Text("\(reportStatus) · \(formatElapsed(reportElapsedSeconds))")
+                        .font(.caption.monospacedDigit())
+                        .lineLimit(1)
+                    if reportWaitWarning != nil {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
                     }
                 } else if stt.isTranscribing {
                     ProgressView().controlSize(.small).tint(.white)
@@ -413,6 +415,7 @@ struct MeetingTopChromeBar: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .help(reportWaitWarning ?? reportStatus)
         .popover(isPresented: $showReportTypePicker, arrowEdge: .bottom) {
             reportTypePicker
         }

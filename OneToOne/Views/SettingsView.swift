@@ -28,22 +28,13 @@ struct SettingsView: View {
         }
     }
 
-    @State private var cloudToken: String = ""
-    @State private var apiEndpoint: String = ""
-    @State private var modelName: String = ""
-    @State private var selectedProvider: AIProvider = .direct
-    @State private var directModelRepo: String = ""
     @State private var importPrompt: String = ""
     @State private var reformulatePrompt: String = ""
     @State private var weeklyExportPrompt: String = ""
     @State private var selectedTab = 0
     @State private var oauthStatus: String = ""
-    @State private var geminiStatus: String = ""
-    @State private var ollamaModels: [String] = []
-    @State private var ollamaStatus: String = ""
     @State private var isLoadingOllamaModels = false
     @State private var backupStatus: String = ""
-    @State private var testStatus: String = ""
     @State private var isTesting = false
     @State private var spotlightStatus: String = ""
     @State private var isReindexing = false
@@ -56,13 +47,6 @@ struct SettingsView: View {
     @State private var managerCategories: [String] = []
     @State private var managerReportPrompt: String = ""
 
-    /// Set to true at the END of onAppear's hydration. Prevents `.onChange` handlers
-    /// from running during the initial state-from-DB load — otherwise:
-    /// - `selectedProvider = settings.provider` → onChange fires → updateDefaults → resets modelName/apiEndpoint
-    /// - my auto-save .onChange(of: modelName) sees the reset → persists the WRONG value
-    /// → on next reopen, the saved-by-mistake value comes back. Hence "voxtral keeps coming back".
-    @State private var didInitialLoad: Bool = false
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -72,220 +56,7 @@ struct SettingsView: View {
                     }
                 }
 
-                // IA Config
-                GroupBox("Configuration IA") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker("Fournisseur IA", selection: $selectedProvider) {
-                            ForEach(AIProvider.allCases, id: \.self) { provider in
-                                Text(provider.displayName).tag(provider)
-                            }
-                        }
-                        .onChange(of: selectedProvider) { _, newProvider in
-                            // Skip during initial hydration — otherwise updateDefaults
-                            // overwrites the user's saved modelName/endpoint at every
-                            // settings reopen.
-                            guard didInitialLoad else { return }
-                            updateDefaults(for: newProvider)
-                            if newProvider == .ollama {
-                                fetchOllamaModels()
-                            }
-                        }
-
-                        if selectedProvider == .direct {
-                            // LLM MLX exécuté localement, in-process (≠ Ollama
-                            // qui passe par un serveur HTTP).
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Exécute un modèle MLX directement dans l'app, sur l'appareil — sans serveur ni clé API. Le modèle est téléchargé au premier usage puis mis en cache.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                LabeledContent("Modèle (repo HF MLX)") {
-                                    EditableTextField(placeholder: "mlx-community/gemma-4-26b-a4b-it-8bit", text: $directModelRepo)
-                                        .frame(height: 24)
-                                }
-
-                                Text("Ex. mlx-community/gemma-4-26b-a4b-it-8bit (défaut, déjà en cache) · gemma-4-e4b-it-8bit (léger) · gemma-4-31b-8bit (téléchargement ~31 Go)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        } else if selectedProvider == .geminiOAuth {
-                            // Gemini OAuth flow
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Utilise les credentials OAuth de Gemini CLI (gratuit avec compte Google).")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                HStack {
-                                    Text("1.")
-                                    Text("Installez Gemini CLI :")
-                                        .foregroundColor(.secondary)
-                                    Text("`npm i -g @google/gemini-cli`")
-                                        .font(.system(.caption, design: .monospaced))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color(nsColor: .controlBackgroundColor))
-                                        .cornerRadius(4)
-                                }
-                                .font(.caption)
-
-                                HStack {
-                                    Text("2.")
-                                    Text("Lancez `gemini` et connectez-vous avec Google.")
-                                        .foregroundColor(.secondary)
-                                }
-                                .font(.caption)
-
-                                Button("Importer depuis ~/.gemini/oauth_creds.json") {
-                                    if let creds = GeminiOAuthClient.shared.storage.importFromGeminiCLI() {
-                                        GeminiOAuthClient.shared.storage.save(creds)
-                                        geminiStatus = "Credentials importées — OK"
-                                    } else {
-                                        geminiStatus = "Fichier non trouvé. Lancez `gemini` d'abord."
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-
-                                if !geminiStatus.isEmpty {
-                                    Text(geminiStatus)
-                                        .font(.caption)
-                                        .foregroundColor(geminiStatus.contains("OK") ? .green : .orange)
-                                }
-
-                                LabeledContent("Modèle") {
-                                    EditableTextField(placeholder: "gemini-2.5-pro", text: $modelName)
-                                        .frame(height: 24)
-                                }
-                            }
-                        } else if selectedProvider == .ollama {
-                            // Ollama local flow
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Ollama tourne en local. Pas de clé API nécessaire.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                LabeledContent("Endpoint") {
-                                    EditableTextField(placeholder: "http://localhost:11434/v1", text: $apiEndpoint)
-                                        .frame(height: 24)
-                                }
-
-                                HStack {
-                                    if !ollamaModels.isEmpty {
-                                        Picker("Modèle", selection: $modelName) {
-                                            ForEach(ollamaModels, id: \.self) { model in
-                                                Text(model).tag(model)
-                                            }
-                                        }
-                                    } else {
-                                        LabeledContent("Modèle") {
-                                            EditableTextField(placeholder: "llama3", text: $modelName)
-                                                .frame(height: 24)
-                                        }
-                                    }
-
-                                    Button(action: fetchOllamaModels) {
-                                        if isLoadingOllamaModels {
-                                            ProgressView().controlSize(.small)
-                                        } else {
-                                            Label("Lister", systemImage: "arrow.clockwise")
-                                        }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(isLoadingOllamaModels)
-                                }
-
-                                if !ollamaStatus.isEmpty {
-                                    Text(ollamaStatus)
-                                        .font(.caption)
-                                        .foregroundColor(ollamaStatus.contains("modèle") ? .green : .orange)
-                                }
-                            }
-                        } else {
-                            // Standard API Key flow (OpenAI, Gemini API Key, Anthropic API Key)
-                            LabeledContent("Clé API") {
-                                EditableTextField(placeholder: "Token / API Key", text: $cloudToken)
-                                    .frame(height: 24)
-                            }
-
-                            LabeledContent("Endpoint API") {
-                                EditableTextField(placeholder: "Endpoint API", text: $apiEndpoint)
-                                    .frame(height: 24)
-                            }
-
-                            LabeledContent("Modèle") {
-                                EditableTextField(placeholder: "Modèle", text: $modelName)
-                                    .frame(height: 24)
-                            }
-                        }
-
-                        Divider()
-
-                        HStack {
-                            // Auto-save on Picker / Provider change is wired via
-                            // `.onChange` modifiers below — but we keep an explicit
-                            // button so users have a clear "save" anchor.
-                            Button("Enregistrer la config IA") { saveSettings() }
-                                .buttonStyle(.borderedProminent)
-                            if !oauthStatus.isEmpty && oauthStatus.contains("sauvegardés") {
-                                Label(oauthStatus, systemImage: "checkmark.circle.fill")
-                                    .font(.caption)
-                                    .foregroundColor(.green)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .padding(.vertical, 5)
-                    // Auto-save : every change to provider / endpoint / model
-                    // persists immediately. Guarded by `didInitialLoad` so
-                    // initial-state hydration doesn't fire false saves.
-                    .onChange(of: selectedProvider) { _, _ in
-                        guard didInitialLoad else { return }
-                        saveSettings()
-                    }
-                    .onChange(of: modelName) { _, _ in
-                        guard didInitialLoad else { return }
-                        saveSettings()
-                    }
-                    .onChange(of: directModelRepo) { _, _ in
-                        guard didInitialLoad else { return }
-                        saveSettings()
-                    }
-                    .onChange(of: apiEndpoint) { _, _ in
-                        guard didInitialLoad else { return }
-                        saveSettings()
-                    }
-                }
-
-                // Test button
-                GroupBox("Test de connexion") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Testez la configuration IA avant de sauvegarder.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack {
-                            Button(action: testAIConnection) {
-                                if isTesting {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Label("Tester la connexion", systemImage: "network")
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(isTesting)
-
-                            if !testStatus.isEmpty {
-                                Image(systemName: testStatus.contains("OK") ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                    .foregroundColor(testStatus.contains("OK") ? .green : .red)
-                                Text(testStatus)
-                                    .font(.caption)
-                                    .foregroundColor(testStatus.contains("OK") ? .green : .red)
-                                    .lineLimit(3)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 5)
-                }
+                AISettingsView(settings: settings)
 
                 // AI feature toggles
                 GroupBox("Fonctionnalites IA") {
@@ -877,11 +648,6 @@ struct SettingsView: View {
         }
         .onAppear {
             ensureSingleSettingsRecord()
-            cloudToken = settings.cloudToken
-            apiEndpoint = settings.apiEndpoint
-            modelName = settings.modelName
-            directModelRepo = settings.directModelRepo
-            selectedProvider = settings.provider
             importPrompt = settings.importPrompt
             reformulatePrompt = settings.reformulatePrompt
             weeklyExportPrompt = settings.weeklyExportPrompt
@@ -892,138 +658,9 @@ struct SettingsView: View {
             managerCategories = settings.managerCategories
             managerReportPrompt = settings.managerReportPrompt
 
-            // Initial state hydration done — allow .onChange handlers to fire saves now.
-            didInitialLoad = true
         }
         .warmBackground()
         .navigationTitle("Paramètres")
-    }
-
-    /// Interroge `/api/tags` du serveur Ollama (dérivé de l'endpoint en retirant le
-    /// suffixe `/v1`) pour lister les modèles installés et met à jour `ollamaModels`.
-    private func fetchOllamaModels() {
-        isLoadingOllamaModels = true
-        ollamaStatus = ""
-
-        // Derive base URL from the endpoint (strip /v1 suffix)
-        var baseURL = apiEndpoint
-        if baseURL.hasSuffix("/v1") || baseURL.hasSuffix("/v1/") {
-            baseURL = String(baseURL.dropLast(baseURL.hasSuffix("/") ? 4 : 3))
-        }
-        let tagsURL = baseURL + "/api/tags"
-
-        Task {
-            do {
-                guard let url = URL(string: tagsURL) else {
-                    await MainActor.run {
-                        ollamaStatus = "URL invalide: \(tagsURL)"
-                        isLoadingOllamaModels = false
-                    }
-                    return
-                }
-
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 5
-
-                let (data, response) = try await URLSession.shared.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                    await MainActor.run {
-                        ollamaStatus = "Ollama ne répond pas. Est-il lancé ?"
-                        isLoadingOllamaModels = false
-                    }
-                    return
-                }
-
-                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                guard let models = json?["models"] as? [[String: Any]] else {
-                    await MainActor.run {
-                        ollamaStatus = "Réponse inattendue"
-                        isLoadingOllamaModels = false
-                    }
-                    return
-                }
-
-                let names = models.compactMap { $0["name"] as? String }.sorted()
-
-                await MainActor.run {
-                    ollamaModels = names
-                    if !names.isEmpty {
-                        ollamaStatus = "\(names.count) modèle(s) trouvé(s)"
-                        if !names.contains(modelName) {
-                            modelName = names.first ?? "llama3"
-                        }
-                    } else {
-                        ollamaStatus = "Aucun modèle installé. Lancez `ollama pull llama3`"
-                    }
-                    isLoadingOllamaModels = false
-                }
-            } catch {
-                await MainActor.run {
-                    ollamaStatus = "Erreur: \(error.localizedDescription)"
-                    isLoadingOllamaModels = false
-                }
-            }
-        }
-    }
-
-    /// Sauvegarde la config courante puis envoie un prompt de test (« Reponds
-    /// uniquement par: OK ») au fournisseur sélectionné et reflète le résultat dans `testStatus`.
-    private func testAIConnection() {
-        isTesting = true
-        testStatus = ""
-
-        // Save settings first so the test uses the latest values
-        saveSettings()
-
-        // Build temporary settings from current form state
-        let testSettings = AppSettings()
-        testSettings.provider = selectedProvider
-        testSettings.cloudToken = cloudToken
-        testSettings.apiEndpoint = apiEndpoint
-        testSettings.modelName = modelName
-
-        Task {
-            do {
-                let response = try await AIClient.send(
-                    prompt: "Reponds uniquement par: OK",
-                    settings: testSettings
-                )
-                await MainActor.run {
-                    testStatus = "OK — Reponse: \(response.prefix(80).trimmingCharacters(in: .whitespacesAndNewlines))"
-                    isTesting = false
-                }
-            } catch {
-                await MainActor.run {
-                    testStatus = "Echec: \(error.localizedDescription)"
-                    isTesting = false
-                }
-            }
-        }
-    }
-
-    /// Renseigne `apiEndpoint` et `modelName` avec les valeurs par défaut associées au
-    /// fournisseur donné (appelé lors d'un changement de fournisseur par l'utilisateur).
-    private func updateDefaults(for provider: AIProvider) {
-        switch provider {
-        case .direct:
-            if directModelRepo.isEmpty { directModelRepo = "mlx-community/gemma-4-26b-a4b-it-8bit" }
-        case .geminiOAuth:
-            apiEndpoint = "https://generativelanguage.googleapis.com/v1beta"
-            modelName = "gemini-2.5-pro"
-        case .anthropic:
-            apiEndpoint = "https://api.anthropic.com/v1"
-            modelName = "claude-sonnet-4-5"
-        case .openai:
-            apiEndpoint = "https://api.openai.com/v1"
-            modelName = "gpt-4o"
-        case .ollama:
-            apiEndpoint = "http://localhost:11434/v1"
-            modelName = "llama3"
-        case .gemini:
-            apiEndpoint = "https://generativelanguage.googleapis.com/v1beta"
-            modelName = "gemini-1.5-pro"
-        }
     }
 
     /// Re-applique tous les notifs avec les nouveaux paramètres. Utilisé
@@ -1037,11 +674,6 @@ struct SettingsView: View {
     /// catégories manager) vers `settings`, sauvegarde le contexte et met à jour `oauthStatus`.
     private func saveSettings() {
 
-        settings.cloudToken = cloudToken
-        settings.apiEndpoint = apiEndpoint
-        settings.modelName = modelName
-        settings.directModelRepo = directModelRepo
-        settings.provider = selectedProvider
         settings.importPrompt = importPrompt
         settings.reformulatePrompt = reformulatePrompt
         settings.weeklyExportPrompt = weeklyExportPrompt

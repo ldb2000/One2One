@@ -7,12 +7,24 @@ import Foundation
 /// démonstration ne traverse et que l'usage réel trouve tout de suite.
 @Suite("Teams auto-record — cas limites")
 struct TeamsAutoRecordEdgeCasesTests {
+    @MainActor
+    @Test("LM Studio exige un modèle ; OpenRouter exige en plus une clé")
+    func endpointConfigurationAvailability() {
+        let settings = AppSettings()
+        #expect(!TeamsReportAvailability.isAvailable(settings: settings))
+        settings.modelName = "local-model"
+        #expect(TeamsReportAvailability.isAvailable(settings: settings))
+        let remote = AppSettings(modelName: "vendor/model", provider: .openRouter)
+        #expect(!TeamsReportAvailability.isAvailable(settings: remote))
+        remote.cloudToken = "test-key"
+        #expect(TeamsReportAvailability.isAvailable(settings: remote))
+    }
 
     // MARK: - D-9 : disponibilité du rapport
 
     @Test("Le provider local est toujours disponible, sans jeton")
     func localProvidersNeedNoToken() {
-        #expect(TeamsReportAvailability.isAvailable(provider: .direct, cloudToken: ""))
+        #expect(!TeamsReportAvailability.isAvailable(provider: .direct, cloudToken: ""))
         #expect(TeamsReportAvailability.isAvailable(provider: .ollama, cloudToken: ""))
         #expect(TeamsReportAvailability.isAvailable(provider: .geminiOAuth, cloudToken: ""))
     }

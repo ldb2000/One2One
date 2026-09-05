@@ -95,7 +95,9 @@ struct AIReportService {
         in context: ModelContext,
         settings: AppSettings,
         additionalContext: String = "",
-        onProgress: AIClient.ProgressCallback? = nil
+        onProgress: AIClient.ProgressCallback? = nil,
+        onActivity: AIClient.ActivityCallback? = nil,
+        onMarkdownReady: (@MainActor (String) async throws -> Void)? = nil
     ) async throws -> MeetingReportData {
         let template = meeting.reportTemplate ?? defaultTemplate(for: meeting.kind, in: context)
         let history = template.map { HistoryContextBuilder.build(for: meeting, template: $0, in: context) } ?? ""
@@ -182,10 +184,26 @@ struct AIReportService {
         """
 
         reportLog.info("generate(meeting): template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count) attachmentsChars=\(attachmentsBlock.count)")
-        let markdown = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress)
+        let markdown = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress, onActivity: onActivity)
 
-        // 6. Extraction structurée 2e passe (Task 6 fournira la fonction).
-        let extracted = await extractStructured(markdown: markdown, meeting: meeting, settings: settings)
+        return try await completeReport(markdown: markdown, onMarkdownReady: onMarkdownReady) {
+            await extractStructured(markdown: markdown, meeting: meeting, settings: settings, onActivity: onActivity)
+        }
+    }
+
+    /// Publie le markdown terminé avant toute extraction. Une annulation de la
+    /// seconde passe n'efface pas le texte déjà remis au caller pour sauvegarde.
+    @MainActor
+    static func completeReport(
+        markdown: String,
+        onMarkdownReady: (@MainActor (String) async throws -> Void)?,
+        extract: () async throws -> ExtractedFacts
+    ) async throws -> MeetingReportData {
+        try Task.checkCancellation()
+        try await onMarkdownReady?(markdown)
+        try Task.checkCancellation()
+        let extracted = try await extract()
+        try Task.checkCancellation()
 
         return MeetingReportData(
             summary: markdown,
@@ -515,7 +533,8 @@ struct AIReportService {
     static func extractStructured(
         markdown: String,
         meeting: Meeting,
-        settings: AppSettings
+        settings: AppSettings,
+        onActivity: AIClient.ActivityCallback? = nil
     ) async -> ExtractedFacts {
         let prompt = """
         Analyse ce compte-rendu de réunion et extrais les éléments structurés
@@ -546,7 +565,7 @@ struct AIReportService {
         """
 
         do {
-            let raw = try await AIClient.send(prompt: prompt, settings: settings)
+            let raw = try await AIClient.send(prompt: prompt, settings: settings, onActivity: onActivity)
             let parsed = parse(raw)
             return ExtractedFacts(
                 keyPoints: parsed.keyPoints,

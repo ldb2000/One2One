@@ -3,8 +3,8 @@ import os
 
 private let mailLLMLog = Logger(subsystem: "com.onetoone.app", category: "mail-llm")
 
-/// Étage 2 du matching mail → projet : classification par le LLM local
-/// (Gemma 4 via `DirectLLMClient`) des mails que les heuristiques n'ont pas
+/// Étage 2 du matching mail → projet : classification par le LLM configuré
+/// dans l'application des mails que les heuristiques n'ont pas
 /// tranchés. Réponse attendue : JSON strict {"projectCode": ..., "confidence": ...}.
 @MainActor
 enum MailLLMClassifier {
@@ -77,8 +77,8 @@ enum MailLLMClassifier {
         return MailProjectMatcher.Verdict(projectCode: code, confidence: confidence)
     }
 
-    /// Classifie un mail ambigu. `generate` nil → Gemma 4 réel
-    /// (`DirectLLMClient`, repo = `settings.directModelRepo`).
+    /// Classifie un mail ambigu via l'endpoint choisi. Un endpoint distant
+    /// exige l'option de classement distant ; sinon, repli heuristique.
     /// Réponse illisible → `.unparseable` (spec : le mail sera ignoré) ;
     /// erreur LLM (chargement/génération) → `.unavailable` (repli heuristique,
     /// le scan continue). Tout est loggé.
@@ -90,6 +90,8 @@ enum MailLLMClassifier {
         settings: AppSettings,
         generate: ((String) async throws -> String)? = nil
     ) async -> ClassifyResult {
+        guard let profile = try? AIConfigurationStore.profile(for: settings),
+              profile.isOnDevice || settings.allowRemoteMailClassification else { return .unavailable }
         let prompt = buildPrompt(subject: subject, sender: sender,
                                  preview: preview, candidates: candidates)
         do {
@@ -97,14 +99,10 @@ enum MailLLMClassifier {
             if let generate {
                 raw = try await generate(prompt)
             } else {
-                raw = try await DirectLLMClient.send(
-                    prompt: prompt,
-                    modelRepo: settings.directModelRepo,
-                    onProgress: nil
-                )
+                raw = try await AIClient.send(prompt: prompt, settings: settings)
             }
             guard let verdict = parseVerdict(raw, knownCodes: Set(candidates.map(\.code))) else {
-                mailLLMLog.error("classify: réponse inexploitable — \(String(raw.prefix(200)), privacy: .public)")
+                mailLLMLog.error("classify: réponse inexploitable")
                 return .unparseable
             }
             return .verdict(verdict)

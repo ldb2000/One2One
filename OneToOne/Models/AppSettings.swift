@@ -26,9 +26,10 @@ enum TeamsAudioCaptureMode: String, Codable, CaseIterable, Sendable {
     case microAndSystem
 }
 
-enum AIProvider: String, Codable, CaseIterable {
-    /// LLM exécuté localement en MLX, directement dans le process (≠ Ollama
-    /// qui passe par un serveur HTTP). Cf. `DirectLLMClient`.
+enum AIProvider: String, Codable, CaseIterable, Sendable {
+    case lmStudio = "lmStudio"
+    case openRouter = "openRouter"
+    /// Valeur de lecture des anciens stores uniquement ; moteur retiré.
     case direct = "Directe (MLX local)"
     case anthropic = "Claude (API Key)"
     case geminiOAuth = "Gemini OAuth (CLI)"
@@ -36,9 +37,16 @@ enum AIProvider: String, Codable, CaseIterable {
     case ollama = "Ollama"
     case gemini = "Gemini (API Key)"
 
+    static var endpointProviders: [Self] { [.lmStudio, .openRouter, .ollama] }
+    static var selectableProviders: [Self] { allCases.filter { $0 != .direct } }
+    var usesCompatibleEndpoint: Bool { Self.endpointProviders.contains(self) }
+    static let legacyDirectModelRepo = "mlx-community/gemma-4-26b-a4b-it-8bit"
+
     /// Display name shown in the UI (can differ from rawValue which is stored in DB)
     var displayName: String {
         switch self {
+        case .lmStudio: return "LM Studio"
+        case .openRouter: return "OpenRouter"
         case .direct: return "Directe (Gemma MLX local)"
         case .anthropic: return "Claude (API Key)"
         case .geminiOAuth: return "Gemini OAuth (CLI)"
@@ -58,6 +66,10 @@ final class AppSettings {
     var cloudToken: String = ""
     var apiEndpoint: String = "https://api.openai.com/v1"
     var modelName: String = "gpt-4o"
+    /// Profils sans secrets. Vide sur les stores antérieurs à la migration IA.
+    var aiProfilesJSON: String = ""
+    /// Le classement automatique des mails ne quitte pas le Mac sans activation.
+    var allowRemoteMailClassification: Bool = false
 
     /// Stockage stable du provider en `String` plutôt qu'enum Codable.
     /// Contournement du bug SwiftData où les enums `Codable` non-Optionnels
@@ -69,16 +81,14 @@ final class AppSettings {
 
     /// Provider exposé en enum — lecture/écriture transparente via
     /// `providerRaw`. Computed donc non-stocké : pas de doublon en DB.
-    /// Fallback `.direct` : les anciennes valeurs (ex. "Claude OAuth
-    /// (setup-token)", retiré) retombent proprement sur le mode direct.
+    /// `.direct` est un marqueur historique ; le résolveur refuse les valeurs
+    /// inconnues et migre les anciennes configurations Direct vers LM Studio.
     var provider: AIProvider {
         get { AIProvider(rawValue: providerRaw) ?? .direct }
         set { providerRaw = newValue.rawValue }
     }
 
-    /// Repo HuggingFace MLX chargé par le provider `.direct` (LLM in-process).
-    /// Téléchargé au premier usage s'il est absent du cache. Vide → défaut
-    /// défini par `DirectLLMClient`.
+    /// Ancienne préférence conservée pour la lecture des stores et sauvegardes.
     var directModelRepo: String = "mlx-community/gemma-4-26b-a4b-it-8bit"
 
     // Per-feature AI toggles
@@ -347,10 +357,10 @@ final class AppSettings {
         Color(hex: meetingCollaboratorColorHex) ?? Color(hex: Self.defaultMeetingCollaboratorColorHex) ?? .blue
     }
 
-    init(cloudToken: String = "", apiEndpoint: String = "https://api.anthropic.com/v1", modelName: String = "claude-sonnet-4-5", provider: AIProvider = .direct) {
+    init(cloudToken: String = "", apiEndpoint: String? = nil, modelName: String? = nil, provider: AIProvider = .lmStudio) {
         self.cloudToken = cloudToken
-        self.apiEndpoint = apiEndpoint
-        self.modelName = modelName
+        self.apiEndpoint = apiEndpoint ?? AIEndpointProfile.defaults(for: provider).baseURL
+        self.modelName = modelName ?? AIEndpointProfile.defaults(for: provider).model
         self.provider = provider
     }
 

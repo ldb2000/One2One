@@ -14,16 +14,11 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.30.6"),
         .package(url: "https://github.com/soniqo/speech-swift", branch: "main"),
         .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.6.0"),
-        // Génération LLM locale in-process (provider "Directe", ex. Gemma MLX).
-        // mlx-swift-lm en branch:main : requis par Gemma4Swift (support MoE
-        // gemma-4-26b-a4b) et fournit LLMTypeRegistry. Override la contrainte
-        // version de mlx-audio-swift (root wins).
+        // Embeddings locaux et dépendances partagées avec la transcription.
+        // Conserver la révision actuelle pendant le retrait du LLM intégré.
         .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", branch: "main"),
         .package(url: "https://github.com/huggingface/swift-huggingface.git", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers.git", from: "1.3.0"),
-        // Support natif Gemma 4 MoE (26b-a4b/31b) — enregistre gemma4_text/gemma4
-        // dans LLMTypeRegistry via Gemma4Registration.register().
-        .package(url: "https://github.com/VincentGourbin/gemma-4-swift-mlx", branch: "main"),
         // Éditeur/rendu markdown natif macOS (TextKit 2). Cœur sans dépendance ;
         // highlighting/LaTeX = produits optionnels non embarqués. Apache 2.0.
         .package(url: "https://github.com/nodes-app/swift-markdown-engine", from: "0.1.0"),
@@ -48,14 +43,12 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "SpeechVAD", package: "speech-swift"),
                 .product(name: "Markdown", package: "swift-markdown"),
-                // Provider "Directe" : LLM MLX in-process (Gemma).
-                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                // Embeddings et runtime partagé avec les moteurs audio.
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
                 .product(name: "MLXEmbedders", package: "mlx-swift-lm"),
                 .product(name: "HuggingFace", package: "swift-huggingface"),
                 .product(name: "Tokenizers", package: "swift-transformers"),
-                .product(name: "Gemma4Swift", package: "gemma-4-swift-mlx"),
                 .product(name: "MarkdownEngine", package: "swift-markdown-engine"),
             ],
             path: "OneToOne",

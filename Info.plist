@@ -30,6 +30,13 @@
 	<string>OneToOne récupère la photo de profil de vos collaborateurs depuis vos Contacts macOS pour enrichir les listes de participants.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>OneToOne utilise le microphone pour enregistrer les réunions et générer les transcriptions.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OneToOne se connecte au serveur IA local configuré dans vos réglages.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>OneToOne capture les slides projetées pendant vos réunions pour les retranscrire et les joindre au compte-rendu.</string>
 </dict>

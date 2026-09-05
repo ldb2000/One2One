@@ -18,7 +18,9 @@ final class TeamsAutoRecordCoordinatorTests: XCTestCase {
         let schema = Schema(versionedSchema: CurrentSchema.self)
         let cfg = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         container = try ModelContainer(for: schema, configurations: cfg)
-        context.insert(AppSettings())
+        // Le parcours nominal suppose une IA configurée ; une installation
+        // neuve n'a volontairement aucun modèle LM Studio présélectionné.
+        context.insert(AppSettings(modelName: "test-model", provider: .lmStudio))
         try context.save()
         outbound = []
         coordinator.start(container: container)
