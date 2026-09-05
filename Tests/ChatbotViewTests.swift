@@ -66,4 +66,24 @@ struct ChatbotViewTests {
         #expect(withoutRAG.contains("Conversation antérieure"))
         #expect(withoutRAG.contains("Où en est le projet ?"))
     }
+
+    @Test("Le toggle tool calling persiste dans AppSettings (survit à un rechargement du contexte)")
+    func toolCallingTogglePersistsInAppSettings() throws {
+        let container = try ModelContainer(
+            for: Schema(CurrentSchema.models),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let writeContext = ModelContext(container)
+
+        let settings = AppSettings()
+        settings.chatbotToolCallingEnabled = true
+        writeContext.insert(settings)
+        try writeContext.save()
+
+        // Nouveau ModelContext (simule une réouverture de la vue) pointant vers le même conteneur.
+        let readContext = ModelContext(container)
+        let reloaded = try readContext.fetch(FetchDescriptor<AppSettings>())
+
+        #expect(reloaded.canonicalSettings?.chatbotToolCallingEnabled == true)
+    }
 }

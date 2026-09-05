@@ -52,12 +52,26 @@ struct ChatbotView: View {
     @State private var showSlashMenu = false
     @State private var pickedTemplate: PromptTemplate?
     @State private var showSavePromptSheet = false
+
+    /// Renvoie l'enregistrement `AppSettings` canonique. En crée et insère un
+    /// nouveau (sauvegardé immédiatement) si aucun n'existe encore, pour que
+    /// les écritures (ex. `chatbotToolCallingEnabled`) ne soient pas perdues.
+    private var settings: AppSettings {
+        if let current = settingsList.canonicalSettings {
+            return current
+        } else {
+            let newSettings = AppSettings()
+            context.insert(newSettings)
+            try? context.save()
+            return newSettings
+        }
+    }
+
     /// B2 : quand actif, le LLM effectue ses propres recherches via l'outil
     /// `search_knowledge` (AIClient.sendWithToolLoop) au lieu du pré-fetch RAG (B1).
-    @State private var useToolCalling: Bool = false
-
-    private var settings: AppSettings {
-        settingsList.canonicalSettings ?? AppSettings()
+    /// Persisté dans AppSettings pour survivre à la réouverture de la vue.
+    private var useToolCalling: Bool {
+        settings.chatbotToolCallingEnabled
     }
 
     private let slashCommands: [SlashCommandDef] = [
@@ -246,7 +260,10 @@ struct ChatbotView: View {
 
             // Bascule B2 : recherches par l'IA elle-même (search_knowledge) vs pré-fetch RAG (B1)
             HStack {
-                Toggle(isOn: $useToolCalling) {
+                Toggle(isOn: Binding(
+                    get: { useToolCalling },
+                    set: { settings.chatbotToolCallingEnabled = $0; try? context.save() }
+                )) {
                     Label("Recherche active", systemImage: "sparkle.magnifyingglass")
                         .font(.caption)
                         .foregroundColor(.black.opacity(0.6))
