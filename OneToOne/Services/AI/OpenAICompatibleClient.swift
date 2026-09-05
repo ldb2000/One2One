@@ -11,6 +11,51 @@ final class AIRequestDelegate: NSObject, URLSessionTaskDelegate, @unchecked Send
     }
 }
 
+/// Appel d'outil proposé par le modèle (`message.tool_calls[]`). Défini au
+/// niveau fichier — et non imbriqué dans `AICompletion`, privée — pour rester
+/// réutilisable par `ToolRouter` et `AIClient`. `Encodable` en plus de
+/// `Decodable` : le tour suivant de la boucle d'outils doit renvoyer ce même
+/// tool_call dans le message assistant, sinon le modèle perd le fil de ce
+/// qu'il a demandé.
+struct ToolCall: Codable, Sendable, Equatable {
+    let id: String
+    let type: String
+    let function: ToolCallFunction
+}
+
+struct ToolCallFunction: Codable, Sendable, Equatable {
+    let name: String
+    let arguments: String
+}
+
+/// Résultat d'un tour `chat/completions` avec tools : soit une réponse texte
+/// finale, soit une liste d'appels d'outils à exécuter localement avant de
+/// reboucler (voir `AIClient.sendWithToolLoop`).
+enum SendResult: Sendable {
+    case text(String)
+    case toolCalls([ToolCall])
+}
+
+/// Message de conversation pour la boucle tool-calling (format `messages[]`
+/// OpenAI). `tool_calls` porte les appels proposés par un message assistant ;
+/// `tool_call_id` identifie le résultat d'un message de rôle `tool`. Encodage
+/// manuel : les champs absents (nil) ne doivent pas apparaître en JSON.
+struct ConversationMessage: Encodable, Sendable {
+    var role: String
+    var content: String? = nil
+    var tool_calls: [ToolCall]? = nil
+    var tool_call_id: String? = nil
+
+    static func user(_ content: String) -> ConversationMessage { .init(role: "user", content: content) }
+    static func system(_ content: String) -> ConversationMessage { .init(role: "system", content: content) }
+    static func assistant(content: String? = nil, toolCalls: [ToolCall]? = nil) -> ConversationMessage {
+        .init(role: "assistant", content: content, tool_calls: toolCalls)
+    }
+    static func toolResult(callID: String, content: String) -> ConversationMessage {
+        .init(role: "tool", content: content, tool_call_id: callID)
+    }
+}
+
 struct OpenAICompatibleClient: Sendable {
     let session: URLSession
     private static let log = Logger(subsystem: "com.onetoone.app", category: "ai-endpoint")
@@ -79,19 +124,67 @@ struct OpenAICompatibleClient: Sendable {
         guard decoded.error == nil else { throw AIEndpointError.serverError }
         guard let choice = decoded.choices?.first else { throw AIEndpointError.invalidResponse }
         try validateFinish(choice.finish_reason)
-        guard choice.message?.refusal == nil,
-              choice.message?.tool_calls?.isEmpty != false else { throw AIEndpointError.refused }
+        switch try Self.extractResult(from: choice) {
+        case .text(let text): return text
+        // `send()` n'orchestre pas de boucle d'outils : un appel non prévu ici
+        // (aucun tool déclaré dans la requête) reste un refus, comme avant.
+        case .toolCalls: throw AIEndpointError.refused
+        }
+    }
+
+    /// Lit `message.refusal` / `message.tool_calls` / `message.content` d'un
+    /// choix décodé et les range en `SendResult`. Les tool_calls ne sont plus
+    /// systématiquement un refus (anti-pattern précédent) : c'est la fin
+    /// normale d'un tour tool-calling, à l'appelant de décider quoi en faire.
+    private static func extractResult(from choice: AICompletion.Choice) throws -> SendResult {
+        guard choice.message?.refusal == nil else { throw AIEndpointError.refused }
+        if let calls = choice.message?.tool_calls, !calls.isEmpty {
+            return .toolCalls(calls)
+        }
         guard let text = choice.message?.content, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIEndpointError.emptyResponse
         }
-        return text
+        return .text(text)
+    }
+
+    /// Variante tool-calling de `send()` : un tour non-streamé qui peut se
+    /// terminer par du texte ou par des `tool_calls` à exécuter localement.
+    /// Non-streamé par construction (voir note sur `requestBody(messages:...)`) :
+    /// `AIClient.sendWithToolLoop` orchestre les tours suivants.
+    func sendWithTools(
+        messages: [ConversationMessage],
+        configuration: AIRequestConfiguration,
+        tools: [ToolSpec]
+    ) async throws -> SendResult {
+        do { return try await performSendWithTools(messages: messages, configuration: configuration, tools: tools) }
+        catch { throw normalize(error, provider: configuration.profile.provider) }
+    }
+
+    private func performSendWithTools(
+        messages: [ConversationMessage],
+        configuration: AIRequestConfiguration,
+        tools: [ToolSpec]
+    ) async throws -> SendResult {
+        var request = try request(configuration: configuration, path: "chat/completions")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try Self.requestBody(messages: messages, configuration: configuration, tools: tools)
+        try Task.checkCancellation()
+        let (data, response) = try await session.data(for: request, delegate: AIRequestDelegate())
+        try Task.checkCancellation()
+        try check(response)
+        let decoded = try decode(data)
+        guard decoded.error == nil else { throw AIEndpointError.serverError }
+        guard let choice = decoded.choices?.first else { throw AIEndpointError.invalidResponse }
+        try validateFinish(choice.finish_reason)
+        return try Self.extractResult(from: choice)
     }
 
     /// Corps `chat/completions`. Le niveau de raisonnement n'ajoute rien par défaut ;
     /// Ollama lit `reasoning_effort`, OpenRouter `reasoning.effort`. LM Studio ignore
     /// ces champs : consigne système du template Qwen, ou bloc de réflexion vide
     /// prérempli pour désactiver (uniquement modèles Qwen, sinon requête par défaut).
-    static func requestBody(prompt: String, configuration: AIRequestConfiguration, stream: Bool) throws -> Data {
+    static func requestBody(prompt: String, configuration: AIRequestConfiguration, stream: Bool, tools: [ToolSpec]? = nil) throws -> Data {
         struct Message: Encodable { var role = "user"; let content: String }
         struct Reasoning: Encodable { let effort: String }
         struct Body: Encodable {
@@ -101,9 +194,10 @@ struct OpenAICompatibleClient: Sendable {
             let max_tokens: Int
             var reasoning_effort: String? = nil
             var reasoning: Reasoning? = nil
+            var tools: [ToolSpec]? = nil
         }
         let profile = configuration.profile
-        var body = Body(model: profile.model, messages: [Message(content: prompt)], stream: stream, max_tokens: profile.maxOutputTokens)
+        var body = Body(model: profile.model, messages: [Message(content: prompt)], stream: stream, max_tokens: profile.maxOutputTokens, tools: tools)
         let level = AIReasoningLevel.available(for: profile).contains(profile.reasoning) ? profile.reasoning : .modelDefault
         if let effort = level.effort {
             switch profile.provider {
@@ -118,6 +212,24 @@ struct OpenAICompatibleClient: Sendable {
             default: break
             }
         }
+        return try JSONEncoder().encode(body)
+    }
+
+    /// Corps `chat/completions` pour un tour de boucle tool-calling : conversation
+    /// complète (`messages`, y compris les tours tool précédents) plutôt qu'un
+    /// prompt unique. Toujours non-streamé — voir `sendWithTools`. Le niveau de
+    /// raisonnement du profil n'est volontairement pas propagé ici (hors périmètre
+    /// de cette PR) ; seuls modèle, limite de sortie et tools le sont.
+    static func requestBody(messages: [ConversationMessage], configuration: AIRequestConfiguration, tools: [ToolSpec]) throws -> Data {
+        struct Body: Encodable {
+            let model: String
+            var messages: [ConversationMessage]
+            let stream = false
+            let max_tokens: Int
+            var tools: [ToolSpec]?
+        }
+        let profile = configuration.profile
+        let body = Body(model: profile.model, messages: messages, max_tokens: profile.maxOutputTokens, tools: tools)
         return try JSONEncoder().encode(body)
     }
 
@@ -186,7 +298,6 @@ private struct AICompletion: Decodable {
         var reasoning_content: String?
         var refusal: String?
         var tool_calls: [ToolCall]?
-        struct ToolCall: Decodable {}
     }
     struct Choice: Decodable {
         var delta: Content?
@@ -206,9 +317,12 @@ private func decode(_ data: Data) throws -> AICompletion {
 
 private func validateFinish(_ reason: String?) throws {
     switch reason {
-    case "stop": return
+    // tool_calls/function_call est la fin NORMALE d'un tour qui demande un
+    // outil (pas une erreur) : `message.tool_calls` porte l'information,
+    // géré par `OpenAICompatibleClient.extractResult`.
+    case "stop", "tool_calls", "function_call": return
     case "length", "max_tokens": throw AIEndpointError.truncatedResponse
-    case "content_filter", "tool_calls", "function_call": throw AIEndpointError.refused
+    case "content_filter": throw AIEndpointError.refused
     case "error": throw AIEndpointError.serverError
     default: throw AIEndpointError.incompleteResponse
     }
