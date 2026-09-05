@@ -2,6 +2,90 @@
 
 Dernière mise à jour : 2026-09-02 CEST
 
+## Capture automatique de slides (2026-09-02)
+
+Branche `feat/capture-auto-slides`, code de la fonctionnalité à **`3574054`**, puis
+correctifs de la revue finale (ce commit), basée sur `master` à `553458f`.
+Huit tâches livrées (Task 8 = cette section) plus la vague de correctifs. Spec :
+`docs/superpowers/specs/2026-09-02-capture-auto-slides-design.md`. ADR :
+`docs/adr/2026-09-02-capture-slides-polling-empreinte.md`.
+
+- **Livré** : nouveau module pur `OneToOne/Services/SlideCapture/` (`SlideFingerprint`,
+  `NormalizedRect`, `SlideCaptureSettings` à deux seuils, `SlideDetector`,
+  `FrameSource`/`ShareableWindow`/`SlideCaptureError`, `WindowCatalog`, `WindowFrameSource`,
+  `ScreenRecordingSettingsLink`) ; `ScreenCaptureService` réécrit (états
+  idle/running/paused/stopped, arrêter conserve la session, reprendre, terminer clôt, jeton
+  de session revérifié après chaque `await`, tâche OCR gardée par un contrôle de vivacité,
+  ajout à un lot précédent avec réamorçage du détecteur, noms de fichiers à 4 chiffres) ;
+  `ScreenCaptureConfigView` réécrit en trois faces plus la face de refus d'autorisation ;
+  `CropSelectionView` nouveau ; `PerceptualHasher.swift` et `RectSelectorOverlay.swift`
+  supprimés ; `AppSettings.slideCaptureSensitivityRaw` ajouté (migration légère) ;
+  `Info.plist` reçoit `NSScreenCaptureUsageDescription` ; les barres et `MeetingView`
+  affichent l'état réel avec Reprendre/Terminer, et `onDisappear` clôt une session ouverte
+  après les gardes de suppression.
+- **Correctifs de la revue finale** : `finish()` ne jette plus le texte d'un OCR qui se
+  termine pendant l'attente (la tâche OCR écrit dans **son** slide et **son** attachment,
+  gardée par la vivacité des modèles et non par le jeton) ; après chaque `await`, tick et
+  écriture exigent jeton **et** état actif (`sessionIsLive`) — un tick relâché après `stop()`
+  ne publie plus `.paused` par-dessus `.stopped` ni n'écrit de slide ; `resume()` et
+  `updateSource()` exigent un jeton non nul et `finish()` annule toute boucle relancée
+  pendant son attente (plus de boucle fantôme qui bloquait la session suivante) ;
+  `abandon()` ajouté et appelé par `onDisappear` sur le chemin « réunion supprimée » (rien
+  sauvegardé, rien réindexé) ; `WindowCatalog` passe à `onScreenWindowsOnly: false` et
+  filtre calque `0` + hors-écran non-réunion, donc une fenêtre Teams en plein écran sur un
+  autre Space est enfin proposée et reprise ; « Commencer » est désactivé sur
+  `selectedWindow == nil` et un rafraîchissement oublie une sélection disparue ; la
+  numérotation d'un lot repris part du **maximum** des index et non de leur nombre ;
+  `SessionError.noOpenSession` (inutilisée) remplacée par
+  `attachmentBelongsToAnotherMeeting`, levée par `beginSession(appendTo:)`.
+- **Tests** : `SlideFingerprintTests` (8), `NormalizedRectTests` (12), `SlideDetectorTests`
+  (10), `SlideCaptureErrorTests` (4), `WindowCatalogTests` (3), `ScreenRecordingSettingsLinkTests`
+  (3), `ScreenCaptureServiceTests` (23, dont 7 écrits en rouge pour la revue finale : OCR
+  conservé à la clôture, tick en vol pendant `stop()` — publication et écriture —, `resume()`
+  refusé pendant la clôture, `abandon()`, `appendTo` d'une autre réunion, numérotation sur le
+  maximum des index). Preuves de mutation faites sur l'axe Y, la dérive lente et le jeton de
+  tick (Test A). Suite complète après les correctifs : **XCTest 1030 exécutés, 1 ignoré, 0
+  échec ; Swift Testing 529 tests en 77 suites, 0 échec** ; `swift build` propre à part
+  l'avertissement préexistant dans `PyannoteDiarizer.swift`.
+- **Points ouverts mineurs** (revue différée à la revue finale) : `fromDrag` avec une vue de
+  taille nulle renvoie `.full` au lieu de `current` ; balayage anti-doublon linéaire ;
+  `onScreenWindowsOnly: false` dans `WindowFrameSource` **et** désormais dans le catalogue
+  (délibéré : capturer une fenêtre occultée est la prémisse de la fonctionnalité) ; la tâche
+  d'instantané n'est pas attendue par `finish()` ; écrire la sensibilité est un no-op si
+  aucune ligne `AppSettings` n'existe
+  encore ; `MeetingView` réinitialise toujours `lastError` directement pour fermer le
+  bandeau (accepté).
+- **Build** : `Scripts/bump-and-build.sh dev` exécuté pour la Task 8 ; `swift build` propre
+  après les correctifs de la revue finale.
+
+### Validation manuelle — à faire par l'utilisateur
+
+Aucune validation manuelle n'a été effectuée. À dérouler sur une vraie présentation (Teams,
+Zoom ou Meet, ou un Keynote/PowerPoint en plein écran dans une autre fenêtre) :
+
+- [ ] Ouvrir une réunion → « Capture » → autorisation demandée la première fois ; refuser
+      une fois pour voir l'écran de refus et le bouton « Ouvrir les Réglages » ; accorder ;
+      relancer.
+- [ ] Choisir la fenêtre, tracer une zone : vérifier que **le haut et le bas** du slide
+      écrit correspondent au tracé (ouvrir le PNG dans
+      `~/Library/Application Support/OneToOne/recordings/<uuid>/slides/`).
+- [ ] Faire défiler trois slides : trois fichiers, pas plus. Revenir sur le premier : rien
+      de plus.
+- [ ] Déplacer puis redimensionner la fenêtre source : la zone suit.
+- [ ] Fermer la fenêtre source : pastille orange « En pause » ; la rouvrir : bleu, reprise
+      seule.
+- [ ] Arrêter → « Arrêtée · N » ; Reprendre → numérotation continue ; Terminer → OCR, texte
+      agrégé visible dans la galerie, lot clos.
+- [ ] Rouvrir « Capture » : « Ajouter au lot précédent » proposé ; un slide déjà présent
+      n'est pas réécrit ; un nouveau l'est avec l'index suivant.
+- [ ] Fenêtre source **entièrement** recouverte par une autre : la capture continue-t-elle ?
+      Noter le résultat (non couvert par la sonde du prototype).
+- [ ] Fenêtre Teams en plein écran (autre Space) : proposée dans la liste, capture et reprise
+      fonctionnent.
+
+**Prochaine action** : validation manuelle des neuf points ci-dessus, puis push et PR.
+Chantier séparé en attente : auto-start avec l'auto-record Teams.
+
 ## Le dépôt n'a plus qu'une branche (2026-09-02, fin de session)
 
 `master` est à **`ee8a4b3`**, écart 0 avec `origin/master`. **18 branches locales et 11

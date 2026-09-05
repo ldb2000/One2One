@@ -254,7 +254,8 @@ struct MeetingView: View {
                 hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
                 showPlayback: showPlayback,
                 onSnapshot: { captureService.snapshot() },
-                onStopCapture: { Task { await captureService.stop() } },
+                onStopCapture: { captureService.stop() },
+                onResumeCapture: { captureService.resume() },
                 onSeek: { player.seek(to: $0) },
                 onSkip: { player.skip(by: $0) },
                 errors: [
@@ -279,7 +280,7 @@ struct MeetingView: View {
                 }
             )
             .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
-            .animation(.easeInOut(duration: 0.15), value: captureService.isCapturing)
+            .animation(.easeInOut(duration: 0.15), value: captureService.hasOpenSession)
             .animation(.easeInOut(duration: 0.15), value: showPlayback)
 
             // Le drapeau vit sur le singleton : sans `isRecordingThisMeeting`
@@ -403,9 +404,20 @@ struct MeetingView: View {
             // En dernier, une fois les lectures faites : jusque-là, l'écran
             // qui interroge se compte lui-même.
             defer { MeetingScreenRegistry.shared.screenDisappeared(id) }
-            guard !isBeingDeleted, !MeetingScreenRegistry.shared.isDeleted(id) else { return }
+            guard !isBeingDeleted, !MeetingScreenRegistry.shared.isDeleted(id) else {
+                // Réunion supprimée : la cascade emporte l'attachment de capture, il n'y a
+                // rien à sauvegarder ni à réindexer. On abandonne la session — boucle et
+                // OCR annulés, tout relâché : `stop()` la laisserait ouverte, et la
+                // prochaine capture se heurterait à `sessionAlreadyOpen`.
+                captureService.abandon()
+                return
+            }
             adoptPendingLiveNotes()
             guard !discardEmptyNoteIfNeeded() else { return }
+            // Une session de capture ouverte est close avec l'écran : rien ne reste en
+            // vol, le lot est réindexé. Après les gardes : une réunion en cours de
+            // suppression ne doit pas être sauvegardée ni réindexée pendant sa cascade.
+            if captureService.hasOpenSession { Task { await captureService.finish() } }
             SpotlightIndexService.shared.index(meeting: meeting)
         }
     }

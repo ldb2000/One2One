@@ -26,6 +26,8 @@ struct MeetingContextualRecorderBar: View {
     let onSnapshot: () -> Void
     /// Arrête la capture d'écran en cours.
     let onStopCapture: () -> Void
+    /// Reprend une capture arrêtée (session conservée).
+    let onResumeCapture: () -> Void
     let onSeek: (TimeInterval) -> Void
     let onSkip: (TimeInterval) -> Void
 
@@ -33,7 +35,7 @@ struct MeetingContextualRecorderBar: View {
     let onDismissErrors: () -> Void
 
     var body: some View {
-        let visible = isRecordingThisMeeting || (showPlayback && hasWav) || captureService.isCapturing
+        let visible = isRecordingThisMeeting || (showPlayback && hasWav) || captureService.hasOpenSession
             || stt.isTranscribing || captureService.ocrProgress != nil || !errors.isEmpty
 
         if visible {
@@ -45,11 +47,11 @@ struct MeetingContextualRecorderBar: View {
                         playbackSegment
                     }
 
-                    if (isRecordingThisMeeting || (showPlayback && hasWav)) && captureService.isCapturing {
+                    if (isRecordingThisMeeting || (showPlayback && hasWav)) && captureService.hasOpenSession {
                         Divider().frame(height: 20)
                     }
 
-                    if captureService.isCapturing {
+                    if captureService.hasOpenSession {
                         captureSegment
                     }
 
@@ -116,18 +118,34 @@ struct MeetingContextualRecorderBar: View {
         }
     }
 
-    /// Segment de capture d'écran : compteur de slides + boutons snapshot/arrêt.
+    /// Segment de capture d'écran : compteur de slides + boutons snapshot/arrêt/reprise.
     private var captureSegment: some View {
         HStack(spacing: 8) {
-            Image(systemName: "camera.viewfinder").foregroundColor(.blue)
-            Text("Capture : \(captureService.capturedSlidesCount) slides")
-                .font(.caption)
+            Image(systemName: "camera.viewfinder")
+                .foregroundColor(captureService.state.isPaused ? .orange : (captureService.isCapturing ? .blue : .gray))
+            switch captureService.state {
+            case .paused(let reason):
+                Text("Capture en pause : \(captureService.capturedSlidesCount) slides")
+                    .font(.caption)
+                    .help(reason)
+            case .stopped:
+                Text("Capture arrêtée : \(captureService.capturedSlidesCount) slides").font(.caption)
+            default:
+                Text("Capture : \(captureService.capturedSlidesCount) slides").font(.caption)
+            }
             Button(action: onSnapshot) { Image(systemName: "camera.fill") }
                 .buttonStyle(.bordered)
-                .help("Snapshot manuel")
-            Button(action: onStopCapture) { Image(systemName: "stop.fill") }
-                .buttonStyle(.bordered)
-                .help("Arrêter la capture")
+                .disabled(captureService.state != .running)
+                .help("Forcer la capture de l'image courante")
+            if captureService.isCapturing {
+                Button(action: onStopCapture) { Image(systemName: "stop.fill") }
+                    .buttonStyle(.bordered)
+                    .help("Arrêter la capture (le lot reste ouvert)")
+            } else {
+                Button(action: onResumeCapture) { Image(systemName: "play.fill") }
+                    .buttonStyle(.bordered)
+                    .help("Reprendre la capture sur le même lot")
+            }
         }
     }
 
