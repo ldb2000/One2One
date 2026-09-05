@@ -571,9 +571,7 @@ struct ChatbotView: View {
             let databaseContext = await MainActor.run { buildDatabaseContext() }
             let history = await MainActor.run { serializedConversationHistory(excludingLast: 1) }
             // Pre-fetch RAG (B1) : fail-soft, une erreur ou une base vide laisse le prompt inchangé.
-            let ragHits: [RAGQuery.Result] = (try? await MainActor.run {
-                try await RAGQuery.search(query: question, topK: 4, scope: RAGQuery.Scope(), context: context)
-            }) ?? []
+            let ragHits: [RAGQuery.Result] = (try? await RAGQuery.search(query: question, topK: 4, scope: RAGQuery.Scope(), context: context)) ?? []
             let ragBlock = formatRAGHits(ragHits)
             let prompt = """
             Tu es l'assistant d'analyse de l'application OneToOne.
