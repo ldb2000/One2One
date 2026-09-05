@@ -488,6 +488,7 @@ struct MeetingView: View {
         else { return }
         meeting.liveNotes = onScreen
         try? context.save()
+        NoteIndexingCoordinator.shared.scheduleReindex(meeting: meeting, context: context)
     }
 
     private func discardEmptyNoteIfNeeded() -> Bool {
@@ -746,7 +747,11 @@ struct MeetingView: View {
             MarkdownNoteEditor(
                 text: Binding(
                     get: { meeting.liveNotes },
-                    set: { meeting.liveNotes = $0; saveContext() }
+                    set: {
+                        meeting.liveNotes = $0
+                        saveContext()
+                        NoteIndexingCoordinator.shared.scheduleReindex(meeting: meeting, context: context)
+                    }
                 ),
                 editorID: liveNotesEditorID
             )
