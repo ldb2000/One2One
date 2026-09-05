@@ -2,6 +2,50 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — chat inline dans MeetingView (B2-ui MeetingView) (2026-09-05)
+
+Branche `feat/rag-meeting-tool-calling`, sur `master` (+0 commit avant cette
+session). Jusqu'ici, seuls les rapports (`AIReportService.generate`) et
+l'assistant global (`ChatbotView`) parlaient au LLM ; aucune conversation
+n'était possible pendant la réunion elle-même. Cf. ADR
+`docs/adr/2026-09-05-rag-pipeline-inventaire.md` (section MeetingView).
+
+- **`Models/ChatMessage.swift`** (nouveau) : `ChatMessage` extrait de
+  `ChatbotView.swift` (inchangé), pour être partagé avec `MeetingChatView`
+  sans dupliquer le type.
+- **`Views/Meeting/MeetingChatView.swift`** (nouveau) : widget de chat
+  éphémère (messages en `@State`, RAM uniquement — disparaît à la fermeture
+  de la réunion). À chaque question :
+  - pré-fetch RAG historique (`RAGQuery.search`, scope selon `meeting.kind` —
+    projet, collaborateur ou manager — avec `excludeMeetingPID` pour ne pas
+    se nourrir de la réunion en cours) ;
+  - historique de conversation sérialisé, limité aux 5 derniers tours ;
+  - lit `settings.chatbotToolCallingEnabled` (même toggle global que
+    `ChatbotView`, persisté dans `AppSettings`) pour choisir entre
+    `AIClient.sendWithToolLoop` (B2, `ToolCatalog.all`) et `AIClient.send`
+    (B1, pré-fetch seul). Le choix est extrait dans une fonction statique
+    pure `shouldUseToolCalling(settingsList:)` pour rester testable sans
+    environnement SwiftUI complet.
+- **`Views/MeetingView.swift`** : nouvel onglet `.chat` (« Chat ») ajouté à
+  `MeetingSection` — visible pour tous les kinds sauf `.note` (pas de sens
+  pour un pot-pourri de notes libres). Structure des onglets existants
+  inchangée, juste un cas de plus dans le `switch` et dans `allCases`.
+- **Tests** : `Tests/MeetingChatViewTests.swift` — toggle actif → tool
+  loop, inactif (ou aucun `AppSettings`) → chemin simple, et deux tests sur
+  la construction du prompt (sections « Contexte historique » /
+  « Conversation antérieure » présentes seulement si non vides).
+- **Vérifié** : `swift build` propre ; `swift test` complet, 0 échec.
+- **Hors périmètre** (volontaire) : pas de mock réseau pour le tool loop
+  réel, pas de persistance de la conversation, `AIReportService` et
+  `fetchHistoricalContext` (privée à `MeetingView`) non modifiés — le pattern
+  RAG est dupliqué en privé dans `MeetingChatView` plutôt que partagé, faute
+  d'API publique exploitable sans élargir le périmètre.
+
+**Prochaine action** : si l'onglet Chat s'avère utile en usage réel, évaluer
+l'exposition d'un historique persistant (actuellement volontairement
+éphémère) et le partage effectif de `fetchHistoricalContext` entre
+`MeetingView` et `MeetingChatView` (actuellement dupliqué).
+
 ## RAG — persistance du toggle tool calling (B2-ui v2) (2026-09-05)
 
 Branche `feat/rag-tool-calling-toggle-persist`, sur `master` (+0 commit avant
