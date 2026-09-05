@@ -50,4 +50,20 @@ struct ChatbotViewTests {
         let view = ChatbotView()
         #expect(view.formatRAGHits([]).isEmpty)
     }
+
+    @Test("Mode B2 (tool calling) : le prompt omet le bloc « Extraits pertinents » mais garde base + historique")
+    func toolCallingOmitsRAGBlockFromPrompt() throws {
+        let view = ChatbotView()
+
+        let withRAG = view.makePrompt(question: "Où en est le projet ?", databaseContext: "Projets:\n- X", ragBlock: "\nExtraits pertinents (RAG):\n[1] ...\n", history: "Utilisateur: bonjour")
+        #expect(withRAG.contains("Extraits pertinents (RAG)"))
+        #expect(withRAG.contains("Projets:\n- X"))
+        #expect(withRAG.contains("Conversation antérieure"))
+
+        let withoutRAG = view.makePrompt(question: "Où en est le projet ?", databaseContext: "Projets:\n- X", ragBlock: "", history: "Utilisateur: bonjour")
+        #expect(!withoutRAG.contains("Extraits pertinents (RAG)"))
+        #expect(withoutRAG.contains("Projets:\n- X"))
+        #expect(withoutRAG.contains("Conversation antérieure"))
+        #expect(withoutRAG.contains("Où en est le projet ?"))
+    }
 }
