@@ -179,6 +179,7 @@ struct MeetingView: View {
         case transcript = "Transcription"
         case report = "Rapport"
         case documents = "Documents"
+        case chat = "Chat"
         var id: String { rawValue }
 
         /// Libellé affiché. Pour une note, « Notes live » n'a pas de sens :
@@ -190,8 +191,8 @@ struct MeetingView: View {
     }
 
     /// Onglets visibles pour un kind donné. Une note n'a ni préparation, ni
-    /// transcription, ni rapport, ni vue d'ensemble : seulement son corps et
-    /// ses pièces jointes.
+    /// transcription, ni rapport, ni vue d'ensemble, ni chat : seulement son
+    /// corps et ses pièces jointes.
     static func visibleSections(for kind: MeetingKind) -> [MeetingSection] {
         kind == .note ? [.liveNotes, .documents] : MeetingSection.allCases
     }
@@ -761,6 +762,8 @@ struct MeetingView: View {
             reportView
         case .documents:
             documentsView
+        case .chat:
+            MeetingChatView(meeting: meeting)
         }
     }
 
