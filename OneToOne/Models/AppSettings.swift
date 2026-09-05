@@ -96,6 +96,12 @@ final class AppSettings {
     var useAIForReformulation: Bool = true
     var useAIForWeeklyExport: Bool = true
 
+    /// Active la recherche active (tool calling search_knowledge) dans
+    /// l'assistant conversationnel ChatbotView. OFF par défaut pour ne
+    /// pas alourdir les conversations légères ; ON pour les questions
+    /// complexes multi-sources.
+    var chatbotToolCallingEnabled: Bool = false
+
     // Prompts configurables
     var importPrompt: String = AppSettings.defaultImportPrompt
     var reformulatePrompt: String = AppSettings.defaultReformulatePrompt
