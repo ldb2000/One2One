@@ -147,7 +147,10 @@ struct RAGIndexer {
 
 /// Recherche sémantique (cosine) sur les chunks indexés.
 /// `search(query:)` embedde la requête texte puis classe ; `searchByVector(_:)`
-/// part d'un vecteur déjà calculé. Les deux partagent le filtrage par `Scope`.
+/// part d'un vecteur déjà calculé. `searchHybrid` combine en plus un score
+/// lexical BM25 (`BM25Index`) via Reciprocal Rank Fusion (B3, cf. ADR
+/// `docs/adr/2026-09-05-rag-pipeline-inventaire.md`). Toutes partagent le
+/// filtrage par `Scope`.
 struct RAGQuery {
 
     struct Result {
@@ -212,6 +215,96 @@ struct RAGQuery {
             return Result(chunk: c, similarity: EmbeddingService.cosineSimilarity(queryVec, v))
         }
         return Array(scored.sorted { $0.similarity > $1.similarity }.prefix(topK))
+    }
+
+    /// Recherche hybride BM25 (lexical) + cosine (sémantique), combinées via
+    /// Reciprocal Rank Fusion (`1/(rrfK + rang)` par dimension, pondéré). Un
+    /// chunk sans embedding ne participe qu'au rang BM25 ; un chunk sans texte
+    /// (donc score BM25 nul) ne participe qu'au rang cosine. `Result.similarity`
+    /// porte le score RRF fusionné, pas une similarité cosine brute.
+    @MainActor
+    static func searchHybrid(
+        query: String,
+        topK: Int = 6,
+        scope: Scope = Scope(),
+        context: ModelContext,
+        rrfK: Int = 60,
+        cosineWeight: Double = 1.0,
+        bm25Weight: Double = 1.0
+    ) async throws -> [Result] {
+        let queryVec = try await EmbeddingService.embed(query, role: .query)
+        return searchHybrid(
+            queryVec: queryVec,
+            queryText: query,
+            topK: topK,
+            scope: scope,
+            context: context,
+            rrfK: rrfK,
+            cosineWeight: cosineWeight,
+            bm25Weight: bm25Weight
+        )
+    }
+
+    /// Variante testable de `searchHybrid` : `queryVec` pré-calculé (évite
+    /// l'appel réseau/MLX d'embedding), `queryText` sert au tokenizing BM25
+    /// (indépendant de l'embedding). `queryVec` vide désactive la composante
+    /// cosine — seul BM25 classe alors les chunks.
+    @MainActor
+    static func searchHybrid(
+        queryVec: [Float],
+        queryText: String,
+        topK: Int = 6,
+        scope: Scope = Scope(),
+        context: ModelContext,
+        rrfK: Int = 60,
+        cosineWeight: Double = 1.0,
+        bm25Weight: Double = 1.0
+    ) -> [Result] {
+        let chunks = filtered(context: context, scope: scope)
+        guard !chunks.isEmpty else { return [] }
+
+        // Rang cosine : seuls les chunks avec embedding participent.
+        let cosineRanked: [(chunk: TranscriptChunk, similarity: Float)] = queryVec.isEmpty ? [] : chunks
+            .compactMap { c in
+                let v = c.embeddingVector
+                guard !v.isEmpty else { return nil }
+                return (c, EmbeddingService.cosineSimilarity(queryVec, v))
+            }
+            .sorted { $0.similarity > $1.similarity }
+        var cosineRank: [UUID: Int] = [:]
+        for (i, entry) in cosineRanked.enumerated() {
+            cosineRank[entry.chunk.chunkId] = i
+        }
+
+        // Rang BM25 : seuls les chunks avec au moins un terme en commun participent.
+        let bm25Scores = BM25Index(chunks: chunks).score(query: queryText)
+        let bm25Ranked = bm25Scores.sorted { $0.value > $1.value }
+        var bm25Rank: [UUID: Int] = [:]
+        for (i, entry) in bm25Ranked.enumerated() {
+            bm25Rank[entry.key] = i
+        }
+
+        // Fusion RRF.
+        var rrfScore: [UUID: Double] = [:]
+        for chunkId in Set(cosineRank.keys).union(bm25Rank.keys) {
+            var s = 0.0
+            if let rank = cosineRank[chunkId] {
+                s += cosineWeight * (1.0 / Double(rrfK + rank))
+            }
+            if let rank = bm25Rank[chunkId] {
+                s += bm25Weight * (1.0 / Double(rrfK + rank))
+            }
+            rrfScore[chunkId] = s
+        }
+
+        let chunkById = Dictionary(uniqueKeysWithValues: chunks.map { ($0.chunkId, $0) })
+        return rrfScore
+            .sorted { $0.value > $1.value }
+            .prefix(topK)
+            .compactMap { chunkId, score in
+                guard let chunk = chunkById[chunkId] else { return nil }
+                return Result(chunk: chunk, similarity: Float(score))
+            }
     }
 
     /// Charge tous les `TranscriptChunk` puis applique le `scope` en mémoire.

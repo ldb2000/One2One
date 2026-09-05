@@ -53,6 +53,13 @@ enum ToolCatalog {
                         type: "integer",
                         description: "Nombre de résultats souhaités, entre 1 et 20 (défaut 6). / "
                             + "Desired number of results, between 1 and 20 (default 6)."
+                    ),
+                    "use_hybrid": .init(
+                        type: "boolean",
+                        description: "Active la recherche hybride BM25 + cosine (RRF), utile pour les noms "
+                            + "propres, acronymes et identifiants techniques. Défaut false (cosine seul). / "
+                            + "Enable hybrid BM25 + cosine search (RRF), useful for proper nouns, acronyms "
+                            + "and technical identifiers. Default false (cosine only)."
                     )
                 ],
                 required: ["query"]
@@ -75,9 +82,11 @@ enum ToolRouter {
         let query: String
         let scope: RAGQuery.Scope
         let topK: Int
+        let useHybrid: Bool
 
         static func == (lhs: SearchKnowledgeRequest, rhs: SearchKnowledgeRequest) -> Bool {
             lhs.query == rhs.query && lhs.topK == rhs.topK && lhs.scope.sourceType == rhs.scope.sourceType
+                && lhs.useHybrid == rhs.useHybrid
         }
     }
 
@@ -85,6 +94,7 @@ enum ToolRouter {
         let query: String
         let scope: String?
         let top_k: Int?
+        let use_hybrid: Bool?
     }
 
     private struct SearchResultItem: Encodable {
@@ -112,7 +122,12 @@ enum ToolRouter {
             return errorJSON("invalid_arguments")
         }
         do {
-            let hits = try await RAGQuery.search(query: request.query, topK: request.topK, scope: request.scope, context: context)
+            let hits: [RAGQuery.Result]
+            if request.useHybrid {
+                hits = try await RAGQuery.searchHybrid(query: request.query, topK: request.topK, scope: request.scope, context: context)
+            } else {
+                hits = try await RAGQuery.search(query: request.query, topK: request.topK, scope: request.scope, context: context)
+            }
             return serialize(hits)
         } catch {
             return errorJSON("search_failed")
@@ -124,7 +139,8 @@ enum ToolRouter {
     /// `nil` si `query` absente ou vide après trim. `top_k` hors `[1, 20]` est
     /// ramené à la borne la plus proche plutôt que rejeté ; un `scope` inconnu
     /// est ignoré (recherche non filtrée) — le modèle peut inventer une valeur
-    /// approchante, ce n'est pas une raison de faire échouer l'appel.
+    /// approchante, ce n'est pas une raison de faire échouer l'appel. `use_hybrid`
+    /// absent ou non-booléen retombe sur `false` (cosine seul, comportement B2).
     nonisolated static func parseSearchKnowledgeArguments(_ json: String) -> SearchKnowledgeRequest? {
         guard let data = json.data(using: .utf8),
               let args = try? JSONDecoder().decode(SearchKnowledgeArguments.self, from: data)
@@ -136,7 +152,7 @@ enum ToolRouter {
             scope.sourceType = raw
         }
         let topK = min(max(args.top_k ?? 6, 1), 20)
-        return SearchKnowledgeRequest(query: query, scope: scope, topK: topK)
+        return SearchKnowledgeRequest(query: query, scope: scope, topK: topK, useHybrid: args.use_hybrid ?? false)
     }
 
     // MARK: - Sérialisation (pure, testable sans I/O)

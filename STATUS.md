@@ -2,6 +2,62 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — hybrid search BM25 + cosine via RRF (B3) (2026-09-05)
+
+Branche `feat/rag-hybrid-search-b3`, sur `master` (C déjà fusionné, PR #11). ADR :
+`docs/adr/2026-09-05-rag-pipeline-inventaire.md` (section « B3 »).
+
+- **Livré** : nouveau `Services/BM25Index.swift` — index lexical BM25 in-memory
+  (`k1=1.5`, `b=0.75` par défaut), tokenisation minuscule + split Unicode
+  alphanumérique (préserve les accents), ~80 stop-words français/anglais.
+  IDF Robertson-Sparck Jones variante `+1` (jamais négatif). Reconstruit à
+  chaque requête (pas de persistance), acceptable tant que le corpus reste
+  modéré — cf. note déjà présente sur `RAGQuery.filtered`.
+- `RAGQuery.searchHybrid(query:topK:scope:context:rrfK:cosineWeight:bm25Weight:)`
+  (async, embedde la requête puis délègue) et sa variante testable
+  `searchHybrid(queryVec:queryText:...)` (synchrone, vecteur pré-calculé —
+  évite l'appel MLX réel dans les tests, cf. CLAUDE.md). Algorithme : rang
+  cosine (chunks avec embedding non vide) + rang BM25 (chunks avec au moins
+  un terme en commun), fusionnés par Reciprocal Rank Fusion
+  (`poids * 1/(rrfK + rang)`, `rrfK=60` non paramétrable). Un chunk sans
+  embedding ne participe qu'au rang BM25 ; un chunk sans texte (score BM25
+  nul) ne participe qu'au rang cosine. `Result.similarity` porte le score RRF
+  fusionné pour ce chemin (pas une similarité cosine brute). `RAGQuery.search`
+  (cosine seul) reste inchangée, non réimplémentée en wrapper — les deux
+  coexistent tel qu'autorisé par la consigne.
+- `ToolRouter` : `search_knowledge` accepte un paramètre optionnel
+  `use_hybrid` (booléen, défaut `false`) — absent ou `false` garde le
+  comportement B2 (cosine seul, aucune régression) ; `true` route vers
+  `RAGQuery.searchHybrid`. `SearchKnowledgeRequest` et le parsing exposent le
+  champ ; `ToolSpec` documente le paramètre au LLM (FR/EN).
+- **Tests** : `Tests/BM25IndexTests.swift` (tokenisation, filtrage stop-words,
+  IDF favorise les termes rares, déterminisme, requête uniquement stop-words)
+  et `Tests/RAGHybridSearchTests.swift` (un chunk pertinent lexicalement +
+  sémantiquement remonte devant le meilleur score cosine seul ; un nom propre
+  inventé sans embedding n'apparaît jamais en cosine seul mais remonte en
+  hybride via BM25 ; une paraphrase sans recouvrement lexical retombe
+  exactement sur le classement cosine — BM25 ne contribue rien). Plus
+  parsing `use_hybrid` et forme JSON du paramètre côté `ToolSpec`.
+- **Mesuré** : BM25 sur 3 500 chunks synthétiques (texte aléatoire ~40 mots +
+  suffixe identifiant) pour une requête de 5 mots : **~2.6 ms** (build debug,
+  banc temporaire non committé), très en dessous du seuil de 100 ms. Aucun
+  log d'alerte déclenché en usage normal.
+- **Vérifié** : `swift build` propre ; `swift test` complet — 1 032 XCTest
+  (1 ignoré, 0 échec) + 603 Swift Testing (92 suites, 0 échec), dont 13
+  nouveaux tests B3. Pas de régression sur B1/B2/C (`ChatbotViewTests`,
+  `AIEndpointToolTests`, `RAGNoteIndexingTests`).
+- **Limites actées** : pas de branchement UX (`RAGChatView`/`ChatbotView`
+  n'exposent pas encore le choix hybride à l'utilisateur — hors périmètre de
+  cette PR) ; `rrfK=60` figé en dur, non paramétrable via UI ; le score
+  `Result.similarity` change de sens selon le chemin emprunté (cosine brute
+  vs RRF fusionné) — à documenter si un appelant affiche cette valeur telle
+  quelle.
+- **Non poussé, pas de merge** (consigne de la tâche).
+
+**Prochaine action** : brancher `use_hybrid`/le choix hybride dans
+`ChatbotView`/`RAGChatView` (PR séparée), ou enchaîner sur D (batch
+d'indexation globale) selon priorisation de l'ADR.
+
 ## RAG — auto-indexation des notes live (C) (2026-09-05)
 
 Branche `feat/rag-note-autoindex-c`, 3 commits sur `master`. ADR :
