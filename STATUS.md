@@ -2,6 +2,35 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — tool calling branché dans ChatbotView (B2-ui) (2026-09-05)
+
+Branche `feat/rag-tool-calling-b2-ui`, 2 commits sur `master` (B2 déjà fusionné, PR #9).
+Fichiers touchés : `OneToOne/Views/ChatbotView.swift`, `Tests/ChatbotViewTests.swift` uniquement.
+
+- **Livré** : bascule `useToolCalling` (`@State`, non persistée) dans la zone de saisie —
+  « Recherche active ». Par défaut B1 (pré-fetch RAG, 4 chunks max) reste utilisé ; activée,
+  `sendMessage` appelle `AIClient.sendWithToolLoop` (`ToolCatalog.all`, `maxTurns: 5`,
+  `onProgress: nil`) à la place de `AIClient.send`. La construction du prompt est extraite
+  dans `makePrompt(question:databaseContext:ragBlock:history:)`, partagée par les deux
+  chemins ; en mode tool calling `ragBlock` est vide, donc le bloc « Extraits pertinents »
+  disparaît du prompt mais le contexte base et l'historique de conversation restent identiques.
+  Le contrôle de joignabilité Ollama reste commun aux deux modes (il précède le branchement).
+- **Écart avec la commande initiale** : le fichier visé nommait `handleFreeQuestion` —
+  inexistant ; la méthode réelle est `sendMessage`, modifiée à cet emplacement.
+- **Vérifié** : `swift build` propre (seul l'avertissement préexistant de
+  `PyannoteDiarizer.swift`) ; `swift test` complet — **1 030 XCTest (1 ignoré, 0 échec) +
+  590 Swift Testing (88 suites, 0 échec)**, dont 1 nouveau test
+  (`toolCallingOmitsRAGBlockFromPrompt`) qui vérifie sur `makePrompt` directement que le
+  bloc RAG disparaît sans toucher au reste du prompt — pas de mock d'`AIClient` (hors
+  périmètre de cette PR, `AIClient.swift` figé).
+- **Non vérifié à l'écran** : le toggle et l'appel réel à `sendWithToolLoop` contre un
+  vrai LM Studio/Ollama/OpenRouter.
+- **Non poussé, pas de merge** (consigne de la tâche).
+
+**Prochaine action** : recette à l'écran du toggle avec un endpoint compatible OpenAI réel,
+puis PR ; ou enchaîner sur B3 (hybrid search BM25 + cosine) / C (indexation live) selon
+priorisation de l'ADR.
+
 ## RAG — tool calling `search_knowledge` (B2) (2026-09-05)
 
 Branche `feat/rag-tool-calling-b2`, 4 commits sur `master`. Suite de B1 (pre-fetch RAG,
