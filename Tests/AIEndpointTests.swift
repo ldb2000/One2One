@@ -493,8 +493,15 @@ struct AIEndpointHTTPTests {
 
     @Test("Le client HTTP rejette les sorties vides, tronquées et refusées", arguments: ["length", "content_filter", "tool_calls", "stop"])
     func invalidResponses(reason: String) async throws {
+        // `send()` ne déclare aucun tool : un vrai `tool_calls` populé (comme un
+        // serveur en renverrait un) reste refusé, faute d'orchestration côté
+        // appelant — voir `OpenAICompatibleClient.sendWithTools` pour la variante
+        // qui les exploite (B2).
+        let toolCalls = reason == "tool_calls"
+            ? ",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"search_knowledge\",\"arguments\":\"{}\"}}]"
+            : ""
         let client = client { _ in
-            (200, "{\"choices\":[{\"message\":{\"content\":\"\"},\"finish_reason\":\"\(reason)\"}]}", "application/json")
+            (200, "{\"choices\":[{\"message\":{\"content\":\"\"\(toolCalls)},\"finish_reason\":\"\(reason)\"}]}", "application/json")
         }
         defer { client.session.invalidateAndCancel() }
         let expected: AIEndpointError = reason == "length" ? .truncatedResponse : (reason == "stop" ? .emptyResponse : .refused)
