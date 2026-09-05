@@ -135,6 +135,7 @@ struct ContentView: View {
 
             registerHotkeys()
             maybeRunAutoCleanup()
+            runRAGIndexingSweep()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -217,6 +218,17 @@ struct ContentView: View {
                 try? context.save()
                 StorageStatsService.shared.invalidate()
             }
+        }
+    }
+
+    /// Lance en arrière-plan le batch de rattrapage RAG (ADR
+    /// `docs/adr/2026-09-05-rag-pipeline-inventaire.md`, section D) : ne
+    /// bloque pas l'affichage de l'UI — `Task` planifie le travail et rend la
+    /// main immédiatement, `RAGIndexingSweep` cède la main entre chaque
+    /// parent traité via les `await` de ses handlers.
+    private func runRAGIndexingSweep() {
+        Task {
+            await RAGIndexingSweep.shared.runIfNeeded(context: context)
         }
     }
 

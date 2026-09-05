@@ -2,6 +2,60 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — batch d'indexation globale au démarrage (D) (2026-09-05)
+
+Branche `feat/rag-batch-reindex-d`, sur `master` (+0 commit avant cette
+session). Jusqu'ici rien ne rattrapait les chunks jamais indexés ou devenus
+obsolètes (changement de modèle d'embedding, bug d'indexation passé, restore
+de backup). Cf. ADR `docs/adr/2026-09-05-rag-pipeline-inventaire.md`
+(section D).
+
+- **`Services/RAGIndexingSweep.swift`** (nouveau) : `RAGIndexingSweep.shared
+  .runIfNeeded(context:)` fetch tous les `TranscriptChunk`, retient ceux dont
+  `embeddingData` est vide, `embeddingModel` diffère du modèle courant
+  (`RAGService.embeddingModel`), ou dont le modèle d'embedding a changé
+  globalement depuis le dernier sweep complet (`UserDefaults
+  .lastIndexedEmbeddingModel`, qui force alors même les chunks au modèle déjà
+  à jour — vecteurs sinon incompatibles). Les chunks à traiter sont regroupés
+  par parent (relation `attachment` / `mail` / `meeting`, testées dans cet
+  ordre car un chunk d'attachment porte aussi un `meeting`) : un seul
+  reindex par parent distinct, pas un par chunk.
+  - Meeting/note → `RAGIndexer.reindex`/`reindexNote` (kind == .note).
+  - Attachment → `MeetingAttachmentService.reindexAttachment` (réutilisé tel
+    quel — pas dans le libellé de la tâche mais c'est la seule fonction
+    existante qui régénère les chunks d'un attachment ; `RAGIndexer.reindex`
+    ne les touche pas).
+  - Mail → `ProjectMailStore.reindex(mail:)` (idem).
+  - Chunk orphelin (aucune relation) : ignoré, loggé.
+  - Pas de persistance de « qui a été traité » : idempotent par construction,
+    un re-run sans changement ne relance rien (vérifié par test).
+  - Handlers (`reindexMeetingHandler`/`reindexAttachmentHandler`
+    /`reindexMailHandler`) et `userDefaults` sont des `static var`
+    injectables — même pattern que `NoteIndexingCoordinator.reindexHandler`,
+    pour tester sans MLX (`swift test` n'embarque pas `default.metallib`).
+- **`Services/RAGService.swift`** : ajout de `enum RAGService { static var
+  embeddingModel }`, wrapper de `EmbeddingService.model`.
+- **`OneToOneApp.swift`** : `ContentView.onAppear` appelle
+  `runRAGIndexingSweep()`, qui lance `Task { await RAGIndexingSweep.shared
+  .runIfNeeded(context:) }` — non bloquant, la vue s'affiche immédiatement.
+- **Tests** : `Tests/RAGIndexingSweepTests.swift` (5 tests) — chunk à jour
+  → no-op ; chunk sans embedding → reindex ; chunk au mauvais modèle →
+  reindex ; 3 chunks du même meeting → un seul appel ; deuxième passage sans
+  changement → pas de second appel (idempotence).
+- **Vérifié** : `swift build` propre ; `swift test` complet (608 tests), 0
+  échec.
+- **Limites connues (documentées, hors périmètre volontaire)** :
+  - Pas de coordination avec `NoteIndexingCoordinator` : un debounce en cours
+    et le sweep peuvent en théorie retraiter la même note en parallèle
+    (accepté — double-work bénin, cf. tâche).
+  - Le sweep peut être long sur un gros volume (embedding séquentiel par
+    parent) ; s'il est interrompu (quit app), il reprend au prochain
+    lancement sans état à nettoyer.
+  - Pas de migration de métadonnées : un meeting dont le `kind` a changé
+    (note ↔ projet) est ré-indexé avec le bon routage (`reindex` vs
+    `reindexNote`), mais aucune donnée du meeting n'est modifiée.
+- **Prochaine action** : rien d'identifié pour cette tâche ; PR prête.
+
 ## RAG — chat inline dans MeetingView (B2-ui MeetingView) (2026-09-05)
 
 Branche `feat/rag-meeting-tool-calling`, sur `master` (+0 commit avant cette
