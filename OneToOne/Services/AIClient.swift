@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// Centralized AI client that routes to the correct provider.
 /// Used by AIIngestionService, AIReformulationService, etc.
@@ -65,6 +66,74 @@ enum AIClient {
             }
         } catch {
             throw normalizeError(error, settings: settings)
+        }
+    }
+
+    // MARK: - Tool calling (B2)
+
+    /// Envoie `prompt` avec accès à `tools` : le LLM peut appeler
+    /// `search_knowledge` (ou tout autre outil du catalogue) plutôt que
+    /// répondre directement, jusqu'à `maxTurns` tours. Chaque tour
+    /// (déclaration des tools comprise) est **non-streamé** — voir
+    /// `OpenAICompatibleClient.sendWithTools` — donc `onProgress` n'est
+    /// appelé qu'une seule fois, avec le texte final.
+    ///
+    /// Seuls les endpoints compatibles OpenAI (LM Studio, OpenRouter, Ollama)
+    /// supportent ce tool calling ; Anthropic et Gemini OAuth ne suivent pas
+    /// cette spec ici et font échouer l'appel immédiatement.
+    @MainActor
+    static func sendWithToolLoop(
+        prompt: String,
+        settings: AppSettings,
+        tools: [ToolSpec],
+        modelContext: ModelContext,
+        maxTurns: Int = 5,
+        onProgress: ProgressCallback? = nil
+    ) async throws -> String {
+        let configuration = try AIConfigurationStore.resolve(settings)
+        guard configuration.profile.provider.usesCompatibleEndpoint else {
+            throw AIToolLoopError.unsupportedProvider(configuration.profile.provider.displayName)
+        }
+        let client = OpenAICompatibleClient()
+        return try await runToolLoop(
+            prompt: prompt,
+            maxTurns: maxTurns,
+            onProgress: onProgress,
+            modelContext: modelContext,
+            send: { messages in try await client.sendWithTools(messages: messages, configuration: configuration, tools: tools) }
+        )
+    }
+
+    /// Boucle d'orchestration, indépendante du transport HTTP réel : `send`
+    /// encapsule l'appel LLM d'un tour et est substituable en test. Construit
+    /// la conversation (`messages`) au format OpenAI en ajoutant, à chaque
+    /// tour d'outils, le message assistant `tool_calls` puis un message
+    /// `tool` par résultat (via `ToolRouter.execute`, qui ne jette jamais :
+    /// un outil inconnu devient un JSON d'erreur que le modèle peut lire).
+    @MainActor
+    static func runToolLoop(
+        prompt: String,
+        maxTurns: Int,
+        onProgress: ProgressCallback?,
+        modelContext: ModelContext,
+        send: (_ messages: [ConversationMessage]) async throws -> SendResult
+    ) async throws -> String {
+        var messages: [ConversationMessage] = [.user(prompt)]
+        var turn = 0
+        while true {
+            turn += 1
+            guard turn <= maxTurns else { throw AIToolLoopError.turnLimitExceeded(maxTurns) }
+            switch try await send(messages) {
+            case .text(let text):
+                await onProgress?(text)
+                return text
+            case .toolCalls(let calls):
+                messages.append(.assistant(toolCalls: calls))
+                for call in calls {
+                    let output = await ToolRouter.execute(call, context: modelContext)
+                    messages.append(.toolResult(callID: call.id, content: output))
+                }
+            }
         }
     }
 
@@ -312,6 +381,22 @@ enum AIClient {
         }
 
         return error
+    }
+}
+
+/// Erreurs propres à `AIClient.sendWithToolLoop` (B2). Distinctes d'`AIEndpointError`
+/// (transport HTTP) : celles-ci sont des refus d'orchestration, avant tout appel réseau.
+enum AIToolLoopError: LocalizedError, Equatable {
+    case unsupportedProvider(String)
+    case turnLimitExceeded(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedProvider(let name):
+            return "\(name) ne supporte pas le tool calling au format OpenAI. Choisissez LM Studio, OpenRouter ou Ollama."
+        case .turnLimitExceeded(let maxTurns):
+            return "La boucle d'outils a dépassé la limite de \(maxTurns) tours sans réponse finale."
+        }
     }
 }
 
