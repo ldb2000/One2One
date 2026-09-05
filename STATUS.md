@@ -2,6 +2,38 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — auto-indexation des notes live (C) (2026-09-05)
+
+Branche `feat/rag-note-autoindex-c`, 3 commits sur `master`. ADR :
+`docs/adr/2026-09-05-rag-pipeline-inventaire.md` (section « C »).
+
+- **Livré** : `RAGIndexer.reindex` lisait uniquement `mergedTranscript`/`rawTranscript` —
+  toujours vides pour une note (`kind == .note`, ni audio ni transcription), donc le pipeline
+  existant n'indexait jamais son contenu. Bascule la source sur `meeting.liveNotes` pour ce
+  cas précis. Ajoute `RAGIndexer.reindexNote(meeting:context:)`, gate no-op silencieux hors
+  notes, et `Task.checkCancellation()` à deux points de coupure du reindex (avant le clear des
+  chunks, après l'embedding). Nouveau `Services/NoteIndexingCoordinator.swift` (singleton
+  `@MainActor`) : débounce 2 s par note (`persistentModelID`), annule le débounce en cours à
+  chaque frappe, et annule un reindex déjà en vol avant d'en démarrer un nouveau. Branché dans
+  `MeetingView` aux deux endroits où `meeting.liveNotes` est effectivement modifié : le binding
+  de l'éditeur (`.liveNotes` section) et `adoptPendingLiveNotes()` (reprise du texte en attente
+  au démontage de l'écran).
+- **Point d'injection ajouté pour les tests** : `NoteIndexingCoordinator.reindexHandler` (var,
+  défaut `RAGIndexer.reindexNote`) et `debounceDelay` (var, défaut 2 s), substitués dans les
+  tests par un double contrôlable — `swift test` n'embarque pas `default.metallib` (cf.
+  CLAUDE.md), appeler le pipeline MLX réel y crasherait au premier accès GPU.
+- **Vérifié** : `swift build` propre (seul l'avertissement préexistant de
+  `PyannoteDiarizer.swift`) ; `swift test` complet — 1 032 tests, 1 ignoré, 0 échec, dont 2
+  nouveaux (`Tests/RAGNoteIndexingTests.swift`) qui couvrent le débounce (3 appels rapprochés
+  → 1 seul reindex) et l'annulation d'un reindex en vol par une nouvelle édition.
+- **Limite actée (hors scope, cf. ADR tâche D)** : si l'app se ferme pendant un débounce en
+  cours, le reindex programmé est perdu — pas de rattrapage au démarrage suivant.
+- **Non poussé, pas de merge** (consigne de la tâche).
+
+**Prochaine action** : recette à l'écran (éditer une note, vérifier en base l'apparition des
+`TranscriptChunk` après ~2 s d'inactivité) ; ou enchaîner sur B3 (hybrid search) / D (batch
+d'indexation globale) selon priorisation de l'ADR.
+
 ## RAG — tool calling branché dans ChatbotView (B2-ui) (2026-09-05)
 
 Branche `feat/rag-tool-calling-b2-ui`, 2 commits sur `master` (B2 déjà fusionné, PR #9).
