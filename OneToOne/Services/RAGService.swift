@@ -92,26 +92,32 @@ enum TextChunker {
 struct RAGIndexer {
 
     /// Ré-indexe intégralement une réunion : supprime d'abord tous les
-    /// `TranscriptChunk` existants, puis re-chunke / re-embedde la
-    /// transcription (préfère `mergedTranscript`, sinon `rawTranscript`) et
-    /// persiste. No-op si la transcription est vide. Opération idempotente.
+    /// `TranscriptChunk` existants, puis re-chunke / re-embedde le contenu
+    /// source et persiste. Le contenu source est `liveNotes` pour une note
+    /// libre (`kind == .note` : ni audio, ni transcription), sinon la
+    /// transcription (préfère `mergedTranscript`, sinon `rawTranscript`).
+    /// No-op si le contenu est vide. Opération idempotente.
     static func reindex(meeting: Meeting, context: ModelContext) async throws {
-        let transcript = meeting.mergedTranscript.isEmpty
-            ? meeting.rawTranscript
-            : meeting.mergedTranscript
-        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            ragLog.info("reindex: transcript vide, skip")
+        let sourceText: String = meeting.kind == .note
+            ? meeting.liveNotes
+            : (meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript)
+        guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            ragLog.info("reindex: contenu vide, skip")
             return
         }
+
+        try Task.checkCancellation()
 
         // Clear old chunks.
         for old in meeting.transcriptChunks {
             context.delete(old)
         }
 
-        let pieces = TextChunker.chunk(transcript)
+        let pieces = TextChunker.chunk(sourceText)
         ragLog.info("reindex: meeting=\(meeting.title, privacy: .public) chunks=\(pieces.count)")
         let vectors = try await EmbeddingService.embedBatch(pieces)
+
+        try Task.checkCancellation()
 
         for (i, text) in pieces.enumerated() {
             let chunk = TranscriptChunk(text: text, orderIndex: i, sourceType: "meeting")
@@ -125,6 +131,15 @@ struct RAGIndexer {
 
         try context.save()
         ragLog.info("reindex: done, saved \(pieces.count) chunks")
+    }
+
+    /// Gate d'auto-indexation pour les notes libres : no-op silencieux si
+    /// `meeting.kind != .note` (permet d'appeler cette fonction sans filtrer
+    /// au préalable, ex. depuis `NoteIndexingCoordinator`). Sinon délègue à
+    /// `reindex(meeting:context:)`.
+    static func reindexNote(meeting: Meeting, context: ModelContext) async throws {
+        guard meeting.kind == .note else { return }
+        try await reindex(meeting: meeting, context: context)
     }
 }
 
