@@ -52,6 +52,9 @@ struct ChatbotView: View {
     @State private var showSlashMenu = false
     @State private var pickedTemplate: PromptTemplate?
     @State private var showSavePromptSheet = false
+    /// B2 : quand actif, le LLM effectue ses propres recherches via l'outil
+    /// `search_knowledge` (AIClient.sendWithToolLoop) au lieu du pré-fetch RAG (B1).
+    @State private var useToolCalling: Bool = false
 
     private var settings: AppSettings {
         settingsList.canonicalSettings ?? AppSettings()
@@ -240,6 +243,21 @@ struct ChatbotView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .padding(.bottom, 8)
             }
+
+            // Bascule B2 : recherches par l'IA elle-même (search_knowledge) vs pré-fetch RAG (B1)
+            HStack {
+                Toggle(isOn: $useToolCalling) {
+                    Label("Recherche active", systemImage: "sparkle.magnifyingglass")
+                        .font(.caption)
+                        .foregroundColor(.black.opacity(0.6))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .help("Laisse l'IA effectuer ses propres recherches dans la base (search_knowledge) au lieu du pré-remplissage automatique de contexte.")
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 6)
 
             // Text input + send button
             HStack(alignment: .bottom, spacing: 14) {
@@ -570,20 +588,18 @@ struct ChatbotView: View {
             // synchrone : isLoading/spinner s'affichent avant ce travail lourd.
             let databaseContext = await MainActor.run { buildDatabaseContext() }
             let history = await MainActor.run { serializedConversationHistory(excludingLast: 1) }
-            // Pre-fetch RAG (B1) : fail-soft, une erreur ou une base vide laisse le prompt inchangé.
-            let ragHits: [RAGQuery.Result] = (try? await RAGQuery.search(query: question, topK: 4, scope: RAGQuery.Scope(), context: context)) ?? []
-            let ragBlock = formatRAGHits(ragHits)
-            let prompt = """
-            Tu es l'assistant d'analyse de l'application OneToOne.
-            Reponds uniquement a partir des donnees ci-dessous (incluant les rapports de réunion déjà générés). Si l'information manque, dis-le clairement.
-            Sois concret, structure et oriente pilotage. Tiens compte de la conversation antérieure.
 
-            Base de donnees:
-            \(databaseContext)
-            \(ragBlock)\(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
-            Question actuelle:
-            \(question)
-            """
+            let ragBlock: String
+            if useToolCalling {
+                // B2 : le LLM effectue ses propres recherches via l'outil search_knowledge,
+                // pas de pré-fetch — voir `makePrompt`, qui omet alors le bloc "Extraits pertinents".
+                ragBlock = ""
+            } else {
+                // Pre-fetch RAG (B1) : fail-soft, une erreur ou une base vide laisse le prompt inchangé.
+                let ragHits: [RAGQuery.Result] = (try? await RAGQuery.search(query: question, topK: 4, scope: RAGQuery.Scope(), context: context)) ?? []
+                ragBlock = formatRAGHits(ragHits)
+            }
+            let prompt = makePrompt(question: question, databaseContext: databaseContext, ragBlock: ragBlock, history: history)
 
             do {
                 if settings.provider == .ollama {
@@ -601,7 +617,21 @@ struct ChatbotView: View {
                     }
                 }
 
-                let answer = try await AIClient.send(prompt: prompt, settings: settings)
+                let answer: String
+                if useToolCalling {
+                    // B2 : le LLM peut faire ses propres recherches search_knowledge
+                    answer = try await AIClient.sendWithToolLoop(
+                        prompt: prompt,
+                        settings: settings,
+                        tools: ToolCatalog.all,
+                        modelContext: context,
+                        maxTurns: 5,
+                        onProgress: nil  // stream non supporté pendant les tours tool
+                    )
+                } else {
+                    // B1 : pre-fetch simple (code actuel)
+                    answer = try await AIClient.send(prompt: prompt, settings: settings)
+                }
                 await MainActor.run {
                     messages.append(ChatMessage(role: .assistant, content: answer.trimmingCharacters(in: .whitespacesAndNewlines)))
                     errorMessage = nil
@@ -643,6 +673,23 @@ struct ChatbotView: View {
             return "[\(idx + 1)] \(date) — \(title): \(chunk.text)"
         }
         return "\nExtraits pertinents (RAG):\n\(lines.joined(separator: "\n\n"))\n"
+    }
+
+    /// Construit le prompt monolithique envoyé au fournisseur IA. `ragBlock` vide (mode B2,
+    /// tool calling) omet simplement la section "Extraits pertinents" — le reste (contexte
+    /// base, historique) est identique au mode B1.
+    func makePrompt(question: String, databaseContext: String, ragBlock: String, history: String) -> String {
+        """
+        Tu es l'assistant d'analyse de l'application OneToOne.
+        Reponds uniquement a partir des donnees ci-dessous (incluant les rapports de réunion déjà générés). Si l'information manque, dis-le clairement.
+        Sois concret, structure et oriente pilotage. Tiens compte de la conversation antérieure.
+
+        Base de donnees:
+        \(databaseContext)
+        \(ragBlock)\(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
+        Question actuelle:
+        \(question)
+        """
     }
 
     // MARK: - Database Context
