@@ -2,6 +2,50 @@
 
 Dernière mise à jour : 2026-09-05 CEST
 
+## RAG — tool calling `search_knowledge` (B2) (2026-09-05)
+
+Branche `feat/rag-tool-calling-b2`, 4 commits sur `master`. Suite de B1 (pre-fetch RAG,
+`feat/rag-prefetch-b1`, déjà fusionnée). ADR : `docs/adr/2026-09-05-rag-pipeline-inventaire.md`
+(section « B2 — Tool calling »).
+
+- **Livré** : `OpenAICompatibleClient` décode et accepte enfin `tool_calls` (anti-pattern
+  décrit par l'ADR — le transport refusait toute réponse en contenant) ; `stop`/`tool_calls`/
+  `function_call` sont désormais des fins de tour normales, seul `content_filter` reste un
+  refus. Nouvelle API `sendWithTools(messages:configuration:tools:)` (non-streamée) et
+  `requestBody(messages:tools:)`. Nouveau `Services/AI/ToolRouter.swift` : `ToolSpec`/
+  `ToolCatalog` (un seul outil pour cette PR, `search_knowledge`, description FR+EN) et
+  `ToolRouter.execute` qui route vers `RAGQuery.search` (scope `meeting`/`attachment`/`mail`,
+  `top_k` clampé `[1, 20]`) et retourne toujours un JSON exploitable — jamais une erreur Swift,
+  un outil inconnu ou des arguments invalides deviennent `{"error": ...}`. `AIClient.
+  sendWithToolLoop` orchestre la boucle (appel → tool_calls → exécution locale → réappel),
+  plafonnée à 5 tours par défaut ; réservée aux endpoints compatibles OpenAI (LM Studio,
+  OpenRouter, Ollama) — Anthropic et Gemini OAuth sont refusés immédiatement (`AIToolLoopError`),
+  avant tout réseau.
+- **Écart avec la commande initiale** : le fichier visé était `Services/AI/AIClient.swift` —
+  inexistant ; l'`AIClient` réel vit à `Services/AIClient.swift` (fichier historique, pas dans
+  `Services/AI/`), modifié à cet emplacement.
+- **Limite actée** : pendant les tours d'outils, tout est non-streamé (l'API text/tool_calls
+  d'un serveur compatible OpenAI ne l'est pas proprement dans ce cas) — `onProgress` n'est
+  appelé qu'une fois, avec le texte final. Le niveau de raisonnement du profil (`AIReasoningLevel`)
+  n'est pas propagé aux tours d'outils (hors périmètre de cette PR, seuls modèle et limite de
+  sortie le sont).
+- **Non branché** : `ChatbotView` n'utilise pas encore `sendWithToolLoop` — seules les briques
+  bas niveau sont livrées ici ; le branchement UI est un chantier séparé (B2-ui).
+- **Vérifié** : `swift build` propre ; `swift test` complet — **1 030 XCTest (1 ignoré, 0
+  échec) + 589 Swift Testing (88 suites, 0 échec)**, dont 17 nouveaux tests
+  (`Tests/AIEndpointToolTests.swift`) couvrant l'encodage `ToolSpec`, le parsing/dispatch/
+  sérialisation de `ToolRouter` (sans jamais appeler le vrai pipeline d'embedding) et
+  l'orchestration de `AIClient.runToolLoop` (réponse directe, tool_call puis texte, outil
+  inconnu, plafond de tours, `onProgress` unique). Un test existant de `AIEndpointTests.swift`
+  a été corrigé : il simulait un `finish_reason: "tool_calls"` sans tableau `tool_calls` réel,
+  devenu `emptyResponse` (et non plus `refused`) depuis que `tool_calls` n'est plus
+  systématiquement un refus.
+- **Non poussé, pas de merge** (consigne de la tâche).
+
+**Prochaine action** : proposer B2-ui (brancher `sendWithToolLoop` dans `ChatbotView`), ou
+enchaîner sur B3 (hybrid search BM25 + cosine) / C (indexation live des notes) selon
+priorisation de l'ADR.
+
 ## Niveau de raisonnement par profil et limite de sortie relevée (2026-09-05)
 
 Investigation du rapport LM Studio « toujours en raisonnement après 645 s » avec
