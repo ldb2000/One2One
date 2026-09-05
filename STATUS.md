@@ -1,6 +1,150 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-02 CEST
+Dernière mise à jour : 2026-09-05 CEST
+
+## Niveau de raisonnement par profil et limite de sortie relevée (2026-09-05)
+
+Investigation du rapport LM Studio « toujours en raisonnement après 645 s » avec
+`qwen3.8-27b` (mlx-community/Qwen3.8-27B-8bit), puis réglage ajouté après discussion.
+ADR : [`2026-09-05-raisonnement-configurable.md`](docs/adr/2026-09-05-raisonnement-configurable.md).
+
+- **Cause confirmée** : le `chat_template.jinja` du modèle injecte « Reasoning effort is
+  set to xhigh » par défaut (prompt rendu vu dans `lms log stream`). LM Studio génère à
+  8,4 tokens/s : un rapport long raisonne des milliers de tokens avant d’écrire, et la
+  limite de 8 192 tokens couvrait réflexion et rapport ensemble.
+- **LM Studio 0.4.23** ignore `reasoning_effort`, `reasoning: {effort}` et
+  `chat_template_kwargs` sur `/v1/chat/completions` (prompt rendu identique) ;
+  `/api/v1/chat` refuse `reasoning` pour ce modèle (HTTP 400) ; `/v1/responses` ignore
+  `reasoning.effort` ; `/no_think` aggrave (511 tokens, tronqué). Leviers mesurés : consigne
+  système « low » du template → 679/514 → 167/167 tokens de raisonnement ; préremplissage
+  assistant `\n</think>\n\n` → 0 token, aussi en SSE.
+- **Ollama 0.33.2** (`qwen3.8:27b-mlx`, nvfp4) honore `reasoning_effort` : xhigh/high/max
+  injectent l’instruction xhigh, medium aucune, low la sienne, none désactive. Débit ≈ 30
+  tokens/s. `gemma4:26b-mlx` plante dans le runner MLX d’Ollama (HTTP 500), hors sujet.
+- **Livré** : `AIReasoningLevel` (défaut, désactivé, faible, moyen, élevé, maximal) dans
+  `AIEndpointProfile.reasoning`. Ollama → `reasoning_effort`, OpenRouter → `reasoning.effort`
+  (documenté, non testé : payant), LM Studio → consigne système reprise du template Qwen
+  (`high` aligné sur `xhigh` comme Ollama ; `medium` rédigé, non mesuré) et désactivation
+  par préremplissage, proposée seulement si l’identifiant contient « qwen ». Défaut =
+  requête strictement inchangée. Sélecteur « Raisonnement » sous la limite de sortie.
+- **Limite de sortie** : défaut 24 576 (3 × 8 192). Un profil sans clé `reasoning` et à
+  exactement 8 192 est relevé une fois au décodage, puis réécrit par la migration ; toute
+  autre valeur est conservée. Un niveau inconnu retombe sur le défaut sans invalider le profil.
+- **Vérifié** : tests unitaires (décodage ancien JSON, migration idempotente, corps par
+  fournisseur/niveau, capacités) ; test réel facultatif `liveReasoning`
+  (`ONETOONE_AI_LIVE_REASONING=1`) : Ollama xhigh raisonne / off ne raisonne pas, LM Studio
+  défaut raisonne / off ne raisonne pas, texte « OK » partout. Suite complète : **1 030 XCTest (1 ignoré), 570 Swift Testing en
+  82 suites, 0 échec**. Aucun fichier LM Studio/Ollama modifié.
+- **Serveur LM Studio** : authentification désactivée par l’utilisateur pour les tests, à
+  réactiver (Developer > Server Settings). Le serveur et le modèle ont été relancés via
+  `lms server start` / `lms load` pour le test réel.
+
+- **Application de recette** : `.build/ai-endpoints-preview-v4/OneToOne.app` (build debug,
+  ressources et bibliothèque Metal embarquées, signature ad hoc vérifiée, non installée
+  ni lancée). Quitter l’ancienne instance avant ouverture.
+
+**Prochaine action** : ouvrir l’app v4, régler le niveau sur le profil (Ollama ou
+LM Studio), vérifier « Tester la connexion » puis un rapport complet ; réactiver
+l’authentification LM Studio. Changements locaux non commités.
+
+## Suivi de génération des rapports (2026-09-05)
+
+Après un essai LM Studio interrompu à environ 6 min 46 : les journaux serveur
+montraient une entrée de 6 457 tokens traitée en 17 secondes, puis un flux actif
+jusqu’à l’annulation. Une longue phase de raisonnement est plausible, pas prouvée
+par le journal de cet essai ; le petit test de connexion avait bien retourné du
+`reasoning_content` séparément de `content`.
+
+- Suivi distinct préparation, attente, raisonnement, rédaction, extraction.
+  Les deltas `reasoning` / `reasoning_content` sont comptés, jamais affichés ni
+  conservés dans le rapport. Le suivi seul active aussi le streaming de l’extraction.
+- Après deux minutes sur la même phase : avertissement visible dans la réunion
+  et la file des tâches, distinguant activité récente et silence de plus d’une minute.
+  Pas d’arrêt automatique ni de modification du modèle ou de son raisonnement.
+- Le markdown terminé est sauvegardé et affiché avant la seconde requête.
+  L’annulation de l’extraction conserve ce texte. Une seule révision est créée ;
+  les faits arrivent ensuite sans réécrire le texte éventuellement édité entre-temps.
+- Les deux boutons de génération utilisent le même parcours avec propagation
+  des erreurs et de l’annulation. Aucun rapport réel n’est relancé automatiquement.
+- Validation : **1 030 XCTest (1 ignoré), 563 Swift Testing en 82 suites, aucun
+  échec**. Tests ajoutés pour les deux champs de raisonnement, le SSE avec callback
+  d’activité seul, les alertes temporisées, l’ordre publication/extraction, la
+  conservation après annulation et l’échec de sauvegarde.
+- Application de recette : `.build/ai-endpoints-preview-v3/OneToOne.app`, signée
+  ad hoc et vérifiée. Quitter l’ancienne instance avant ouverture. Essai de rapport
+  complet avec LM Studio encore à refaire ; la vitesse du modèle n’est pas modifiée.
+
+## Correction des catalogues et retrait de Direct (2026-09-05)
+
+Suite à la recette utilisateur du premier écran :
+
+- Recherche, modèle, URL et jeton utilisent désormais `EditableTextField` AppKit
+  (`NSSecureTextField` pour le jeton). Le coordinateur renouvelle son binding lors
+  du changement de profil ; liste de modèles à hauteur fixe et textes explicatifs
+  repliables sur plusieurs lignes.
+- Catalogue chargé automatiquement au choix du fournisseur. OpenRouter se consulte
+  sans clé ; la génération exige toujours la clé. Le message d’erreur de catalogue
+  reste visible à côté de la liste. Les catalogues ont un délai de 20 secondes.
+- **Constat réel LM Studio** : le serveur écoute sur 1234 et répond HTTP 401 sans
+  jeton. L’écran invite désormais à le renseigner. Aucun secret n’a été lu ni modifié
+  dans le serveur pendant cette vérification.
+- **Ollama** devient un endpoint principal avec catalogue et chat compatibles OpenAI,
+  au même niveau que LM Studio/OpenRouter.
+- **Direct retiré** : suppression de `DirectLLMClient.swift`, du lien direct MLXLLM,
+  de Gemma4Swift et de son profiler transitif dans les dépendances. Les anciennes
+  configurations Direct migrent vers LM Studio sans inventer de nom de modèle ;
+  un profil LM Studio précédemment enregistré est préservé. Les champs historiques
+  restent lisibles. Les caches partagés de poids ne sont pas supprimés. MLXLLM reste
+  transitif via la transcription ; les composants audio/embeddings sont conservés.
+- **Validation** : catalogue réel OpenRouter décodé par le client Swift sans clé,
+  **431 modèles**. Tests natifs des champs et du binding lors du changement de profil,
+  tests Ollama et migration Direct ; suite complète : **1 030 XCTest, 1 ignoré,
+  0 échec ; 557 Swift Testing en 81 suites, 0 échec**.
+- Nouvelle app de recette : `.build/ai-endpoints-preview-v2/OneToOne.app`.
+  La première app de recette est conservée ; les instances ouvertes ne sont pas arrêtées.
+
+ADR complémentaire : [`2026-09-05-catalogues-ia-retrait-direct.md`](docs/adr/2026-09-05-catalogues-ia-retrait-direct.md).
+**Prochaine action** : ouvrir la nouvelle app après fermeture de l’ancienne, renseigner
+le jeton LM Studio puis actualiser ; vérifier le choix et la génération avec les modèles
+souhaités. Changements locaux non commités.
+
+## Endpoints IA — LM Studio / OpenRouter (2026-09-05)
+
+Branche `refactor/ai-endpoints-lmstudio-openrouter`, créée depuis `master` à `a388fb8`.
+Plan et audit du code/documentations officielles dans
+[`docs/superpowers/plans/2026-09-05-architecture-ia-endpoints.md`](docs/superpowers/plans/2026-09-05-architecture-ia-endpoints.md).
+
+- **Livré après accord utilisateur** : lots 1 à 4. Profils séparés par fournisseur,
+  nouvel écran `AISettingsView` (choix endpoint puis modèle, catalogue avec recherche,
+  identifiant manuel, test sur brouillon, enregistrement explicite), transport HTTP
+  commun pour LM Studio et OpenRouter avec annulation et erreurs SSE. `AIClient`
+  fige le profil avant l’inférence ; les services métier existants passent par cette façade.
+- **Migration** : champs SwiftData additifs, fournisseur historique préservé, clés au
+  Trousseau avec vérification avant effacement du champ historique. Les nouveaux
+  backups omettent clés et références ; les anciens exports restent lisibles. Le
+  classement distant des mails doit être réactivé après restauration.
+- **Mails et Teams** : classement via le client commun, option explicite pour les
+  endpoints hors boucle locale, repli heuristique ; disponibilité des rapports Teams
+  vérifiée avec le profil et sa clé, et non l’ancien champ `cloudToken`.
+- **Vérifié** : `swift build`, puis `swift test` complet : **1 030 XCTest, 1 ignoré,
+  0 échec ; 550 Swift Testing en 80 suites, 0 échec**. Nouveaux tests de migration,
+  Trousseau simulé, réouverture disque, sauvegardes, HTTP, SSE multiligne/UTF-8,
+  erreurs après HTTP 200, troncature et annulation. Le test HTTP a révélé puis validé
+  le correctif d’`AsyncBytes.lines`, qui omet les lignes vides SSE. Avertissement
+  préexistant de concurrence dans `PyannoteDiarizer.swift`.
+- **Application préparée** : `.build/ai-endpoints-preview/OneToOne.app`, ressources et
+  bibliothèque Metal embarquées, signature ad hoc vérifiée. Ni installée ni lancée.
+- **Recette restante** : interface native, Trousseau réel et génération avec les modèles
+  choisis sur LM Studio/OpenRouter. Aucun serveur ne répondait sur le port local 1234
+  lors de la vérification ; aucun appel OpenRouter payant effectué.
+- **Différé** : embeddings sur API et réindexation, retrait des anciens fournisseurs,
+  transcription distante et runtime d’agent. Audio, OCR, embeddings locaux et Claude CLI
+  conservent leur fonctionnement. ADR :
+  [`2026-09-05-endpoints-ia-configurables.md`](docs/adr/2026-09-05-endpoints-ia-configurables.md).
+
+**Prochaine action** : recette dans l’application avec un modèle LM Studio et un modèle
+OpenRouter, puis revue/PR de cette première livraison. Changements locaux non commités.
+Les validations manuelles de capture de slides ci-dessous restent à effectuer.
 
 ## Capture automatique de slides (2026-09-02)
 

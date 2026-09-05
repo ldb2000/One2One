@@ -43,6 +43,11 @@ struct MailSettingsView: View {
             Toggle("Scanner automatiquement mes mails (mails lus uniquement)",
                    isOn: binding({ $0.mailAutoIndexEnabled }, { $0.mailAutoIndexEnabled = $1 }))
 
+            Toggle("Autoriser le classement des mails par un endpoint distant",
+                   isOn: binding({ $0.allowRemoteMailClassification }, { $0.allowRemoteMailClassification = $1 }))
+            Text("Le classement utilise le modèle choisi dans les réglages IA. Sans cette option, un endpoint distant laisse le classement aux règles locales.")
+                .font(.caption).foregroundStyle(.secondary)
+
             // Boîtes scannées
             VStack(alignment: .leading, spacing: 6) {
                 HStack {

@@ -504,9 +504,10 @@ struct MarkdownToolbar: View {
 struct EditableTextField: NSViewRepresentable {
     var placeholder: String
     @Binding var text: String
+    var isSecure: Bool = false
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field: NSTextField = isSecure ? NSSecureTextField() : NSTextField()
         field.placeholderString = placeholder
         field.stringValue = text
         field.isBordered = true
@@ -516,10 +517,15 @@ struct EditableTextField: NSViewRepresentable {
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.lineBreakMode = .byTruncatingTail
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
+        // Les bindings peuvent changer de profil tout en gardant la même vue.
+        context.coordinator.text = $text
+        nsView.isEnabled = context.environment.isEnabled
+        nsView.placeholderString = placeholder
         if nsView.stringValue != text {
             nsView.stringValue = text
         }

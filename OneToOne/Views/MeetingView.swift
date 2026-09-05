@@ -123,6 +123,7 @@ struct MeetingView: View {
     @State private var segmentDeleteError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
+    @State private var reportActivity = AIReportProgress()
     @State private var saveDebounceTask: Task<Void, Never>?
     @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
@@ -221,6 +222,8 @@ struct MeetingView: View {
                 isGeneratingReport: isGeneratingReport,
                 reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
+                reportStatus: reportActivity.label,
+                reportWaitWarning: reportActivity.warning(),
                 capturedSlidesCount: currentSlides.count,
                 actions: makeMenuActions(),
                 onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
@@ -244,6 +247,15 @@ struct MeetingView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 2)
+
+            if isGeneratingReport, let warning = reportActivity.warning() {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+            }
 
             MeetingContextualRecorderBar(
                 recorder: recorder,
@@ -1840,10 +1852,10 @@ struct MeetingView: View {
             Button {
                 Task { await runGenerate() }
             } label: {
-                Label(isGenerating ? "Génère…" : "Générer",
+                Label(isGenerating || isGeneratingReport ? "Génère…" : "Générer",
                       systemImage: "wand.and.stars")
             }
-            .disabled(isGenerating || meeting.rawTranscript.isEmpty)
+            .disabled(isGenerating || isGeneratingReport || meeting.rawTranscript.isEmpty)
             .help("Génère un nouveau rapport (écrase la version actuelle)")
         }
         .padding(.horizontal, 6).padding(.vertical, 4)
@@ -1855,57 +1867,7 @@ struct MeetingView: View {
 
     @MainActor
     private func runGenerate() async {
-        guard !isGenerating && !isGeneratingReport else {
-            print("[Rapport] génération déjà en cours, abort")
-            return
-        }
-        isGenerating = true
-        let queue = JobQueue.shared
-        let title = meeting.title
-        let id = meeting.persistentModelID
-        // Throttle des updates UI pendant le streaming LLM. Sans ça, chaque
-        // token (~50-100/sec) déclenche un re-render SwiftUI et bloque le
-        // main thread sur les longs rapports.
-        let throttle = ProgressThrottle(minInterval: 0.25)
-        _ = queue.start(
-            kind: .report,
-            meetingID: id,
-            meetingTitle: title + " · rapport"
-        ) { jobID in
-            defer { Task { @MainActor in self.isGenerating = false } }
-            do {
-                let result = try await AIReportService.generate(
-                    meeting: meeting,
-                    in: context,
-                    settings: settings,
-                    additionalContext: "",
-                    onProgress: { partial in
-                        guard await throttle.shouldEmit() else { return }
-                        let count = partial.count
-                        let tail = partial.suffix(80)
-                            .replacingOccurrences(of: "\n", with: " ")
-                        await MainActor.run {
-                            queue.updateProgress(
-                                jobID,
-                                fraction: nil,
-                                status: "\(count) chars · …\(tail)"
-                            )
-                        }
-                    }
-                )
-                await MainActor.run {
-                    self.apply(report: result)
-                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
-                        meetingID: self.meeting.ensuredStableID, succeeded: true)
-                }
-            } catch {
-                print("[Rapport] génération échec: \(error)")
-                await MainActor.run {
-                    TeamsAutoRecordCoordinator.shared.reportDidFinish(
-                        meetingID: self.meeting.ensuredStableID, succeeded: false)
-                }
-            }
-        }
+        await generateReport()
     }
 
     /// Throttle simple actor-based pour limiter les updates UI streaming.
@@ -1913,6 +1875,7 @@ struct MeetingView: View {
     private actor ProgressThrottle {
         let minInterval: TimeInterval
         var lastEmit: Date = .distantPast
+        var lastPhase = -1
         init(minInterval: TimeInterval) { self.minInterval = minInterval }
         func shouldEmit() -> Bool {
             let now = Date()
@@ -1921,6 +1884,20 @@ struct MeetingView: View {
                 return true
             }
             return false
+        }
+        func shouldEmit(activity: AIClient.Activity) -> Bool {
+            let phase: Int
+            switch activity {
+            case .waiting: phase = 0
+            case .reasoning: phase = 1
+            case .writing: phase = 2
+            }
+            if phase != lastPhase {
+                lastPhase = phase
+                lastEmit = Date()
+                return true
+            }
+            return shouldEmit()
         }
     }
 
@@ -1963,6 +1940,7 @@ struct MeetingView: View {
         isGeneratingReport = true
         reportProgressChars = 0
         reportElapsedSeconds = 0
+        reportActivity = AIReportProgress()
 
         let queue = JobQueue.shared
         _ = queue.start(
@@ -1970,8 +1948,10 @@ struct MeetingView: View {
             meetingID: meeting.persistentModelID,
             meetingTitle: meeting.title
         ) { jobID in
-            // Tick d'avancement (LLM streaming — pas de fraction réelle, on
-            // alimente le statusText avec le nombre de chars reçus).
+            // Les durées démarrent à l'exécution, pas pendant l'attente en file.
+            self.reportActivity.start(.preparing)
+            let throttle = ProgressThrottle(minInterval: 0.25)
+            let activityThrottle = ProgressThrottle(minInterval: 0.25)
             let start = Date()
             let elapsedTimer = Task { @MainActor in
                 while !Task.isCancelled {
@@ -1980,7 +1960,8 @@ struct MeetingView: View {
                     self.reportElapsedSeconds = Int(Date().timeIntervalSince(start))
                     queue.updateProgress(jobID,
                                           fraction: nil,
-                                          status: "\(self.reportElapsedSeconds)s · \(self.reportProgressChars) chars")
+                                          status: "\(self.reportElapsedSeconds)s · \(self.reportActivity.label)"
+                                            + (self.reportActivity.warning().map { " — \($0)" } ?? ""))
                 }
             }
             defer {
@@ -1999,6 +1980,7 @@ struct MeetingView: View {
             // antérieures, ajouté en arrière-plan du prompt.
             let ragContext = await self.fetchHistoricalContext()
             do {
+                try Task.checkCancellation()
                 let report = try await AIReportService.generate(
                     meeting: meeting,
                     in: context,
@@ -2008,15 +1990,33 @@ struct MeetingView: View {
                         // Note : signature non-throwing — la cancellation est
                         // vérifiée juste après l'appel `generate(...)`. Côté
                         // streaming on se contente de pousser la progression.
+                        guard await throttle.shouldEmit() else { return }
                         let count = partial.count
                         await MainActor.run {
                             self.reportProgressChars = count
+                            self.reportActivity.receive(.writing(count))
                         }
+                    },
+                    onActivity: { activity in
+                        guard await activityThrottle.shouldEmit(activity: activity) else { return }
+                        await MainActor.run {
+                            self.reportActivity.receive(activity)
+                        }
+                    },
+                    onMarkdownReady: { markdown in
+                        try Task.checkCancellation()
+                        // Une seule révision : la seconde passe enrichit les
+                        // faits, elle ne crée pas un deuxième rapport identique.
+                        self.apply(report: MeetingReportData(summary: markdown,
+                            keyPoints: [], decisions: [], openQuestions: [], actions: [], alerts: []))
+                        try self.context.save()
+                        self.reportActivity.start(.extracting)
+                        queue.updateProgress(jobID, fraction: nil, status: self.reportActivity.label)
                     }
                 )
                 try Task.checkCancellation()
                 await MainActor.run {
-                    self.apply(report: report)
+                    self.apply(report: report, createRevision: false)
                     self.meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
                     self.saveContext()
                     self.activeSection = .report
@@ -2129,24 +2129,28 @@ struct MeetingView: View {
         }
     }
 
-    private func apply(report: MeetingReportData) {
-        meeting.summary = report.summary
+    private func apply(report: MeetingReportData, createRevision: Bool = true) {
+        // Le texte est déjà publié pendant l'extraction : ne pas écraser une
+        // éventuelle correction manuelle lorsque les faits arrivent ensuite.
+        if createRevision { meeting.summary = report.summary }
         meeting.keyPoints = report.keyPoints
         meeting.decisions = report.decisions
         meeting.openQuestions = report.openQuestions
 
         // Snapshot v_n+1 — chaque génération crée une nouvelle révision pour
         // pouvoir comparer/restaurer un draft antérieur.
-        let nextVersion = (meeting.reportRevisions.map(\.version).max() ?? 0) + 1
-        let rev = ReportRevision(
-            meeting: meeting,
-            version: nextVersion,
-            body: report.summary,
-            critique: "",
-            writerMessage: "",
-            isValidated: false
-        )
-        context.insert(rev)
+        if createRevision {
+            let nextVersion = (meeting.reportRevisions.map(\.version).max() ?? 0) + 1
+            let rev = ReportRevision(
+                meeting: meeting,
+                version: nextVersion,
+                body: report.summary,
+                critique: "",
+                writerMessage: "",
+                isValidated: false
+            )
+            context.insert(rev)
+        }
 
         for a in report.actions {
             let task = ActionTask(title: a.title)

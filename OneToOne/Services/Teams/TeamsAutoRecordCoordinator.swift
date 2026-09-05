@@ -341,7 +341,7 @@ final class TeamsAutoRecordCoordinator {
         case .emitTranscriptReadyNotification(let count):
             guard let id = currentMeetingID else { return }
             let available = settings().map {
-                TeamsReportAvailability.isAvailable(provider: $0.provider, cloudToken: $0.cloudToken)
+                TeamsReportAvailability.isAvailable(settings: $0)
             } ?? false
             deliver(.transcriptReadyPopup(segmentCount: count, meetingID: id, reportAvailable: available))
 

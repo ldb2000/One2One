@@ -5,6 +5,31 @@ import Foundation
 @Suite("MailLLMClassifier — parsing et classification")
 @MainActor
 struct MailLLMClassifierTests {
+    @Test("Un endpoint distant ne reçoit pas de mail sans activation explicite")
+    func remoteMailRequiresOptIn() async throws {
+        let settings = AppSettings(provider: .openRouter)
+        var called = false
+        let denied = await MailLLMClassifier.classify(
+            subject: "Privé", sender: "a@b.c", preview: "Contenu privé", candidates: [], settings: settings,
+            generate: { _ in called = true; return #"{"projectCode":null,"confidence":0}"# })
+        #expect(!called)
+        #expect(denied == .unavailable)
+        settings.allowRemoteMailClassification = true
+        _ = await MailLLMClassifier.classify(
+            subject: "Privé", sender: "a@b.c", preview: "Contenu privé", candidates: [], settings: settings,
+            generate: { _ in called = true; return #"{"projectCode":null,"confidence":0}"# })
+        #expect(called)
+    }
+
+    @Test("Un serveur LM Studio sur le réseau suit aussi la règle des mails distants")
+    func networkLMStudioIsRemote() async {
+        let settings = AppSettings(apiEndpoint: "http://192.168.1.20:1234/v1", modelName: "local-model", provider: .lmStudio)
+        var called = false
+        _ = await MailLLMClassifier.classify(
+            subject: "Privé", sender: "a@b.c", preview: "Contenu privé", candidates: [], settings: settings,
+            generate: { _ in called = true; return "{}" })
+        #expect(!called)
+    }
 
     private let codes: Set<String> = ["REFSI", "DATA24"]
     private let candidates = [

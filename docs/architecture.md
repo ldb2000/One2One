@@ -23,10 +23,11 @@
 - de nombreuses **intégrations système** : Calendrier, Teams, Contacts, Rappels, Spotlight,
   Mail, capture d'écran, notifications, raccourcis globaux.
 
-L'application est **100 % locale et orientée confidentialité** : la transcription et la
-diarisation tournent sur l'appareil (MLX/Metal), les jetons API sont stockés dans le
-**Keychain** (protégé Touch ID), et les fichiers importés sont copiés dans
-`Application Support`.
+La transcription, la diarisation et les embeddings par défaut tournent sur l'appareil
+(MLX/Metal). La génération utilise l'endpoint choisi : LM Studio, Ollama ou OpenRouter
+distant, avec maintien des anciens fournisseurs. Les clés API sont migrées dans le
+Trousseau à la première utilisation ; les nouveaux exports omettent les secrets.
+Les fichiers importés sont copiés dans `Application Support`.
 
 ---
 
@@ -40,7 +41,7 @@ diarisation tournent sur l'appareil (MLX/Metal), les jetons API sont stockés da
 | STT local | `mlx-audio-swift` (`MLXAudioSTT`), `mlx-swift` (`MLX`) — Cohere / Voxtral |
 | Diarisation | `speech-swift` (`SpeechVAD`, pipeline Pyannote + WeSpeaker ResNet34) |
 | Markdown | `swift-markdown` (CommonMark + GFM) + moteur WYSIWYG maison |
-| IA distante | Claude (OAuth + API), Gemini (OAuth), OpenAI-compatible, Ollama (embeddings, legacy) |
+| Génération IA | LM Studio / Ollama / OpenRouter (HTTP compatible OpenAI), anciens fournisseurs cloud conservés |
 | Embeddings locaux | `mlx-swift-lm` (`MLXEmbedders`) — `intfloat/multilingual-e5-base` in-process, défaut |
 | Système | EventKit, Contacts, ScreenCaptureKit, Vision (OCR), CoreSpotlight, Carbon (hotkeys), UserNotifications, Keychain, App Groups |
 
@@ -244,7 +245,7 @@ erDiagram
 graph LR
     subgraph Clients
         AIClient[AIClient -- routeur]
-        ANTH[AnthropicOAuthClient]
+        ENDPOINT[OpenAICompatibleClient]
         GEM[GeminiOAuthClient]
     end
     subgraph Usages
@@ -258,16 +259,21 @@ graph LR
     INGEST --> AIClient
     REFORM --> AIClient
     MGR --> AIClient
-    AIClient -->|Claude OAuth| ANTH
+    AIClient -->|LM Studio / Ollama / OpenRouter| ENDPOINT
+    MAIL[MailLLMClassifier] --> AIClient
     AIClient -->|Gemini OAuth| GEM
     AIClient -->|API key| HTTP[Anthropic / OpenAI-compatible]
     RAGQ --> EMB[EmbeddingService -- routeur MLX/Ollama]
 ```
 
-- **`AIClient`** — routeur central (`enum`) sélectionnant le fournisseur via `AppSettings`
-  (Claude OAuth, Gemini OAuth, Anthropic API, OpenAI-compatible). Supporte le **streaming**
-  (callback `onProgress`) et normalise les erreurs par fournisseur. `AIClientProtocol`
-  permet l'injection de mocks pour les tests.
+- **`AIClient`** — routeur central sélectionnant le profil via `AppSettings`. Les nouveaux
+  endpoints LM Studio, Ollama et OpenRouter passent par `OpenAICompatibleClient` ; les
+  anciens adaptateurs cloud restent accessibles. Le moteur Direct et Gemma4Swift sont
+  retirés ; les profils Direct migrent vers LM Studio sans conversion automatique du
+  nom de modèle. `AIClientProtocol` permet l'injection de mocks.
+- **`Services/AI/`** — profils JSON sans secrets, instantané de requête, Trousseau et
+  transport HTTP/SSE injectable. Une réponse tronquée, refusée ou interrompue échoue
+  explicitement. Le catalogue et le test des réglages ne changent pas le profil actif.
 - **`AnthropicOAuthClient` / `GeminiOAuthClient`** — gestion des jetons OAuth (stockage
   Keychain + Touch ID, refresh, migration legacy).
 - **`AIReportService`** — pipeline post-réunion : fusion transcript, génération structurée
@@ -416,7 +422,8 @@ Mail.app sélectionnées (réglages « Mails ») dans un job `JobQueue.JobKind.m
    recouvrement de tokens + Jaro-Winkler sujet↔nom de projet ou code projet cité tel quel
    (0.9), appartenance de l'expéditeur à l'équipe projet (bonus +0.2, ou 0.4 seul).
 3. **Matching étage 2 (LLM)** — sous le seuil auto, `MailLLMClassifier.classify` interroge
-   Gemma 4 en local (`DirectLLMClient`) avec les projets candidats ; le verdict LLM **remplace**
+   le modèle configuré via `AIClient` avec les projets candidats ; un endpoint distant
+   exige `allowRemoteMailClassification`, sinon repli heuristique. Le verdict LLM **remplace**
    l'heuristique (`.verdict`), une réponse inexploitable force l'ignorance (`.unparseable`), une
    erreur LLM retombe sur l'heuristique (`.unavailable`).
 4. **Décision par seuils** (`AppSettings.mailAutoIndexAutoThreshold` / `…SuggestThreshold`) :

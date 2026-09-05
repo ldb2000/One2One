@@ -43,18 +43,40 @@ xcodebuild -scheme Gemma4Swift -destination "platform=macOS" \
 > `gemma-4-swift-mlx` (VincentGourbin) est un projet **fonctionnel** confirmé. Référence :
 > https://github.com/VincentGourbin/gemma-4-swift-mlx
 
-## Provider IA « Directe » (LLM local in-process)
+## Endpoints IA et compatibilité historique
 
-- `Services/DirectLLMClient.swift` charge un modèle MLX via **mlx-swift-lm** (`loadModelContainer`
-  + `ChatSession`) et génère **in-process, sans réseau** (≠ Ollama). Défaut = `.direct` (`AppSettings`).
-- Modèle par défaut : `mlx-community/gemma-4-26b-a4b-it-8bit` (réglable : `AppSettings.directModelRepo`
-  / Réglages → IA).
-- **Gemma 4 (26b-a4b, 31b) = MoE** : le `mlx-swift-lm` officiel ne gère que le Gemma 4 **dense**
-  → erreur « Unhandled keys [experts, …] ». On dépend donc de **`Gemma4Swift`** (`gemma-4-swift-mlx`),
-  qui enregistre une implémentation **MoE** des types `gemma4`/`gemma4_text` dans `LLMTypeRegistry.shared`
-  via `Gemma4Registration.register()` (appelé par `DirectLLMClient`). `mlx-swift-lm` est sur `branch: main`
-  (requis par Gemma4Swift + fournit `LLMTypeRegistry`).
-- Modèles **denses** (Qwen3.5, Gemma 3…) fonctionnent sans Gemma4Swift.
+- Les nouvelles installations proposent **LM Studio** (`.lmStudio`), sans modèle
+  présélectionné ; **OpenRouter** (`.openRouter`) et **Ollama** (`.ollama`) sont aussi
+  des endpoints principaux, avec catalogue et transport communs.
+- `Services/AI/` contient les profils, le Trousseau et le transport compatible OpenAI.
+  `AIClient` fige les réglages avant le réseau ; `Views/Settings/AISettingsView.swift`
+  gère le brouillon, le catalogue et le test indépendant de l'enregistrement.
+- Les anciens stores gardent leur fournisseur, sauf Direct qui migre vers LM Studio.
+  Ne pas changer le défaut persisté
+  `providerRaw` (`.direct`) sans examiner la migration ; l'initialiseur des nouveaux
+  objets choisit `.lmStudio`.
+- Le classement des mails suit le même client ; un endpoint hors boucle locale exige
+  `allowRemoteMailClassification`. Les backups n'exportent ni clés ni références.
+- Ne pas utiliser `AsyncBytes.lines` pour le nouveau SSE : cette API omet les lignes
+  vides, qui délimitent les événements. Tests : `Tests/AIEndpointTests.swift`.
+- Niveau de raisonnement par profil (`AIEndpointProfile.reasoning`) : « défaut » ne
+  change rien à la requête. LM Studio **ignore** les paramètres de raisonnement de
+  l'API (vérifié 0.4.23) : consigne système du template Qwen, ou préremplissage
+  `</think>` pour désactiver, réservé aux modèles Qwen. Ollama lit `reasoning_effort`,
+  OpenRouter `reasoning.effort`. Limite de sortie par défaut 24 576 ; l'ancienne valeur
+  8 192 d'un profil sans clé `reasoning` est relevée une fois au décodage.
+  ADR : `docs/adr/2026-09-05-raisonnement-configurable.md`.
+- Utiliser `EditableTextField` pour les champs IA, y compris `isSecure: true` pour
+  les clés. Le coordinateur doit renouveler son binding au changement de profil.
+  Le catalogue OpenRouter est public ; la clé reste requise pour la génération.
+
+### Inférence locale conservée
+
+Le moteur Direct et Gemma4Swift sont retirés. Les anciens profils Direct migrent vers
+LM Studio sans modèle choisi. Les champs persistés restent lisibles ; aucun poids du
+cache HuggingFace partagé n’est supprimé. MLXLLM reste une dépendance transitive de
+la transcription ; MLXEmbedders et les composants audio restent nécessaires.
+
 - **Embeddings** : `EmbeddingService` route vers **MLXEmbedders** in-process par défaut
   (`intfloat/multilingual-e5-base`, préfixes `query:`/`passage:`) ; Ollama reste
   disponible en legacy (`onetoone_embedding_backend` = `ollama`).

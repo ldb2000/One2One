@@ -13,7 +13,7 @@ import Tokenizers
 private let embedEngineLog = Logger(subsystem: "com.onetoone.app", category: "embed-mlx")
 
 /// Moteur d'embedding MLX in-process (nomic-embed-text-v1.5 par défaut).
-/// Cache statique mono-modèle, même pattern que `DirectLLMClient` : le
+/// Cache statique mono-modèle : le
 /// container est rechargé si le repo change. Les textes reçus sont supposés
 /// déjà préfixés (`search_document:` / `search_query:`) par l'appelant.
 @MainActor

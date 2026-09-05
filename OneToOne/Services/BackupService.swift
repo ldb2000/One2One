@@ -31,7 +31,8 @@ final class BackupService {
     }
 
     struct SettingsDTO: Codable {
-        var cloudToken: String
+        /// Lecture des anciens exports uniquement ; jamais écrit dans les nouveaux.
+        var cloudToken: String?
         var apiEndpoint: String
         var modelName: String
         var provider: String
@@ -43,6 +44,10 @@ final class BackupService {
         var managerEmail: String?
         var managerCategoriesJSON: String?
         var managerReportPrompt: String?
+        var aiConfigurationVersion: Int? = nil
+        var aiProfilesJSON: String? = nil
+        var directModelRepo: String? = nil
+        var allowRemoteMailClassification: Bool? = nil
     }
 
     struct EntityDTO: Codable {
@@ -231,6 +236,7 @@ final class BackupService {
     /// Sérialise l'ensemble des données fournies en un payload JSON auto-contenu
     /// (ISO-8601, clés triées). Les fichiers référencés (pièces jointes, WAV,
     /// images de slides) sont embarqués sous forme de `Data` lorsqu'ils existent.
+    @MainActor
     func backup(
         settings: AppSettings,
         entities: [Entity],
@@ -244,17 +250,25 @@ final class BackupService {
         let payload = BackupPayload(
             exportedAt: Date(),
             settings: SettingsDTO(
-                cloudToken: settings.cloudToken,
+                cloudToken: nil,
                 apiEndpoint: settings.apiEndpoint,
                 modelName: settings.modelName,
-                provider: settings.provider.rawValue,
+                provider: settings.providerRaw,
                 importPrompt: settings.importPrompt,
                 reformulatePrompt: settings.reformulatePrompt,
                 weeklyExportPrompt: settings.weeklyExportPrompt,
                 managerName: settings.managerName,
                 managerEmail: settings.managerEmail,
                 managerCategoriesJSON: settings.managerCategoriesJSON,
-                managerReportPrompt: settings.managerReportPrompt
+                managerReportPrompt: settings.managerReportPrompt,
+                aiConfigurationVersion: 1,
+                aiProfilesJSON: try AIConfigurationStore.encode(AIConfigurationStore.profiles(for: settings).map {
+                    var profile = $0
+                    profile.credentialID = nil
+                    return profile
+                }),
+                directModelRepo: settings.directModelRepo,
+                allowRemoteMailClassification: settings.allowRemoteMailClassification
             ),
             entities: entities.map { EntityDTO(name: $0.name, summary: $0.summary) },
             projects: projects.map { project in
@@ -437,10 +451,29 @@ final class BackupService {
     /// Restaure un backup JSON dans le `ModelContext` : supprime d'abord toutes
     /// les données existantes, puis reconstruit le graphe d'objets et réécrit les
     /// fichiers embarqués sur disque. Opération destructive (remplace tout).
+    @MainActor
     func restore(from data: Data, into context: ModelContext) throws {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let payload = try decoder.decode(BackupPayload.self, from: data)
+        guard (payload.settings.aiConfigurationVersion ?? 0) <= 1 else {
+            throw AIEndpointError.invalidConfiguration
+        }
+        // Valider avant toute suppression et ignorer les références de secrets
+        // de la machine d'origine, même dans un export modifié manuellement.
+        var restoredProfilesJSON = ""
+        if let json = payload.settings.aiProfilesJSON, !json.isEmpty {
+            guard let bytes = json.data(using: .utf8),
+                  let profiles = try? JSONDecoder().decode([AIEndpointProfile].self, from: bytes),
+                  Set(profiles.map(\.provider)).count == profiles.count else {
+                throw AIEndpointError.invalidConfiguration
+            }
+            restoredProfilesJSON = try AIConfigurationStore.encode(profiles.map {
+                var profile = $0
+                profile.credentialID = nil
+                return profile
+            })
+        }
         let restoredFilesDirectory = try createRestoreFilesDirectory()
 
         let existingProjects = try context.fetch(FetchDescriptor<Project>())
@@ -473,10 +506,14 @@ final class BackupService {
         for setting in existingSettings { context.delete(setting) }
 
         let restoredSettings = AppSettings()
-        restoredSettings.cloudToken = payload.settings.cloudToken
+        restoredSettings.cloudToken = payload.settings.cloudToken ?? ""
         restoredSettings.apiEndpoint = payload.settings.apiEndpoint
         restoredSettings.modelName = payload.settings.modelName
-        restoredSettings.provider = AIProvider(rawValue: payload.settings.provider) ?? .direct
+        restoredSettings.providerRaw = payload.settings.provider
+        restoredSettings.aiProfilesJSON = restoredProfilesJSON
+        restoredSettings.directModelRepo = payload.settings.directModelRepo ?? AIProvider.legacyDirectModelRepo
+        // La restauration n'autorise pas à elle seule de nouveaux envois de mails.
+        restoredSettings.allowRemoteMailClassification = false
         restoredSettings.importPrompt = payload.settings.importPrompt
         restoredSettings.reformulatePrompt = payload.settings.reformulatePrompt
         restoredSettings.weeklyExportPrompt = payload.settings.weeklyExportPrompt
