@@ -1,18 +1,6 @@
 import SwiftUI
 import SwiftData
 
-/// Un message affiché dans le fil de conversation de l'assistant IA (envoyé par l'utilisateur ou l'assistant).
-struct ChatMessage: Identifiable, Equatable {
-    let id = UUID()
-    let role: Role
-    let content: String
-
-    enum Role {
-        case user
-        case assistant
-    }
-}
-
 /// Définition d'une commande slash (`/cherche`, `/ajout-projet`, …) : nom, arguments attendus et aide.
 struct SlashCommandDef: Identifiable {
     let id = UUID()
