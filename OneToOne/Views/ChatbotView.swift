@@ -570,6 +570,11 @@ struct ChatbotView: View {
             // synchrone : isLoading/spinner s'affichent avant ce travail lourd.
             let databaseContext = await MainActor.run { buildDatabaseContext() }
             let history = await MainActor.run { serializedConversationHistory(excludingLast: 1) }
+            // Pre-fetch RAG (B1) : fail-soft, une erreur ou une base vide laisse le prompt inchangé.
+            let ragHits: [RAGQuery.Result] = (try? await MainActor.run {
+                try await RAGQuery.search(query: question, topK: 4, scope: RAGQuery.Scope(), context: context)
+            }) ?? []
+            let ragBlock = formatRAGHits(ragHits)
             let prompt = """
             Tu es l'assistant d'analyse de l'application OneToOne.
             Reponds uniquement a partir des donnees ci-dessous (incluant les rapports de réunion déjà générés). Si l'information manque, dis-le clairement.
@@ -577,7 +582,7 @@ struct ChatbotView: View {
 
             Base de donnees:
             \(databaseContext)
-            \(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
+            \(ragBlock)\(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
             Question actuelle:
             \(question)
             """
@@ -611,6 +616,35 @@ struct ChatbotView: View {
                 }
             }
         }
+    }
+
+    // MARK: - RAG Pre-fetch (B1)
+
+    /// Formate les extraits RAG en bloc citable `[1] date — titre: texte`, à
+    /// insérer dans le prompt entre le contexte base et l'historique de
+    /// conversation. Retourne "" si `hits` est vide (prompt inchangé).
+    func formatRAGHits(_ hits: [RAGQuery.Result]) -> String {
+        guard !hits.isEmpty else { return "" }
+        let lines = hits.enumerated().map { idx, hit -> String in
+            let chunk = hit.chunk
+            let date: String
+            let title: String
+            if let meeting = chunk.meeting {
+                date = meeting.date.formatted(date: .abbreviated, time: .omitted)
+                title = meeting.title
+            } else if let mail = chunk.mail {
+                date = mail.dateReceived.formatted(date: .abbreviated, time: .omitted)
+                title = mail.subject
+            } else if let attachment = chunk.attachment {
+                date = attachment.importedAt.formatted(date: .abbreviated, time: .omitted)
+                title = attachment.fileName
+            } else {
+                date = "?"
+                title = "?"
+            }
+            return "[\(idx + 1)] \(date) — \(title): \(chunk.text)"
+        }
+        return "\nExtraits pertinents (RAG):\n\(lines.joined(separator: "\n\n"))\n"
     }
 
     // MARK: - Database Context
