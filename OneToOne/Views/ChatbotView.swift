@@ -33,7 +33,7 @@ struct ChatbotView: View {
         ChatMessage(role: .assistant, content: "Je peux repondre a partir des projets, collaborateurs, entretiens, actions, alertes, rapports et transcriptions de reunion.\n\nTapez / pour voir les commandes (notamment /cherche pour fouiller les rapports & transcriptions).")
     ]
     @State private var input: String = ""
-    @State private var isLoading = false
+    @State private var phase: LoadingPhase = .idle
     @State private var errorMessage: String?
     @State private var isOllamaReachable: Bool?
     @State private var selectedCommandIndex: Int = 0
@@ -61,6 +61,10 @@ struct ChatbotView: View {
     private var useToolCalling: Bool {
         settings.chatbotToolCallingEnabled
     }
+
+    /// `true` dès qu'une phase de traitement est en cours (contexte ou appel LLM) — remplace
+    /// l'ancien `Bool` isolé pour ne pas toucher la logique d'activation des boutons/spinner.
+    private var isLoading: Bool { phase != .idle }
 
     private let slashCommands: [SlashCommandDef] = [
         SlashCommandDef(
@@ -165,6 +169,10 @@ struct ChatbotView: View {
                                         chatBubble(message)
                                             .id(message.id)
                                     }
+                                    if let label = phase.label, let icon = phase.systemImage {
+                                        phaseIndicatorBubble(label: label, systemImage: icon)
+                                            .id(phaseIndicatorID)
+                                    }
                                 }
                                 .padding(.vertical, 4)
                             }
@@ -173,6 +181,12 @@ struct ChatbotView: View {
                                     withAnimation {
                                         proxy.scrollTo(last.id, anchor: .bottom)
                                     }
+                                }
+                            }
+                            .onChange(of: phase) { _, newPhase in
+                                guard newPhase != .idle else { return }
+                                withAnimation {
+                                    proxy.scrollTo(phaseIndicatorID, anchor: .bottom)
                                 }
                             }
                         }
@@ -502,7 +516,7 @@ struct ChatbotView: View {
             Circle()
                 .fill(isLoading ? Color.orange : Color.green)
                 .frame(width: 10, height: 10)
-            Text(isLoading ? "Analyse..." : "Pret")
+            Text(phase.label ?? "Pret")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.black)
         }
@@ -513,6 +527,35 @@ struct ChatbotView: View {
     }
 
     // MARK: - Chat Bubble
+
+    /// Identifiant fixe de l'indicateur de phase dans le `ScrollViewReader` (n'est pas un `ChatMessage`).
+    private let phaseIndicatorID = "phase-indicator"
+
+    /// Message système inline affiché pendant `loadingContext`/`waitingLLM` — icône + libellé +
+    /// spinner sobre, dans le même style que les bulles assistant. Ne remplace pas le spinner du
+    /// bouton d'envoi, qui reste l'indicateur "occupé" global.
+    @ViewBuilder
+    private func phaseIndicatorBubble(label: String, systemImage: String) -> some View {
+        HStack {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .foregroundColor(.black.opacity(0.55))
+                Text(label)
+                    .font(.callout)
+                    .foregroundColor(.black.opacity(0.65))
+                ProgressView()
+                    .controlSize(.small)
+            }
+            .padding(14)
+            .background(Color(red: 0.985, green: 0.985, blue: 0.975))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+            )
+            Spacer(minLength: 50)
+        }
+    }
 
     @ViewBuilder
     private func chatBubble(_ message: ChatMessage) -> some View {
@@ -565,25 +608,25 @@ struct ChatbotView: View {
 
         messages.append(ChatMessage(role: .user, content: question))
         input = ""
-        isLoading = true
+        phase = .loadingContext
         errorMessage = nil
 
         if let localResponse = handleLocalCommand(question) {
             messages.append(ChatMessage(role: .assistant, content: localResponse))
-            isLoading = false
+            phase = .idle
             return
         }
 
         if let localResponse = localSearchResponse(for: question) {
             messages.append(ChatMessage(role: .assistant, content: localResponse))
-            isLoading = false
+            phase = .idle
             return
         }
 
         if settings.provider == .ollama, isOllamaReachable == false {
             messages.append(ChatMessage(role: .assistant, content: offlineFallbackResponse(for: question)))
             errorMessage = "Ollama n'est pas disponible. Reponse locale affichee a la place."
-            isLoading = false
+            phase = .idle
             return
         }
 
@@ -616,11 +659,13 @@ struct ChatbotView: View {
                         await MainActor.run {
                             messages.append(ChatMessage(role: .assistant, content: offlineFallbackResponse(for: question)))
                             errorMessage = "Ollama n'est pas joignable sur \(settings.apiEndpoint). Reponse locale affichee."
-                            isLoading = false
+                            phase = .idle
                         }
                         return
                     }
                 }
+
+                await MainActor.run { phase = .waitingLLM }
 
                 let answer: String
                 if useToolCalling {
@@ -640,12 +685,12 @@ struct ChatbotView: View {
                 await MainActor.run {
                     messages.append(ChatMessage(role: .assistant, content: answer.trimmingCharacters(in: .whitespacesAndNewlines)))
                     errorMessage = nil
-                    isLoading = false
+                    phase = .idle
                 }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
-                    isLoading = false
+                    phase = .idle
                 }
             }
         }

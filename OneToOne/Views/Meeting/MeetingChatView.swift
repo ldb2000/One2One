@@ -15,8 +15,11 @@ struct MeetingChatView: View {
         ChatMessage(role: .assistant, content: "Pose des questions sur cette réunion, ses documents et l'historique.")
     ]
     @State private var input: String = ""
-    @State private var isLoading = false
+    @State private var phase: LoadingPhase = .idle
     @State private var errorMessage: String?
+
+    /// `true` dès qu'une phase de traitement est en cours (contexte ou appel LLM).
+    private var isLoading: Bool { phase != .idle }
 
     /// Renvoie l'enregistrement `AppSettings` canonique, en crée un si aucun n'existe
     /// encore (même filet de sécurité que `ChatbotView.settings`).
@@ -57,6 +60,10 @@ struct MeetingChatView: View {
                         ForEach(messages) { message in
                             chatBubble(message).id(message.id)
                         }
+                        if let label = phase.label, let icon = phase.systemImage {
+                            phaseIndicatorBubble(label: label, systemImage: icon)
+                                .id(phaseIndicatorID)
+                        }
                     }
                     .padding(.vertical, 4)
                 }
@@ -64,6 +71,10 @@ struct MeetingChatView: View {
                     if let last = messages.last {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
+                }
+                .onChange(of: phase) { _, newPhase in
+                    guard newPhase != .idle else { return }
+                    withAnimation { proxy.scrollTo(phaseIndicatorID, anchor: .bottom) }
                 }
             }
 
@@ -108,6 +119,26 @@ struct MeetingChatView: View {
 
     // MARK: - Bubble
 
+    /// Identifiant fixe de l'indicateur de phase dans le `ScrollViewReader` (n'est pas un `ChatMessage`).
+    private let phaseIndicatorID = "phase-indicator"
+
+    /// Message système inline affiché pendant `loadingContext`/`waitingLLM` — icône + libellé +
+    /// spinner sobre, dans le même style que les bulles assistant de ce widget.
+    @ViewBuilder
+    private func phaseIndicatorBubble(label: String, systemImage: String) -> some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage).font(.caption).foregroundColor(.secondary)
+                Text(label).font(.caption).foregroundColor(.secondary)
+                ProgressView().controlSize(.small)
+            }
+            .padding(10)
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            Spacer(minLength: 30)
+        }
+    }
+
     @ViewBuilder
     private func chatBubble(_ message: ChatMessage) -> some View {
         HStack {
@@ -141,13 +172,15 @@ struct MeetingChatView: View {
 
         messages.append(ChatMessage(role: .user, content: question))
         input = ""
-        isLoading = true
+        phase = .loadingContext
         errorMessage = nil
 
         Task {
             let historicalContext = await fetchHistoricalContext()
             let history = await MainActor.run { serializedConversationHistory(excludingLast: 1) }
             let prompt = makePrompt(question: question, historicalContext: historicalContext, history: history)
+
+            await MainActor.run { phase = .waitingLLM }
 
             do {
                 let answer: String
@@ -165,12 +198,12 @@ struct MeetingChatView: View {
                 await MainActor.run {
                     messages.append(ChatMessage(role: .assistant, content: answer.trimmingCharacters(in: .whitespacesAndNewlines)))
                     errorMessage = nil
-                    isLoading = false
+                    phase = .idle
                 }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
-                    isLoading = false
+                    phase = .idle
                 }
             }
         }
