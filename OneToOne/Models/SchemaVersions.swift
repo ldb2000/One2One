@@ -62,17 +62,27 @@ enum SchemaV1: VersionedSchema {
     }
 }
 
+/// SchemaV2 (2026-09-06) : ajout pur de `ChatSession`/`ChatMessageEntity` (persistance de
+/// l'historique du chatbot, `ChatbotView`). Pas de champ modifié/supprimé sur les types
+/// existants — lightweight migration automatique, pas de `MigrationStage` custom nécessaire.
+enum SchemaV2: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
+
+    static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [ChatSession.self, ChatMessageEntity.self]
+    }
+}
+
 // MARK: - Migration plan
 
 enum OneToOneMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self]
+        [SchemaV1.self, SchemaV2.self]
     }
 
     static var stages: [MigrationStage] {
-        // Pas de stage explicite tant qu'il n'y a qu'une version de schéma
-        // — SwiftData applique une lightweight migration automatiquement
-        // pour les ajouts de champs avec defaults.
+        // Pas de stage explicite : V1→V2 n'ajoute que deux tables, SwiftData
+        // applique une lightweight migration automatique.
         []
     }
 }
@@ -81,4 +91,4 @@ enum OneToOneMigrationPlan: SchemaMigrationPlan {
 
 /// Version de schéma active utilisée par le `ModelContainer` de l'app.
 /// Pointer cet alias vers la dernière `SchemaVN` lors d'une migration.
-typealias CurrentSchema = SchemaV1
+typealias CurrentSchema = SchemaV2
