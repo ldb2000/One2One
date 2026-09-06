@@ -24,14 +24,27 @@ struct ChatbotView: View {
     @Query private var collaborators: [Collaborator]
     @Query(sort: \Meeting.date, order: .reverse) private var meetings: [Meeting]
     @Query private var settingsList: [AppSettings]
+    @Query(sort: \ChatSession.updatedAt, order: .reverse) private var sessions: [ChatSession]
 
     /// Notes = sous-ensemble de `meetings` de kind `.note` (voir `NoteFactory`).
     /// Pas de `@Query` dédiée : `meetings` charge déjà toutes les réunions.
     private var notes: [Meeting] { meetings.filter { $0.kind == .note } }
 
-    @State private var messages: [ChatMessage] = [
-        ChatMessage(role: .assistant, content: "Je peux repondre a partir des projets, collaborateurs, entretiens, actions, alertes, rapports et transcriptions de reunion.\n\nTapez / pour voir les commandes (notamment /cherche pour fouiller les rapports & transcriptions).")
-    ]
+    /// Message de bienvenue : premier (et unique) message d'une conversation neuve.
+    private static let welcomeMessage = "Je peux repondre a partir des projets, collaborateurs, entretiens, actions, alertes, rapports et transcriptions de reunion.\n\nTapez / pour voir les commandes (notamment /cherche pour fouiller les rapports & transcriptions)."
+
+    /// Copie en RAM des messages de `currentSession`, rechargée à chaque changement de
+    /// session (`loadSession`) — évite d'observer directement la relation SwiftData
+    /// dans tout le corps de la vue.
+    @State private var messages: [ChatMessage] = []
+    /// Session persistée active. `nil` uniquement avant la première initialisation.
+    @State private var currentSession: ChatSession?
+    /// Session sélectionnée dans la sidebar (miroir de `currentSession`, pour le binding de sélection).
+    @State private var sidebarSelection: ChatSession?
+    /// Empêche `initializeSessionsIfNeeded()` de recréer une session de bienvenue à chaque re-render.
+    @State private var hasInitializedSessions = false
+    @State private var sessionPendingDeletion: ChatSession?
+    @State private var showSidebar = true
     @State private var input: String = ""
     @State private var phase: LoadingPhase = .idle
     @State private var errorMessage: String?
@@ -128,8 +141,24 @@ struct ChatbotView: View {
             )
             .ignoresSafeArea()
 
+            HStack(spacing: 0) {
+                if showSidebar {
+                    sessionSidebar
+                        .frame(width: 200)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
             VStack(spacing: 18) {
                 HStack(alignment: .bottom) {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { showSidebar.toggle() }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .foregroundColor(.black.opacity(0.55))
+                    }
+                    .buttonStyle(.plain)
+                    .help(showSidebar ? "Masquer les conversations" : "Afficher les conversations")
+
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Assistant IA")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
@@ -204,8 +233,10 @@ struct ChatbotView: View {
                 inputArea
             }
             .padding(24)
+            }
         }
         .navigationTitle("Assistant IA")
+        .onAppear { initializeSessionsIfNeeded() }
         .sheet(item: $pickedTemplate) { tpl in
             TemplateConfigSheet(template: tpl) { rendered in
                 input = rendered
@@ -606,25 +637,26 @@ struct ChatbotView: View {
         let question = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
 
-        messages.append(ChatMessage(role: .user, content: question))
+        let session = ensureCurrentSession()
+        appendMessage(ChatMessage(role: .user, content: question), to: session)
         input = ""
         phase = .loadingContext
         errorMessage = nil
 
         if let localResponse = handleLocalCommand(question) {
-            messages.append(ChatMessage(role: .assistant, content: localResponse))
+            appendMessage(ChatMessage(role: .assistant, content: localResponse), to: session)
             phase = .idle
             return
         }
 
         if let localResponse = localSearchResponse(for: question) {
-            messages.append(ChatMessage(role: .assistant, content: localResponse))
+            appendMessage(ChatMessage(role: .assistant, content: localResponse), to: session)
             phase = .idle
             return
         }
 
         if settings.provider == .ollama, isOllamaReachable == false {
-            messages.append(ChatMessage(role: .assistant, content: offlineFallbackResponse(for: question)))
+            appendMessage(ChatMessage(role: .assistant, content: offlineFallbackResponse(for: question)), to: session)
             errorMessage = "Ollama n'est pas disponible. Reponse locale affichee a la place."
             phase = .idle
             return
@@ -657,7 +689,7 @@ struct ChatbotView: View {
                     }
                     if !reachable {
                         await MainActor.run {
-                            messages.append(ChatMessage(role: .assistant, content: offlineFallbackResponse(for: question)))
+                            appendMessage(ChatMessage(role: .assistant, content: offlineFallbackResponse(for: question)), to: session)
                             errorMessage = "Ollama n'est pas joignable sur \(settings.apiEndpoint). Reponse locale affichee."
                             phase = .idle
                         }
@@ -683,7 +715,7 @@ struct ChatbotView: View {
                     answer = try await AIClient.send(prompt: prompt, settings: settings)
                 }
                 await MainActor.run {
-                    messages.append(ChatMessage(role: .assistant, content: answer.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    appendMessage(ChatMessage(role: .assistant, content: answer.trimmingCharacters(in: .whitespacesAndNewlines)), to: session)
                     errorMessage = nil
                     phase = .idle
                 }
@@ -694,6 +726,210 @@ struct ChatbotView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Session Persistence
+
+    /// Crée, si besoin, la première session (une seule fois, protégé par `hasInitializedSessions`
+    /// pour éviter une boucle de création à chaque re-render) : recharge la session la plus
+    /// récente si elle existe, sinon crée une session de bienvenue.
+    private func initializeSessionsIfNeeded() {
+        guard !hasInitializedSessions else { return }
+        hasInitializedSessions = true
+        guard currentSession == nil else { return }
+
+        if let mostRecent = sessions.first {
+            loadSession(mostRecent)
+        } else {
+            loadSession(createWelcomeSession())
+        }
+    }
+
+    /// Session active garantie : crée une session de bienvenue de secours si `currentSession`
+    /// est `nil` (ne devrait arriver qu'avant la première initialisation).
+    @discardableResult
+    private func ensureCurrentSession() -> ChatSession {
+        if let session = currentSession { return session }
+        let session = createWelcomeSession()
+        currentSession = session
+        sidebarSelection = session
+        return session
+    }
+
+    /// Crée une `ChatSession` ne contenant que le message de bienvenue, l'insère et la sauvegarde.
+    private func createWelcomeSession() -> ChatSession {
+        let session = ChatSession()
+        context.insert(session)
+
+        let welcome = ChatMessageEntity.from(ChatMessage(role: .assistant, content: Self.welcomeMessage), orderIndex: 0)
+        welcome.session = session
+        context.insert(welcome)
+
+        try? context.save()
+        ChatSessionStore.enforceLimit(sessions: sessions, in: context)
+        return session
+    }
+
+    /// Ajoute `message` à la fois à la copie RAM (`messages`, pour l'affichage) et à `session`
+    /// (persistance), dérive le titre de session au premier message utilisateur, et sauvegarde.
+    private func appendMessage(_ message: ChatMessage, to session: ChatSession) {
+        messages.append(message)
+
+        let entity = ChatMessageEntity.from(message, orderIndex: session.messages.count)
+        entity.session = session
+        context.insert(entity)
+
+        session.updatedAt = Date()
+        if session.title == nil, message.role == .user {
+            session.title = Self.deriveTitle(from: message.content)
+        }
+
+        try? context.save()
+    }
+
+    /// Recharge `messages` depuis une session persistée et la marque comme active
+    /// (courante + sélection sidebar).
+    private func loadSession(_ session: ChatSession) {
+        currentSession = session
+        sidebarSelection = session
+        messages = session.messages
+            .sorted { $0.orderIndex < $1.orderIndex }
+            .map(\.asChatMessage)
+    }
+
+    /// Démarre une nouvelle conversation : désélectionne la session courante et en crée une
+    /// nouvelle avec uniquement le message de bienvenue.
+    private func newConversation() {
+        currentSession = nil
+        sidebarSelection = nil
+        loadSession(createWelcomeSession())
+    }
+
+    /// Supprime une session (cascade sur ses messages). Si c'était la session active,
+    /// bascule sur la plus récente restante, ou en crée une nouvelle si c'était la dernière.
+    private func deleteSession(_ session: ChatSession) {
+        let wasCurrent = currentSession?.id == session.id
+        context.delete(session)
+        try? context.save()
+        sessionPendingDeletion = nil
+
+        guard wasCurrent else { return }
+        currentSession = nil
+        sidebarSelection = nil
+        if let next = sessions.first(where: { $0.id != session.id }) {
+            loadSession(next)
+        } else {
+            loadSession(createWelcomeSession())
+        }
+    }
+
+    /// Titre de session dérivé du premier message utilisateur : tronqué à `maxLength`
+    /// caractères, coupé à la dernière frontière de mot quand c'est possible.
+    private static func deriveTitle(from content: String, maxLength: Int = 60) -> String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > maxLength else { return trimmed }
+
+        let cutIndex = trimmed.index(trimmed.startIndex, offsetBy: maxLength)
+        let prefix = trimmed[..<cutIndex]
+        if let lastSpace = prefix.lastIndex(of: " ") {
+            return String(prefix[..<lastSpace]) + "…"
+        }
+        return String(prefix) + "…"
+    }
+
+    // MARK: - Sidebar (historique des conversations)
+
+    @ViewBuilder
+    private var sessionSidebar: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Conversations")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.black.opacity(0.55))
+                    .textCase(.uppercase)
+                Spacer()
+                Button(action: newConversation) {
+                    Image(systemName: "square.and.pencil")
+                        .foregroundColor(.black.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help("Nouvelle conversation")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(sessions) { session in
+                        sessionRow(session)
+                    }
+                }
+                .padding(8)
+            }
+        }
+        .background(Color.white.opacity(0.55))
+        .confirmationDialog(
+            "Supprimer cette conversation ?",
+            isPresented: Binding(
+                get: { sessionPendingDeletion != nil },
+                set: { if !$0 { sessionPendingDeletion = nil } }
+            ),
+            presenting: sessionPendingDeletion
+        ) { session in
+            Button("Supprimer", role: .destructive) { deleteSession(session) }
+            Button("Annuler", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private func sessionRow(_ session: ChatSession) -> some View {
+        let isSelected = currentSession?.id == session.id
+        let lastMessage = session.messages.sorted { $0.orderIndex < $1.orderIndex }.last
+
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title ?? "Nouvelle conversation")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(isSelected ? .white : .black.opacity(0.8))
+                    .lineLimit(1)
+                Text(relativeDate(session.updatedAt))
+                    .font(.caption2)
+                    .foregroundColor(isSelected ? .white.opacity(0.75) : .black.opacity(0.45))
+                if let preview = lastMessage?.content {
+                    Text(preview)
+                        .font(.caption2)
+                        .foregroundColor(isSelected ? .white.opacity(0.7) : .black.opacity(0.4))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            Button {
+                sessionPendingDeletion = session
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption2)
+                    .foregroundColor(isSelected ? .white.opacity(0.8) : .black.opacity(0.35))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isSelected ? Color.accentColor : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { loadSession(session) }
+    }
+
+    /// Date relative courte ("il y a 3 min", "hier"…) pour l'aperçu de session dans la sidebar.
+    private func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     // MARK: - RAG Pre-fetch (B1)
