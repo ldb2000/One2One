@@ -15,6 +15,42 @@ struct MarkdownText: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - Testing hooks (`Tests/MarkdownTextTableTests.swift`)
+
+    /// Étiquette de bloc pour vérifier l'ordre/la nature des blocs parsés sans dépendre du
+    /// rendu SwiftUI (ex. "paragraph", "table"). Réservé aux tests.
+    func blockKindsForTesting() -> [String] {
+        blocks().map { block in
+            switch block {
+            case .heading: return "heading"
+            case .paragraph: return "paragraph"
+            case .bullet: return "bullet"
+            case .ordered: return "ordered"
+            case .code: return "code"
+            case .quote: return "quote"
+            case .rule: return "rule"
+            case .spacer: return "spacer"
+            case .table: return "table"
+            }
+        }
+    }
+
+    /// Tableaux parsés (headers, rows, alignements en chaîne "left"/"center"/"right"), exposés
+    /// sans passer par le rendu SwiftUI. Réservé aux tests.
+    func parsedTablesForTesting() -> [(headers: [String], rows: [[String]], alignments: [String])] {
+        blocks().compactMap { block in
+            guard case .table(let headers, let rows, let alignments) = block else { return nil }
+            let alignmentLabels = alignments.map { alignment -> String in
+                switch alignment {
+                case .left: return "left"
+                case .center: return "center"
+                case .right: return "right"
+                }
+            }
+            return (headers, rows, alignmentLabels)
+        }
+    }
+
     // MARK: - Block model
 
     /// Bloc markdown reconnu par le parseur ligne à ligne.
