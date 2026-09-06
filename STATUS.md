@@ -2,6 +2,58 @@
 
 Dernière mise à jour : 2026-09-06 CEST
 
+## Chatbot — persistance de l'historique des conversations (2026-09-06)
+
+Branche `feat/chatbot-history-persistence`, sur `master` (+0 commit avant cette session).
+`ChatbotView` stockait ses messages dans un simple `@State [ChatMessage]` — perdu à chaque
+fermeture de l'app, message de bienvenue réinitialisé. `MeetingChatView` reste **volontairement**
+éphémère (décision de design antérieure), cette PR ne touche que `ChatbotView`.
+
+- **`OneToOne/Models/ChatSession.swift`** (nouveau) : `@Model ChatSession` (id, createdAt,
+  updatedAt, title dérivé du 1er message user tronqué à 60 car., relation cascade vers ses
+  messages) et `@Model ChatMessageEntity` (id, role brut `"user"`/`"assistant"`, content,
+  orderIndex, createdAt, session). `ChatMessage.Role` n'étant pas `String`-backed (hors
+  périmètre — pas de modification de `ChatMessage.swift`), la conversion se fait à la main
+  plutôt que via `.rawValue`. Mapper `ChatMessageEntity.from(_:orderIndex:)` /
+  `.asChatMessage`.
+- **`OneToOne/Models/SchemaVersions.swift`** : `SchemaV2` ajouté (modèles V1 + les deux
+  nouveaux types), `CurrentSchema` pointe dessus. Ajout de table pur, pas de
+  `MigrationStage` custom — lightweight migration automatique.
+- **`OneToOne/Services/ChatSessionStore.swift`** (nouveau) : règle de rétention isolée de
+  la vue pour rester testable — `sessionsToPrune(from:limit:)` (pure) + `enforceLimit(...)`
+  (supprime + save + log). Limite 100 sessions, les plus anciennes par `updatedAt` sautent.
+- **`ChatbotView`** : `@State messages: [ChatMessage]` devient une copie RAM rechargée à
+  chaque changement de session (`loadSession`), plus une source de vérité. Nouveaux
+  `@Query sessions`, `@State currentSession`/`sidebarSelection`/`hasInitializedSessions`
+  (garde contre la recréation en boucle d'une session de bienvenue à chaque re-render) et
+  `showSidebar`. `sendMessage()` route chaque `messages.append` via `appendMessage(_:to:)`
+  qui persiste (insert `ChatMessageEntity` + `session.updatedAt` + titre au 1er message user
+  + save). Sidebar ajoutée dans la vue (colonne 200px, collapsible via bouton
+  `sidebar.left` dans l'en-tête) : liste triée par `updatedAt` desc, titre ou "Nouvelle
+  conversation", date relative (`RelativeDateTimeFormatter` fr_FR), aperçu du dernier
+  message, sélection surlignée (`Color.accentColor`), bouton `+`
+  (`square.and.pencil` → `newConversation()`) et suppression par ligne (`trash` +
+  `confirmationDialog`). `MeetingChatView` : **aucune modification**.
+- **Écart avec la commande initiale** : la tâche demandait `func search()` — comme déjà
+  noté en B-x-ui, la fonction réelle s'appelle `sendMessage()` ; c'est elle qui a été
+  modifiée.
+- **Non fait / limites v1** : pas de debounce sur les saves successifs (append+save reste
+  peu fréquent : au plus 2 saves par échange, pas de boucle rapide observée) ; backup/
+  restore avec sessions orphelines non testé spécifiquement (relation `session` sur
+  `ChatMessageEntity` est `nullify` par défaut côté cascade parent→enfants, comportement
+  accepté pour une v1 selon la consigne) ; pas de toggle "Historique" exposé dans
+  `SettingsView` (les sessions sont toujours actives, comme demandé).
+- **Tests** : `Tests/ChatSessionTests.swift` (nouveau, 4 tests) — roundtrip 3 messages via
+  un nouveau `ModelContext`, cascade delete, mapper `ChatMessage`↔`ChatMessageEntity`,
+  limite 100 sessions (105 créées → 5 plus anciennes supprimées).
+- **Vérifié** : `swift build` propre (mêmes avertissements préexistants) ; `swift test`
+  complet — **1 037 XCTest (1 ignoré, 0 échec) + 618 Swift Testing (95 suites, 0 échec)**,
+  dont les 4 nouveaux tests `ChatSessionTests`. Un crash isolé (signal 11) est apparu sur
+  une exécution parallèle de `swift test` sur un test `NoteFactoryTests` sans rapport avec
+  cette PR ; non reproduit sur une exécution suivante (flaky, à surveiller si ça persiste).
+- **Non vérifié à l'écran** : rendu réel de la sidebar dans l'app (ni
+  `Scripts/bump-and-build.sh` ni capture d'écran effectués cette session).
+
 ## Chats — polish UX : tableaux markdown + indicateur de phase (B-x-ui) (2026-09-06)
 
 Branche `feat/rag-chat-polish-ui`, sur `master` (+0 commit avant cette session). Les chats
