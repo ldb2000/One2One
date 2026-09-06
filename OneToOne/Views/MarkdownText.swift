@@ -15,6 +15,42 @@ struct MarkdownText: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - Testing hooks (`Tests/MarkdownTextTableTests.swift`)
+
+    /// Étiquette de bloc pour vérifier l'ordre/la nature des blocs parsés sans dépendre du
+    /// rendu SwiftUI (ex. "paragraph", "table"). Réservé aux tests.
+    func blockKindsForTesting() -> [String] {
+        blocks().map { block in
+            switch block {
+            case .heading: return "heading"
+            case .paragraph: return "paragraph"
+            case .bullet: return "bullet"
+            case .ordered: return "ordered"
+            case .code: return "code"
+            case .quote: return "quote"
+            case .rule: return "rule"
+            case .spacer: return "spacer"
+            case .table: return "table"
+            }
+        }
+    }
+
+    /// Tableaux parsés (headers, rows, alignements en chaîne "left"/"center"/"right"), exposés
+    /// sans passer par le rendu SwiftUI. Réservé aux tests.
+    func parsedTablesForTesting() -> [(headers: [String], rows: [[String]], alignments: [String])] {
+        blocks().compactMap { block in
+            guard case .table(let headers, let rows, let alignments) = block else { return nil }
+            let alignmentLabels = alignments.map { alignment -> String in
+                switch alignment {
+                case .left: return "left"
+                case .center: return "center"
+                case .right: return "right"
+                }
+            }
+            return (headers, rows, alignmentLabels)
+        }
+    }
+
     // MARK: - Block model
 
     /// Bloc markdown reconnu par le parseur ligne à ligne.
@@ -33,6 +69,29 @@ struct MarkdownText: View {
         case rule
         /// Ligne vide → espacement vertical.
         case spacer
+        /// Tableau GFM : ligne d'en-tête + ligne de séparateurs + lignes de données.
+        case table(headers: [String], rows: [[String]], alignments: [Alignment])
+    }
+
+    /// Alignement d'une colonne de tableau, déduit de la ligne de séparateurs (`:---`/`:---:`/`---:`).
+    private enum Alignment {
+        case left, center, right
+
+        var frameAlignment: SwiftUI.Alignment {
+            switch self {
+            case .left: return .leading
+            case .center: return .center
+            case .right: return .trailing
+            }
+        }
+
+        var textAlignment: TextAlignment {
+            switch self {
+            case .left: return .leading
+            case .center: return .center
+            case .right: return .trailing
+            }
+        }
     }
 
     /// Découpe le markdown en blocs en parcourant les lignes (normalise les fins de ligne CRLF).
@@ -76,6 +135,24 @@ struct MarkdownText: View {
                 out.append(.rule)
                 inOrdered = false
                 i += 1
+                continue
+            }
+
+            // Table GFM : ligne d'en-tête (contient `|`) suivie d'une ligne de séparateurs.
+            if trimmed.contains("|"), i + 1 < lines.count, isTableSeparatorLine(lines[i + 1]) {
+                let headers = tableRowCells(line)
+                let alignments = tableAlignments(from: lines[i + 1])
+                var rows: [[String]] = []
+                var j = i + 2
+                while j < lines.count {
+                    let rowTrimmed = lines[j].trimmingCharacters(in: .whitespaces)
+                    guard !rowTrimmed.isEmpty, lines[j].contains("|") else { break }
+                    rows.append(tableRowCells(lines[j]))
+                    j += 1
+                }
+                out.append(.table(headers: headers, rows: rows, alignments: alignments))
+                i = j
+                inOrdered = false
                 continue
             }
 
@@ -169,7 +246,100 @@ struct MarkdownText: View {
             Divider().padding(.vertical, 2)
         case .spacer:
             Spacer().frame(height: 2)
+        case .table(let headers, let rows, let alignments):
+            tableView(headers: headers, rows: rows, alignments: alignments)
         }
+    }
+
+    // MARK: - Table parsing helpers
+
+    /// Découpe une ligne de tableau en cellules trimmées, en retirant un `|` de tête et/ou
+    /// de fin s'il est présent (les deux formes GFM, avec ou sans pipes de bordure, sont acceptées).
+    private func tableRowCells(_ line: String) -> [String] {
+        var body = line.trimmingCharacters(in: .whitespaces)
+        if body.hasPrefix("|") { body.removeFirst() }
+        if body.hasSuffix("|") { body.removeLast() }
+        return body.split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Vrai si `line` est une ligne de séparateurs de tableau valide (`|---|:--:|--:|`, avec ou
+    /// sans pipes de bordure) : chaque cellule ne contient que des tirets, avec `:` optionnels
+    /// aux extrémités pour l'alignement.
+    private func isTableSeparatorLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("-") else { return false }
+        let cells = tableRowCells(trimmed)
+        guard !cells.isEmpty else { return false }
+        return cells.allSatisfy { cell in
+            guard !cell.isEmpty else { return false }
+            var body = cell
+            if body.hasPrefix(":") { body.removeFirst() }
+            if body.hasSuffix(":") { body.removeLast() }
+            return !body.isEmpty && body.allSatisfy { $0 == "-" }
+        }
+    }
+
+    /// Déduit l'alignement de chaque colonne depuis la ligne de séparateurs ;
+    /// aucun `:` → alignement gauche par défaut.
+    private func tableAlignments(from separatorLine: String) -> [Alignment] {
+        tableRowCells(separatorLine).map { cell -> Alignment in
+            let left = cell.hasPrefix(":")
+            let right = cell.hasSuffix(":")
+            if left && right { return .center }
+            if right { return .right }
+            return .left
+        }
+    }
+
+    // MARK: - Table rendering
+
+    @ViewBuilder
+    private func tableView(headers: [String], rows: [[String]], alignments: [Alignment]) -> some View {
+        let columnCount = max(headers.count, alignments.count)
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(0..<columnCount, id: \.self) { col in
+                        tableCell(col < headers.count ? headers[col] : "", alignment: alignment(at: col, in: alignments), isHeader: true)
+                    }
+                }
+                .background(Color.accentColor.opacity(0.08))
+
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                    Rectangle().fill(Color.gray.opacity(0.15)).frame(height: 1)
+                    HStack(spacing: 0) {
+                        ForEach(0..<columnCount, id: \.self) { col in
+                            tableCell(col < row.count ? row[col] : "", alignment: alignment(at: col, in: alignments), isHeader: false)
+                        }
+                    }
+                    .background(rowIndex % 2 == 1 ? Color.gray.opacity(0.04) : Color.clear)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.gray.opacity(0.15), lineWidth: 1)
+            )
+        }
+    }
+
+    private func alignment(at index: Int, in alignments: [Alignment]) -> Alignment {
+        index < alignments.count ? alignments[index] : .left
+    }
+
+    @ViewBuilder
+    private func tableCell(_ text: String, alignment: Alignment, isHeader: Bool) -> some View {
+        Group {
+            if isHeader {
+                inlineText(text).fontWeight(.semibold)
+            } else {
+                inlineText(text)
+            }
+        }
+        .multilineTextAlignment(alignment.textAlignment)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(minWidth: 80, maxWidth: .infinity, alignment: alignment.frameAlignment)
+        .padding(8)
     }
 
     /// Police associée à un niveau de titre (1 = title2 gras … défaut = subheadline semibold).
