@@ -1,6 +1,62 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-05 CEST
+Dernière mise à jour : 2026-09-06 CEST
+
+## Chats — polish UX : tableaux markdown + indicateur de phase (B-x-ui) (2026-09-06)
+
+Branche `feat/rag-chat-polish-ui`, sur `master` (+0 commit avant cette session). Les chats
+(`ChatbotView`, `MeetingChatView`, branchés par B1/B2/B2-ui) affichaient déjà les réponses
+via `MarkdownText` (headings, listes, code, quotes), mais sans support des tableaux GFM que
+le LLM produit souvent ; et `isLoading: Bool` ne distinguait pas construction du prompt et
+appel réseau, alors que ce dernier peut prendre plusieurs minutes sur Ollama sans aucun retour.
+
+- **`OneToOne/Views/MarkdownText.swift`** : nouveau cas `Block.table(headers:rows:alignments:)`.
+  Détection dans `blocks()` : ligne contenant `|` suivie d'une ligne de séparateurs valide
+  (`isTableSeparatorLine`, avec ou sans pipes de bordure, `:` optionnels aux extrémités pour
+  l'alignement) ; les lignes suivantes contenant `|` sont consommées comme rows jusqu'à la
+  première ligne vide ou sans `|`. Rendu (`tableView`) : `ScrollView(.horizontal)`, header
+  teinté `Color.accentColor.opacity(0.08)` en gras, séparateurs 1px `Color.gray.opacity(0.15)`
+  entre les rows, zebra striping toutes les 2 rows (`opacity(0.04)`), alignement par colonne
+  (`.frame(alignment:)` + `.multilineTextAlignment`), inline (`**`, `` ` ``, liens) délégué à
+  `inlineText(_:)` existant. Backward-compatible : un texte avec des `|` mais sans ligne de
+  séparateurs reste un paragraphe (testé). Deux accesseurs `ForTesting` (pattern déjà utilisé
+  dans le repo, ex. `SlashDatePickerPresenter`) exposent le résultat du parsing sans dépendre
+  du rendu SwiftUI : `blockKindsForTesting()` et `parsedTablesForTesting()`.
+- **`OneToOne/Models/LoadingPhase.swift`** (nouveau) : enum partagé `idle`/`loadingContext`/
+  `waitingLLM` (libellé + icône SF Symbols par cas). Le pré-fetch RAG n'est volontairement
+  **pas** une phase séparée (trop rapide en usage normal pour justifier un indicateur dédié,
+  cf. consigne de la tâche).
+- **`ChatbotView`/`MeetingChatView`** : `@State private var isLoading: Bool` remplacé par
+  `@State private var phase: LoadingPhase`, `isLoading` redevenu une propriété calculée
+  (`phase != .idle`) pour ne pas toucher la logique existante des boutons/spinner. Une bulle
+  inline (icône + libellé + `ProgressView` sobre, pas d'animation agressive) s'affiche dans la
+  liste de messages pendant `loadingContext` (construction du prompt : contexte base, pré-fetch
+  RAG, historique) puis `waitingLLM` (juste avant `AIClient.send`/`sendWithToolLoop`), avec
+  auto-scroll vers cette bulle. `ChatbotView.statusBadge` affiche désormais le libellé de phase
+  au lieu de "Analyse...". Les deux vues utilisaient déjà `MarkdownText` pour les bulles
+  assistant (branché par B2-ui) — le support tableau en profite automatiquement, aucun
+  changement supplémentaire nécessaire sur ce point.
+- **Écart avec la commande initiale** : la tâche nommait la fonction d'envoi `search()` —
+  inexistante dans les deux vues ; la méthode réelle est `sendMessage()`, modifiée à cet
+  emplacement (même écart déjà noté pour B2-ui/`handleFreeQuestion`).
+- **Tests** : `Tests/MarkdownTextTableTests.swift` (6 tests) — tableau 3 colonnes avec headers
+  et 2 rows, alignements `:---`/`:---:`/`---:`, défaut sans `:`, paragraphes adjacents avant/
+  après un tableau (ordre des blocs vérifié), faux positif (pipes sans ligne de séparateurs →
+  reste un paragraphe), tableau sans pipes de bordure.
+- **Vérifié** : `swift build` propre (seul l'avertissement préexistant de concurrence dans
+  `PyannoteDiarizer.swift`) ; `swift test` complet — **1 037 XCTest (1 ignoré, 0 échec) + 614
+  Swift Testing (94 suites, 0 échec)**, dont les 6 nouveaux tests de tableaux.
+- **Non vérifié à l'écran** : rendu réel des tableaux et de l'indicateur de phase dans l'app
+  (ni `Scripts/bump-and-build.sh` ni capture d'écran effectués cette session).
+- **Limites connues (hors périmètre volontaire)** : pas de streaming de la réponse (la
+  structure `phase = .waitingLLM` s'y prête mais ce n'est pas implémenté ici) ; cellules avec
+  pipes échappés non gérées (rare, écarté explicitement par la consigne) ; `RAGChatView` non
+  touchée (rendu tableau/phase réservé aux 2 chats visés).
+- **Non poussé, pas de merge** (consigne de la tâche).
+
+**Prochaine action** : recette à l'écran (poser une question dont la réponse contient un
+tableau GFM, observer l'indicateur de phase pendant un appel Ollama long), puis revue/PR de
+cette livraison.
 
 ## RAG — batch d'indexation globale au démarrage (D) (2026-09-05)
 
