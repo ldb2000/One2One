@@ -51,4 +51,60 @@ struct ReportAudienceTests {
         let gabarit = ReportTemplate(name: "Escalade", kind: .escalade)
         #expect(ReportAudience.forTemplate(gabarit, meeting: reunion) == .hr)
     }
+
+    /// Bout en bout, par gabarit : le prompt et le HTML doivent tous deux
+    /// dériver l'audience du gabarit. Avant le câblage, ce test échoue — les
+    /// deux la déduisaient du `MeetingKind`, et une ligne `escalated` d'un 1:1
+    /// était écartée jusque dans l'export Escalade.
+    @Test("Une ligne escaladée sort dans l'export Escalade et nulle part ailleurs")
+    @MainActor
+    func ligneEscaladeeSeulementEnEscalade() throws {
+        let schema = Schema(versionedSchema: CurrentSchema.self)
+        let cfg = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: cfg)
+        let ctx = ModelContext(container)
+
+        let personne = Collaborator(name: "Marine LEROY")
+        ctx.insert(personne)
+        let reunion = Meeting(title: "1:1 Marine", date: Date())
+        reunion.kind = .oneToOne
+        reunion.participants = [personne]
+        reunion.summary = "## Sujets\n\nLa séance a porté sur la charge."
+        ctx.insert(reunion)
+
+        let privee = MeetingNote(t: 60, text: "DOUTE PERSONNEL", visibility: .private)
+        privee.meeting = reunion
+        let escaladee = MeetingNote(t: 120, text: "SIGNAL RH", visibility: .escalated)
+        escaladee.meeting = reunion
+        let partagee = MeetingNote(t: 180, text: "POINT PARTAGE", visibility: .shared)
+        partagee.meeting = reunion
+        ctx.insert(privee); ctx.insert(escaladee); ctx.insert(partagee)
+        try ctx.save()
+
+        let collab = ReportTemplate(name: "1:1 Collaborateur", kind: .oneToOne)
+        let escalade = ReportTemplate(name: "Escalade", kind: .escalade)
+        ctx.insert(collab); ctx.insert(escalade)
+        try ctx.save()
+
+        let htmlCollab = ReportHTMLBuilder.build(meeting: reunion, template: collab,
+                                                 includeTranscript: false)
+        #expect(!htmlCollab.contains("DOUTE PERSONNEL"))
+        #expect(!htmlCollab.contains("SIGNAL RH"))
+        #expect(htmlCollab.contains("POINT PARTAGE"))
+
+        let htmlEscalade = ReportHTMLBuilder.build(meeting: reunion, template: escalade,
+                                                   includeTranscript: false)
+        #expect(!htmlEscalade.contains("DOUTE PERSONNEL"))
+        #expect(htmlEscalade.contains("SIGNAL RH"))
+        #expect(!htmlEscalade.contains("POINT PARTAGE"))
+
+        let promptCollab = AIReportService.assembleTemplatePrompt(meeting: reunion, in: ctx,
+                                                                  template: collab)
+        #expect(!promptCollab.contains("DOUTE PERSONNEL"))
+        #expect(!promptCollab.contains("SIGNAL RH"))
+        let promptEscalade = AIReportService.assembleTemplatePrompt(meeting: reunion, in: ctx,
+                                                                    template: escalade)
+        #expect(!promptEscalade.contains("DOUTE PERSONNEL"))
+        #expect(promptEscalade.contains("SIGNAL RH"))
+    }
 }

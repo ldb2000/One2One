@@ -23,6 +23,11 @@ enum ReportHTMLBuilder {
                       managerName: String = "",
                       managerRole: String = "",
                       mode: RenderMode = .preview) -> String {
+        // L'audience vient du **gabarit** (lot 15) : le même 1:1 produit un
+        // compte-rendu pour le collaborateur ou une note d'escalade pour les
+        // RH, et les deux ne laissent pas sortir les mêmes lignes. La règle de
+        // sortie reste celle de `ConfidentialityFilter`, jamais réécrite ici.
+        let audience = ReportAudience.forTemplate(template, meeting: meeting)
         let eyebrow = makeEyebrow(meeting: meeting, template: template)
         let title = escape(meeting.title.isEmpty ? "Réunion" : meeting.title)
         let subtitle = makeSubtitle(meeting: meeting, template: template)
@@ -40,11 +45,11 @@ enum ReportHTMLBuilder {
             meeting: meeting
         )
 
-        // Notes prises en séance, **filtrées par l'audience du type de réunion**
+        // Notes prises en séance, **filtrées par l'audience du gabarit**
         // (spec §3.2, §8). Une ligne privée n'atteint jamais le HTML — d'où
         // l'aperçu, le PDF et le mail. La règle vient de
         // `ConfidentialityFilter`, jamais réécrite ici.
-        let notesHTML = renderNotesBlock(meeting: meeting)
+        let notesHTML = renderNotesBlock(meeting: meeting, audience: audience)
         if !notesHTML.isEmpty { assembled += notesHTML }
 
         if includeTranscript {
@@ -420,8 +425,7 @@ enum ReportHTMLBuilder {
     /// Bloc « Notes de séance » : une ligne par note exportable, avec son
     /// timecode. Chaîne vide quand rien ne sort — un titre suivi d'une liste
     /// vide donnerait à croire que la séance n'a rien produit.
-    private static func renderNotesBlock(meeting: Meeting) -> String {
-        let audience = ConfidentialityFilter.audience(for: meeting.kind)
+    private static func renderNotesBlock(meeting: Meeting, audience: Audience) -> String {
         let notes = MeetingNoteStore.exportable(meeting.timedNotes, for: audience)
         guard !notes.isEmpty else { return "" }
         var html = "<h2>Notes de séance</h2>\n<ul>\n"

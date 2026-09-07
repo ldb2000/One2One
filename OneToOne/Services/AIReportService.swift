@@ -130,9 +130,13 @@ struct AIReportService {
         let preamble = template?.preamble ?? "Tu es l'assistant de synthèse de OneToOne."
         let body = template?.promptBody ?? ""
         let sections = template?.sections ?? []
+        // L'audience vient du **gabarit** (lot 15) et non du seul type de
+        // réunion : c'est le gabarit choisi qui dit vers qui le texte part.
+        let audience = ReportAudience.forTemplate(template, meeting: meeting)
 
         // 1. Resolve {{vars}} in the body.
-        var resolved = TemplateVariableResolver.resolve(prompt: body, for: meeting, in: context)
+        var resolved = TemplateVariableResolver.resolve(prompt: body, for: meeting,
+                                                        in: context, audience: audience)
 
         // 2. Historique inline ou append.
         let hasHistoryPlaceholder = resolved.contains("{{historique_n}}")
@@ -182,14 +186,11 @@ struct AIReportService {
             }
         }
 
-        // Notes horodatées de la séance, **filtrées par l'audience du type de
-        // réunion** : une ligne privée n'entre jamais dans le prompt (spec
+        // Notes horodatées de la séance, **filtrées par l'audience du
+        // gabarit** : une ligne privée n'entre jamais dans le prompt (spec
         // §3.2 et §8, critère chantier 2 n° 1). La règle est celle de
         // `ConfidentialityFilter`, jamais réécrite ici.
-        let notesBlock = MeetingNoteStore.contextBlock(
-            for: meeting,
-            audience: ConfidentialityFilter.audience(for: meeting.kind)
-        )
+        let notesBlock = MeetingNoteStore.contextBlock(for: meeting, audience: audience)
         if !notesBlock.isEmpty {
             historyAppendix += "\n\nNotes prises en séance (horodatées) :\n\(notesBlock)\n"
         }
