@@ -16,6 +16,9 @@ struct MeetingPrepareSpace: View {
     let onOpenMeeting: (PersistentIdentifier) -> Void
     /// Coche ou décoche une action reportée.
     let onToggleAction: (PersistentIdentifier) -> Void
+    /// Ouvre la fiche projet en panneau (lot 9). `nil` quand l'écran n'a pas de
+    /// panneau à ouvrir — la vue affiche alors le résumé sans le lien.
+    var onOpenProjectCard: (() -> Void)?
 
     /// La colonne principale seule : le rail de 330 px est monté par
     /// `MeetingSpaceView`, pour **tous** les modes (spec §2.5 : il est
@@ -32,6 +35,7 @@ struct MeetingPrepareSpace: View {
             VStack(alignment: .leading, spacing: One2OneToken.cardGap) {
                 actionsReportees
                 derniersPoints
+                ficheProjet
                 alertes
                 composeurDeSujet
             }
@@ -116,6 +120,92 @@ struct MeetingPrepareSpace: View {
                         .buttonStyle(.plain)
                         if point.id != contexte.lastPoints.last?.id {
                             Rectangle().fill(One2OneToken.hair).frame(height: 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Reprise de la fiche projet (lot 9)
+
+    /// « Reprise automatiquement en préparation de la prochaine réunion » : ce
+    /// que le pied du panneau promet (spec §4.3). Statut, budget, jalons
+    /// proches et risques élevés — pas la fiche entière : la préparation en
+    /// retient ce qui demande une décision, et le lien `Ouvrir la fiche` donne
+    /// le reste.
+    @ViewBuilder
+    private var ficheProjet: some View {
+        if let carte = contexte.projectCard {
+            section("FICHE PROJET", compte: nil) {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(carte.statusIsQualified
+                                  ? ProjectCardPanel.color(for: carte.status)
+                                  : One2OneToken.ink4)
+                            .frame(width: 7, height: 7)
+                        Text(carte.statusLabel)
+                            .font(.plexSans(12, .medium))
+                            .foregroundStyle(One2OneToken.ink1)
+                        if let budget = carte.budget {
+                            MonoMeta("·")
+                            MonoMeta(budget.text, emphase: true)
+                        }
+                        Spacer(minLength: 8)
+                        if let onOpenProjectCard {
+                            Button("Ouvrir la fiche", action: onOpenProjectCard)
+                                .buttonStyle(.plain)
+                                .font(.plexSans(11, .medium))
+                                .foregroundStyle(One2OneToken.action)
+                        }
+                    }
+
+                    if contexte.nearMilestones.isEmpty && contexte.highRisks.isEmpty {
+                        Text("Aucun jalon dans les \(MeetingPrepareBuilder.nearMilestoneWindowDays) jours, "
+                             + "aucun risque élevé ouvert.")
+                            .font(.plexSans(11.5))
+                            .foregroundStyle(One2OneToken.ink3)
+                    }
+
+                    if !contexte.nearMilestones.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("JALONS PROCHES").sectionLabel()
+                            ForEach(contexte.nearMilestones) { jalon in
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(ProjectCardPanel.color(for: jalon.state))
+                                        .frame(width: 7, height: 7)
+                                    Text(jalon.label)
+                                        .font(.plexSans(12))
+                                        .foregroundStyle(One2OneToken.ink2)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text(jalon.trailingText)
+                                        .font(.plexMono(10, .medium))
+                                        .foregroundStyle(jalon.isBlocked
+                                                         ? One2OneToken.report
+                                                         : One2OneToken.ink4)
+                                }
+                            }
+                        }
+                    }
+
+                    if !contexte.highRisks.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("RISQUES ÉLEVÉS").sectionLabel()
+                            ForEach(contexte.highRisks) { risque in
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(ProjectCardPanel.color(for: risque.level))
+                                        .frame(width: 7, height: 7)
+                                    Text(risque.title)
+                                        .font(.plexSans(12))
+                                        .foregroundStyle(One2OneToken.ink2)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                            }
                         }
                     }
                 }

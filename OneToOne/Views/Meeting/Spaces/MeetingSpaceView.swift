@@ -215,7 +215,11 @@ struct MeetingSpaceView: View {
             MeetingPrepareSpace(meeting: meeting,
                                 contexte: prepareContext,
                                 onOpenMeeting: onOpenMeeting,
-                                onToggleAction: onToggleAction)
+                                onToggleAction: onToggleAction,
+                                // Lot 9 : le résumé de la fiche projet mène au
+                                // panneau, dont l'ouverture est un état de
+                                // l'écran.
+                                onOpenProjectCard: { screen.showProjectCard = true })
         case .live:
             MeetingLiveSpace(meeting: meeting,
                              screen: screen,

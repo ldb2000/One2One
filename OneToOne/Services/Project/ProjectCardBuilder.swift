@@ -77,6 +77,10 @@ struct ProjectCardState: Equatable, Sendable {
         /// ou vide si le jalon n'a pas de date.
         var trailingText: String
         var isBlocked: Bool
+        /// L'échéance brute. Portée en plus du texte parce que le mode Préparer
+        /// filtre sur une fenêtre de trente jours : relire une date depuis son
+        /// libellé français serait une analyse à l'envers.
+        var dueAt: Date?
     }
 
     struct Risk: Equatable, Sendable, Identifiable {
@@ -149,7 +153,8 @@ enum ProjectCardBuilder {
                     label: jalon.label,
                     state: jalon.state,
                     trailingText: trailingText(for: jalon),
-                    isBlocked: jalon.state == .late
+                    isBlocked: jalon.state == .late,
+                    dueAt: jalon.dueAt
                 )
             },
             scopeText: project.scopeText,
