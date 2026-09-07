@@ -24,7 +24,7 @@ enum OneOnOneThreadStore {
     /// Les types de réunion où l'on se parle en face. Même définition que
     /// `OneToOneRhythm.faceToFace` et `EngagementLedger.faceToFace` : une
     /// réunion projet n'est pas un tête-à-tête.
-    static let faceToFace: Set<MeetingKind> = [.oneToOne, .manager]
+    nonisolated static let faceToFace: Set<MeetingKind> = [.oneToOne, .manager]
 
     // MARK: - Rôle (D4)
 
@@ -32,7 +32,7 @@ enum OneOnOneThreadStore {
     ///
     /// `nil` hors tête-à-tête : il n'y a alors pas de fil, et rendre `.manager`
     /// par défaut ferait naître un fil au premier comité.
-    static func role(for kind: MeetingKind) -> OneOnOneSide? {
+    nonisolated static func role(for kind: MeetingKind) -> OneOnOneSide? {
         switch kind {
         case .oneToOne: return .manager
         case .manager:  return .collaborator
@@ -41,7 +41,7 @@ enum OneOnOneThreadStore {
     }
 
     /// L'inverse de `role(for:)` : le type de réunion d'un fil.
-    static func meetingKind(for role: OneOnOneSide) -> MeetingKind {
+    nonisolated static func meetingKind(for role: OneOnOneSide) -> MeetingKind {
         switch role {
         case .manager:      return .oneToOne
         case .collaborator: return .manager
@@ -50,7 +50,7 @@ enum OneOnOneThreadStore {
 
     /// Cadence convenue, en jours. `0` = aucun rythme convenu, et alors rien
     /// n'est jamais en retard (même règle que `OneToOneCadence.periodInDays`).
-    static func cadenceDays(for collaborator: Collaborator) -> Int {
+    nonisolated static func cadenceDays(for collaborator: Collaborator) -> Int {
         collaborator.oneToOneCadence.periodInDays ?? 0
     }
 
