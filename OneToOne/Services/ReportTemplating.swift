@@ -110,7 +110,13 @@ enum TemplateVariableResolver {
         case "semaine":           return Self.formatWeek(now)
         case "mois":              return Self.formatMonth(now)
 
-        default:                  return nil
+        // --- Blocs optionnels de séance (lot 15)
+        default:
+            return RefonteReportVariables.resolve(
+                name: name,
+                meeting: meeting,
+                context: context,
+                audience: audience ?? ConfidentialityFilter.audience(for: meeting.kind))
         }
     }
 

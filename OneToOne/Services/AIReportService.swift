@@ -195,6 +195,21 @@ struct AIReportService {
             historyAppendix += "\n\nNotes prises en séance (horodatées) :\n\(notesBlock)\n"
         }
 
+        // Blocs optionnels du lot 15 que le corps du gabarit ne nomme pas :
+        // appendés en queue plutôt que perdus. Même patron que les replis
+        // ci-dessus — un gabarit écrit avant le lot 15 doit voir les pièces
+        // épinglées de sa séance sans devoir être réédité.
+        for repli in RefonteReportVariables.fallbackTitles
+        where !body.contains("{{\(repli.name)}}") {
+            let bloc = RefonteReportVariables.resolve(name: repli.name,
+                                                      meeting: meeting,
+                                                      context: context,
+                                                      audience: audience) ?? ""
+            if !bloc.isEmpty {
+                historyAppendix += "\n\n\(repli.title) :\n\(bloc)\n"
+            }
+        }
+
         // 3. Documents joints (extraction script).
         let attachmentsBlock = buildAttachmentsBlock(
             for: meeting,
