@@ -223,4 +223,64 @@ struct RefonteDemoSeedTests {
         #expect(repères.filter { $0.kind == .decision }.map(\.t) == [663])
         #expect(repères.filter { $0.kind == .note }.count == 3)
     }
+
+    // MARK: - Fiche projet (lot 9, capture 3b)
+
+    @Test("Le projet de démonstration porte la fiche de la capture 3b")
+    func projectCardMatchesCapture() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+        let projet = try #require(reunion.project)
+
+        #expect(projet.budgetCons == 40_000)
+        #expect(projet.budgetInit == 61_000)
+        #expect(projet.tags == ["GitLab", "Nexus", "PostgreSQL", "Cléva"])
+        #expect(projet.scopeText.contains("GitLab auto-hébergé"))
+
+        let jalons = ProjectCardBuilder.sortedMilestones(projet.milestones)
+        #expect(jalons.map(\.label) == ["Migration AP finalisée",
+                                        "Migration Marine — chiffrage à valider",
+                                        "Bascule Jenkins → GitLab CI"])
+        #expect(jalons.map(\.state) == [.done, .late, .planned])
+
+        let contacts = ProjectCardBuilder.sortedContacts(projet.contacts)
+        #expect(contacts.map(\.name) == ["Olivier Freund",
+                                         "Claire-Amélie F.-D.",
+                                         "Alexis / Jeff"])
+        #expect(contacts.first?.role == "partenaire, décideur")
+    }
+
+    @Test("L'état d'affichage de la fiche reprend les valeurs de la capture")
+    func cardStateMatchesCapture() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+        let projet = try #require(reunion.project)
+
+        let carte = ProjectCardBuilder.build(project: projet, meetings: [reunion])
+        #expect(carte.name == "S/D — Modernisation CI/CD")
+        #expect(carte.reference == "P25_110")
+        #expect(carte.statusLabel == "À surveiller")
+        #expect(carte.budget?.text == "40\u{202F}000\u{00A0}€ / 61\u{202F}000\u{00A0}€")
+        #expect(carte.milestones.count == 3)
+        // Le jalon Marine est bloqué : c'est le « bloqué » rouge de la capture.
+        #expect(carte.milestones[1].trailingText == "bloqué")
+        #expect(carte.milestones[0].trailingText == "30 sept.")
+        #expect(carte.milestones[2].trailingText == "15 nov.")
+        #expect(carte.risks.count == 5)
+        #expect(carte.contacts.count == 3)
+        #expect(carte.tags.count == 4)
+    }
+
+    @Test("Rejouer le semis ne duplique ni les jalons ni les interlocuteurs")
+    func projectCardSeedIsIdempotent() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        _ = RefonteDemoSeed.seed(in: context)
+        _ = RefonteDemoSeed.seed(in: context)
+
+        #expect(try context.fetch(FetchDescriptor<ProjectMilestone>()).count == 3)
+        #expect(try context.fetch(FetchDescriptor<ProjectContact>()).count == 3)
+    }
 }

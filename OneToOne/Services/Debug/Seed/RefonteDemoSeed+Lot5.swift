@@ -27,7 +27,9 @@ extension RefonteDemoSeed {
     ]
 
     /// Les quatre thèmes de la carte `EN UNE PHRASE`.
-    static let tags = ["Migration AP", "Facturation", "GitLab / CI-CD", "Ressources"]
+    /// Suffixé comme `shortSummaryLot5` : le semis de base porte déjà un
+    /// `tags`, les thèmes du **projet** de la fiche du lot 9.
+    static let tagsLot5 = ["Migration AP", "Facturation", "GitLab / CI-CD", "Ressources"]
 
     /// Le résumé en une phrase de la capture, avec son gras.
     static let shortSummaryLot5 = """
@@ -105,7 +107,7 @@ extension RefonteDemoSeed {
     // MARK: - Thèmes
 
     private static func semerTags(dans reunion: Meeting, in context: ModelContext) {
-        for nom in tags {
+        for nom in tagsLot5 {
             guard let theme = MeetingTag.findOrCreate(name: nom, in: context) else { continue }
             let deja = reunion.tags.contains { $0.persistentModelID == theme.persistentModelID }
             if !deja { reunion.tags.append(theme) }
