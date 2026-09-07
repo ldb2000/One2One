@@ -26,6 +26,17 @@ final class MeetingScreenModel {
         case meeting
         case report
         case resources
+
+        /// Libellé de la barre d'espaces (capture `1a-cockpit.png`). Le cas
+        /// particulier de la note passe par
+        /// `MeetingSpaceRouting.meetingSpaceLabel(for:)`, qui connaît le type.
+        var label: String {
+            switch self {
+            case .meeting:   return "Réunion"
+            case .report:    return "Rapport"
+            case .resources: return "Ressources"
+            }
+        }
     }
 
     /// Le sous-mode temporel de la spec §1.1. Il ne change pas la navigation,
@@ -34,6 +45,15 @@ final class MeetingScreenModel {
         case prepare
         case live
         case review
+
+        /// Libellé du sélecteur segmenté (capture `1a-cockpit.png`).
+        var label: String {
+            switch self {
+            case .prepare: return "Préparer"
+            case .live:    return "En séance"
+            case .review:  return "Relire"
+            }
+        }
     }
 
     // MARK: - Espace et moment
