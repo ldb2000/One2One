@@ -223,4 +223,54 @@ struct ReportOptionalBlocksTests {
         #expect(ReportOptionalBlocks.commitments(of: reunion, in: ctx,
                                                   audience: .projectTeam).isEmpty)
     }
+
+    // MARK: - Mises à jour de fiche projet acceptées
+
+    @Test("Seules les mises à jour acceptées sont tracées et rendues")
+    func majFicheProjetAcceptees() throws {
+        let ctx = try contexte()
+        let projet = Project(code: "P25_110", name: "Marine", domain: "Assurance",
+                             phase: "Build")
+        ctx.insert(projet)
+        let reunion = Meeting(title: "Revue Marine", date: Date())
+        reunion.project = projet
+        ctx.insert(reunion)
+        try ctx.save()
+
+        #expect(reunion.acceptedProjectUpdates.isEmpty)
+
+        var brouillon = ProjectCardDraft.snapshot(of: projet)
+        let acceptee = ProjectCardUpdate(field: .status, label: "Statut du projet",
+                                         current: "Sous contrôle", proposed: "À surveiller",
+                                         evidence: "12:08 le chiffrage dérape")
+        #expect(ProjectCardSuggestions.accept(acceptee, in: &brouillon))
+        ProjectCardSuggestions.recordAcceptance(acceptee, in: reunion)
+
+        // Une proposition non acceptée ne laisse aucune trace.
+        let ignoree = ProjectCardUpdate(field: .budgetSpent, label: "Budget consommé",
+                                        current: "0", proposed: "21000",
+                                        evidence: "12:10")
+
+        #expect(reunion.acceptedProjectUpdates.count == 1)
+        let md = ReportOptionalBlocks.cardUpdatesMarkdown(
+            ReportOptionalBlocks.cardUpdates(of: reunion))
+        #expect(md.contains("Statut du projet"))
+        #expect(md.contains("Sous contrôle"))
+        #expect(md.contains("À surveiller"))
+        #expect(!md.contains(ignoree.displayLabel))
+    }
+
+    @Test("Tracer deux fois la même ligne n'écrit qu'une entrée")
+    func majFicheProjetIdempotente() throws {
+        let ctx = try contexte()
+        let reunion = Meeting(title: "Revue", date: Date())
+        ctx.insert(reunion)
+        try ctx.save()
+        let maj = ProjectCardUpdate(field: .risk, label: "Risque",
+                                    current: "—", proposed: "Dérive de charge",
+                                    evidence: "08:00")
+        ProjectCardSuggestions.recordAcceptance(maj, in: reunion)
+        ProjectCardSuggestions.recordAcceptance(maj, in: reunion)
+        #expect(reunion.acceptedProjectUpdates.count == 1)
+    }
 }

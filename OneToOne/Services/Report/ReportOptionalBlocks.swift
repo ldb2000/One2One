@@ -312,6 +312,38 @@ enum ReportOptionalBlocks {
         return ligne
     }
 
+    // MARK: - Mises à jour de fiche projet acceptées
+
+    nonisolated static let cardUpdatesTitle = "Mises à jour de la fiche projet"
+    nonisolated static let cardUpdatesEmptyInvite =
+        "Aucune mise à jour acceptée — l'assistant propose, vous validez."
+
+    static func cardUpdates(of meeting: Meeting) -> [AcceptedProjectUpdate] {
+        meeting.acceptedProjectUpdates
+    }
+
+    nonisolated static func cardUpdatesMarkdown(_ updates: [AcceptedProjectUpdate]) -> String {
+        guard !updates.isEmpty else { return "" }
+        return updates.map { "- \(cardUpdateLine($0))" }.joined(separator: "\n")
+    }
+
+    nonisolated static func cardUpdatesHTML(_ updates: [AcceptedProjectUpdate]) -> String {
+        guard !updates.isEmpty else { return "" }
+        var html = "<h2>\(cardUpdatesTitle)</h2>\n<ul>\n"
+        for maj in updates {
+            html += "<li>\(escape(cardUpdateLine(maj)))</li>\n"
+        }
+        html += "</ul>\n"
+        return html
+    }
+
+    /// `Statut du projet : Vert → Jaune`. La valeur d'avant est rendue `—`
+    /// quand elle était vide : une flèche partant de rien se lit mal.
+    private nonisolated static func cardUpdateLine(_ maj: AcceptedProjectUpdate) -> String {
+        let avant = maj.from.trimmingCharacters(in: .whitespaces)
+        return "\(maj.label) : \(avant.isEmpty ? "—" : avant) → \(maj.to)"
+    }
+
     // MARK: - Outils
 
     nonisolated static func firstLine(_ s: String) -> String {
