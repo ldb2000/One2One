@@ -79,6 +79,45 @@ enum MeetingSpaceLayout {
         return (left: colonnes.sideNav, center: colonnes.fluid, rail: colonnes.rail)
     }
 
+    // MARK: - Écran de séance du 1:1 subi (lot 13, capture 5a)
+
+    /// Colonne gauche de l'écran de séance du 1:1 **subi** — `CE QUE JE VEUX
+    /// DIRE`, `MES DEMANDES EN COURS`, barre assistant (spec §6.2).
+    ///
+    /// Huit pixels de plus que la colonne du 1:1 mené : les sujets y sont
+    /// numérotés et portent une poignée de glissement, qui prend la place que
+    /// l'avatar de l'ordre du jour co-construit n'occupait pas.
+    static let collabLeftWidth: CGFloat = 308
+
+    /// Rail droit de l'écran de séance du 1:1 subi (spec §6.2). Même valeur que
+    /// `One2OneToken.oneOnOneRailWide`, nommée ici parce que c'est cette table
+    /// qui répartit les colonnes.
+    ///
+    /// Trente-six pixels de plus que le rail du 1:1 mené : il porte **deux**
+    /// listes de cartes (les preuves et les promesses) plus la clôture, là où
+    /// le rail mené n'en porte qu'une.
+    static let collabRailWidth: CGFloat = 356
+
+    /// Répartition des **trois** colonnes de l'écran de séance du 1:1 subi
+    /// (spec §6.2 : `308 | 1fr | 356`).
+    ///
+    /// Délègue à `columns(totalWidth:rail:sideNav:)`, comme
+    /// `oneOnOneColumns(totalWidth:)` : la règle « la colonne fluide ne descend
+    /// pas sous 520 px, on retire une colonne fixe plutôt que de la rogner »
+    /// est ainsi écrite **une seule fois** dans le projet.
+    ///
+    /// La colonne gauche cède la première : le rail porte les preuves de ce que
+    /// j'ai livré, les promesses qu'on m'a faites et les deux sorties de la
+    /// séance ; la colonne gauche porte un brouillon privé, qu'on peut relire
+    /// après.
+    static func collaboratorColumns(totalWidth: CGFloat)
+        -> (left: CGFloat, center: CGFloat, rail: CGFloat) {
+        let colonnes = columns(totalWidth: totalWidth,
+                              rail: collabRailWidth,
+                              sideNav: collabLeftWidth)
+        return (left: colonnes.sideNav, center: colonnes.fluid, rail: colonnes.rail)
+    }
+
     /// Deux colonnes égales séparées par un filet — la carte
     /// « Notes & transcription » de la spec §2.4 (`1fr 1px 1fr`).
     static func evenSplit(width: CGFloat) -> (CGFloat, CGFloat) {

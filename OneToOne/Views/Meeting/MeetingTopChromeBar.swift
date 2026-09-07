@@ -76,6 +76,33 @@ struct MeetingTopChromeBar: View {
         kind == .oneToOne ? "Mon équipe" : nil
     }
 
+    // MARK: - Écran de séance du 1:1 subi (lot 13, capture 5a)
+
+    /// Le segment `Mes 1:1` du fil d'Ariane d'un 1:1 **subi**.
+    ///
+    /// `nil` pour un 1:1 mené : celui-là se range sous `Mon équipe`. Les deux
+    /// segments s'excluent, et c'est le propos — le fil d'Ariane dit de quel
+    /// côté de la table on est avant même qu'on lise la pilule de rôle.
+    static func myOneOnOnesSegmentLabel(for kind: MeetingKind) -> String? {
+        kind == .manager ? "Mes 1:1" : nil
+    }
+
+    /// `Avec Yann PENVEN — 4 septembre` (capture 5a).
+    ///
+    /// Dérivé de la personne et de la date, jamais stocké — même règle que
+    /// `oneOnOneSessionHeading`, dont c'est le pendant côté subi. Sert de
+    /// **placeholder** du titre : renommer son propre entretien doit rester
+    /// possible.
+    ///
+    /// Sans nom, la phrase reste une phrase (`Mon 1:1 du 4 septembre`) : un
+    /// « Avec  — 4 septembre » afficherait un tiret nu.
+    static func collaboratorSessionHeading(person: String, date: Date) -> String {
+        let jour = OneOnOneDateFormat.dayFullMonth(date)
+        let nom = person.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nom.isEmpty else { return "Mon 1:1 du \(jour)" }
+        return "Avec \(nom) — \(jour)"
+    }
+
     /// La pilule `● Privé — vous deux` (spec §3.2, niveau `shared` : « visible
     /// par les deux personnes du fil »).
     ///
@@ -111,9 +138,17 @@ struct MeetingTopChromeBar: View {
     /// Le placeholder du champ de titre : l'en-tête d'entretien pour un 1:1
     /// mené, le placeholder générique ailleurs.
     static func titlePlaceholder(for meeting: Meeting) -> String {
-        guard meeting.kind == .oneToOne else { return "Titre de la réunion…" }
-        return oneOnOneSessionHeading(person: meeting.participants.first?.name ?? "",
-                                      date: meeting.date)
+        let personne = meeting.participants.first?.name ?? ""
+        switch meeting.kind {
+        case .oneToOne:
+            return oneOnOneSessionHeading(person: personne, date: meeting.date)
+        case .manager:
+            // Lot 13 : côté subi, la personne d'en face est mon manager, et
+            // l'en-tête de la capture 5a le dit ainsi (`Avec <Manager> — <jour>`).
+            return collaboratorSessionHeading(person: personne, date: meeting.date)
+        case .global, .project, .work, .note, .workshop:
+            return "Titre de la réunion…"
+        }
     }
 
     /// Lecture d'un timecode tapé à la main dans la pilule audio (spec §2.1 :
@@ -381,6 +416,15 @@ struct MeetingTopChromeBar: View {
             // l'annuaire n'est pas une destination de cet écran.
             if let equipe = Self.teamSegmentLabel(for: meeting.kind) {
                 Text(equipe)
+                    .font(.plexSans(11))
+                    .foregroundStyle(One2OneToken.ink4)
+                chevron
+            }
+            // Lot 13 : un 1:1 subi se range sous « Mes 1:1 » — le segment que
+            // la capture 5a montre à la place de `Mon équipe`. Non cliquable,
+            // pour la même raison.
+            if let miens = Self.myOneOnOnesSegmentLabel(for: meeting.kind) {
+                Text(miens)
                     .font(.plexSans(11))
                     .foregroundStyle(One2OneToken.ink4)
                 chevron
