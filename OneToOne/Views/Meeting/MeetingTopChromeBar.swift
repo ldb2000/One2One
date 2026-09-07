@@ -266,6 +266,26 @@ struct MeetingTopChromeBar: View {
             badgeAtelier
             titleField
             Spacer(minLength: 8)
+            controlsGroup
+        }
+        .padding(.horizontal, Self.paddingHorizontal)
+        .frame(height: Self.height)
+        .background(Self.tint(for: meeting.kind))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(One2OneToken.cardBorder).frame(height: 1)
+        }
+    }
+
+    /// Les contrôles de droite, **à leur largeur intrinsèque**.
+    ///
+    /// Le titre est `flex:1; min-width:0` (spec §2.1) : c'est **lui** qui doit
+    /// se rogner quand la place manque, pas les contrôles. Sans le
+    /// `fixedSize`, son `layoutPriority(1)` gagnait l'arbitrage et à 1 280 px
+    /// `Rapport ✓ 6:20` se réduisait à « R », `Capture` à « C » et
+    /// `● Partage actif · 5 voient` à un carré bleu — relevé par la recette
+    /// visuelle de la vague 1–4 sur `1a-cockpit.png` et `3a-tiroir-ressources.png`.
+    private var controlsGroup: some View {
+        HStack(spacing: 10) {
             // Une note n'a ni audio, ni transcription, ni rapport : ses
             // contrôles disparaissent entièrement (même règle que
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
@@ -301,12 +321,7 @@ struct MeetingTopChromeBar: View {
             }
             moreMenu
         }
-        .padding(.horizontal, Self.paddingHorizontal)
-        .frame(height: Self.height)
-        .background(Self.tint(for: meeting.kind))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(One2OneToken.cardBorder).frame(height: 1)
-        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Atelier (lot 16)
@@ -720,11 +735,14 @@ struct MeetingTopChromeBar: View {
                     .foregroundStyle(One2OneToken.onFilledButton)
                     .padding(.horizontal, 10)
                     .frame(height: 24)
+                    // Spec §4.2 : « pilule `accent/action` pleine ». Une
+                    // pilule prend le rayon 11 de la table §1.2, pas celui
+                    // d'un bouton (6) — la recette visuelle de la vague 1–4 a
+                    // relevé le carré à la place de la pilule.
                     .background(
-                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                            .fill(One2OneToken.action)
+                        Capsule(style: .continuous).fill(One2OneToken.action)
                     )
-                    .contentShape(Rectangle())
+                    .contentShape(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .help("Un document est à l'écran des participants — ouvrir le tiroir Ressources")
