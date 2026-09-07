@@ -141,12 +141,18 @@ enum BoardImageInsertion {
 
     // MARK: - Élément de scène
 
+    /// Identifiant de l'élément, **dérivé** du fichier : cliquer
+    /// `Sur la planche` doit retrouver l'objet sans tenir de registre.
+    static func elementID(fileID: String) -> String {
+        "one2one-img-\(fileID)"
+    }
+
     /// L'élément `image` **verrouillé** à ajouter à la scène.
     static func element(fileID: String,
                         size: CGSize,
-                        at origin: CGPoint,
-                        id: String = UUID().uuidString) -> [String: Any] {
-        [
+                        at origin: CGPoint) -> [String: Any] {
+        let id = elementID(fileID: fileID)
+        return [
             "id": id,
             "type": "image",
             "x": origin.x, "y": origin.y,
@@ -180,9 +186,8 @@ enum BoardImageInsertion {
     /// L'élément, sérialisé pour le pont.
     static func elementJSON(fileID: String,
                             size: CGSize,
-                            at origin: CGPoint,
-                            id: String = UUID().uuidString) -> String {
-        let objet = element(fileID: fileID, size: size, at: origin, id: id)
+                            at origin: CGPoint) -> String {
+        let objet = element(fileID: fileID, size: size, at: origin)
         guard let data = try? JSONSerialization.data(withJSONObject: [objet],
                                                      options: [.sortedKeys]),
               let texte = String(data: data, encoding: .utf8)

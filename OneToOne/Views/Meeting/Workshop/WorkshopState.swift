@@ -16,8 +16,8 @@ import SwiftData
 @Observable
 final class WorkshopState {
 
-    /// Les trois onglets du dock (spec §7.2). `captures` et `attachments`
-    /// n'ont que leur invite au lot 16 ; leur contenu arrive au lot 17.
+    /// Les trois onglets du dock (spec §7.2). Depuis le lot 17, les trois
+    /// portent du contenu ; l'invite ne s'affiche que pour une liste vide.
     enum DockTab: String, CaseIterable, Identifiable, Sendable {
         case boards
         case captures
@@ -33,16 +33,16 @@ final class WorkshopState {
             }
         }
 
-        /// Invite affichée à la place du contenu — jamais un onglet vide
-        /// (règle du programme §2.1 : « pas d'onglet vide »).
+        /// Invite affichée quand l'onglet n'a rien à montrer — jamais un onglet
+        /// vide (règle du programme §2.1 : « pas d'onglet vide »).
         var invite: String? {
             switch self {
             case .boards:
                 return nil
             case .captures:
-                return "Les captures d'écran de la séance viendront s'épingler ici, avec « Sur la planche » et « Insérer ». Arrive au lot 17."
+                return "Aucune capture dans cette séance. Les captures prises pendant la réunion s'épinglent ici, prêtes à être posées sur la planche."
             case .attachments:
-                return "Les pièces déposées dans la réunion s'inséreront ici comme objets verrouillés de la planche, copiées en local. Arrive au lot 17."
+                return "Aucune pièce dans cette séance. Glissez un fichier ci-dessous : il est copié dans la réunion, puis posé verrouillé sur la planche."
             }
         }
     }
@@ -532,7 +532,7 @@ final class WorkshopState {
             try await bridge(for: reunion).insertImage(dataURL: copie.dataURL,
                                                        fileID: copie.fileID,
                                                        elementJSON: element)
-            insertedFileNames.insert(url.lastPathComponent)
+            insertedImages[url.lastPathComponent] = copie.fileID
             return copie.relativePath
         } catch {
             errorMessage = "Insertion impossible : \(error.localizedDescription)"
@@ -540,11 +540,23 @@ final class WorkshopState {
         }
     }
 
-    /// Les noms des pièces déjà insérées pendant cette séance de travail : le
-    /// bouton devient `Sur la planche` (spec §7.2). État d'écran, non persisté —
-    /// la vérité est dans la scène, et la relire à chaque rendu du dock
-    /// coûterait un aller-retour de pont par ligne.
-    var insertedFileNames: Set<String> = []
+    /// `Sur la planche` (spec §7.2) : les pièces déjà posées, par nom de
+    /// fichier → identifiant de l'image dans la scène.
+    ///
+    /// État d'écran, non persisté : la vérité est dans la scène, et la relire à
+    /// chaque rendu du dock coûterait un aller-retour de pont par ligne.
+    var insertedImages: [String: String] = [:]
+
+    /// Les noms des pièces déjà posées — ce que le dock consulte.
+    var insertedFileNames: Set<String> { Set(insertedImages.keys) }
+
+    /// `Sur la planche` : sélectionne l'image déjà posée plutôt que d'en
+    /// insérer une seconde copie.
+    func revealImage(named fileName: String, meeting: Meeting) async {
+        guard let fileID = insertedImages[fileName] else { return }
+        let identifiant = BoardImageInsertion.elementID(fileID: fileID)
+        try? await bridge(for: meeting.ensuredStableID).select(elementIDs: [identifiant])
+    }
 
     /// Point de dépôt d'une forme ou d'une image : un décalage constant depuis
     /// l'origine de la planche. Le centre exact de la vue demanderait de

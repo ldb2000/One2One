@@ -51,7 +51,7 @@ final class WhiteboardWebBridge: NSObject, WhiteboardBridge {
         let configuration = WKWebViewConfiguration()
         let controller = WKUserContentController()
         configuration.userContentController = controller
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = BoardWebView(frame: .zero, configuration: configuration)
         super.init()
 
         proxy.target = self
@@ -225,6 +225,57 @@ final class WhiteboardWebBridge: NSObject, WhiteboardBridge {
         // choisie dans la barre d'outils.
         try await call("return window.oneToOneBoard.setPressure(valeur);",
                        arguments: ["valeur": value ?? -1])
+    }
+}
+
+/// Le menu contextuel **natif** de la toile (spec §7.2 : marquer la sélection
+/// en question ou en risque).
+///
+/// Le catalogue est une fonction pure, séparée de la vue : ses libellés sont
+/// vérifiés par un test, et un menu WebKit par défaut (« Recharger »,
+/// « Inspecter ») n'aurait aucun sens sur une planche.
+@MainActor
+enum BoardContextMenu {
+
+    /// Une entrée du menu : son libellé et la nature qu'elle pose (`nil` =
+    /// retirer l'annotation).
+    struct Item: Equatable {
+        var title: String
+        var kind: BoardAnnotation.Kind?
+    }
+
+    /// Les entrées, dans l'ordre.
+    static let items: [Item] =
+        BoardAnnotation.Kind.allCases.map { Item(title: $0.menuLabel, kind: $0) }
+        + [Item(title: "Retirer l'annotation", kind: nil)]
+}
+
+/// Le `WKWebView` de la planche : il ne diffère du standard que par son menu
+/// contextuel, qui remplace celui de WebKit.
+@MainActor
+final class BoardWebView: WKWebView {
+
+    /// Appelé quand l'utilisateur choisit une entrée. Posé par le pont.
+    var onAnnotate: (@MainActor (BoardAnnotation.Kind?) -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        for entree in BoardContextMenu.items {
+            let element = NSMenuItem(title: entree.title,
+                                     action: #selector(annoter(_:)),
+                                     keyEquivalent: "")
+            element.target = self
+            // La nature voyage dans `representedObject` : un sélecteur par
+             // entrée demanderait autant de méthodes Objective-C.
+            element.representedObject = entree.kind?.rawValue
+            menu.addItem(element)
+        }
+        return menu
+    }
+
+    @objc private func annoter(_ sender: NSMenuItem) {
+        let brut = sender.representedObject as? String
+        onAnnotate?(brut.flatMap(BoardAnnotation.Kind.init(rawValue:)))
     }
 }
 

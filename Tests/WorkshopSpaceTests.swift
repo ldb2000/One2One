@@ -376,13 +376,13 @@ struct WorkshopPaletteTests {
     func dockTabsAreNeverEmpty() {
         let onglets = WorkshopState.DockTab.allCases
         #expect(onglets.map(\.label) == ["Planches", "Captures", "Pièces"])
-        // Les onglets non encore livrés portent une invite, pas un vide (règle
-        // du programme §2.1 : « pas d'onglet vide »).
+        // Un onglet sans contenu porte une invite, pas un vide (règle du
+        // programme §2.1 : « pas d'onglet vide »).
         #expect(WorkshopState.DockTab.boards.invite == nil)
         for onglet in [WorkshopState.DockTab.captures, .attachments] {
             let invite = onglet.invite ?? ""
             #expect(invite.count >= 20)
-            #expect(invite.contains("lot 17"))
+            #expect(invite.hasPrefix("Aucune"))
         }
     }
 

@@ -27,6 +27,47 @@ enum BoardScene {
         elementCount(json) == 0
     }
 
+    /// Les libellés des objets sélectionnés, dans l'ordre de la scène.
+    ///
+    /// C'est le titre que `＋ Action depuis la sélection` reprend (spec §7.2,
+    /// critère n° 4). Le texte d'une boîte vit dans un élément lié
+    /// (`containerId`) : sélectionner la boîte doit remonter son libellé, pas
+    /// une chaîne vide. Un objet muet — une flèche, une forme sans étiquette —
+    /// n'apporte rien et est ignoré.
+    static func labels(in json: String, selectedIDs: [String]) -> [String] {
+        guard !selectedIDs.isEmpty,
+              let data = json.data(using: .utf8),
+              let objet = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let elements = objet["elements"] as? [[String: Any]]
+        else { return [] }
+
+        let voulus = Set(selectedIDs)
+        var textesLies: [String: String] = [:]
+        for element in elements where (element["type"] as? String) == "text" {
+            guard let conteneur = element["containerId"] as? String,
+                  let texte = element["text"] as? String
+            else { continue }
+            textesLies[conteneur] = texte
+        }
+
+        var vus = Set<String>()
+        return elements.compactMap { element -> String? in
+            guard (element["isDeleted"] as? Bool) != true,
+                  let id = element["id"] as? String,
+                  voulus.contains(id)
+            else { return nil }
+            let propre = (element["text"] as? String) ?? ""
+            let brut = propre.isEmpty ? (textesLies[id] ?? "") : propre
+            // Un libellé sur deux lignes devient une phrase : le composeur
+            // d'action n'accepte qu'une ligne.
+            let texte = brut
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !texte.isEmpty, vus.insert(texte).inserted else { return nil }
+            return texte
+        }
+    }
+
     /// Fabrique une scène minimale à partir de rectangles étiquetés. Sert au
     /// jeu de démonstration : reproduire les boîtes de `6a-atelier-planche.png`
     /// sans coller 400 lignes de JSON dans un fichier Swift.

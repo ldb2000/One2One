@@ -93,6 +93,38 @@ struct BoardAnnotationTests {
         #expect(BoardAnnotation.list(in: json).isEmpty)
     }
 
+    @Test("Le menu contextuel de la toile offre les deux natures, et le retrait")
+    func contextMenuItems() {
+        let entrees = BoardContextMenu.items
+        #expect(entrees.map(\.title) == [
+            "Marquer comme question",
+            "Marquer comme risque",
+            "Retirer l'annotation",
+        ])
+        #expect(entrees.map(\.kind) == [.question, .risk, nil])
+    }
+
+    @Test("Le titre d'une action vient des libellés sélectionnés")
+    func selectionLabels() {
+        let scene = BoardScene.scene(boxes: [
+            .init(x: 0, y: 0, width: 200, height: 60, text: "Runners GitLab\n3 nœuds"),
+            .init(x: 0, y: 100, width: 200, height: 60, text: "Nexus"),
+            .init(x: 0, y: 200, width: 200, height: 60, text: "PostgreSQL"),
+        ])
+
+        // Les identifiants fabriqués par `BoardScene` : conteneur `-0`, `-1`…
+        let libelles = BoardScene.labels(in: scene,
+                                         selectedIDs: ["one2one-1-0", "one2one-1-1"])
+        // Le retour à la ligne devient une espace : le composeur d'action
+        // n'accepte qu'une ligne.
+        #expect(libelles == ["Runners GitLab 3 nœuds", "Nexus"])
+
+        // Rien de sélectionné, rien à titrer.
+        #expect(BoardScene.labels(in: scene, selectedIDs: []).isEmpty)
+        // Un objet muet (une flèche) n'apporte pas de titre.
+        #expect(BoardScene.labels(in: scene, selectedIDs: ["inconnu"]).isEmpty)
+    }
+
     @Test("Les connecteurs demandés sont liés aux deux boîtes qu'ils joignent")
     func connectorsAreBound() throws {
         let scene = BoardScene.scene(

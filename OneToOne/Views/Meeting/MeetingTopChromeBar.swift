@@ -336,6 +336,13 @@ struct MeetingTopChromeBar: View {
                 .background(
                     RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
                         .fill(One2OneToken.workshop))
+                // Largeur intrinsèque garantie : à 1 616 px, la barre porte
+                // déjà fil d'Ariane, titre, pilules audio et capture, menus de
+                // type et de modèle et le bouton Rapport, et le badge
+                // apparaissait **tronqué** (recette du lot 16, 2026-09-07).
+                // C'est le titre qui doit se comprimer — il est ellipsé, un
+                // badge de six lettres ne l'est pas.
+                .fixedSize()
                 .accessibilityLabel("Type Atelier")
         }
     }
@@ -492,11 +499,17 @@ struct MeetingTopChromeBar: View {
 
     /// Titre de la réunion : `flex:1; min-width:0` de la spec, donc
     /// `maxWidth: .infinity` + une ligne. Éditable en place.
+    ///
+    /// **Priorité de mise en page négative** : le titre est ce qui doit céder
+    /// quand la barre est étroite. Avec `layoutPriority(1)`, il était servi le
+    /// premier et absorbait toute la largeur restante — les voisins, dont le
+    /// badge `ATELIER`, se retrouvaient tronqués à 1 616 px (recette du
+    /// lot 16). Le titre porte une ellipse, eux non.
     private var titleField: some View {
         EditableTextField(placeholder: Self.titlePlaceholder(for: meeting), text: $meeting.title)
             .font(.plexSans(13, .semibold))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
+            .layoutPriority(-1)
     }
 
     /// Badge d'état de disponibilité de l'audio.

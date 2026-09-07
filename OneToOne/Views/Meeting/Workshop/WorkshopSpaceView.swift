@@ -36,6 +36,7 @@ struct WorkshopSpaceView: View {
                 WorkshopDock(meeting: meeting,
                              state: state,
                              playheadT: playheadT,
+                             screen: screen,
                              onOpenAssistant: { isAssistantOpen = true })
             }
         }
@@ -75,6 +76,12 @@ struct WorkshopSpaceView: View {
     private func brancher(_ pont: WhiteboardWebBridge) {
         pont.onChange = { changement in
             Task { await state.apply(changement, meeting: meeting, context: context) }
+        }
+        // Le menu contextuel natif de la toile : « Marquer comme question /
+        // risque » (spec §7.2). Il remplace celui de WebKit, dont les entrées
+        // (« Recharger », « Inspecter ») n'ont aucun sens sur une planche.
+        (pont.webView as? BoardWebView)?.onAnnotate = { nature in
+            Task { await state.annotateSelection(as: nature, meeting: meeting) }
         }
     }
 

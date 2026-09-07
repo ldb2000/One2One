@@ -15,6 +15,9 @@ struct WorkshopDock: View {
     let meeting: Meeting
     let state: WorkshopState
     let playheadT: Double
+    /// L'écran de réunion : `＋ Action depuis la sélection` crée une action
+    /// avec le même service que le composeur du rail.
+    let screen: MeetingScreenModel
     /// Ouvre le dock assistant existant (`⌘K`).
     let onOpenAssistant: () -> Void
 
@@ -22,6 +25,7 @@ struct WorkshopDock: View {
 
     private var planches: [Board] { state.boards(of: meeting) }
     private var active: Board? { state.activeBoard(of: meeting) }
+    private var ressources: [ResourceItem] { ResourceItem.workshopRows(for: meeting) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,8 +36,26 @@ struct WorkshopDock: View {
             case .boards:
                 listeDesPlanches
                 boutons
-            case .captures, .attachments:
-                invite
+                Divider().overlay(One2OneToken.hair)
+                WorkshopBoardInspector(meeting: meeting,
+                                       screen: screen,
+                                       playheadT: playheadT)
+                Divider().overlay(One2OneToken.hair)
+                WorkshopAttachmentsSection(meeting: meeting, state: state)
+            case .captures:
+                WorkshopAttachmentsSection(
+                    meeting: meeting,
+                    state: state,
+                    title: "Captures",
+                    only: .capture,
+                    emptyInvite: WorkshopState.DockTab.captures.invite ?? "")
+            case .attachments:
+                WorkshopAttachmentsSection(
+                    meeting: meeting,
+                    state: state,
+                    title: "Pièces",
+                    only: .fichier,
+                    emptyInvite: WorkshopState.DockTab.attachments.invite ?? "")
             }
 
             Spacer(minLength: 0)
@@ -80,13 +102,15 @@ struct WorkshopDock: View {
         .frame(height: 38)
     }
 
-    /// Les compteurs de la capture. Captures et pièces arrivent au lot 17 : le
-    /// compteur dit la vérité (0) plutôt qu'un chiffre inventé.
+    /// Les compteurs de la capture (`Planches 4 / Captures 3 / Pièces 2`).
+    /// Ils comptent **ce que l'onglet montre**, pas les lignes en base : le lot
+    /// de captures (`MeetingAttachment` de type `slides`) est un conteneur, pas
+    /// une pièce, et un lien collé ne s'insère pas sur une planche.
     private func compte(_ onglet: WorkshopState.DockTab) -> Int {
         switch onglet {
         case .boards:      return planches.count
-        case .captures:    return 0
-        case .attachments: return meeting.attachments.count
+        case .captures:    return ressources.filter { $0.nature == .capture }.count
+        case .attachments: return ressources.filter { $0.nature == .fichier }.count
         }
     }
 
@@ -108,7 +132,10 @@ struct WorkshopDock: View {
         .scrollContentBackground(.hidden)
         // Borne la hauteur : la parade du plan §2.4 point 4 contre
         // `_NSDetectedLayoutRecursion` interdit un `ScrollView` non borné.
-        .frame(maxHeight: 420)
+        // 260 et non 420 depuis le lot 17 : les deux sections `SUR CETTE
+        // PLANCHE` et `PIÈCES & CAPTURES` viennent dessous, dans le même
+        // dock de 314 px.
+        .frame(maxHeight: 260)
     }
 
     private func ligne(_ planche: Board) -> some View {
@@ -217,20 +244,6 @@ struct WorkshopDock: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
-    }
-
-    // MARK: - Invites
-
-    private var invite: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(state.dockTab.label.uppercased()).sectionLabel()
-            Text(state.dockTab.invite ?? "")
-                .font(.plexSans(11.5))
-                .foregroundStyle(One2OneToken.ink3)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
     }
 
     // MARK: - Pied assistant
