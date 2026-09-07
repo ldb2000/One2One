@@ -146,13 +146,15 @@ enum AttachmentCopyPolicy {
         switch kind {
         case "xlsx":
             return ["XLS", "XLSX", "CSV"].contains(ext) ? (ext == "XLSX" ? "XLS" : ext) : "XLS"
-        case "image":
+        case "image", captureKind, slidesKind:
+            // Une capture est une image : son badge suit son extension, comme
+            // pour un PNG déposé — `Comptes_GitLab.png` porte `PNG` sur la
+            // capture `3a-tiroir-ressources.png`.
             return ["PNG", "JPG", "JPEG", "HEIC", "GIF", "TIFF"].contains(ext)
                 ? (ext == "JPEG" ? "JPG" : ext)
                 : "PNG"
         case "pdf":                     return "PDF"
         case linkKind:                  return "URL"
-        case captureKind, slidesKind:   return "IMG"
         case "pptx":                    return "PPT"
         case "markdown":                return "MD"
         case "text":                    return "TXT"
