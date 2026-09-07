@@ -178,7 +178,6 @@ struct MeetingTopChromeBar: View {
             badgeAtelier
             titleField
             Spacer(minLength: 8)
-            piluleLocale
             // Une note n'a ni audio, ni transcription, ni rapport : ses
             // contrôles disparaissent entièrement (même règle que
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
@@ -193,6 +192,11 @@ struct MeetingTopChromeBar: View {
                             CaptureSourcePopover(coordinator: capture, service: captureService)
                         }
                     }
+                // Spec §2.1 : les pilules d'état se suivent — partage (lot 6),
+                // capture (lot 7), puis `Local · hors ligne` de l'atelier
+                // (lot 16). La placer avant la pilule audio, comme le lot 16
+                // l'avait écrite seul, la sortait de ce groupe.
+                piluleLocale
                 typeMenu
                 templatePickerButton
                 reportButton
