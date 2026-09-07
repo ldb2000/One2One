@@ -2,6 +2,138 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 10 : socle 1:1 (2026-09-07)
+
+Deux branches empilées sur le lot 3, plan du lot dans
+`docs/superpowers/plans/2026-09-07-refonte-lot-10-socle-1to1.md` (la coupe 10a / 10b est celle que
+prévoyait le programme §5).
+
+| Branche | PR | Base |
+| --- | --- | --- |
+| `feat/refonte-lot-10a-socle-1to1` | [#26](https://github.com/ldb2000/One2One/pull/26) | `feat/refonte-lot-3-rail-actions` |
+| `feat/refonte-lot-10b-humeur-regles-recap` | [#29](https://github.com/ldb2000/One2One/pull/29) | `feat/refonte-lot-10a-socle-1to1` |
+
+**État : livré, `swift test` complet vert, deux PR ouvertes, non mergées.**
+
+**Lot sans écran.** Aucune recette visuelle n'a été faite et aucune n'est possible : le seul rendu
+touché est le badge de la barre du haut, vérifié par test. C'est aussi pourquoi le jeu de
+démonstration est **gardé par des tests d'arithmétique** — rien d'autre ne détecterait un jeu de
+données qui ne tient pas les nombres des maquettes.
+
+### Entités — colonnes ajoutées (aucune nouvelle version de schéma)
+
+`CurrentSchema` reste `SchemaV3` : les tables du domaine 1:1 sont déclarées depuis le lot 0B, et le
+lot 10 n'ajoute que des colonnes à valeur par défaut (migration légère).
+
+- `OneOnOneAgendaItem` : `kindRaw` (`topic`/`request`), `requestStatusRaw`
+  (`pending`/`waiting`/`granted`/`refused`), `requestedAt`, `remindedCount`. Une **demande** est un
+  sujet d'ordre du jour qui attend une réponse (spec §6.2), pas une table à part : la colonne
+  `MES DEMANDES EN COURS` de la capture 5a est un filtre.
+- `Commitment` : `settledAt`. Sans elle, `TENUS DEPUIS LE DERNIER 1:1` ne se calcule pas — l'état
+  seul ne dit pas *quand*. Repli sur `promisedAt` pour les lignes antérieures.
+- Deux énums : `AgendaItemKind`, `RequestStatus`.
+
+Réutilisés tels quels : `OneOnOneThread`, `Commitment`, `OneOnOneAgendaItem`, `MoodEntry`,
+`OneOnOneObjective`, `MeetingNote` (dont `kindRaw` porte déjà `feedback`/`promise`/`request`/`proof`),
+`ConfidentialityFilter` (`Audience`, `Visibility`, `Confidential`, `isExportable`).
+
+### Services créés — `Services/OneOnOne/`
+
+| Fichier | Rôle |
+| --- | --- |
+| `OneOnOneThreadStore` | **Le seul du domaine qui écrit en base** : création paresseuse du fil (D3), rôle déduit du type (D4), cadence en miroir de l'annuaire remise en phase à chaque accès, réunions du fil **déduites** de `Meeting.participants` (jamais persistées), séance précédente / suivante, rang de séance, `nextPlannedDate`. |
+| `CommitmentLedger` | Pur : filtre par côté, tenus depuis le dernier 1:1, retards, tri par retard décroissant (sans-échéance en fin, tri stable), taux `kept/(kept+missed)`, compteur de reports, `markKept`/`markMissed`/`postpone`. |
+| `AgendaCarryover` | Pur : report d'un sujet non traité (copie, ne déplace pas), idempotent ; `RESTÉ EN SUSPENS` ; niveau d'une demande (> 60 jours → `report`), historique, relance. |
+| `OneOnOneConfidentiality` | Pur : défaut par rôle, bascule `/privé`, compte et libellé des lignes exclues, audiences de sortie (D9). |
+| `OneOnOneScreenState` | `@Observable` : filtre d'engagements et confirmation d'escalade **par réunion** — état d'interface, jamais en base. |
+| `OneOnOneDateFormat` | Les quatre écritures de date du domaine, locale `fr_FR` forcée. |
+| `MoodTrend` | Pur : cinq crans, série des 6 derniers, delta, tendance au demi-point strict, phrase d'explication, saisie qui **remplace** le relevé de la séance. |
+| `OneOnOneObjectiveTone` | `OneOnOneTone` (`warn`/`oneOnOne`/`ok`/`report`) — la seule passerelle du domaine vers la table §1.2 ; seuils <30 / <70 / ≥70, tri, « Revue prévue le … ». |
+| `RecurringTopicsBuilder` | Pur, **calculé et non stocké** : cinq familles par lexique FR replié, comptage ordre du jour + notes + thèmes, tri décroissant. |
+| `ReminderRules` | Pur : les trois règles dans l'ordre + `toAgendaItems`, idempotent par le texte. |
+| `OneOnOneRecapBuilder` | Pur : markdown du récap, **chaque ligne** passée par `ConfidentialityFilter`, compte des lignes exclues en pied. |
+| `OneOnOneRecapActions` | Effets : Mail, EventKit, dossier annuel. Aucun dialogue bloquant. |
+
+Ailleurs : `Services/Meeting/NoteCommandParser+OneOnOne.swift` (les six commandes, par extension),
+`Services/Meeting/NoteCommandCatalog.swift`, `Services/Debug/Seed/RefonteDemoSeed+Lot10.swift`.
+
+### Fichiers partagés touchés, à la ligne près
+
+- `Views/Meeting/MeetingScreenModel.swift` : **une ligne** (`var oneOnOne = OneOnOneScreenState()`).
+- `Views/Meeting/MeetingTopChromeBar.swift` : deux fonctions statiques et deux pilules dans le fil
+  d'Ariane (badge `1:1`, `Je suis le collaborateur`). La teinte `#f4f1f6` du lot 1 était déjà
+  posée : vérifiée, gardée par un test, non modifiée.
+- `Services/ExportService.swift` : une façade `composeMail(subject:html:recipients:)`. Le récap 1:1
+  n'a ni gabarit de rapport ni destinataires « participants » ; passer par `composeMeetingMail`
+  aurait demandé d'y injecter deux exceptions.
+- `Services/Maintenance/StorageStatsService.swift` : une ligne `annualBytes`/`annualCount`. Un
+  dossier qu'aucun service ne voit finit par grossir seul.
+- `Tests/ConfidentialityFilterTests.swift` : la suite du lot 0B gagne son **sixième flux**.
+
+### Tests
+
+`swift build` propre (mêmes avertissements préexistants). `swift test` complet :
+**1 039 XCTest (1 ignoré, 0 échec) + 1 037 Swift Testing dans 143 suites, 0 échec** — 2 076 tests,
+soit **+145** par rapport à la référence de 1 931.
+
+Douze suites nouvelles : `OneOnOneRequestColumnsTests` (4), `OneOnOneThreadStoreTests` (15),
+`CommitmentLedgerTests` (14), `AgendaCarryoverTests` (14), `OneOnOneConfidentialityTests` (11),
+`NoteCommandOneOnOneTests` (14), `MeetingTopChromeOneOnOneTests` (3), `MoodTrendTests` (13),
+`OneOnOneObjectiveToneTests` (5), `RecurringTopicsBuilderTests` (10), `ReminderRulesTests` (15),
+`OneOnOneRecapBuilderTests` (17), `RefonteDemoSeedLot10Tests` (9).
+
+Suites existantes intactes : `EngagementLedgerTests`, `OneToOneRhythmTests`,
+`PrepCarryoverServiceTests`, `ConfidentialityFilterTests` (étendue, pas réécrite),
+`SchemaV3MigrationTests`, `NoteCommandParserTests`.
+
+### Critères d'acceptation couverts
+
+- **Chantier 2 n° 1** — une note privée n'apparaît dans aucun récap : `OneOnOneRecapBuilderTests` +
+  le sixième flux de `NotePriveeHorsDesCinqFluxTests`, pour les trois audiences. Une ligne
+  `escalated` est exclue du récap collaborateur et incluse dans l'export `.hr` (D9).
+- **Chantier 2 n° 2** — engagement manqué côté manager avec son compteur de reports.
+- **Chantier 2 n° 3** — le moral saisi alimente la série de 6 points, tendance « en baisse » sur le
+  jeu de la capture 2b.
+- **Chantier 2 n° 4** — un item non traité migre vers le 1:1 suivant, idempotent.
+- **Chantier 5 n° 1, 2** — rôle visible en permanence, défaut `private` côté collaborateur.
+- **Chantier 5 n° 4** — une promesse du manager non tenue est en position 1 ; demande sans réponse
+  > 60 jours → `report` (et 56 jours reste en `warn`, comme la capture 5a).
+
+### Écarts assumés
+
+1. **`CommitmentLedger.postpone` et non `defer`** : `defer` est un mot réservé de Swift.
+2. **`ReminderRules` règle 2 ignore une famille déjà portée par un sujet `todo`** de l'ordre du
+   jour — la carte s'appelle « À NE PAS OUBLIER ». Ce n'est pas dans la lettre de la spec, mais sans
+   cela le jeu de la capture 2b sort deux rappels de règle 2 là où la maquette en montre un. Un
+   sujet `deferred` continue de rappeler : il n'a justement pas été traité.
+3. **`stillOpen` et `explanation` prennent leurs sujets récurrents en paramètre** (`[(label, count)]`)
+   au lieu d'appeler `RecurringTopicsBuilder` : les fonctions restent pures et l'écran de
+   préparation ne recompte pas deux fois.
+4. **L'humeur ne sort jamais vers `.hr` ni `.projectTeam`**, même en escalade. La spec ne le dit pas
+   explicitement ; le cran de moral est ce que la personne a dit d'elle-même à son manager, et le
+   faire monter à la hiérarchie au détour d'une escalade trahirait la question posée.
+5. **`NoteCommandCatalog` n'est pas câblé dans le composeur** : `Views/Meeting/Spaces/Notes/**`
+   appartient au lot 2 et est hors périmètre ici. Le helper est pur et testé, les lots 11 à 14 le
+   branchent.
+6. **`BackupService` n'exporte toujours pas les tables 1:1** (écart n° 3 du lot 0B, inchangé) — mais
+   elles se remplissent maintenant, avec le jeu de démonstration. À traiter au lot 6 ou au lot 19,
+   en même temps que `OrphanCleanupService` pour `recordings/annual/`.
+7. **`planNext` n'a pas de test d'intégration EventKit** : il exigerait une autorisation calendrier.
+   La partie décidable (date, titre, absence de dialogue bloquant) est couverte par
+   `OneOnOneThreadStore.nextPlannedDate` et `OneOnOneRecapBuilder.nextMeetingTitle`.
+
+### Laissé aux lots 11 à 14
+
+Les grilles `300 | 1fr | 320` et `308 | 1fr | 356`, le glisser-réordonner, l'histogramme rendu, les
+chips, le tableau des engagements et son filtre, `DeliveredItemsBuilder` (lot 13), la préparation en
+2 minutes (lot 14), le câblage de `NoteCommandCatalog` dans le composeur, l'ouverture automatique la
+veille. Toutes les règles qu'ils afficheront sont ici, pures et testées.
+
+### Prochaine action
+
+Fusionner la pile dans l'ordre `0A/0B → 1a → 1b → 2 → 3 → 10a → 10b`, puis attaquer le **lot 11**
+(1:1 manager, écran de séance `2a`), qui dépend des lots 2 et 10.
+
 ## Refonte de l'écran de réunion — lot 6 : ressources en séance, tiroir et épinglage (2026-09-07)
 
 Branche `feat/refonte-lot-6-ressources`, **sur** `feat/refonte-lot-3-rail-actions` : la PR
