@@ -2,6 +2,140 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Refonte de l'écran de réunion — lot 13 : 1:1 collaborateur, écran de séance (5a) (2026-09-08)
+
+Branche `feat/refonte-lot-13-1to1-collab-seance`, **rebasée sur
+`feat/refonte-lot-12-1to1-manager-prepa`** (sommet de la pile après l'intégration de la vague 5).
+Plan du lot dans `docs/superpowers/plans/2026-09-07-refonte-lot-13-1to1-collab-seance.md`.
+
+**État : livré, `swift build` propre, `swift test` vert (1 742 Swift Testing + 1 041 XCTest,
+un seul échec, préexistant et horaire — cf. plus bas), PR ouverte, non mergée.**
+**Recette visuelle différée à la passe de recette dédiée** ; le crochet est prêt
+(`ONETOONE_SEED_DEMO_SCREEN=5a`).
+
+### L'écran
+
+`kind == .manager` + mode **En séance** → `CollaboratorSessionView`, grille `308 | 1fr | 356`,
+**sans** rail d'actions, sans bandeau d'indicateurs, sans présence (spec §3.1, qui vaut pour les
+deux types 1:1). Une branche dans `MeetingSpaceView.contenu`, gardée par
+`MeetingSpaceRouting.usesOneOnOneCollaboratorSession` — exclusive des trois autres branches 1:1,
+ce que `RefonteVague5IntegrationTests` vérifie type par type et mode par mode.
+
+Même parti que le lot 11 : l'instant de référence est la **date de la séance**, pas `Date()`.
+
+| Colonne | Contenu |
+| --- | --- |
+| Gauche 308 | `MyTopicsCard` (`CE QUE JE VEUX DIRE · ● privé`, sujets numérotés, poignée `⠿`, glisser-réordonner, composeur `Ajouter un sujet…`, mention « Visible de vous seul… »), `MyRequestsCard` (`MES DEMANDES EN COURS`, statut + historique court), barre assistant contexte = fil, question `« Qu'ai-je livré depuis <mois> ? »` |
+| Centre 1fr | `Notes de l'entretien`, pilules `● Privé par défaut` (état) / `Partager la ligne` (bouton), sections `CE QU'IL M'A DIT` / `CE QUE J'AI DIT`, bloc `● POUR MOI SEUL`, composeur `Écrire… /promesse /demande /preuve` |
+| Droite 356 | `CE QUE J'AI LIVRÉ · auto · depuis le <date>` avec `Citer`, `CE QU'IL M'A PROMIS · n en retard` avec `Promise le …` / `n reports` / `Relancer`, `EN SORTANT` |
+
+Barre du haut, bloc `.manager` : segment `Mes 1:1`, en-tête dérivé `Avec <Manager> — <jour>` en
+**placeholder** du titre, et le bouton `Mon récap` — autonome, donc `MeetingView` n'est pas touché.
+
+### La règle « ce que j'ai livré »
+
+`DeliveredItemsBuilder` (pur, 20 tests). Trois sources, et **aucune saisie** :
+
+1. **actions closes** dans `]1:1 précédent, séance]` ;
+2. **réunions à rôle actif** dans la même fenêtre, **hors tête-à-tête** (mes 1:1 ne sont pas un
+   livrable), portant une décision ou une note de moi ;
+3. **actions bloquées** — ouvertes, reportées ou commentées « Bloqué par… » —, **sans borne de
+   date** : un blocage est un état présent, pas un événement de la fenêtre.
+
+**« Mes » actions = `destinataire == .moi` ET `collaborator == nil`.** L'utilisateur de
+l'application n'est pas un `Collaborator` : il n'a pas de fiche, donc `assignedTasks` ne le
+désigne jamais, et `ActionAudience.moi` est la seule désignation qui existe. La seconde condition
+est indispensable : `destinataireRaw` vaut `moi` par défaut, et le semis du lot 10 — comme
+l'extraction LLM — affecte un responsable sans y toucher. Sans elle, les deux livrables de Laurent
+entreraient dans **mes** preuves.
+
+`Citer` **propage** la chaîne de citation au lieu d'en inventer une : `SourceRef.Kind` n'a pas de
+cas pour une action et `ActionTask` n'a pas de `stableID` à viser. Une ligne d'action reprend donc
+le `sourceRef` de l'action ; une ligne de réunion vise la note qui l'a justifiée. Aucun modèle
+n'est modifié. La note de preuve est écrite à `t = 0` : elle cite un fait **antérieur** à
+l'entretien.
+
+### Fichiers
+
+**Services (purs, testés) :** `Services/OneOnOne/DeliveredItemsBuilder.swift`,
+`Services/OneOnOne/Collaborator/{CollaboratorSessionModel, CollaboratorTopBarModel,
+CollaboratorNotePrivacy, PromiseReminders}.swift`.
+
+**Vues :** `Views/Meeting/OneOnOne/Collaborator/{CollaboratorSessionView, MyTopicsCard,
+MyRequestsCard, CollaboratorNotesColumn, DeliveredCard, PromisesCard, CollaboratorClosingCard,
+MyRecapPreview}.swift`, `Views/Meeting/Spaces/Notes/TimedNotesColumn+Collaborator.swift`.
+
+**Jeu de démonstration :** `Services/Debug/Seed/RefonteDemoSeed+Lot13.swift` — extension, ni
+`RefonteDemoSeed.swift` ni `+Lot10` ne sont touchés. Complète le fil de Yann PENVEN (déjà semé par
+le lot 10 : 3 demandes, 3 sujets privés, 3 promesses, 5 notes) avec les **quatre lignes** de
+`CE QUE J'AI LIVRÉ` : deux actions closes (29 août avec `2 j`, 2 sept.), la réunion de projet du
+1er sept. portant sa décision, et l'action bloquée par les comptes GitLab.
+
+**Fichiers partagés touchés, en blocs localisés :** `MeetingSpaceLayout.swift` (deux constantes +
+`collaboratorColumns`), `MeetingSpaceRouting.swift` (une fonction), `MeetingSpaceView.swift` (une
+branche), `MeetingTopChromeBar.swift` (bloc `.manager`), `OneOnOneScreenState.swift`
+(`collabSelectedNoteID`, **en fin de type**), `OneOnOneDateFormat+Views.swift`
+(`dayMonthOrdinal`), `RecetteScreen.swift` (code `5a`), `MeetingCommands.swift` (une ligne de
+semis). `MeetingView.swift` : **rien**.
+
+### Les trois critères du chantier 5
+
+1. **Rôle visible en permanence** — `CollaboratorTopBarModel.breadcrumbSegments(for:)` est un
+   modèle **pur** : la liste des segments ne dépend que du type, donc aucune largeur, aucun
+   réglage et aucun état d'écran ne peut masquer la pilule `Je suis le collaborateur`. Testé pour
+   `.manager` (présente) et pour tous les autres types (absente).
+2. **Aucune ligne partagée sans geste explicite** — `CollaboratorNotePrivacy`. Le défaut est
+   `private` par **tous** les chemins d'écriture (composeur nu, `/promesse`, `/demande`,
+   `/preuve`, sujet ajouté à la main), et `Partager la ligne` change **une** ligne, jamais la
+   séance : c'est pourquoi `● Privé par défaut` est un **état** et non une bascule de séance
+   comme au lot 11 — une bascule ici ouvrirait la porte à un « tout partager » d'un clic. Une
+   ligne `escalated` ne redescend jamais vers le manager par ce geste (D9).
+3. **La liste se remplit sans saisie et se cite en un clic** — `DeliveredItemsBuilder` +
+   `DeliveredCard.citer`, qui écrit une note `kind: .proof` portant le `sourceRef` propagé.
+
+Également couverts : tri des promesses par retard décroissant, `> 60 jours` → `report`
+(règle du lot 10, `AgendaCarryover.requestLevel`), compte des lignes exclues sur les trois
+familles (notes + engagements + sujets → `3 lignes privées seront exclues.`), largeurs à 1 280 /
+1 920 / 1 000 / 800 px avec plancher fluide de 520 px, et une invite pour chaque zone vide.
+
+### Écarts avec la capture, assumés
+
+- **La barre du haut garde ses contrôles** (pilule de partage, capture, menu de type, template,
+  `Rapport 1:1`). La capture 5a montre une barre réduite à l'audio, `Mon récap` et `⋯` ; les
+  retirer rendrait un entretien mal typé à l'import impossible à corriger. `Mon récap` a été
+  **ajouté** avant `⋯`.
+- **Un titre de section désigne la section d'écriture.** Le parseur du lot 10 déduit l'auteur
+  d'une ligne de la **section**, pas de la commande : sans ce clic, une seule des deux sections
+  serait accessible au clavier. Même mécanique que `FeedbackCards` au lot 11 ; la capture ne
+  montre pas l'affordance. `Citer` écrit directement, donc une preuve tombe toujours dans
+  `CE QUE J'AI DIT`.
+- **`n reports` au pluriel régulier.** La capture écrit `2 reports` sur une carte et `3ᵉ report`
+  sur une autre ; la spec §6.2 dit `n reports`, et c'est cette écriture-là qui est retenue.
+- **La question de l'assistant est datée du dernier point tenu** (`depuis août` sur le jeu de
+  démonstration) et non figée à `juillet` : la capture n'est pas cohérente avec son propre
+  `depuis le 21 août`, et une question figée deviendrait fausse six mois plus tard.
+- **`Relancer` ≠ reporter.** `deferralCount` compte les fois où le **manager** a repoussé sa
+  parole ; la relance est mon geste, et son compteur vit sur le sujet d'ordre du jour privé créé
+  pour la séance suivante. Idempotent par le texte.
+
+### Un échec de test préexistant, horaire
+
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` (XCTest) échoue **entre 0 h et 2 h du
+matin**, indépendamment de tout lot : la suite a été passée à **00:35 CEST le 8 septembre**, et
+c'est le **seul** échec. Non corrigé — il n'appartient pas à ce lot.
+
+### Pour la passe de recette
+
+`ONETOONE_SEED_DEMO_SCREEN=5a` (crochet unique, table `RecetteScreen`) sème les fils et les
+quatre livrables, puis ouvre la séance du 4 septembre en mode En séance. Le menu **Réunion**
+charge le même jeu.
+
+### Prochaine action
+
+Lot 14 — 1:1 collaborateur, préparation en 2 minutes (5b), qui dépend de ce lot. Le critère
+chantier 5 n° 4 (« une promesse du manager non tenue remonte automatiquement à la préparation
+suivante ») lui appartient.
+
 ## Refonte de l'écran de réunion — lot 8 : pastille flottante (4b) (2026-09-08)
 
 Branche `feat/refonte-lot-8-pastille`, rebasée sur
