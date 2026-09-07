@@ -94,11 +94,7 @@ struct MeetingView: View {
     /// d'où « impossible d'importer »).
     enum FileImportTarget { case wav, documents }
     @State private var fileImportTarget: FileImportTarget?
-    @State private var attachmentError: String?
-    @State private var isImportingAttachment = false
-    @State private var isDraggingDoc = false
     @State private var showCaptureSetup = false
-    @State private var showSlidesList = false
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var wavImportError: String?
@@ -172,9 +168,16 @@ struct MeetingView: View {
                 reportWaitWarning: reportActivity.warning(),
                 actions: makeMenuActions(),
                 capturedSlidesCount: currentSlides.count,
+                resources: screen.resources,
                 onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); screen.showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
-                onShowSlides: { showSlidesList = true },
+                // Lot 6, spec §4.1 : le bouton `Capture` ouvre le tiroir
+                // Ressources sur le filtre Captures — une vignette par
+                // capture, avec `Présenter` et, au clic droit, le retrait.
+                // Le popover `MeetingSlidesPopover` n'a donc plus d'appelant ;
+                // il attend la bande de captures du lot 7 plutôt que d'offrir
+                // une seconde galerie au même endroit.
+                onShowSlides: { screen.resources.open(filter: .captures) },
                 onOpenProject: { showDetailsSheet = true },
                 onCreateMeeting: createMeeting,
                 onBack: isPushed ? { dismiss() } : nil
@@ -221,7 +224,7 @@ struct MeetingView: View {
                     transcribeError,
                     reportError,
                     captureService.lastError,
-                    attachmentError,
+                    screen.resources.importError,
                     calendarImportError,
                     wavImportError
                 ].compactMap { $0 }.filter { !$0.isEmpty },
@@ -230,7 +233,7 @@ struct MeetingView: View {
                     transcribeError = nil
                     reportError = nil
                     captureService.lastError = nil
-                    attachmentError = nil
+                    screen.resources.importError = nil
                     calendarImportError = nil
                     wavImportError = nil
                 }
@@ -322,10 +325,6 @@ struct MeetingView: View {
                 onResync: { resyncFromCalendarInMeetingView() },
                 onClose: { showParticipantsSheet = false })
         }
-        .popover(isPresented: $showSlidesList) {
-            MeetingSlidesPopover(slides: currentSlides,
-                                 onDelete: { captureService.deleteSlide($0) })
-        }
         .popover(isPresented: $showCaptureSetup) {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
         }
@@ -341,7 +340,7 @@ struct MeetingView: View {
             fileImportTarget = nil
             switch target {
             case .wav:       Task { await importExistingWAV(result: result) }
-            case .documents: Task { await importDocuments(result: result) }
+            case .documents: Task { await resourceCoordinator.importPicked(result) }
             case .none:      break
             }
         }
@@ -516,7 +515,9 @@ struct MeetingView: View {
             // raccourci est déclaré ici pour que le menu ne mente pas.
             openAssistant: { showAssistant = true },
             // `⌘M` : marqueur au `t` courant de la tête de lecture partagée.
-            addPlayheadMarker: { playhead.addMarker(at: playhead.t, kind: .note) }
+            addPlayheadMarker: { playhead.addMarker(at: playhead.t, kind: .note) },
+            pasteResource: { _ = resourceCoordinator.pasteFromClipboard() },
+            openResources: { screen.resources.open() }
         )
     }
 
@@ -589,16 +590,8 @@ struct MeetingView: View {
         case .resources:
             MeetingResourcesSpace(
                 meeting: meeting,
-                mode: screen.mode,
-                isImporting: isImportingAttachment,
-                attachmentError: attachmentError,
-                onImport: { fileImportTarget = .documents },
-                onDrop: { providers in Task { await handleFileDrop(providers) } },
-                onShowSlides: { showSlidesList = true },
-                onReindex: { att in
-                    Task { try? await MeetingAttachmentService.reindexAttachment(att, context: context) }
-                },
-                onDelete: { att in context.delete(att); saveContext() }
+                screen: screen,
+                onImport: { fileImportTarget = .documents }
             )
         }
     }
@@ -647,8 +640,17 @@ struct MeetingView: View {
                     startManagerReportFlow(range: range, snippet: extrait, field: champ)
                 },
                 onShowCaptures: {
-                    if currentSlides.isEmpty { showCaptureSetup = true } else { showSlidesList = true }
-                }
+                    // Le lot 6 a retiré `showSlidesList` et son popover : les
+                    // captures se lisent dans le tiroir Ressources, filtre
+                    // `Captures`. Sans capture, la configuration reste la
+                    // bonne destination (lot 5).
+                    if currentSlides.isEmpty {
+                        showCaptureSetup = true
+                    } else {
+                        screen.resources.open(filter: .captures)
+                    }
+                },
+                onImportResources: { fileImportTarget = .documents }
             )
             .onAppear {
                 // Le versement des sujets permanents dans `prepNotes` était
@@ -851,46 +853,17 @@ struct MeetingView: View {
         }
     }
 
-    private func handleFileDrop(_ providers: [NSItemProvider]) async {
-        var urls: [URL] = []
-        for provider in providers {
-            if let data = try? await provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) as? Data,
-               let url = URL(dataRepresentation: data, relativeTo: nil) {
-                urls.append(url)
-            }
-        }
-        if !urls.isEmpty {
-            await importDocuments(result: .success(urls))
-        }
-    }
-
-    @MainActor
-    private func importDocuments(result: Result<[URL], Error>) async {
-        attachmentError = nil
-        switch result {
-        case .success(let urls):
-            isImportingAttachment = true
-            defer { isImportingAttachment = false }
-            for url in urls {
-                // Les URL issues du sélecteur de fichiers (ou d'un glisser-déposer)
-                // sont à portée de sécurité (security-scoped) : il faut demander
-                // l'accès avant de lire, comme le fait l'import WAV. Sans ça, la
-                // lecture échoue et l'import « ne fait rien ».
-                let needsScope = url.startAccessingSecurityScopedResource()
-                defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
-                do {
-                    try await MeetingAttachmentService.importDocument(
-                        url: url,
-                        into: meeting,
-                        context: context
-                    )
-                } catch {
-                    attachmentError = error.localizedDescription
-                }
-            }
-        case .failure(let error):
-            attachmentError = error.localizedDescription
-        }
+    /// Le câblage des ressources (import, dépôt, `⌘⇧V`, partage à l'écran)
+    /// vit dans `ResourceCoordinator` (lot 6). Les quatre fonctions d'import
+    /// qui vivaient ici — `handleFileDrop`, `importDocuments` et leurs deux
+    /// `@State` — en sont parties : le programme §2.4 point 1 interdit
+    /// d'ajouter quoi que ce soit à ce fichier, et elles ne parlaient que de
+    /// ressources.
+    private var resourceCoordinator: ResourceCoordinator {
+        ResourceCoordinator(meeting: meeting,
+                            context: context,
+                            state: screen.resources,
+                            playhead: screen.playhead)
     }
 
     // MARK: - Participants

@@ -58,6 +58,12 @@ struct MeetingCommands: Commands {
             Button("Mode séance plein écran") { menu?.toggleSessionFullscreen() }
                 .keyboardShortcut("f", modifiers: [.control, .command])
                 .disabled(!isEnabled(.sessionFullscreen))
+            // Spec §1.4 : ⌘⇧V colle un lien ou une image dans les ressources.
+            Button("Coller dans les ressources") { menu?.pasteResource() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(!isEnabled(.pasteResource))
+            Button("Ressources…") { menu?.openResources() }
+                .disabled(!isEnabled(.resources))
 
             Divider()
             Button("Générer le rapport") { menu?.generateReport() }

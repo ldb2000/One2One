@@ -51,6 +51,9 @@ struct MeetingSpaceView: View {
     let onAddToManagerReport: (NSRange, String, String) -> Void
     /// Ouvre la galerie de captures, ou sa configuration s'il n'y en a aucune.
     let onShowCaptures: () -> Void
+    /// Ouvre le sélecteur de fichiers du tiroir Ressources. Porté par
+    /// `MeetingView`, qui n'a qu'**un** `.fileImporter` dans sa hiérarchie.
+    let onImportResources: () -> Void
 
     /// Les collaborateurs, pour les sélecteurs de responsable du rail.
     /// Interrogés ici plutôt que passés en paramètre : c'est la vue qui monte
@@ -58,8 +61,27 @@ struct MeetingSpaceView: View {
     /// programme §8 interdit.
     @Query(sort: \Collaborator.name) private var allCollaborators: [Collaborator]
 
+    /// Le contexte, pour le coordinateur de ressources du lot 6. Le lot 5
+    /// l'avait retiré — le mode Relire n'écrivait plus rien d'ici — mais le
+    /// tiroir, lui, insère et sauvegarde des pièces.
+    @Environment(\.modelContext) private var context
+
+    /// Un glisser survole la fenêtre : la zone de dépôt du tiroir s'allume.
+    @State private var isDropTargeted = false
+
     var body: some View {
         contenu
+            // Lot 6, spec §4.1 : le tiroir Ressources se **superpose** à la
+            // séance sans la démonter — la colonne principale reste
+            // interactive, et un dépôt de fichier est accepté de n'importe où
+            // dans la fenêtre. Posé sur `contenu` et non dans une branche : le
+            // tiroir s'ouvre aussi depuis le poste de pilotage du lot 5.
+            .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+                ResourceCoordinator(meeting: meeting, context: context,
+                                    state: screen.resources,
+                                    playhead: screen.playhead).handleDrop(providers)
+            }
+            .overlay(alignment: .trailing) { tiroirRessources }
             // Le point d'entrée du mode séance plein écran (lot 4, spec §2.6) :
             // une seule pose dans l'application. Il substitue le contenu de la
             // fenêtre, la barre du haut de `MeetingView` comprise — d'où sa
@@ -109,6 +131,34 @@ struct MeetingSpaceView: View {
                 }
             }
             .background(One2OneToken.bgCanvas)
+        }
+    }
+
+    /// Le tiroir Ressources de 396 px, glissant depuis la droite (lot 6).
+    @ViewBuilder
+    private var tiroirRessources: some View {
+        if screen.resources.isDrawerOpen {
+            ResourcesDrawer(items: ResourceItem.all(for: meeting),
+                            state: screen.resources,
+                            actions: ResourceCoordinator(
+                                meeting: meeting, context: context,
+                                state: screen.resources,
+                                playhead: screen.playhead).tileActions(),
+                            reportOptions: Binding(
+                                get: { meeting.reportAttachmentOptions },
+                                set: { meeting.reportAttachmentOptions = $0 }),
+                            participantCount: MeetingSharingState.presentCount(for: meeting),
+                            projectName: meeting.project?.name,
+                            onImport: onImportResources,
+                            onPaste: {
+                                _ = ResourceCoordinator(
+                                    meeting: meeting, context: context,
+                                    state: screen.resources,
+                                    playhead: screen.playhead).pasteFromClipboard()
+                            },
+                            onSaveOptions: { try? context.save() },
+                            isDropTargeted: isDropTargeted)
+                .animation(.easeOut(duration: 0.16), value: screen.resources.isDrawerOpen)
         }
     }
 

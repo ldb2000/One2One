@@ -102,6 +102,11 @@ struct MeetingTopChromeBar: View {
     /// Nombre de captures déjà prises pour cette réunion.
     let capturedSlidesCount: Int
 
+    /// L'état du tiroir Ressources, pour la pilule `● Partage actif · n voient`
+    /// (lot 6, spec §4.2). Optionnel : les aperçus et les écrans qui montent
+    /// la barre sans modèle d'écran n'ont pas de partage à annoncer.
+    var resources: ResourcesState?
+
     /// Bascule lecture/pause de l'audio enregistré.
     let onTogglePlay: () -> Void
     /// Ouvre la configuration de la source de capture d'écran.
@@ -138,6 +143,7 @@ struct MeetingTopChromeBar: View {
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
             if meeting.kind != .note {
                 audioPill
+                sharePill
                 captureButton
                 typeMenu
                 templatePickerButton
@@ -404,6 +410,41 @@ struct MeetingTopChromeBar: View {
         .help(autreEnCours
               ? "Un enregistrement est déjà en cours pour une autre réunion"
               : "Démarrer l'enregistrement")
+    }
+
+    // MARK: - Partage à l'écran (lot 6)
+
+    /// `● Partage actif · 5 voient`, **pleine** `accent/action` (spec §4.2,
+    /// capture `3a-tiroir-ressources.png`).
+    ///
+    /// Critère d'acceptation n° 2 du chantier 3 : l'état de partage se lit
+    /// d'ici, sans ouvrir le tiroir. Le libellé vient de
+    /// `MeetingSharingState`, pur et testé — la barre ne compte pas les
+    /// participants elle-même.
+    ///
+    /// **Sans partage, la pilule disparaît** : pas d'état grisé. Une pilule
+    /// éteinte occuperait la place et se lirait comme un contrôle désactivé,
+    /// alors qu'il n'y a rien à contrôler.
+    @ViewBuilder
+    private var sharePill: some View {
+        if let libelle = MeetingSharingState.pillLabel(
+            isPresenting: resources?.isPresenting ?? false,
+            presentCount: MeetingSharingState.presentCount(for: meeting)) {
+            Button { resources?.open() } label: {
+                Text(libelle)
+                    .font(.plexSans(10.5, .semibold))
+                    .foregroundStyle(One2OneToken.onFilledButton)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                            .fill(One2OneToken.action)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Un document est à l'écran des participants — ouvrir le tiroir Ressources")
+        }
     }
 
     // MARK: - Capture
