@@ -50,17 +50,35 @@ enum CommitmentsRailModel {
     ///   pastille sait afficher.
     static func groups(for meeting: Meeting,
                        in thread: OneOnOneThread,
-                       ownerName: String) -> [Group] {
-        // « ENGAGEMENTS DE CETTE SÉANCE » : ceux qui ont été **pris ici**. Un
-        // engagement d'une séance antérieure appartient au registre du fil, pas
-        // à la liste de ce qu'on vient de se promettre.
-        let deLaSeance = thread.commitments.filter {
-            $0.promisedInMeeting?.persistentModelID == meeting.persistentModelID
+                       ownerName: String,
+                       now: Date) -> [Group] {
+        // « ENGAGEMENTS DE CETTE SÉANCE » : ceux qui ont été **pris ici** et
+        // qui sont encore une parole en cours.
+        //
+        // Trois exclusions, et chacune évite un doublon à l'écran : un
+        // engagement d'une autre séance appartient au registre du fil ; un
+        // engagement soldé y figure déjà, en `✓` ou en `✗` ; un engagement en
+        // retard non soldé y figure aussi, en `✗`. La capture le montre ainsi —
+        // la grille d'astreinte est sous `TENUS DEPUIS LE DERNIER 1:1`, pas
+        // dans `Moi · 2`.
+        let deLaSeance = thread.commitments.filter { engagement in
+            engagement.promisedInMeeting?.persistentModelID == meeting.persistentModelID
+                && engagement.state == .open
+                && !CommitmentLedger.isOverdue(engagement, now: now)
         }
 
         return [thread.myRole, other(of: thread.myRole)].map { side in
-            let lignes = CommitmentLedger.byLatenessDescending(
-                deLaSeance.filter { $0.ownerSide == side }, now: Date.distantPast)
+            // Ordre de prise, puis texte : la capture range les cartes dans
+            // l'ordre où elles ont été promises, et un tri par échéance les
+            // ferait sauter d'une place à chaque report.
+            let lignes = deLaSeance
+                .filter { $0.ownerSide == side }
+                .sorted { gauche, droite in
+                    if gauche.promisedAt != droite.promisedAt {
+                        return gauche.promisedAt < droite.promisedAt
+                    }
+                    return gauche.text < droite.text
+                }
             return Group(side: side,
                          title: "\(sideTitle(side, in: thread)) · \(lignes.count)",
                          initials: initials(for: side, in: thread, ownerName: ownerName),

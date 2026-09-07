@@ -92,7 +92,8 @@ struct CommitmentsRailModelTests {
         engagement("Chiffrer la reprise AP restante", side: .collaborator, in: f, due: 5)
 
         let groupes = CommitmentsRailModel.groups(for: f.meeting, in: f.thread,
-                                                  ownerName: "Yann PENVEN")
+                                                  ownerName: "Yann PENVEN",
+                                                  now: Self.maintenant)
         #expect(groupes.count == 2)
         // « Moi » avant « Laurent » : c'est l'ordre de la capture, et c'est ce
         // que le manager doit lire en premier — ses propres engagements.
@@ -112,7 +113,8 @@ struct CommitmentsRailModelTests {
         engagement("Pris à la séance précédente", side: .manager, in: f, meeting: f.previous)
         engagement("Pris aujourd'hui", side: .manager, in: f)
 
-        let groupes = CommitmentsRailModel.groups(for: f.meeting, in: f.thread, ownerName: "")
+        let groupes = CommitmentsRailModel.groups(for: f.meeting, in: f.thread,
+                                                  ownerName: "", now: Self.maintenant)
         let textes = groupes.flatMap(\.commitments).map(\.text)
         #expect(textes == ["Pris aujourd'hui"])
     }
@@ -120,7 +122,8 @@ struct CommitmentsRailModelTests {
     @Test("Les deux groupes restent présents même vides, avec leur invite")
     func groupesVidesGardentLeurInvite() throws {
         let f = try fixture()
-        let groupes = CommitmentsRailModel.groups(for: f.meeting, in: f.thread, ownerName: "")
+        let groupes = CommitmentsRailModel.groups(for: f.meeting, in: f.thread,
+                                                  ownerName: "", now: Self.maintenant)
         // « Aucune zone vide sans invite » (chantier 1, critère n° 1) : le rail
         // d'un entretien qui commence est vide par nature, et un cadre muet ne
         // dirait pas comment le remplir.

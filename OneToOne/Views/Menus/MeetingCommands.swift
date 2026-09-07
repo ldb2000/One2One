@@ -117,6 +117,10 @@ struct MeetingCommands: Commands {
                 _ = RefonteDemoSeed.seedLot6(in: demoContext)
                 // Lot 7 : les trois captures de `4a-capture-selecteur.png`.
                 _ = RefonteDemoSeed.seedLot7(in: demoContext)
+                // Lot 11 : les deux fils 1:1 et les quatorze séances de la
+                // capture 2a (`seedLot11` commence par `seedOneOnOneThreads`,
+                // le semis du lot 10 resté non câblé). Idempotent lui aussi.
+                _ = RefonteDemoSeed.seedLot11(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false

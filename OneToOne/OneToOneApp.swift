@@ -194,6 +194,14 @@ struct ContentView: View {
     /// `Scripts/recette-run.sh --seed`.
     static let seedDemoEnvironmentKey = "ONETOONE_SEED_DEMO"
 
+    /// Écran visé par la recette, quand ce n'est pas le cockpit (`1a`).
+    ///
+    /// `2a` ouvre la séance de 1:1 de la capture `2a-1to1-manager-seance.png`
+    /// (lot 11) : sans cela, une recette visuelle du 1:1 demanderait de
+    /// naviguer à la souris, ce qu'un script ne sait pas faire de façon
+    /// reproductible.
+    static let seedDemoScreenEnvironmentKey = "ONETOONE_SEED_DEMO_SCREEN"
+
     /// Sème et ouvre la réunion de démonstration quand la variable
     /// `ONETOONE_SEED_DEMO` vaut `1`.
     ///
@@ -212,6 +220,19 @@ struct ContentView: View {
         guard ProcessInfo.processInfo.environment[Self.seedDemoEnvironmentKey] == "1",
               !didSeedRefonteDemo else { return }
         didSeedRefonteDemo = true
+
+        // Lot 11 : `ONETOONE_SEED_DEMO_SCREEN=2a` sème **en plus** les deux
+        // fils 1:1 et ouvre la séance de la capture 2a. Sans la variable, rien
+        // ne change — le cockpit reste ce que la recette voit par défaut.
+        if ProcessInfo.processInfo.environment[Self.seedDemoScreenEnvironmentKey] == "2a" {
+            if let seance = RefonteDemoSeed.seedLot11(in: context) {
+                router.pendingToken = OneToOneLaunchToken(
+                    meetingID: seance.meeting.ensuredStableID,
+                    autoStartRecording: false)
+                return
+            }
+        }
+
         let reunion = RefonteDemoSeed.seed(in: context)
         router.pendingToken = OneToOneLaunchToken(meetingID: reunion.ensuredStableID,
                                                   autoStartRecording: false)

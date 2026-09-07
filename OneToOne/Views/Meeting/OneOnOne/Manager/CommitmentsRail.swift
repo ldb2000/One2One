@@ -49,7 +49,8 @@ struct CommitmentsRail: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(CommitmentsRailModel.commitmentsTitle)
             ForEach(CommitmentsRailModel.groups(for: meeting, in: thread,
-                                                ownerName: ownerName)) { groupe in
+                                                ownerName: ownerName,
+                                                now: now)) { groupe in
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 7) {
                         AvatarSide(initials: groupe.initials, identity: identite(de: groupe.side))
