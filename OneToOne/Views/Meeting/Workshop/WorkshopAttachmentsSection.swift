@@ -86,13 +86,31 @@ struct WorkshopAttachmentsSection: View {
                 .strokeBorder(One2OneToken.cardBorder, lineWidth: 1))
     }
 
-    /// L'icône 34 × 40 du lot 6, telle quelle : le dock de l'atelier et le
-    /// tiroir Ressources montrent les mêmes pièces, ils doivent les montrer de
-    /// la même façon.
+    /// Une **capture** montre ce qu'elle a capturé — c'est son intérêt, et le
+    /// lot 7 a déjà le cache de vignettes qui le permet sans relire un PNG de
+    /// 5K à chaque rendu du dock. Une pièce, elle, garde l'icône à badge du
+    /// lot 6 : le dock et le tiroir Ressources montrent les mêmes pièces, ils
+    /// doivent les montrer de la même façon.
+    @ViewBuilder
     private func vignette(_ item: ResourceItem) -> some View {
-        ResourceTypeIcon(badge: item.workshopBadge(in: meeting),
-                         tone: item.badgeTone,
-                         isOrphan: item.isOrphan)
+        if item.nature == .capture, !item.isOrphan,
+           let image = CaptureThumbnailCache.shared.thumbnail(forPath: item.path) {
+            Image(decorative: image, scale: 1)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: ResourceTypeIcon.width, height: ResourceTypeIcon.height)
+                .clipShape(RoundedRectangle(cornerRadius: One2OneToken.radiusPreview,
+                                            style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusPreview,
+                                     style: .continuous)
+                        .strokeBorder(One2OneToken.hair, lineWidth: 1))
+                .accessibilityLabel(item.workshopBadge(in: meeting))
+        } else {
+            ResourceTypeIcon(badge: item.workshopBadge(in: meeting),
+                             tone: item.badgeTone,
+                             isOrphan: item.isOrphan)
+        }
     }
 
     /// `Sur la planche` quand la pièce y est déjà — elle se contente alors de

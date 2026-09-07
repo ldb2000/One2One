@@ -2,6 +2,182 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Lot 17 — Atelier : modes Schéma et Manuscrit, pièces et captures (6a complet) (2026-09-08)
+
+Branche `feat/refonte-lot-17-atelier-modes`, développée sur
+`feat/refonte-lot-16-atelier-socle` (SHA `1d99a02` mémorisé dans
+`.lot17-base-sha`) puis **rebasée** sur `feat/refonte-lot-12-1to1-manager-prepa`
+une fois l'intégration de la vague 5 terminée — **aucun conflit**, le lot 16
+avait déjà absorbé les points de couture. Plan :
+`docs/superpowers/plans/2026-09-07-refonte-lot-17-atelier-modes.md`.
+Tout reste derrière `AppSettings.workshopEnabled`.
+
+### Trois modes, trois palettes — et c'est une table pure
+
+`WorkshopPalette.tools(for:)` est le critère n° 2 du chantier 6 en une fonction :
+Croquis = crayon, rectangle, ellipse, flèche, ligne, texte, **post-it**, image,
+gomme ; Schéma = sélection, connecteur, texte, gomme **plus** les cinq formes de
+la bibliothèque (`shapes(for:)`) ; Manuscrit = stylo, surligneur, gomme, règle,
+lasso. Le catalogue `WhiteboardTool` perd `frame`, qui n'apparaît dans aucune
+palette de la spec §7.1. Changer de mode **rearme l'outil par défaut** du
+nouveau mode : garder un crayon dans une palette qui n'en a pas est le genre de
+détail qui fait douter de tout le reste.
+
+### Ce qui a été calculé en Swift plutôt que délégué au moteur
+
+Deux décisions, prises sur pièces :
+
+1. **L'alignement** (`BoardAlignment`, 8 opérations). L'objet impératif
+   d'Excalidraw 0.18.1 — vérifié dans le bundle embarqué — n'expose **pas**
+   `actionManager` : `let E={updateScene…,registerAction:…}` ne contient que
+   `registerAction`. Les actions `alignLeft`, `distributeHorizontally`… du moteur
+   sont donc hors d'atteinte du pont. Trente lignes de géométrie pure les
+   remplacent, et **se testent sans WebKit** (13 tests) ; le pont ne transporte
+   qu'un dictionnaire de positions, appliqué avec `captureUpdate: "IMMEDIATELY"`
+   pour que `↺` défasse un alignement comme n'importe quel geste.
+2. **La bibliothèque de formes** (`BoardShapeLibrary`). Les cinq formes —
+   serveur, base de données, file, acteur, zone — sont dessinées en JSON
+   Excalidraw **par l'application**, jamais téléchargées (la bibliothèque
+   publique du moteur est neutralisée en `file:///` depuis le lot 16). En Swift
+   et non inlinée dans le bundle JavaScript : une forme est une donnée, elle se
+   compte et se vérifie en test, et corriger un tracé ne demande pas de
+   reconstruire 3,7 Mo. Chaque forme est un **groupe** — sans `groupIds` commun,
+   la déplacer la démonterait.
+
+### Pression du stylet — implémentée, non vérifiable ici
+
+Dans un `WKWebView`, les `PointerEvent` de macOS **n'apportent pas** la pression
+d'une tablette : le moteur retombe sur `simulatePressure`, qui déduit l'épaisseur
+de la vitesse du geste. `StylusPressureMonitor` lit donc la vraie pression dans
+les `NSEvent` (`.pressure`, `.tabletPoint`, `.leftMouseDragged`) et la pousse
+dans la page pendant le geste ; à la levée du stylet, la page rééchantillonne la
+série sur les points du tracé, écrit `pressures` et pose
+`simulatePressure = false`. Une souris ne rapporte **aucune** pression
+exploitable (une constante) : `InkPressure.normalized` rend alors `nil` et
+l'épaisseur reste celle de la barre d'outils, comme le veut la spec (« pression
+si disponible »).
+
+**Procédure de vérification, à faire en recette avec une tablette :**
+1. brancher un stylet (Wacom, iPad + Sidecar, ou trackpad Force Touch) ;
+2. ouvrir une planche en mode **Manuscrit**, outil `Stylo` ;
+3. tracer un trait en variant l'appui, puis relâcher ;
+4. dans `recordings/<uuid>/boards/<stableID>.excalidraw.json`, l'élément
+   `freedraw` doit porter `"simulatePressure": false` et un tableau `pressures`
+   de la **même longueur** que `points`, aux valeurs non constantes.
+   Un `pressures` absent, ou `simulatePressure: true`, signifie qu'aucun
+   `NSEvent` de tablette n'est arrivé — c'est le seul mode d'échec attendu.
+
+### Dock : `SUR CETTE PLANCHE` et `PIÈCES & CAPTURES`
+
+L'annotation vit dans `customData.one2oneKind` de l'élément — le seul champ que
+le moteur transporte sans y toucher, donc elle survit à la sauvegarde, à la
+duplication d'une planche et à l'export. `BoardAnnotation.list` la relit, y
+compris quand le texte est porté par l'élément **lié** (`containerId`) et pas par
+la boîte. Le menu contextuel est **natif** : `BoardWebView` remplace celui de
+WebKit (« Recharger », « Inspecter » n'ont rien à faire sur une planche) par
+« Marquer comme question / risque » et « Retirer l'annotation ».
+
+`＋ Action depuis la sélection` crée l'action **tout de suite**, via
+`ActionComposerService` — le rail n'est pas monté en atelier (le dock le
+remplace), personne ne consommerait un brouillon posé dans
+`pendingActionDraft`. Son titre vient des libellés sélectionnés
+(`BoardScene.labels`, retours à la ligne aplatis). `Épingler à mm:ss` pose une
+note `sourceRef board` (« ◫ Planche n · titre ») ; `MeetingTimelineMarkers+Boards`
+en fait un repère **carré** et retire le rond que la note produirait — sans quoi
+la même planche porterait deux repères superposés.
+
+`PIÈCES & CAPTURES` réutilise `ResourceItem` (lot 6), `ResourceTypeIcon` (lot 6)
+et `CaptureThumbnailCache` (lot 7, branché après rebase : une capture montre ce
+qu'elle a capturé). Les onglets `Captures` et `Pièces` portent enfin du contenu ;
+leur invite ne sert plus que pour une liste vide, et les compteurs comptent **ce
+que l'onglet montre** — le lot de captures (`MeetingAttachment` de type `slides`)
+est un conteneur, pas une pièce.
+
+`Insérer` : l'image est copiée dans
+`recordings/<uuid>/boards/assets/<stableID>.png`, **bornée à 2 048 px** sur le
+grand côté (spec §7.4), et posée comme élément `image` **verrouillé** avec une
+`data:` URL — la scène ne contient aucun chemin de disque. Le critère n° 3 a son
+test : le fichier d'origine est supprimé, la planche tient. L'élément est
+fabriqué **en Swift** et non dans la page : `locked: true` vit ainsi à un seul
+endroit, celui que le test inspecte. Un fichier déposé sur la zone du dock est
+copié dans la réunion (`AttachmentImporter.Bucket.meetingDocuments`) **puis**
+inséré — deux gestes en un, comme le promet le libellé de la capture.
+
+### Bundle Excalidraw régénéré
+
+Versions **inchangées** (Excalidraw 0.18.1, React 18.3.1, esbuild 0.28.2,
+Node 22.23.2) : seule l'entrée `Scripts/excalidraw-entry.jsx` change, avec huit
+fonctions de plus (`setLibrary`, `insertShape`, `getSelection`, `select`,
+`moveElements`, `setSelectionKind`, `insertImage`, `setPressure`). Le mode Schéma
+arme `isBindingEnabled` et `objectsSnapModeEnabled` — connecteurs liés et
+magnétisme viennent alors du moteur, gratuitement.
+
+`excalidraw.bundle.js` : **3 718 038 octets** contre 3 715 102 (**+2 936**) ;
+`excalidraw.bundle.css` inchangée à 253 200. `WhiteboardHTMLTests` reste vert :
+CSP intacte, aucune adresse réseau apparue, aucune fonte non-`data:`.
+
+### Défaut du lot 16 corrigé : le badge `ATELIER`
+
+Il apparaissait **tronqué** à 1 616 px. Cause : `titleField` portait
+`layoutPriority(1)`, donc `HStack` le servait le **premier** et il absorbait
+toute la largeur restante — ses voisins étaient mesurés sur ce qui restait, soit
+rien. Correctif : priorité **négative** au titre (c'est lui qui doit céder, il
+porte une ellipse) et `fixedSize()` sur le badge. Rien d'autre n'est touché dans
+`MeetingTopChromeBar`.
+
+### Présence (D11)
+
+Vérifié : aucun reliquat n'affiche la pilule `YP CA 2 personnes dessinent` — il
+ne reste que le commentaire de `WorkshopSpaceView` qui explique son absence.
+
+### Jeu de démonstration
+
+`RefonteDemoSeed+Lot17.swift`, en **extension** — ni `RefonteDemoSeed.swift` ni
+`+Lot16` ne sont modifiés. `seedWorkshopComplete` appelle le semis du lot 16 puis
+réécrit les scènes : `Flux réseau` devient un vrai Schéma (boîtes bleues,
+**connecteurs liés** `startBinding`/`endBinding`), `Notes de Patrice` un vrai
+Manuscrit (trois `freedraw` avec `pressures` et `simulatePressure: false`), la
+planche active porte ses deux objets annotés (`Jenkins…` risque, `Qui porte…`
+question), et la réunion gagne la pièce `Archi_cible_Cléva.pdf` de Yann et la
+capture Teams de `21:10`. Idempotent. Une seule ligne change dans
+`MeetingCommands` : la commande de recette appelle la version complète.
+
+### Tests
+
+`swift build` vert. `swift test` : **1 731 tests Swift Testing verts** (216
+suites) et **1 041 XCTest, 1 ignoré, 1 échec** — soit 2 772 contre 2 714 sur la
+base, **+58**. L'unique échec est
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`, **préexistant et
+horaire** : il échoue entre 0 h et 2 h du matin, indépendamment de tout lot, et
+la suite a été lancée à **00:54 CEST**. Aucun test ne charge WebKit (plan §8) :
+le pont est un protocole, `WhiteboardBridgeDouble` enregistre les huit nouveaux
+appels.
+
+### Écarts assumés
+
+- **Lasso** : Excalidraw 0.18.1 n'a **pas** d'outil lasso (`grep lasso` sur le
+  bundle : zéro occurrence). L'outil `Lasso` de la palette Manuscrit retombe donc
+  sur la sélection **rectangulaire**. À reprendre si le moteur monte de version.
+- **Pression** : implémentée, non vérifiée (aucune recette graphique dans ce
+  lot ; procédure ci-dessus).
+- **Alignement** : recalculé en Swift au lieu de l'`actionManager` d'Excalidraw,
+  qui n'est pas exposé — cf. ci-dessus.
+- **Calques** (mentionnés dans la table §7.1 du mode Schéma) : **non faits**.
+  Ni la capture 6a ni les critères d'acceptation ne les demandent ; à arbitrer.
+- **Dépôt sur la toile** : le dépôt de fichier est branché sur la **zone du
+  dock**, pas sur la toile elle-même — un `onDrop` par-dessus le `WKWebView`
+  entrerait en concurrence avec le glisser interne du moteur. À reprendre en
+  recette si le geste manque.
+- **Point de dépôt** d'une forme ou d'une image : décalage constant depuis le
+  coin haut-gauche de la vue, et non le centre exact du cadre (la page ignore la
+  taille de son propre cadre). L'objet est déposé **sélectionné**, donc
+  immédiatement déplaçable.
+- **Recette visuelle** : aucune, par consigne. La capture de référence
+  `6a-atelier-planche.png` n'a donc pas été recomparée après ces ajouts.
+
+**Prochaine action** : lot 18 (planche de séance 6b et rapport d'atelier), qui
+dépend de ce lot et du lot 15.
+
 ## Refonte de l'écran de réunion — lot 15 : rapport, blocs optionnels, citations (2026-09-08)
 
 Branche `feat/refonte-lot-15-rapport`, **rebasée** sur
