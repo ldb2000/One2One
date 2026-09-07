@@ -14,6 +14,17 @@ import Foundation
 @MainActor
 struct ActionsTableCommandsTests {
 
+    private var calendrier: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.locale = Locale(identifier: "fr_FR")
+        c.timeZone = TimeZone(identifier: "Europe/Paris") ?? .current
+        return c
+    }
+
+    private func date(_ jour: Int, _ mois: Int, _ annee: Int) -> Date {
+        calendrier.date(from: DateComponents(year: annee, month: mois, day: jour, hour: 9)) ?? .now
+    }
+
     private func makeContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Schema(CurrentSchema.models),
@@ -172,4 +183,80 @@ struct ActionsTableCommandsTests {
         #expect(courtes.restantes == 0)
     }
 
+    // MARK: - Largeurs de colonnes (spec §2.7)
+
+    @Test("Les sept colonnes du tableau ont les largeurs de la spec")
+    func columnWidths() {
+        // `20px | 1fr | 108 | 92 | 62 | 76 | 30` : une colonne rognée de 20 px
+        // ne se voit dans aucun test de rendu.
+        #expect(ActionsTable.colonnes.etat == 20)
+        #expect(ActionsTable.colonnes.responsable == 108)
+        #expect(ActionsTable.colonnes.echeance == 92)
+        #expect(ActionsTable.colonnes.charge == 62)
+        #expect(ActionsTable.colonnes.source == 76)
+        #expect(ActionsTable.colonnes.menu == 30)
+        #expect(ActionsTable.lignesRepliees == 5)
+    }
+
+    @Test("Le sélecteur de vue est celui de la capture : Tableau · Eisenhower · Calendrier")
+    func viewSelector() {
+        #expect(ActionsTable.vues == [.liste, .eisenhower, .calendar])
+        #expect(ActionsTable.libelleVue(.liste) == "Tableau")
+        #expect(ActionsTable.libelleVue(.eisenhower) == "Eisenhower")
+        #expect(ActionsTable.libelleVue(.calendar) == "Calendrier")
+    }
+
+    // MARK: - Colonnes ÉCHÉANCE et SOURCE
+
+    @Test("La colonne ÉCHÉANCE montre les quatre états de la capture")
+    func dueDateColumn() throws {
+        let context = try makeContext()
+        let reunion = Meeting(title: "Réunion", date: date(4, 9, 2026))
+        let origine = Meeting(title: "COSUI hebdo", date: date(1, 9, 2026))
+        context.insert(reunion); context.insert(origine)
+
+        let sansRien = ActionTask(title: "Vérifier l'état des comptes GitLab")
+        let urgente = ActionTask(title: "Clarifier la situation de facturation")
+        urgente.priority = .urgent
+        let datee = ActionTask(title: "Chiffrer la fin de migration Marine")
+        datee.dueDate = date(11, 9, 2026)
+        let reportee = ActionTask(title: "Relancer le périmètre Digital")
+        reportee.carriedFromMeeting = origine
+        reportee.deferralCount = 2
+        for tache in [sansRien, urgente, datee, reportee] {
+            context.insert(tache)
+            tache.meeting = reunion
+        }
+
+        #expect(ActionsTable.libelleEcheance(sansRien).texte == "＋ date")
+        #expect(ActionsTable.libelleEcheance(sansRien).etat == .invite)
+        #expect(ActionsTable.libelleEcheance(urgente).texte == "Urgent")
+        #expect(ActionsTable.libelleEcheance(reportee).texte == "Reporté ×2")
+        // Une date réelle l'emporte sur tout le reste.
+        #expect(ActionsTable.libelleEcheance(datee, reference: date(4, 9, 2026),
+                                             calendar: calendrier) == ("11 sept.", .neutre))
+    }
+
+    @Test("La colonne SOURCE mène au timecode, ou à défaut à la réunion d'origine")
+    func sourceColumn() throws {
+        let context = try makeContext()
+        let reunion = Meeting(title: "Réunion", date: date(4, 9, 2026))
+        let origine = Meeting(title: "COSUI hebdo", date: date(1, 9, 2026))
+        context.insert(reunion); context.insert(origine)
+
+        let citee = ActionTask(title: "Vérifier l'état des comptes GitLab")
+        citee.sourceRef = SourceRef(kind: .transcript, stableID: UUID(), t: 252)
+        let reportee = ActionTask(title: "Relancer le périmètre Digital")
+        reportee.carriedFromMeeting = origine
+        reportee.deferralCount = 2
+        let orpheline = ActionTask(title: "Isoler la partie data")
+        for tache in [citee, reportee, orpheline] {
+            context.insert(tache)
+            tache.meeting = reunion
+        }
+
+        #expect(ActionsTable.libelleSource(citee) == "04:12 ↗")
+        #expect(ActionsTable.libelleSource(reportee, calendar: calendrier) == "1er sept.")
+        #expect(ActionsTable.libelleSource(orpheline) == nil)
+    }
 }
