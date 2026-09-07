@@ -110,6 +110,22 @@ enum One2OneToken {
     /// l'écrire en clair dans une vue romprait la règle.
     static let onFilledButton = Color.white
 
+    /// Ombre d'un panneau qui glisse depuis la droite (fiche projet, tiroir de
+    /// ressources) : `-8px 0 24px rgba(0,0,0,.07)` — spec §4.1 et §4.3. Trois
+    /// jetons, parce qu'une ombre est une couleur *plus* une géométrie et que
+    /// séparer les deux ferait réapparaître un littéral dans la vue.
+    static let panelShadow = Color.black.opacity(0.07)
+    static let panelShadowRadius: CGFloat = 24
+    /// Décalage horizontal : négatif, l'ombre est portée vers la gauche, du
+    /// côté de la colonne que le panneau recouvre.
+    static let panelShadowOffsetX: CGFloat = -8
+
+    /// Opacité de la colonne principale quand un panneau contextuel est ouvert
+    /// (spec §4.3 : « la colonne principale passe à 55 % d'opacité et reste
+    /// consultable »). C'est un dépoli, pas un blocage : la vue qui l'applique
+    /// ne doit **jamais** l'accompagner d'un `allowsHitTesting(false)`.
+    static let dimmedOpacity: Double = 0.55
+
     // MARK: - Rayons (spec §1.2, Géométrie)
 
     static let radiusPreview: CGFloat = 4

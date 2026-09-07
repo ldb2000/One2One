@@ -129,4 +129,23 @@ struct One2OneTokensTests {
         #expect(One2OneToken.radiusPill == 11)
         #expect(One2OneToken.radiusAudio == 16)
     }
+
+    /// L'ombre du panneau de fiche projet, spec §4.3 : `-8px 0 24px
+    /// rgba(0,0,0,.07)`. Trois jetons plutôt qu'un littéral dans la vue :
+    /// c'est la seule façon de garder vraie la règle « seul
+    /// `One2OneTokens.swift` nomme une couleur » — et de la vérifier.
+    @Test("L'ombre de panneau reprend -8px 0 24px rgba(0,0,0,.07)")
+    func panelShadowMatchesSpec() {
+        #expect(One2OneToken.panelShadowRadius == 24)
+        #expect(One2OneToken.panelShadowOffsetX == -8)
+        #expect(One2OneToken.panelShadow == Color.black.opacity(0.07))
+    }
+
+    /// La colonne principale passe à 55 % d'opacité quand la fiche projet
+    /// s'ouvre (spec §4.3). Elle reste **consultable** : le dépoli est visuel,
+    /// jamais un `allowsHitTesting(false)`.
+    @Test("Le dépoli de la colonne principale vaut 55 %")
+    func dimmedOpacityMatchesSpec() {
+        #expect(One2OneToken.dimmedOpacity == 0.55)
+    }
 }
