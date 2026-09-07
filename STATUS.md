@@ -2,6 +2,156 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Refonte de l'écran de réunion — lot 15 : rapport, blocs optionnels, citations (2026-09-08)
+
+Branche `feat/refonte-lot-15-rapport`, **rebasée** sur
+`feat/refonte-lot-12-1to1-manager-prepa` (sommet de la pile après l'intégration de la
+vague 5). Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-15-rapport.md` (14 tâches, toutes faites).
+
+**État : livré, `swift build` propre, `swift test` complet vert — 1 054 XCTest (1 ignoré) +
+1 710 Swift Testing (213 suites) = 2 764 tests, contre 2 714 sur la base. Unique échec :
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`, préexistant et **horaire**
+(échoue entre 0 h et 2 h ; constaté à 00:40 CEST), indépendant du lot et non corrigé ici.
+Aucune recette graphique, aucun lancement d'application, aucun appel réseau.**
+
+### Ce qui est en place
+
+**L'audience de confidentialité descend du gabarit, plus du type de réunion.**
+`ReportTemplateKind.audience` est une table exhaustive et sans `default` (`.oneToOne` →
+`.collaborator`, `.manager` → `.manager`, `.escalade` → `.hr`, tout le reste →
+`.projectTeam`), et `ReportAudience.forTemplate` retombe sur
+`ConfidentialityFilter.audience(for:)` quand aucun gabarit n'est choisi. Avant ce lot,
+`assembleTemplatePrompt` et `ReportHTMLBuilder` la déduisaient tous deux du `MeetingKind` :
+une ligne `escalated` d'un 1:1 était écartée **jusque dans l'export Escalade**, ce que le
+test `ligneEscaladeeSeulementEnEscalade` a d'abord constaté en rouge. La règle de sortie,
+elle, reste `ConfidentialityFilter.isExportable` — jamais réécrite.
+
+**Cinq blocs optionnels, une sélection, deux rendus.** `Services/Report/ReportOptionalBlocks.swift`
+choisit et ordonne ; `…Markdown` alimente le prompt (via les variables `{{…}}`), `…HTML`
+écrit une annexe **déterministe** du rapport. Deux rendus et non un seul parce qu'un rapport
+dont les pièces ne figurent que si le modèle a bien voulu les reprendre ne satisfait pas le
+critère n° 3 du chantier 3, qui demande qu'une pièce épinglée soit citée *automatiquement*.
+
+| Variable | Source | Ordre |
+| --- | --- | --- |
+| `{{pieces_epinglees}}` | `Meeting.pinnedAttachments` (lot 6), case `attachPinned` du pied | `t` croissant |
+| `{{captures_jointes}}` | `SlideCapture.includeInReport` (lot 7), 1re ligne d'OCR | `t` puis `index` |
+| `{{planches}}` | `Meeting.boards` | `t` puis `index` |
+| `{{engagements}}` | `Commitment` du fil pris dans la séance, par côté | côté, puis échéance |
+| `{{fiche_projet.maj}}` | `Meeting.acceptedProjectUpdates` (neuf, cf. plus bas) | ordre d'acceptation |
+
+**La page `p.n` se relit dans la puce du lot 6, elle n'est pas persistée.** Une pièce n'a pas
+« une » page : on en a cité une à un moment donné. Le bloc cherche donc ` · p.(\d+)` dans les
+notes dont le `sourceRef` désigne la pièce, plutôt que d'ajouter une colonne qui inventerait
+une vérité. Une capture prise hors enregistrement garde `t == nil` et n'hérite pas de `00:00`
+— même refus qu'au lot 7.
+
+**Les engagements se lisent sans rien écrire.** `OneOnOneThreadStore.existingThread` et non
+`thread(for:in:)`, qui *crée* un fil : générer un rapport ne doit toucher à rien en base.
+
+**La chaîne de citation porte sur le balisage, pas sur le texte.** `CitationLinker` reconnaît
+`<code>mm:ss</code>` (avec un `data-note` facultatif) et non `\b\d{1,2}:\d{2}\b` dans la
+prose : « le point est reporté à 14:30 » est un horaire, et en faire un lien enverrait la
+tête de lecture à la 870ᵉ seconde d'une séance qui n'en compte peut-être pas tant. La passe
+est appliquée aux **seuls** fragments écrits par l'app — notes, pièces, captures, planches,
+plan d'actions — jamais à `bodyHTML`, qui vient du modèle. En aperçu, le timecode devient
+`onetoone://meeting/<uuid>?t=252&note=<uuid>` ; en `.outlook` (PDF, mail, Apple Notes) il
+redevient du texte nu, un schéma privé n'ayant aucun sens hors machine.
+
+**Le clic est intercepté dans l'aperçu, pas par macOS.** `MeetingReportPreview` a désormais un
+délégué de navigation : `onetoone://` appelle `onCitation`, un lien externe part dans le
+navigateur, et rien ne navigue *dans* la WKWebView (elle n'a ni barre d'adresse ni bouton
+retour). **Aucun `CFBundleURLTypes` n'a été ajouté** : le schéma reste interne, comme les
+mentions `onetoone://collaborator/…` de l'éditeur markdown.
+`QuickLaunchURLHandler.parseCitation` est pur ; `handle(url:router:context:playhead:)` reçoit
+la tête de lecture au lieu d'aller la chercher — cf. écart n° 1.
+
+**Les révisions de gabarits sont versionnées par nom.** `BuiltInTemplates.revisions:
+[String: Int]` généralise le marqueur ciblé `d2OneToOneRevision` du 2026-05-23 : une ligne est
+réalignée sur son seed **une fois par révision**, et l'édition faite ensuite reste intacte —
+la règle que `test_seedIfNeeded_doesNotOverwriteEditedBuiltIn` gardait déjà. Le marqueur est
+posé même quand la ligne vient d'être insérée : la repousser au lancement suivant écraserait
+une édition faite entre-temps. Six gabarits révisés (`d1_global`, `d2_oneToOne` — révision 4,
+`d3_manager`, `d4_copil`, `d5_cosui`, `d9_workshop`) ; `d2` gagne aussi la mention « Les notes
+privées ne sont jamais incluses. » du pied `CLÔTURER` de la capture 2a.
+
+**Nouveau gabarit `d11_escalade`** (décision D9) : l'unique sortie d'audience `.hr`, donc la
+seule qui emporte les lignes `escalated` et qui laisse celles qui n'étaient que `shared`. Son
+préambule interdit explicitement ressenti, cran de moral et appréciation de motivation — ce
+que quelqu'un dit de son propre état à son manager ne remonte pas à la hiérarchie au détour
+d'une escalade. Il est proposé juste après le gabarit du type, et **seulement** sur les deux
+types de tête-à-tête.
+
+**Les trois cases du pied agissent enfin, et au moment de l'envoi.**
+`Services/Report/ReportSendPreparation.swift` : pièces épinglées + PDF des captures cochées
+en annexe, participants **présents** (`participantStatus == .present`) en destinataires,
+et versement effectif via `AttachmentImporter.Bucket.project(code:)` + `ProjectAttachment`.
+Le lot 6 ne faisait que *persister* ces cases. À l'envoi et pas à la génération : générer est
+un geste qu'on répète pour ajuster un gabarit, et verser à chaque essai remplirait la fiche de
+doublons. Idempotent par nom de fichier, original intact (D5, vérifié sur disque avec une
+racine de stockage injectée dans un dossier temporaire).
+
+**Un bloc vide devient une invite, pas une section vide.** `MeetingReportSpaceInvites` est
+sortie de la vue pour être vérifiable sans monter SwiftUI : « Aucune pièce épinglée — épinglez
+depuis Ressources. » s'affiche une fois en tête de l'espace Rapport. Une case décochée n'invite
+à rien — l'utilisateur a déjà répondu. Le libellé `Rapport ✓ (m:ss)` est inchangé.
+
+### Écarts avec le plan
+
+1. **Le clic sur un timecode ne déplace pas encore la tête de lecture d'un écran ouvert.**
+   `MeetingReportSpace` est monté dans `MeetingView.swift:606`, fichier que les conventions
+   anti-conflit du lot 15 réservent (« `MeetingView.swift` (rien) »), et une `MeetingPlayhead`
+   appartient à l'état d'un écran monté (`MeetingScreenModel`) sans qu'aucun registre ne
+   l'expose — celui du lot 0B a justement été retiré. Le lien est **rendu, parsé et testé**
+   (`CitationLinkerTests`, `CitationURLHandlingTests`), et `handle` sait faire le `seek` :
+   il manque **un argument** — `playhead: screen.playhead` sur `MeetingReportSpace`, puis
+   `onCitation:` sur `MeetingReportPreview`. À poser dans la passe qui a la main sur
+   `MeetingView.swift`.
+2. **`Ce que j'ai livré` (spec §6.2) reste sans variable.** `DeliveredItemsBuilder` (lot 13)
+   n'est pas encore sur la pile ; aucune variable n'a été inventée pour l'occuper.
+   `d3_manager` porte `{{engagements}}` (« ce qu'il m'a promis ») mais pas les livrables.
+3. **`{{planches}}` rend titre, mode, auteur et timecode, sans légende.** La légende textuelle
+   générée par l'assistant (`BoardCaptionBuilder`) est au lot 18 ; la variable existe et rend
+   déjà l'ordre du temps, testé avec trois `Board` insérés à contretemps.
+4. **`Models/OtherModels.swift` gagne une colonne** — `acceptedProjectUpdatesJSON`, la seule
+   autorisée. Le lot 9 ne persistait rien de l'acceptation : `accept` mute un
+   `ProjectCardDraft`, puis `apply(to:in:)` écrit dans le `Project` ; après `Enregistrer`,
+   plus rien ne distingue une valeur validée d'une valeur saisie à la main. Colonne
+   **optionnelle à valeur par défaut**, migration légère, aucune version de schéma.
+5. **Trois lignes dans `Views/Project/**`** au-delà de l'extension autorisée : la feuille
+   d'acceptation gagne une propriété `meeting: Meeting? = nil` et l'appel à
+   `recordAcceptance`, et `ProjectCardPanel` passe son `meeting` (qu'il possède déjà, l. 84).
+   Sans ce câblage, `{{fiche_projet.maj}}` serait resté vide en pratique. Toute la logique
+   vit bien dans `Services/Project/ProjectCardSuggestions+Log.swift`.
+6. **Neuf commits pour quatorze tâches.** Les quatre blocs de `ReportOptionalBlocks` vivent
+   dans un même fichier : quatre commits successifs y auraient réécrit la même zone.
+7. **`ReportOptionalBlocks.escape` duplique `ReportHTMLBuilder.escape`**, qui est `private`.
+   L'exposer aurait élargi la surface d'un type dont le rôle est d'assembler un document,
+   pas de prêter ses outils.
+
+### Fichiers partagés touchés
+
+`Services/AIReportService.swift` (assemblage seulement : audience, repli des blocs),
+`Services/ReportTemplating.swift` (paramètre `audience`, branchement du `default`),
+`Services/BuiltInTemplates.swift`, `Services/ExportService.swift` (`composeMeetingMail`),
+`Services/QuickLaunchURLHandler.swift` (extension), `Models/ReportTemplate.swift`
+(cas `escalade` + audience), `Models/OtherModels.swift` (**une** colonne),
+`Views/Settings/ReportTemplateEditorView.swift` (palette), `Views/Meeting/MeetingReportPreview.swift`,
+`Views/Meeting/Spaces/MeetingReportSpace.swift`, `Views/Meeting/MeetingTopChromeBar.swift`
+(**seulement** `compatibleTemplates`), `Views/Project/{ProjectCardSuggestionsSheet,ProjectCardPanel}.swift`
+(trois lignes, écart n° 5), `Services/Report/ReportThemeCSS.swift` (classe `a.tc`).
+Aucun fichier de `Views/Meeting/OneOnOne/**`, `Services/OneOnOne/**` (lus seulement),
+`Views/Capture/**`, `Services/Capture/**`, `Workshop/**`, `Rail/**`, `Notes/**`, `Review/**`,
+`Resources/**`, `Session/**` ni `MeetingView.swift`.
+
+### Prochaine action
+
+Faire relire et fusionner la PR du lot 15 après `#33`. Puis, dans la passe qui a la main sur
+`MeetingView.swift`, poser l'argument `playhead` de l'écart n° 1 — c'est la dernière ligne
+entre un timecode cliquable et un timecode qui déplace la lecture. Le lot 18 alimentera la
+légende de `{{planches}}` ; le lot 13 pourra brancher `Ce que j'ai livré` sur `d3_manager`.
+
 ## Refonte de l'écran de réunion — lot 13 : 1:1 collaborateur, écran de séance (5a) (2026-09-08)
 
 Branche `feat/refonte-lot-13-1to1-collab-seance`, **rebasée sur
