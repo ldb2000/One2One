@@ -173,7 +173,9 @@ final class MeetingPlayhead {
     /// `mm:ss`, ou `h:mm:ss` au-delà de l'heure. Une position négative — une
     /// horloge qui recule, un fichier vide — s'affiche `00:00` plutôt que de
     /// produire un temps absurde.
-    static func mmss(_ seconds: Double) -> String {
+    /// `nonisolated` : formatage pur, appelé aussi depuis des services non
+    /// isolés (`MeetingNoteStore`, les constructeurs de rapport).
+    nonisolated static func mmss(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds > 0 else { return "00:00" }
         let total = Int(seconds.rounded())
         let h = total / 3600

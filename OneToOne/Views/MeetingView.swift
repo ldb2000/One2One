@@ -401,6 +401,10 @@ struct MeetingView: View {
         }
         .onAppear {
             MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
+            // Reprise unique des notes markdown en notes horodatées (lot 0B).
+            // Idempotent : le drapeau `notesMigrated` fait de ce `onAppear`,
+            // rejoué à chaque remontage, un no-op après la première fois.
+            MeetingNoteStore.importLiveNotesIfNeeded(meeting, in: context)
             applyActionDraftDefaultsIfNeeded()
             consumeTeamsRequestIfAny()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
