@@ -59,6 +59,24 @@ final class Board {
 
     var updatedAt: Date = Date()
 
+    /// La planche est-elle jointe au rapport ? C'est le bouton `Joindre au
+    /// rapport` de l'encart de clôture de l'écran 6b (spec §7.3). Colonne
+    /// neuve à valeur par défaut : migration légère, aucune version de schéma —
+    /// comme `SlideCapture.includeInReport`, qu'elle imite exprès.
+    ///
+    /// `false` par défaut : joindre d'office toutes les planches d'un atelier à
+    /// un rapport diffusé serait un choix qu'on n'a pas fait à sa place.
+    var includeInReport: Bool = false
+
+    /// Légende textuelle de la planche, produite par `BoardCaptionBuilder`
+    /// depuis les libellés d'objets (spec §7.2 : « l'assistant peut décrire les
+    /// planches dans le rapport »).
+    ///
+    /// Persistée plutôt que recalculée à chaque rendu : le dock et le rapport
+    /// la lisent sans relire la scène sur disque, et un raffinement par
+    /// l'assistant survit à la fermeture de l'écran. Vide = pas encore décrite.
+    var caption: String = ""
+
     var meeting: Meeting?
 
     init(index: Int = 0,
