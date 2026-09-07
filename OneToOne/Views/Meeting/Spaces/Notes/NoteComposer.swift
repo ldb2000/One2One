@@ -115,9 +115,8 @@ struct NoteComposer: View {
             // existant du rail.
             screen.requestAction(from: ActionFromPhrase.draft(
                 phrase: parsed.text,
-                segmentID: meeting.ensuredStableID,
-                t: t,
-                speakerName: nil
+                stableID: meeting.ensuredStableID,
+                t: t
             ))
         } else {
             MeetingNoteStore.append(parsed, at: t, to: meeting, in: context)

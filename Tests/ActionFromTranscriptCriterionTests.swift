@@ -134,8 +134,8 @@ struct ActionFromTranscriptCriterionTests {
         let brouillon = ActionFromPhrase.draft(from: f.segment)
         screen.requestAction(from: brouillon)
 
-        #expect(screen.pendingActionDraft?.sourceRef.stableID == f.segment.ensuredStableID)
+        #expect(screen.pendingActionDraft?.sourceRef?.stableID == f.segment.ensuredStableID)
         #expect(screen.newTaskTitle == "Remettre ça en route et vérifier les droits")
-        #expect(brouillon.ownerName == "Laurent Deberti")
+        #expect(brouillon.suggestedOwner === f.speaker)
     }
 }

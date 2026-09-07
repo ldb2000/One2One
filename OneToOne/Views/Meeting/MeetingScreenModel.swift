@@ -39,6 +39,23 @@ final class MeetingScreenModel {
         }
     }
 
+    /// Les trois onglets du rail d'actions (spec §2.5). Valeurs brutes
+    /// stables : elles sont écrites dans `UserDefaults`.
+    enum RailTab: String, CaseIterable, Sendable {
+        case actions
+        case risques
+        case historique
+
+        /// Libellé de l'onglet, sans son compteur (capture `1a-cockpit.png`).
+        var label: String {
+            switch self {
+            case .actions:    return "Actions"
+            case .risques:    return "Risques"
+            case .historique: return "Historique"
+            }
+        }
+    }
+
     /// Le sous-mode temporel de la spec §1.1. Il ne change pas la navigation,
     /// il change la disposition par défaut et le focus clavier.
     enum Mode: String, CaseIterable, Sendable {
@@ -64,6 +81,21 @@ final class MeetingScreenModel {
 
     var mode: Mode = .live {
         didSet { persistMode() }
+    }
+
+    // MARK: - Rail d'actions
+
+    /// L'onglet affiché par le rail de 330 px. Mémorisé par réunion : on
+    /// revient sur une réunion pour y reprendre le fil, pas pour re-cliquer.
+    var railTab: RailTab = .actions {
+        didSet { persistRailTab() }
+    }
+
+    /// La vue de l'onglet `Actions`. Mémorisée par réunion, et **bornée aux
+    /// trois vues du rail** : un `kanban` mémorisé par l'ancien `ActionsPanel`
+    /// retombe sur `Liste` plutôt que d'afficher du vide.
+    var railViewMode: ActionsViewMode = .liste {
+        didSet { persistRailViewMode() }
     }
 
     // MARK: - Brouillon d'action
@@ -172,6 +204,14 @@ final class MeetingScreenModel {
         "\(prefix).mode.\(meetingID.uuidString)"
     }
 
+    static func railTabKey(for meetingID: UUID) -> String {
+        "\(prefix).railTab.\(meetingID.uuidString)"
+    }
+
+    static func railViewKey(for meetingID: UUID) -> String {
+        "\(prefix).railView.\(meetingID.uuidString)"
+    }
+
     /// Rattache le modèle à une réunion et relit l'espace et le mode mémorisés.
     ///
     /// Idempotent : appelé depuis `.onAppear`, qui peut se déclencher plusieurs
@@ -190,6 +230,11 @@ final class MeetingScreenModel {
         isRestoring = true
         space = Space(rawValue: defaults.string(forKey: Self.spaceKey(for: meetingID)) ?? "") ?? .meeting
         mode = Mode(rawValue: defaults.string(forKey: Self.modeKey(for: meetingID)) ?? "") ?? .live
+        railTab = RailTab(rawValue: defaults.string(forKey: Self.railTabKey(for: meetingID)) ?? "") ?? .actions
+        let vueMemorisee = ActionsViewMode(rawValue: defaults.string(forKey: Self.railViewKey(for: meetingID)) ?? "")
+        railViewMode = ActionsViewMode.railCases.contains(vueMemorisee ?? .liste)
+            ? (vueMemorisee ?? .liste)
+            : .liste
         isRestoring = false
     }
 
@@ -201,6 +246,16 @@ final class MeetingScreenModel {
     private func persistMode() {
         guard !isRestoring, let meetingID else { return }
         defaults.set(mode.rawValue, forKey: Self.modeKey(for: meetingID))
+    }
+
+    private func persistRailTab() {
+        guard !isRestoring, let meetingID else { return }
+        defaults.set(railTab.rawValue, forKey: Self.railTabKey(for: meetingID))
+    }
+
+    private func persistRailViewMode() {
+        guard !isRestoring, let meetingID else { return }
+        defaults.set(railViewMode.rawValue, forKey: Self.railViewKey(for: meetingID))
     }
 
     // MARK: - Brouillon
@@ -227,13 +282,17 @@ final class MeetingScreenModel {
     /// colonne vide.
     var noteFilter: MeetingNoteKind?
 
-    /// Intention « ouvrir le composeur d'action prérempli » (spec §2.4).
+    /// L'action **proposée** par une surface amont — une phrase de
+    /// transcription, une ligne `/action` du composeur de notes, une capture —
+    /// et pas encore créée (spec §2.4 : « ouvre le composeur d'action
+    /// prérempli »).
     ///
-    /// Posée par `/action` dans le composeur de notes et par `＋ Action` sur un
-    /// segment de transcription. Le rail qui la consomme — et qui animera
-    /// l'insertion en tête — arrive au lot 3 ; d'ici là, `requestAction`
-    /// préremplit le composeur existant, et la source reste lisible ici.
-    var pendingActionDraft: ActionFromPhrase.Draft?
+    /// Point de couture des lots 2 et 3 : posée par `requestAction` (colonne de
+    /// transcription et composeur de notes), consommée puis remise à `nil` par
+    /// `ActionComposerService.creer`, le composeur du rail. Non persistée : une
+    /// proposition non validée n'a aucune raison de survivre à la fermeture de
+    /// l'écran.
+    var pendingActionDraft: ActionDraft?
 
     /// Jeton de focus du composeur de notes, incrémenté par `⌘⇧N`.
     ///
@@ -257,7 +316,7 @@ final class MeetingScreenModel {
 
     /// Pose l'intention de créer une action depuis une phrase et préremplit le
     /// composeur du rail.
-    func requestAction(from draft: ActionFromPhrase.Draft) {
+    func requestAction(from draft: ActionDraft) {
         pendingActionDraft = draft
         newTaskTitle = draft.title
     }

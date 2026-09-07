@@ -14,16 +14,6 @@ import SwiftData
 /// fonctionner hors ligne.
 enum ActionFromPhrase {
 
-    /// Brouillon d'action tiré d'une phrase.
-    struct Draft: Equatable, Sendable {
-        var title: String
-        var sourceRef: SourceRef
-        /// Nom du locuteur quand le cluster est résolu vers un participant.
-        /// `nil` sinon : la spec dit « owner = locuteur du segment si connu,
-        /// sinon `null` » — on ne devine pas un responsable.
-        var ownerName: String?
-    }
-
     /// Longueur maximale d'un titre. Au-delà, coupe sur une frontière de mot et
     /// ajoute `…` : la carte du rail affiche deux lignes de 11,5 px, et un
     /// titre de trois cents caractères y devient illisible.
@@ -62,25 +52,34 @@ enum ActionFromPhrase {
         return "« \(texte) » — \(timecode)"
     }
 
-    /// Brouillon depuis les valeurs brutes d'un segment — la forme testable,
-    /// sans SwiftData.
+    /// Brouillon depuis les valeurs brutes d'une phrase — la forme testable,
+    /// sans avoir à monter une vue.
+    ///
+    /// Rend l'`ActionDraft` du lot 3 : le contrat vers le composeur du rail est
+    /// unique, et `suggestedOwner` porte un `Collaborator` plutôt qu'un nom —
+    /// le composeur doit pouvoir l'affecter, pas seulement l'afficher.
+    @MainActor
     static func draft(phrase: String,
-                      segmentID: UUID,
+                      kind: SourceRef.Kind = .transcript,
+                      stableID: UUID,
                       t: Double,
-                      speakerName: String?) -> Draft {
-        Draft(title: title(from: phrase),
-              sourceRef: SourceRef(kind: .transcript, stableID: segmentID, t: t),
-              ownerName: speakerName)
+                      speaker: Collaborator? = nil) -> ActionDraft {
+        ActionDraft(title: title(from: phrase),
+                    sourceRef: SourceRef(kind: kind, stableID: stableID, t: t),
+                    suggestedOwner: speaker)
     }
 
     // MARK: - Fabriques
 
+    /// Brouillon depuis un segment de transcription : la source est le segment,
+    /// le responsable suggéré son locuteur (règle 1 d'`OwnerSuggestion`).
     @MainActor
-    static func draft(from segment: TranscriptSegment) -> Draft {
+    static func draft(from segment: TranscriptSegment) -> ActionDraft {
         draft(phrase: segment.text,
-              segmentID: segment.ensuredStableID,
+              kind: .transcript,
+              stableID: segment.ensuredStableID,
               t: segment.startSeconds,
-              speakerName: segment.speaker?.name)
+              speaker: segment.speaker)
     }
 
     /// Crée l'action et la rattache à la réunion. **Un seul appel** : c'est le
