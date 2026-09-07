@@ -196,6 +196,15 @@ final class Commitment: Confidential {
 
     var promisedAt: Date = Date()
 
+    /// Date du solde — celle où l'engagement est passé `kept` ou `missed`
+    /// (lot 10, colonne à valeur par défaut).
+    ///
+    /// Sans elle, « TENUS DEPUIS LE DERNIER 1:1 » (capture 2a) ne se calcule
+    /// pas : l'état seul ne dit pas *quand*. `nil` sur un engagement encore
+    /// ouvert, et sur les lignes semées avant l'ajout de la colonne —
+    /// `CommitmentLedger.settlementDate(of:)` retombe alors sur `promisedAt`.
+    var settledAt: Date?
+
     /// Réunion où l'engagement a été pris. Relation `.nullify` sans inverse sur
     /// `Meeting` : c'est une trace de provenance, pas un contenu que la
     /// suppression d'une réunion doit emporter.
