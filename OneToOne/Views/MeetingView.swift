@@ -213,23 +213,21 @@ struct MeetingView: View {
                 meeting: meeting,
                 recorder: recorder,
                 stt: stt,
-                player: player,
                 captureService: captureService,
+                playhead: playhead,
                 isRecordingThisMeeting: isRecordingThisMeeting,
                 isGeneratingReport: isGeneratingReport,
-                reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
                 reportStatus: reportActivity.label,
                 reportWaitWarning: reportActivity.warning(),
-                capturedSlidesCount: currentSlides.count,
                 actions: makeMenuActions(),
+                capturedSlidesCount: currentSlides.count,
                 onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); screen.showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
                 onShowSlides: { showSlidesList = true },
-                onBack: isPushed ? { dismiss() } : nil,
-                screen: screen,
-                isSuggestingTags: isSuggestingTags,
-                onRequestTagSuggestions: { Task { await suggestTags() } }
+                onOpenProject: { showDetailsSheet = true },
+                onCreateMeeting: createMeeting,
+                onBack: isPushed ? { dismiss() } : nil
             )
             .confirmationDialog("Supprimer la réunion ?", isPresented: $showDeleteConfirm) {
                 Button("Supprimer", role: .destructive) { deleteMeeting() }
@@ -351,7 +349,10 @@ struct MeetingView: View {
                 projects: projects,
                 calendarImportError: $calendarImportError,
                 saveContext: saveContext,
-                onClose: { showDetailsSheet = false }
+                onClose: { showDetailsSheet = false },
+                screen: screen,
+                isSuggestingTags: isSuggestingTags,
+                onRequestTagSuggestions: { Task { await suggestTags() } }
             )
         }
         .sheet(isPresented: $showParticipantsSheet) {
@@ -607,6 +608,24 @@ struct MeetingView: View {
                 activeSection = visible[0]
             }
         }
+    }
+
+    /// Crée une réunion et l'ouvre dans sa propre fenêtre.
+    ///
+    /// C'est le `+` de l'ancienne deuxième ligne de la barre du haut, devenu
+    /// une entrée du menu de type (spec §2.1). Le projet est repris de la
+    /// réunion courante : on enchaîne presque toujours sur le même dossier.
+    /// L'ouverture passe par `QuickLaunchRouter`, comme tous les autres
+    /// chemins qui présentent une réunion hors de la liste.
+    private func createMeeting() {
+        let nouvelle = Meeting(title: "", date: Date(), notes: "")
+        nouvelle.project = meeting.project
+        context.insert(nouvelle)
+        saveContext()
+        QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
+            meetingID: nouvelle.ensuredStableID,
+            autoStartRecording: false
+        )
     }
 
     private func togglePlay(url: URL) {

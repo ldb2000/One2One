@@ -1,378 +1,521 @@
 import SwiftUI
 import SwiftData
 
-/// Barre supérieure (« chrome ») de l'écran réunion : fil d'Ariane, pill
-/// d'enregistrement/lecture, capture, sélecteur de template, génération de
-/// rapport et menu « … ». Vue purement présentationnelle : toute la logique
-/// métier est déléguée au parent via les callbacks `on…`.
+/// Barre du haut de l'écran réunion, **sur une seule ligne** (spec §2.1,
+/// capture `1a-cockpit.png`).
+///
+/// Hauteur 38 px, fond `bg/app` (teinté `accent/oneonone bg` pour les deux
+/// types 1:1), bordure basse `border/card`, padding 9 × 14. De gauche à droite :
+/// bouton panneau, fil d'Ariane (le segment projet est bordé `accent/action` et
+/// ouvre la fiche projet), titre `flex:1` en ellipsis éditable au double-clic,
+/// pilule audio `ink/1` de rayon 16, menu de type, menu de template, bouton
+/// `Rapport ✓ (m:ss)` en `accent/report`, et `⋯`.
+///
+/// La deuxième ligne d'avant — le `MeetingTagEditor` — a déménagé dans la
+/// feuille « Détails de la réunion » : la spec impose une ligne, et les thèmes
+/// avaient besoin de toute la largeur pour passer à la ligne.
+///
+/// Vue purement présentationnelle : toute la logique métier est déléguée au
+/// parent par les callbacks `on…` et par `MeetingMenuActions`.
 struct MeetingTopChromeBar: View {
+
+    // MARK: - Géométrie (spec §2.1)
+
+    /// Hauteur de la barre. Une seule ligne, jamais deux.
+    static let height: CGFloat = 38
+    static let paddingVertical: CGFloat = 9
+    static let paddingHorizontal: CGFloat = 14
+    /// Largeur du bouton `⋯`, fixée par la spec §2.1.
+    static let moreButtonWidth: CGFloat = 28
+
+    /// Fond de la barre. Les deux types 1:1 sont teintés
+    /// `accent/oneonone bg` (`#f4f1f6`) : c'est le signal permanent que la
+    /// séance est privée (spec §1.2, §3.2).
+    static func tint(for kind: MeetingKind) -> Color {
+        switch kind {
+        case .oneToOne, .manager: return One2OneToken.oneOnOneBg
+        case .global, .project, .work, .note, .workshop: return One2OneToken.bgApp
+        }
+    }
+
+    /// Lecture d'un timecode tapé à la main dans la pilule audio (spec §2.1 :
+    /// « Clic sur le temps = saisie directe d'un timecode »).
+    ///
+    /// Refuse plutôt que de deviner : une saisie invalide rend `nil` et laisse
+    /// la tête de lecture où elle est. Deviner déplacerait la lecture au
+    /// hasard, ce qui est pire que ne rien faire.
+    enum TimecodeInput {
+        static func parse(_ texte: String) -> Double? {
+            let propre = texte.trimmingCharacters(in: .whitespaces)
+            guard !propre.isEmpty else { return nil }
+            let parts = propre.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count <= 3 else { return nil }
+
+            var valeurs: [Int] = []
+            for part in parts {
+                guard !part.isEmpty,
+                      part.allSatisfy(\.isNumber),
+                      let n = Int(part) else { return nil }
+                valeurs.append(n)
+            }
+            switch valeurs.count {
+            case 1:
+                // Un nombre seul : des secondes.
+                return Double(valeurs[0])
+            case 2:
+                guard valeurs[1] < 60 else { return nil }
+                return Double(valeurs[0] * 60 + valeurs[1])
+            case 3:
+                guard valeurs[1] < 60, valeurs[2] < 60 else { return nil }
+                return Double(valeurs[0] * 3600 + valeurs[1] * 60 + valeurs[2])
+            default:
+                return nil
+            }
+        }
+    }
+
+    // MARK: - Entrées
+
     @Bindable var meeting: Meeting
     @Environment(\.modelContext) private var modelContext
     @Query private var allTemplates: [ReportTemplate]
     @ObservedObject var recorder: AudioRecorderService
     @ObservedObject var stt: TranscriptionService
-    @ObservedObject var player: AudioPlayerService
     @ObservedObject var captureService: ScreenCaptureService
+    /// Tête de lecture de la réunion : la pilule affiche `playhead.formatted`
+    /// et non le temps du lecteur, pour que la barre, la frise et les notes
+    /// parlent du même `t` (spec §1.1).
+    let playhead: MeetingPlayhead
     /// Vrai si l'enregistrement en cours appartient à la réunion affichée.
     /// ⚠️ Pour l'affichage (pastille rouge, chrono), ne pas utiliser
     /// `recorder.isRecording` : le service est un singleton et la pastille
     /// apparaîtrait dans toutes les fenêtres réunion ouvertes.
     let isRecordingThisMeeting: Bool
     let isGeneratingReport: Bool
-    let reportProgressChars: Int
     let reportElapsedSeconds: Int
     let reportStatus: String
     let reportWaitWarning: String?
-    let capturedSlidesCount: Int
 
     /// Source d'actions partagée avec les menus natifs (cf. MeetingMenuActions).
     let actions: MeetingMenuActions
 
-    // Closures propres à la barre (absentes des menus natifs) :
+    /// Nombre de captures déjà prises pour cette réunion.
+    let capturedSlidesCount: Int
+
     /// Bascule lecture/pause de l'audio enregistré.
     let onTogglePlay: () -> Void
     /// Ouvre la configuration de la source de capture d'écran.
     let onShowCaptureSetup: () -> Void
-    /// Ouvre la galerie des slides capturées.
+    /// Ouvre la galerie des captures.
     let onShowSlides: () -> Void
+    /// Ouvre la fiche du projet. Au lot 9 elle s'ouvrira en panneau latéral de
+    /// 430 px ; d'ici là, l'appelant pousse `ProjectDetailView`.
+    let onOpenProject: () -> Void
+    /// Crée une réunion — le `+` de l'ancienne deuxième ligne, devenu une
+    /// entrée du menu de type (spec §2.1).
+    let onCreateMeeting: () -> Void
 
     /// Retour vers l'écran d'où l'on vient, quand la réunion a été **poussée**
     /// dans une pile (depuis la fiche d'un collaborateur). `nil` quand elle est
     /// ouverte seule : il n'y a alors rien derrière, et un chevron mentirait.
     var onBack: (() -> Void)?
 
-    /// L'état d'écran de la réunion. Porte les thèmes proposés par l'IA, en
-    /// attente d'acceptation (éphémères) : ils traversaient cette vue en
-    /// `@Binding` sans qu'elle les lise, pour atteindre `MeetingTagEditor`.
-    let screen: MeetingScreenModel
-    /// Une suggestion de thèmes est en cours.
-    let isSuggestingTags: Bool
-    /// Relance manuellement la suggestion de thèmes.
-    let onRequestTagSuggestions: () -> Void
-
     /// Affiche le popover de choix du type de rapport avant génération.
     @State private var showReportTypePicker = false
+    /// Saisie de timecode en cours dans la pilule audio ; `nil` = affichage.
+    @State private var timecodeDraft: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                breadcrumb
-                Spacer()
-                // Une note n'a ni audio, ni transcription, ni rapport : ses
-                // onglets Transcription et Rapport sont masqués par
-                // `MeetingView.visibleSections(for:)`. Laisser ces contrôles
-                // produirait un enregistrement et un rapport invisibles et
-                // ingérables. Même règle côté actions partagées, par deux
-                // mécanismes distincts et **visiblement différents** : le menu
-                // natif « Réunion » garde ses huit items d'enregistrement et
-                // de rapport, seulement grisés
-                // (`MeetingMenuActions.disabledForNote`) ; `moreMenu`, lui,
-                // retire entièrement ses deux entrées Audio et Import WAV sur
-                // `actions.isNote` — les six autres, il ne les a jamais
-                // portées. Sur une note, l'un montre huit lignes estompées et
-                // l'autre aucune. Seule la règle est commune : rien de ce qui
-                // touche à l'audio ou au rapport n'est actionnable.
-                if meeting.kind != .note {
-                    recorderPill
-                    captureButton
-                    templatePickerButton
-                    reportButton
-                }
-                moreMenu
+        HStack(spacing: 10) {
+            if let onBack {
+                panelButton(onBack)
             }
-            // Rangée des thèmes, sous le fil d'Ariane : elle a besoin de toute
-            // la largeur pour passer à la ligne (FlowLayout).
-            MeetingTagEditor(
-                meeting: meeting,
-                suggestions: Binding(get: { screen.suggestedTagNames },
-                                     set: { screen.suggestedTagNames = $0 }),
-                isSuggesting: isSuggestingTags,
-                onRequestSuggestions: onRequestTagSuggestions
-            )
+            breadcrumb
+            titleField
+            Spacer(minLength: 8)
+            // Une note n'a ni audio, ni transcription, ni rapport : ses
+            // contrôles disparaissent entièrement (même règle que
+            // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
+            if meeting.kind != .note {
+                audioPill
+                captureButton
+                typeMenu
+                templatePickerButton
+                reportButton
+            } else {
+                typeMenu
+            }
+            moreMenu
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(MeetingTheme.canvasCream)
+        .padding(.horizontal, Self.paddingHorizontal)
+        .frame(height: Self.height)
+        .background(Self.tint(for: meeting.kind))
         .overlay(alignment: .bottom) {
-            Rectangle().fill(MeetingTheme.hairline).frame(height: 0.5)
+            Rectangle().fill(One2OneToken.cardBorder).frame(height: 1)
         }
     }
 
-    // MARK: - Breadcrumb
+    // MARK: - Fil d'Ariane
+
+    /// Le retour vit dans le fil d'Ariane : c'est le seul endroit de l'écran
+    /// qui dit déjà « où je suis ». `⌘[` fait la même chose, comme partout sur
+    /// macOS.
+    private func panelButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(One2OneToken.ink3)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("[", modifiers: .command)
+        .help("Retour (⌘[)")
+    }
 
     private var breadcrumb: some View {
-        HStack(spacing: 8) {
-            if let onBack {
-                // Le retour vit dans le fil d'Ariane : c'est le seul endroit
-                // de l'écran qui dit déjà « où je suis ». `⌘[` fait la même
-                // chose, comme partout sur macOS.
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5).padding(.vertical, 3)
+        HStack(spacing: 6) {
+            Text("One2One")
+                .font(.plexSans(11))
+                .foregroundStyle(One2OneToken.ink4)
+            chevron
+            if let project = meeting.project {
+                // Segment projet bordé `accent/action` : la seule partie
+                // cliquable du fil, et la spec veut qu'on le voie.
+                Button(action: onOpenProject) {
+                    Text(project.name)
+                        .font(.plexSans(11, .medium))
+                        .foregroundStyle(One2OneToken.actionInk)
+                        .lineLimit(1)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(One2OneToken.actionBg2)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(One2OneToken.action.opacity(0.5), lineWidth: 1)
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("[", modifiers: .command)
-                .help("Retour (⌘[)")
-            }
-            Text("One2One").font(.caption).foregroundColor(.secondary)
-            chevron
-            if let project = meeting.project {
-                Text(project.name).font(.caption).foregroundColor(.secondary)
+                .help("Ouvrir la fiche du projet")
                 chevron
             }
-            // Titre de la réunion, éditable en ligne (déplacé ici depuis l'en-tête éditorial).
-            EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: 460, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-            // Badge de type de réunion — éditable (source unique du type, remplace le
-            // picker du bloc Détails).
-            Menu {
-                Picker("Type de réunion", selection: Binding(
-                    get: { meeting.kind },
-                    set: { meeting.kind = $0; try? modelContext.save() }
-                )) {
-                    ForEach(MeetingKind.allCases) { k in
-                        Label(k.label, systemImage: k.sfSymbol).tag(k)
-                    }
-                }
-            } label: {
-                Label(meeting.kind.label, systemImage: meeting.kind.sfSymbol)
-                    .font(.caption)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
-                    .foregroundColor(.primary)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
             audioStatusBadge
         }
-        .lineLimit(1)
-        .truncationMode(.middle)
+        .fixedSize()
     }
 
-    /// Badge d'état de disponibilité de l'audio dans le fil d'Ariane.
+    private var chevron: some View {
+        Text("›")
+            .font(.plexSans(11))
+            .foregroundStyle(One2OneToken.inkMuted)
+    }
+
+    /// Titre de la réunion : `flex:1; min-width:0` de la spec, donc
+    /// `maxWidth: .infinity` + une ligne. Éditable en place.
+    private var titleField: some View {
+        EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
+            .font(.plexSans(13, .semibold))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+    }
+
+    /// Badge d'état de disponibilité de l'audio.
     /// - `.original` : audio intact → aucun badge affiché.
-    /// - `.compressed` : audio recompressé (AAC) → badge informatif (qualité STT dégradée).
-    /// - `.deleted` : audio purgé par la politique de rétention → badge « archivé ».
+    /// - `.compressed` : audio recompressé (AAC) → badge informatif.
+    /// - `.deleted` : audio purgé par la politique de rétention.
     @ViewBuilder
     private var audioStatusBadge: some View {
         switch meeting.audioAvailability {
         case .original:
             EmptyView()
         case .compressed:
-            Label("Audio compressé", systemImage: "archivebox")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            Pill("Audio compressé", ton: .neutre)
                 .help("Audio compressé (AAC 32 kbps mono) — qualité STT dégradée si re-transcription")
         case .deleted:
-            Label("Audio archivé", systemImage: "trash")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            Pill("Audio archivé", ton: .neutre)
                 .help("Audio supprimé après 30 jours (politique de rétention). Rapport et transcription conservés.")
         }
     }
 
-    private var chevron: some View {
-        Image(systemName: "chevron.right").font(.caption2).foregroundColor(.secondary)
-    }
+    // MARK: - Pilule audio
 
-    // MARK: - Recorder pill
-
+    /// La pilule audio de la spec §2.1 : fond `ink/1`, rayon 16,
+    /// `▶ mm:ss / mm:ss` puis marqueur (`⌘M`) et édition (`✂`).
+    ///
+    /// Trois états, un seul contenant : enregistrement en cours (chrono + pause
+    /// + stop), audio disponible (lecture + position + marqueur + ciseaux),
+    /// rien encore (bouton d'enregistrement).
     @ViewBuilder
-    private var recorderPill: some View {
+    private var audioPill: some View {
         if isRecordingThisMeeting {
-            recordingPill
+            pillShell { recordingContent }
         } else if actions.hasWav {
-            playbackPill
+            pillShell { playbackContent }
         } else {
             idlePill
         }
+    }
+
+    private func pillShell<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 7) { content() }
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: One2OneToken.radiusAudio)
+                    .fill(One2OneToken.ink1)
+            )
+    }
+
+    @ViewBuilder
+    private var recordingContent: some View {
+        Circle().fill(One2OneToken.report).frame(width: 7, height: 7)
+        Text(MeetingPlayhead.mmss(recorder.elapsedSeconds))
+            .font(.plexMono(10))
+            .foregroundStyle(One2OneToken.onFilledButton)
+        pillIcon(recorder.isPaused ? "play.fill" : "pause.fill",
+                 aide: recorder.isPaused ? "Reprendre" : "Mettre en pause",
+                 action: actions.togglePause)
+        pillIcon("stop.fill", aide: "Arrêter et transcrire", action: actions.stopRecording)
+        markerButton
+    }
+
+    @ViewBuilder
+    private var playbackContent: some View {
+        pillIcon(playhead.isPlaying ? "pause.fill" : "play.fill",
+                 aide: meeting.hasPlayableAudio ? "Lecture" : "Audio supprimé après politique de rétention",
+                 action: onTogglePlay)
+            .disabled(!meeting.hasPlayableAudio)
+            .opacity(meeting.hasPlayableAudio ? 1 : 0.4)
+        timecodeView
+        markerButton
+        pillIcon("scissors", aide: "Éditer l'audio — couper le début/la fin ou diviser",
+                 action: actions.editAudio)
+            .disabled(!meeting.hasPlayableAudio || stt.isTranscribing || isGeneratingReport)
+            .opacity(meeting.hasPlayableAudio ? 1 : 0.4)
+    }
+
+    /// Position courante et durée. Un clic ouvre la saisie directe : c'est le
+    /// seul chemin par lequel un timecode tapé entre dans le modèle.
+    @ViewBuilder
+    private var timecodeView: some View {
+        if let brouillon = timecodeDraft {
+            TextField("mm:ss", text: Binding(
+                get: { brouillon },
+                set: { timecodeDraft = $0 }
+            ))
+            .textFieldStyle(.plain)
+            .font(.plexMono(10))
+            .foregroundStyle(One2OneToken.onFilledButton)
+            .frame(width: 52)
+            .onSubmit {
+                if let t = TimecodeInput.parse(brouillon) { playhead.seek(to: t) }
+                timecodeDraft = nil
+            }
+            .onExitCommand { timecodeDraft = nil }
+        } else {
+            Button {
+                timecodeDraft = playhead.formatted
+            } label: {
+                Text("\(playhead.formatted) / \(MeetingPlayhead.mmss(displayDuration))")
+                    .font(.plexMono(10))
+                    .foregroundStyle(One2OneToken.onFilledButton)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Cliquer pour saisir un timecode")
+        }
+    }
+
+    /// Durée affichée : celle de la tête de lecture, sinon celle enregistrée
+    /// sur la réunion (un audio non encore chargé a une durée de 0).
+    private var displayDuration: Double {
+        max(playhead.duration, Double(meeting.durationSeconds))
+    }
+
+    private var markerButton: some View {
+        pillIcon("mappin.and.ellipse", aide: "Poser un marqueur (⌘M)") {
+            playhead.addMarker(at: playhead.t, kind: .note)
+        }
+    }
+
+    private func pillIcon(_ symbole: String,
+                          aide: String,
+                          action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbole)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(One2OneToken.onFilledButton)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(aide)
     }
 
     private var idlePill: some View {
         // `recorder.isRecording` (global) ici et non `isRecordingThisMeeting` :
         // une autre réunion enregistre déjà, le service ne peut pas en démarrer
         // un second — le bouton est grisé plutôt qu'échouer au clic.
-        let otherMeetingIsRecording = recorder.isRecording && !isRecordingThisMeeting
+        let autreEnCours = recorder.isRecording && !isRecordingThisMeeting
         return Button(action: actions.startRecording) {
-            Label("Enregistrer", systemImage: "record.circle")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(Color.red))
+            HStack(spacing: 5) {
+                Circle().fill(One2OneToken.onFilledButton).frame(width: 6, height: 6)
+                Text("Enregistrer").font(.plexSans(10.5, .medium))
+            }
+            .foregroundStyle(One2OneToken.onFilledButton)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: One2OneToken.radiusAudio)
+                    .fill(One2OneToken.report)
+            )
         }
         .buttonStyle(.plain)
-        .disabled(stt.isTranscribing || isGeneratingReport || otherMeetingIsRecording)
-        .opacity(otherMeetingIsRecording ? 0.4 : 1.0)
-        .help(otherMeetingIsRecording
+        .disabled(stt.isTranscribing || isGeneratingReport || autreEnCours)
+        .opacity(autreEnCours ? 0.4 : 1)
+        .help(autreEnCours
               ? "Un enregistrement est déjà en cours pour une autre réunion"
               : "Démarrer l'enregistrement")
     }
 
-    private var recordingPill: some View {
-        HStack(spacing: 8) {
-            Circle().fill(Color.red).frame(width: 8, height: 8)
-            Text(formatDuration(recorder.elapsedSeconds))
-                .font(.caption.monospacedDigit().bold())
-                .foregroundColor(.white)
-            Button(action: actions.togglePause) {
-                Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
-                    .foregroundColor(.white)
-                    .font(.caption2)
-            }
-            .buttonStyle(.plain)
-            Button(action: actions.stopRecording) {
-                Image(systemName: "stop.fill")
-                    .foregroundColor(.white)
-                    .font(.caption2)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Capsule().fill(MeetingTheme.badgeBlack))
-    }
+    // MARK: - Capture
 
-    private var playbackPill: some View {
-        HStack(spacing: 8) {
-            Button(action: onTogglePlay) {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .foregroundColor(.white).font(.caption2)
-            }
-            .buttonStyle(.plain)
-            .disabled(!meeting.hasPlayableAudio)
-            .opacity(meeting.hasPlayableAudio ? 1.0 : 0.4)
-            .help(meeting.hasPlayableAudio ? "Lecture" : "Audio supprimé après politique de rétention")
-            Text("\(formatDuration(player.currentTime)) / \(formatDuration(max(player.duration, TimeInterval(meeting.durationSeconds))))")
-                .font(.caption.monospacedDigit())
-                .foregroundColor(.white)
-            Button(action: actions.appendRecording) {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundColor(.white).font(.caption2)
-            }
-            .buttonStyle(.plain)
-            .help("Reprendre l'enregistrement (concaténation)")
-            .disabled(stt.isTranscribing || isGeneratingReport)
-            Button(action: actions.retranscribe) {
-                Image(systemName: "arrow.clockwise")
-                    .foregroundColor(.white).font(.caption2)
-            }
-            .buttonStyle(.plain)
-            .disabled(stt.isTranscribing)
-            // Bouton visible pour éditer l'audio (couper début/fin, diviser).
-            // Restauré ici : l'action était enfouie dans ⋯ → Audio et introuvable.
-            Button(action: actions.editAudio) {
-                Image(systemName: "scissors")
-                    .foregroundColor(.white).font(.caption2)
-            }
-            .buttonStyle(.plain)
-            .help("Éditer l'audio — couper le début/la fin ou diviser")
-            .disabled(!meeting.hasPlayableAudio || stt.isTranscribing || isGeneratingReport)
-            .opacity(meeting.hasPlayableAudio ? 1.0 : 0.4)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Capsule().fill(MeetingTheme.badgeBlack))
-    }
-
-    // MARK: - Capture button
-
+    /// État de capture dans la barre du haut. La spec §5.2 (lot 7) y place une
+    /// pilule `● Capture · Teams n ⌄` en `accent/ok` et un bouton neutre
+    /// `Capture` sinon ; d'ici là, la version courte du même emplacement — sans
+    /// elle, la configuration de capture deviendrait injoignable.
     @ViewBuilder
     private var captureButton: some View {
         if captureService.hasOpenSession {
-            HStack(spacing: 4) {
-                Button(action: onShowSlides) {
-                    HStack(spacing: 4) {
-                        Circle().fill(captureStatusColor).frame(width: 6, height: 6)
-                        Text(captureStatusText)
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Capsule().fill(captureStatusColor.opacity(0.15)))
-                    .foregroundColor(captureStatusColor)
-                }
-                .buttonStyle(.plain)
-                .help(captureStatusHelp)
-
-                Menu {
-                    Button { onShowCaptureSetup() } label: {
-                        Label("Configurer…", systemImage: "rectangle.dashed.badge.record")
-                    }
-                    if captureService.isCapturing {
-                        Button { captureService.stop() } label: {
-                            Label("Arrêter la capture", systemImage: "stop.circle")
-                        }
-                    } else {
-                        Button { captureService.resume() } label: {
-                            Label("Reprendre la capture", systemImage: "play.circle")
-                        }
-                        Button(role: .destructive) { Task { await captureService.finish() } } label: {
-                            Label("Terminer le lot", systemImage: "checkmark.circle")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.caption)
+            Button(action: onShowSlides) {
+                HStack(spacing: 5) {
+                    Circle().fill(captureStatusColor).frame(width: 6, height: 6)
+                    Text(captureStatusText)
+                        .font(.plexSans(10.5, .medium))
                         .foregroundStyle(captureStatusColor)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Options de capture")
+                .padding(.horizontal, 9)
+                .frame(height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusPill)
+                        .fill(One2OneToken.okBg)
+                )
+                .contentShape(Rectangle())
             }
-        } else if capturedSlidesCount > 0 {
-            Button(action: onShowSlides) {
-                Label("Capture", systemImage: "camera.viewfinder")
-                    .font(.caption)
-            }
-            .buttonStyle(.bordered)
-            .overlay(alignment: .topTrailing) {
-                Text("\(capturedSlidesCount)")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.red))
-                    .offset(x: 4, y: -4)
+            .buttonStyle(.plain)
+            .help(captureStatusHelp)
+            .contextMenu {
+                Button("Configurer…") { onShowCaptureSetup() }
+                if captureService.isCapturing {
+                    Button("Arrêter la capture") { captureService.stop() }
+                } else {
+                    Button("Reprendre la capture") { captureService.resume() }
+                    Button("Terminer le lot") { Task { await captureService.finish() } }
+                }
             }
         } else {
-            Button(action: onShowCaptureSetup) {
-                Label("Capture", systemImage: "camera.viewfinder").font(.caption)
+            Button(action: capturedSlidesCount > 0 ? onShowSlides : onShowCaptureSetup) {
+                Text(capturedSlidesCount > 0 ? "Capture \(capturedSlidesCount)" : "Capture")
+                    .font(.plexSans(10.5, .medium))
+                    .foregroundStyle(One2OneToken.ink2)
+                    .padding(.horizontal, 9)
+                    .frame(height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                            .fill(One2OneToken.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                            .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .help(capturedSlidesCount > 0 ? "Voir les captures" : "Configurer la capture d'écran")
         }
     }
 
-    /// Bleu en cours, orange en pause, gris arrêtée : l'état réel, pas déduit.
+    /// Vert en cours, orange en pause, encre au repos : l'état réel, pas déduit.
     private var captureStatusColor: Color {
         switch captureService.state {
-        case .running: return .blue
-        case .paused: return .orange
-        case .stopped, .idle: return .gray
+        case .running: return One2OneToken.okDeep
+        case .paused: return One2OneToken.warnInk
+        case .stopped, .idle: return One2OneToken.ink4
         }
     }
 
     private var captureStatusText: String {
         let count = captureService.capturedSlidesCount
         switch captureService.state {
-        case .running: return "\(count) slides"
+        case .running: return "Capture · \(count)"
         case .paused: return "En pause · \(count)"
         case .stopped: return "Arrêtée · \(count)"
-        case .idle: return ""
+        case .idle: return "Capture"
         }
     }
 
     private var captureStatusHelp: String {
         if case .paused(let reason) = captureService.state { return reason }
-        return "Voir les slides capturées"
+        return "Voir les captures — clic droit pour les options"
     }
 
-    // MARK: - Report button
+    // MARK: - Menu de type
+
+    /// Les sept types de la spec §2.1, plus la création de réunion : le `+` de
+    /// l'ancienne deuxième ligne est devenu une entrée de ce menu.
+    private var typeMenu: some View {
+        Menu {
+            Picker("Type de réunion", selection: Binding(
+                get: { meeting.kind },
+                set: { meeting.kind = $0; try? modelContext.save() }
+            )) {
+                ForEach(MeetingKind.allCases) { k in
+                    Label(k.label, systemImage: k.sfSymbol).tag(k)
+                }
+            }
+            Divider()
+            Button {
+                onCreateMeeting()
+            } label: {
+                Label("Nouvelle réunion…", systemImage: "plus")
+            }
+        } label: {
+            chromeMenuLabel(meeting.kind.label)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Type de réunion — recharge la disposition de l'espace Réunion, jamais le contenu")
+    }
+
+    /// Libellé commun des deux menus de la barre : `<texte> ⌄` dans un cadre
+    /// `border/strong`, comme les boutons `Projet ⌄` / `Global ⌄` de la capture.
+    private func chromeMenuLabel(_ texte: String) -> some View {
+        HStack(spacing: 4) {
+            Text(texte)
+                .font(.plexSans(10.5, .medium))
+                .foregroundStyle(One2OneToken.ink2)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 7, weight: .semibold))
+                .foregroundStyle(One2OneToken.ink4)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 22)
+        .background(
+            RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                .fill(One2OneToken.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Bouton rapport
 
     @ViewBuilder
     private var reportButton: some View {
@@ -382,38 +525,29 @@ struct MeetingTopChromeBar: View {
         let hasSource = !needsTranscription || meeting.hasPlayableAudio
         let disabled = !hasSource || recorder.isRecording || stt.isTranscribing || isGeneratingReport
         Button(action: { showReportTypePicker = true }) {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 if isGeneratingReport {
-                    ProgressView().controlSize(.small).tint(.white)
+                    ProgressView().controlSize(.small).tint(One2OneToken.onFilledButton)
                     Text("\(reportStatus) · \(formatElapsed(reportElapsedSeconds))")
-                        .font(.caption.monospacedDigit())
+                        .font(.plexMono(10))
                         .lineLimit(1)
                     if reportWaitWarning != nil {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.yellow)
+                            .font(.system(size: 9))
                     }
                 } else if stt.isTranscribing {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text("Transcription…").font(.caption)
+                    ProgressView().controlSize(.small).tint(One2OneToken.onFilledButton)
+                    Text("Transcription…").font(.plexSans(10.5, .medium))
                 } else {
-                    Image(systemName: "wand.and.stars")
-                    if needsTranscription {
-                        Text("Transcrire + Rapport")
-                    } else if meeting.summary.isEmpty {
-                        Text("Rapport")
-                    } else if meeting.reportGenerationDurationSeconds > 0 {
-                        Text("Rapport ✓ (\(formatElapsed(Int(meeting.reportGenerationDurationSeconds.rounded()))))")
-                    } else {
-                        Text("Rapport ✓")
-                    }
+                    Text(reportLabel).font(.plexSans(10.5, .semibold))
                 }
             }
-            .font(.caption.weight(.semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 12).padding(.vertical, 6)
+            .foregroundStyle(One2OneToken.onFilledButton)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(disabled ? Color.secondary.opacity(0.4) : MeetingTheme.accentOrange)
+                RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                    .fill(disabled ? One2OneToken.report.opacity(0.45) : One2OneToken.report)
             )
         }
         .buttonStyle(.plain)
@@ -424,14 +558,24 @@ struct MeetingTopChromeBar: View {
         }
     }
 
+    /// `Rapport ✓ (m:ss)` : la coche dit « généré », la durée est le temps de
+    /// génération (spec §2.1).
+    private var reportLabel: String {
+        if meeting.rawTranscript.isEmpty { return "Transcrire + Rapport" }
+        if meeting.summary.isEmpty { return "Rapport" }
+        if meeting.reportGenerationDurationSeconds > 0 {
+            return "Rapport ✓ \(formatElapsed(Int(meeting.reportGenerationDurationSeconds.rounded())))"
+        }
+        return "Rapport ✓"
+    }
+
     /// Popover de choix du type de rapport, affiché au clic sur « Rapport ».
     /// Propose « Auto » puis les templates compatibles ; la sélection fixe
     /// `meeting.reportTemplate` puis lance la génération.
     private var reportTypePicker: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Type de rapport")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
+                .sectionLabel()
                 .padding(.horizontal, 12)
                 .padding(.top, 10).padding(.bottom, 6)
             reportTypeRow(name: "Auto (selon type)", template: nil)
@@ -457,12 +601,14 @@ struct MeetingTopChromeBar: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: template == nil ? "wand.and.stars" : "doc.text")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(name).lineLimit(1)
+                    .font(.system(size: 10))
+                    .foregroundStyle(One2OneToken.ink4)
+                Text(name).font(.plexSans(12)).lineLimit(1)
                 Spacer(minLength: 12)
                 if isSelected {
-                    Image(systemName: "checkmark").font(.caption2).foregroundStyle(Color.accentColor)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(One2OneToken.action)
                 }
             }
             .contentShape(Rectangle())
@@ -472,12 +618,10 @@ struct MeetingTopChromeBar: View {
     }
 
     private func formatElapsed(_ seconds: Int) -> String {
-        let m = seconds / 60
-        let s = seconds % 60
-        return String(format: "%d:%02d", m, s)
+        String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
-    // MARK: - Template picker
+    // MARK: - Menu de template
 
     private var templatePickerButton: some View {
         Menu {
@@ -493,18 +637,10 @@ struct MeetingTopChromeBar: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "doc.text")
-                Text(meeting.reportTemplate?.name ?? "Auto")
-                    .lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption2)
-            }
-            .font(.caption)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            chromeMenuLabel(meeting.reportTemplate?.name ?? "Auto")
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Template de rapport — modifie la structure du compte-rendu généré")
     }
@@ -531,8 +667,12 @@ struct MeetingTopChromeBar: View {
             }
     }
 
-    // MARK: - More menu
+    // MARK: - Menu ⋯
 
+    /// Les cinq entrées de la spec §2.1 : Exporter, Détails, Importer, Audio,
+    /// Supprimer. Une note n'a ni audio ni import WAV — même règle que le menu
+    /// natif, qui les grise plutôt que de les retirer
+    /// (`MeetingMenuActions.disabledForNote`).
     private var moreMenu: some View {
         Menu {
             Menu {
@@ -563,10 +703,6 @@ struct MeetingTopChromeBar: View {
 
             Divider()
             Button(action: actions.toggleCustomPrompt) { Label("Détails de la réunion…", systemImage: "slider.horizontal.3") }
-            // Une note n'a pas d'audio : l'import WAV et tout le sous-menu
-            // Audio disparaissent (cf. `MeetingMenuActions.isEnabled`, qui
-            // grise les mêmes items côté menu natif). L'import Calendrier
-            // reste : dater une note sur un événement a un sens.
             Menu {
                 Button(action: actions.importCalendar) { Label("Importer Calendrier", systemImage: "calendar.badge.plus") }
                 if !actions.isNote {
@@ -587,19 +723,12 @@ struct MeetingTopChromeBar: View {
                 Label("Supprimer la réunion…", systemImage: "trash")
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.body)
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(One2OneToken.ink3)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
-    }
-
-    private func formatDuration(_ s: TimeInterval) -> String {
-        let total = Int(s)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let sec = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, sec) }
-        return String(format: "%02d:%02d", m, sec)
+        .menuIndicator(.hidden)
+        .frame(width: Self.moreButtonWidth)
     }
 }
