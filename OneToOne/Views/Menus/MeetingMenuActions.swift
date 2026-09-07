@@ -14,7 +14,9 @@ enum MeetingMenuItem {
          /// `⌘⇧V` — coller un lien ou une image dans les ressources (spec §1.4).
          pasteResource,
          /// Ouvre le tiroir Ressources (spec §4.1).
-         resources
+         resources,
+         /// `⌘⇧S` — capturer la source configurée (spec §1.4, lot 7).
+         captureNow
 }
 
 /// Source de vérité unique des actions « secondaires » d'une réunion, partagée
@@ -95,6 +97,16 @@ struct MeetingMenuActions {
     /// Déplie le tiroir Ressources.
     var openResources: () -> Void
 
+    // Action — capture (lot 7, spec §1.4 et §5.1)
+    /// `⌘⇧S` : capture la source configurée. À la **première** utilisation, la
+    /// source n'étant pas choisie, ouvre le sélecteur — c'est
+    /// `CaptureState.shortcutOutcome` qui tranche, pas le menu.
+    ///
+    /// Valeur par défaut : `MeetingView` reste le seul appelant à la fournir,
+    /// et les écrans qui construisent cette structure sans capture (aperçus,
+    /// tests des lots 4 et 6) n'ont pas à la déclarer.
+    var captureNow: () -> Void = {}
+
     /// Occupé par une opération longue (enreg./transcription/rapport).
     var busy: Bool { isRecording || isTranscribing || isGeneratingReport }
 
@@ -155,6 +167,11 @@ struct MeetingMenuActions {
         // note comme aux autres. Coller un lien dans une note est même l'usage
         // le plus courant du raccourci.
         case .pasteResource, .resources: return true
+        // La capture ne dépend d'aucun audio : on capture un partage sans
+        // enregistrer, et une note peut parfaitement porter une capture
+        // d'écran. À la première utilisation, `⌘⇧S` ouvre le sélecteur plutôt
+        // que de capturer au hasard (spec §5.1).
+        case .captureNow: return true
         }
     }
 }

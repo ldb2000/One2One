@@ -94,7 +94,6 @@ struct MeetingView: View {
     /// d'où « impossible d'importer »).
     enum FileImportTarget { case wav, documents }
     @State private var fileImportTarget: FileImportTarget?
-    @State private var showCaptureSetup = false
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var wavImportError: String?
@@ -167,10 +166,11 @@ struct MeetingView: View {
                 reportStatus: reportActivity.label,
                 reportWaitWarning: reportActivity.warning(),
                 actions: makeMenuActions(),
-                capturedSlidesCount: currentSlides.count,
+                capturedSlidesCount: captureCoordinator.captureCount,
                 resources: screen.resources,
+                capture: captureCoordinator,
                 onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); screen.showPlayback = true } },
-                onShowCaptureSetup: { showCaptureSetup = true },
+                onShowCaptureSetup: { screen.capture.showPopover = true },
                 // Lot 6, spec §4.1 : le bouton `Capture` ouvre le tiroir
                 // Ressources sur le filtre Captures — une vignette par
                 // capture, avec `Présenter` et, au clic droit, le retrait.
@@ -326,9 +326,6 @@ struct MeetingView: View {
                 addAdhoc: addAdhocParticipant,
                 onResync: { resyncFromCalendarInMeetingView() },
                 onClose: { showParticipantsSheet = false })
-        }
-        .popover(isPresented: $showCaptureSetup) {
-            ScreenCaptureConfigView(service: captureService, meeting: meeting)
         }
         .fileImporter(
             isPresented: Binding(
@@ -519,7 +516,10 @@ struct MeetingView: View {
             // `⌘M` : marqueur au `t` courant de la tête de lecture partagée.
             addPlayheadMarker: { playhead.addMarker(at: playhead.t, kind: .note) },
             pasteResource: { _ = resourceCoordinator.pasteFromClipboard() },
-            openResources: { screen.resources.open() }
+            openResources: { screen.resources.open() },
+            // `⌘⇧S` : le sélecteur la première fois, une capture directe
+            // ensuite (spec §5.1) — la décision est dans `CaptureState`.
+            captureNow: { Task { await captureCoordinator.handleShortcut() } }
         )
     }
 
@@ -666,16 +666,17 @@ struct MeetingView: View {
                 },
                 onShowCaptures: {
                     // Le lot 6 a retiré `showSlidesList` et son popover : les
-                    // captures se lisent dans le tiroir Ressources, filtre
-                    // `Captures`. Sans capture, la configuration reste la
-                    // bonne destination (lot 5).
-                    if currentSlides.isEmpty {
-                        showCaptureSetup = true
+                    // captures se lisent dans la bande du lot 7 et dans le
+                    // tiroir Ressources, filtre `Captures`. Sans capture, le
+                    // sélecteur de source reste la bonne destination.
+                    if captureCoordinator.captureCount == 0 {
+                        screen.capture.showPopover = true
                     } else {
                         screen.resources.open(filter: .captures)
                     }
                 },
-                onImportResources: { fileImportTarget = .documents }
+                onImportResources: { fileImportTarget = .documents },
+                capture: captureCoordinator
             )
             .onAppear {
                 // Le versement des sujets permanents dans `prepNotes` était
@@ -884,6 +885,17 @@ struct MeetingView: View {
     /// `@State` — en sont parties : le programme §2.4 point 1 interdit
     /// d'ajouter quoi que ce soit à ce fichier, et elles ne parlaient que de
     /// ressources.
+    /// Le pilotage de la capture (lot 7) : catalogue de sources, ouverture de
+    /// session, geste manuel. Valeur reconstruite à chaque rendu, comme
+    /// `resourceCoordinator` — elle ne retient rien, l'état vit dans
+    /// `screen.capture` et la session dans `captureService`.
+    private var captureCoordinator: CaptureSessionCoordinator {
+        CaptureSessionCoordinator(meeting: meeting,
+                                  screen: screen,
+                                  service: captureService,
+                                  context: context)
+    }
+
     private var resourceCoordinator: ResourceCoordinator {
         ResourceCoordinator(meeting: meeting,
                             context: context,

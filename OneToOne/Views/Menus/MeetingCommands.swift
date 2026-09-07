@@ -64,6 +64,11 @@ struct MeetingCommands: Commands {
                 .disabled(!isEnabled(.pasteResource))
             Button("Ressources…") { menu?.openResources() }
                 .disabled(!isEnabled(.resources))
+            // Spec §1.4 : ⌘⇧S capture la source configurée — le sélecteur à la
+            // première utilisation (lot 7, spec §5.1).
+            Button("Capturer l'écran") { menu?.captureNow() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!isEnabled(.captureNow))
 
             Divider()
             Button("Générer le rapport") { menu?.generateReport() }

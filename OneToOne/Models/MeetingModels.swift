@@ -227,6 +227,14 @@ final class SlideCapture: Identifiable {
         set { sourceRaw = newValue.rawValue }
     }
 
+    /// La capture est-elle jointe au rapport ? C'est la case `Joindre au
+    /// rapport` de la colonne d'état de la bande (spec §5.3). Colonne neuve à
+    /// valeur par défaut : migration légère, aucune version de schéma.
+    ///
+    /// `false` par défaut : joindre d'office toutes les captures d'une séance
+    /// à un rapport diffusé serait un choix qu'on n'a pas fait à sa place.
+    var includeInReport: Bool = false
+
     var triggerRaw: String = CaptureTrigger.manual.rawValue
     var trigger: CaptureTrigger {
         get { CaptureTrigger(rawValue: triggerRaw) ?? .manual }

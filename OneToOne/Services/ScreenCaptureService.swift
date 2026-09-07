@@ -129,6 +129,12 @@ final class ScreenCaptureService: ObservableObject {
     /// Dérivé de l'état et de la cause, pas un second drapeau à tenir en phase.
     var isSourceLost: Bool { state.isPaused && pauseCause == .sourceLost }
 
+    /// Le contenu de la source **bouge** : le dernier tick a vu l'image
+    /// changer. C'est le seul signal dont on dispose pour dire « un partage est
+    /// en cours » dans le sélecteur (décision D7 : le titre de fenêtre sert à
+    /// détecter la réunion, l'image à détecter le partage).
+    @Published private(set) var isContentMoving = false
+
     /// Compatibilité avec les barres : capture « active » = en cours ou en pause.
     var isCapturing: Bool { state == .running || state.isPaused }
     var hasOpenSession: Bool { currentAttachment != nil }
@@ -182,7 +188,10 @@ final class ScreenCaptureService: ObservableObject {
         reindex: @escaping ReindexFunction = { attachment, context in
             try? await MeetingAttachmentService.reindexAttachment(attachment, context: context)
         },
-        now: @escaping @Sendable () -> Date = Date.init
+        // `{ Date() }` et non `Date.init` : la référence directe à
+        // l'initialiseur n'est pas `@Sendable`, et la conversion silencieuse
+        // devient une erreur en mode Swift 6.
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.recordingsRoot = recordingsRoot ?? ScreenCaptureService.defaultRecordingsRoot()
         self.frameSourceFactory = frameSourceFactory
@@ -438,6 +447,7 @@ final class ScreenCaptureService: ObservableObject {
         // à jour et c'est lui qui dit si l'image bouge (`.settling`), ce dont
         // le chemin périodique a besoin juste en dessous.
         let decision = detector.consume(fingerprint)
+        isContentMoving = decision == .settling
 
         if settings.detectsAutomatically, decision == .newSlide {
             await writeSlide(cropped, token: token, trigger: .shareChange)

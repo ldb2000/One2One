@@ -112,8 +112,20 @@ struct TimedNotesColumn: View {
 
     // MARK: - Ligne
 
+    /// Une ligne de la colonne : la carte de capture du lot 7
+    /// (`TimedNotesColumn+Capture.swift`) quand la note en porte une, la ligne
+    /// `timecode | texte` sinon.
     @ViewBuilder
     private func ligne(for note: MeetingNote) -> some View {
+        if estCarteDeCapture(note) {
+            carteDeCapture(for: note)
+        } else {
+            ligneDeTexte(for: note)
+        }
+    }
+
+    @ViewBuilder
+    private func ligneDeTexte(for note: MeetingNote) -> some View {
         let id = note.persistentModelID
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if let teinte = barre(for: note.kind) {
