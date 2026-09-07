@@ -39,13 +39,52 @@ final class ScreenCaptureService: ObservableObject {
         }
     }
 
+    /// Pourquoi la session est en pause. La spec §5.2 distingue les deux cas :
+    /// une **source perdue** (fenêtre fermée, autorisation refusée, écran
+    /// débranché) fait passer la pilule de la barre du haut en `accent/warn`
+    /// avec un lien de reconfiguration ; un échec d'API n'est qu'un message.
+    /// Ni l'un ni l'autre n'ouvre de boîte de dialogue en séance.
+    enum PauseCause: Equatable {
+        case sourceLost
+        case failure
+    }
+
     /// Ce qui définit une session : figé pendant la boucle, modifiable en `stopped`
     /// (fenêtre seulement, via `updateSource`).
+    ///
+    /// `windowID == 0` (`kCGNullWindowID`, jamais l'identifiant d'une vraie
+    /// fenêtre) désigne l'**écran entier** : la fabrique par défaut rend alors
+    /// un `DisplayFrameSource`. Un identifiant sentinelle plutôt qu'un champ
+    /// optionnel de plus, pour que les appelants et les tests existants
+    /// continuent de compiler à l'identique.
     struct SessionConfiguration: Equatable {
         var windowID: CGWindowID
         var windowTitle: String
         var crop: NormalizedRect
         var sensitivity: SlideCaptureSettings.Sensitivity
+        /// Nature de la source choisie dans le sélecteur (spec §5.1) : écrite
+        /// sur chaque `SlideCapture`, affichée par la pilule d'état.
+        var source: CaptureSource
+        /// « Capturer à chaque changement de partage » (spec §5.1).
+        var detectsAutomatically: Bool
+        /// « Toutes les 2 minutes » (spec §5.1). `nil` = coupée.
+        var periodicCapture: Duration?
+
+        init(windowID: CGWindowID,
+             windowTitle: String,
+             crop: NormalizedRect,
+             sensitivity: SlideCaptureSettings.Sensitivity,
+             source: CaptureSource = .screen,
+             detectsAutomatically: Bool = true,
+             periodicCapture: Duration? = nil) {
+            self.windowID = windowID
+            self.windowTitle = windowTitle
+            self.crop = crop
+            self.sensitivity = sensitivity
+            self.source = source
+            self.detectsAutomatically = detectsAutomatically
+            self.periodicCapture = periodicCapture
+        }
     }
 
     enum SessionError: Error, Equatable, LocalizedError {
@@ -65,6 +104,15 @@ final class ScreenCaptureService: ObservableObject {
     typealias FrameSourceFactory = @Sendable (CGWindowID) -> any FrameSource
     typealias OCRFunction = @Sendable (CGImage) async throws -> String
     typealias ReindexFunction = @MainActor (MeetingAttachment, ModelContext) async -> Void
+    /// Position courante sur l'axe temps de la réunion, en secondes. `nil`
+    /// quand la réunion n'a pas d'axe (ni enregistrement, ni lecture) : la
+    /// capture est alors écrite **sans** `t` plutôt qu'à `00:00`, où un
+    /// marqueur de frise désignerait un instant où rien ne s'est passé.
+    ///
+    /// L'axe de référence est l'**audio** (`MeetingPlayhead`) et non l'horloge
+    /// de la session de capture (programme §5, lot 7 tâche 3) : une capture et
+    /// une note prises au même moment doivent porter le même `t`.
+    typealias TimecodeProvider = @MainActor () -> Double?
 
     // MARK: - État publié
 
@@ -74,6 +122,12 @@ final class ScreenCaptureService: ObservableObject {
     @Published private(set) var configuration: SessionConfiguration?
     @Published var lastError: String?
     @Published private(set) var ocrProgress: (current: Int, total: Int)?
+    /// Cause de la pause courante ; `nil` hors pause.
+    @Published private(set) var pauseCause: PauseCause?
+
+    /// La source a disparu : c'est l'état `Source perdue` de la spec §5.2.
+    /// Dérivé de l'état et de la cause, pas un second drapeau à tenir en phase.
+    var isSourceLost: Bool { state.isPaused && pauseCause == .sourceLost }
 
     /// Compatibilité avec les barres : capture « active » = en cours ou en pause.
     var isCapturing: Bool { state == .running || state.isPaused }
@@ -87,6 +141,9 @@ final class ScreenCaptureService: ObservableObject {
     private let frameSourceFactory: FrameSourceFactory
     private let ocr: OCRFunction
     private let reindex: ReindexFunction
+    /// Horloge injectable. Elle ne sert qu'à l'échéance de la capture
+    /// périodique : les tests avancent le temps sans rien attendre.
+    private let now: @Sendable () -> Date
 
     // MARK: - État interne de session
 
@@ -104,6 +161,12 @@ final class ScreenCaptureService: ObservableObject {
     /// en vol (tick + snapshot) ne peuvent pas se partager un numéro.
     private var nextIndex = 1
     private var loop: Task<Void, Never>?
+    /// Fournisseur du `t` de la réunion, posé à l'ouverture de la session.
+    private var timecode: TimecodeProvider?
+    /// Instant de la **dernière écriture**, quelle qu'en soit l'origine : base
+    /// de l'échéance périodique. Une capture manuelle repousse donc la
+    /// prochaine capture périodique, comme dans Teams-Capture.
+    private var lastWriteAt: Date?
     /// L'OCR d'un slide est détaché de `tick()` (ne doit pas le bloquer) mais reste
     /// associé à son slide : `deleteSlide` peut ainsi annuler la tâche encore en vol
     /// avant de supprimer le modèle qu'elle vise, plutôt que de la laisser écrire dans
@@ -112,16 +175,20 @@ final class ScreenCaptureService: ObservableObject {
 
     init(
         recordingsRoot: URL? = nil,
-        frameSourceFactory: @escaping FrameSourceFactory = { WindowFrameSource(windowID: $0) },
+        frameSourceFactory: @escaping FrameSourceFactory = { id in
+            id == 0 ? DisplayFrameSource() : WindowFrameSource(windowID: id)
+        },
         ocr: @escaping OCRFunction = { try await OCRService.recognize(cgImage: $0) },
         reindex: @escaping ReindexFunction = { attachment, context in
             try? await MeetingAttachmentService.reindexAttachment(attachment, context: context)
-        }
+        },
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.recordingsRoot = recordingsRoot ?? ScreenCaptureService.defaultRecordingsRoot()
         self.frameSourceFactory = frameSourceFactory
         self.ocr = ocr
         self.reindex = reindex
+        self.now = now
     }
 
     // MARK: - Cycle de vie de la session
@@ -133,7 +200,8 @@ final class ScreenCaptureService: ObservableObject {
         configuration: SessionConfiguration,
         meeting: Meeting,
         context: ModelContext,
-        appendTo existing: MeetingAttachment? = nil
+        appendTo existing: MeetingAttachment? = nil,
+        timecode: TimecodeProvider? = nil
     ) throws {
         guard state == .idle, currentAttachment == nil else { throw SessionError.sessionAlreadyOpen }
         if let existing, existing.meeting !== meeting {
@@ -158,7 +226,9 @@ final class ScreenCaptureService: ObservableObject {
             context.insert(attachment)
         }
 
-        let settings = SlideCaptureSettings(sensitivity: configuration.sensitivity)
+        var settings = SlideCaptureSettings(sensitivity: configuration.sensitivity)
+        settings.detectsAutomatically = configuration.detectsAutomatically
+        settings.periodicCapture = configuration.periodicCapture
         self.settings = settings
         var detector = SlideDetector(settings: settings)
         if let existing {
@@ -176,6 +246,11 @@ final class ScreenCaptureService: ObservableObject {
         self.nextIndex = (attachment.slides.map(\.index).max() ?? 0) + 1
         self.currentAttachment = attachment
         self.sessionToken = UUID()
+        self.timecode = timecode
+        // L'échéance périodique se compte depuis l'ouverture tant que rien n'a
+        // été écrit : sans origine, la première capture forcée n'arriverait
+        // jamais.
+        self.lastWriteAt = now()
         clearError()
         self.state = .running
         captureLog.info("Session de capture ouverte (append=\(existing != nil)) fenêtre=\(configuration.windowID)")
@@ -186,9 +261,14 @@ final class ScreenCaptureService: ObservableObject {
         configuration: SessionConfiguration,
         meeting: Meeting,
         context: ModelContext,
-        appendTo existing: MeetingAttachment? = nil
+        appendTo existing: MeetingAttachment? = nil,
+        timecode: TimecodeProvider? = nil
     ) throws {
-        try beginSession(configuration: configuration, meeting: meeting, context: context, appendTo: existing)
+        try beginSession(configuration: configuration,
+                         meeting: meeting,
+                         context: context,
+                         appendTo: existing,
+                         timecode: timecode)
         launchLoop()
     }
 
@@ -201,6 +281,7 @@ final class ScreenCaptureService: ObservableObject {
     func resume() {
         guard state == .stopped, sessionToken != nil, currentAttachment != nil else { return }
         clearError()
+        pauseCause = nil
         state = .running
         launchLoop()
         captureLog.info("Capture reprise")
@@ -248,6 +329,9 @@ final class ScreenCaptureService: ObservableObject {
         currentAttachment = nil
         configuration = nil
         slidesDirectory = nil
+        timecode = nil
+        lastWriteAt = nil
+        pauseCause = nil
         state = .idle
         clearError()
         captureLog.info("Session de capture terminée : \(attachment.slides.count) slides")
@@ -271,16 +355,42 @@ final class ScreenCaptureService: ObservableObject {
         slidesDirectory = nil
         modelContext = nil
         ocrProgress = nil
+        timecode = nil
+        lastWriteAt = nil
+        pauseCause = nil
         state = .idle
         clearError()
         captureLog.info("Session de capture abandonnée (rien sauvegardé, rien réindexé)")
     }
 
+    // MARK: - Réglages en cours de séance
+
+    /// Bascule « Capturer à chaque changement de partage » **pendant** la
+    /// séance (spec §5.1, capture 4a : les deux bascules y sont actives alors
+    /// que trois captures existent déjà).
+    ///
+    /// Teams-Capture les désactivait pendant la capture, faute de pouvoir
+    /// reconfigurer un coordinateur en marche ; ici les réglages vivent sur le
+    /// service, qui les relit à chaque tick — couper la détection au milieu
+    /// d'une séance qui déraille est précisément ce qu'on veut pouvoir faire.
+    func setAutomaticDetection(_ enabled: Bool) {
+        settings.detectsAutomatically = enabled
+        configuration?.detectsAutomatically = enabled
+    }
+
+    /// Bascule « Toutes les 2 minutes ». L'échéance se compte depuis la
+    /// dernière écriture : l'activer ne provoque pas de capture immédiate.
+    func setPeriodicCapture(_ interval: Duration?) {
+        settings.periodicCapture = interval
+        configuration?.periodicCapture = interval
+    }
+
     /// Change de fenêtre source sans toucher à la zone. Autorisé en `stopped` seulement.
-    func updateSource(windowID: CGWindowID, title: String) {
+    func updateSource(windowID: CGWindowID, title: String, source captureSource: CaptureSource? = nil) {
         guard state == .stopped, sessionToken != nil, var configuration else { return }
         configuration.windowID = windowID
         configuration.windowTitle = title
+        if let captureSource { configuration.source = captureSource }
         self.configuration = configuration
         source = frameSourceFactory(windowID)
     }
@@ -297,19 +407,23 @@ final class ScreenCaptureService: ObservableObject {
         } catch {
             guard sessionIsLive(token) else { return }
             lastError = error.localizedDescription
-            state = .paused("Capture impossible : \(error.localizedDescription)")
+            // Un refus d'autorisation est une source perdue, pas un simple
+            // échec : la pilule doit proposer de reconfigurer (spec §5.2).
+            pause(SlideCaptureError.isPermissionDenial(error) ? .sourceLost : .failure,
+                  "Capture impossible : \(error.localizedDescription)")
             return
         }
 
         guard sessionIsLive(token) else { return }
 
         guard let frame else {
-            state = .paused("Fenêtre source introuvable. La capture reprendra si elle réapparaît.")
+            pause(.sourceLost, "Source introuvable. La capture reprendra si elle réapparaît.")
             return
         }
 
         if state.isPaused {
             state = .running
+            pauseCause = nil
             clearError()
         }
 
@@ -320,30 +434,98 @@ final class ScreenCaptureService: ObservableObject {
             return
         }
 
-        guard detector.consume(fingerprint) == .newSlide else { return }
-        await writeSlide(cropped, token: token)
+        // `consume` est appelé **même détection coupée** : il tient `previous`
+        // à jour et c'est lui qui dit si l'image bouge (`.settling`), ce dont
+        // le chemin périodique a besoin juste en dessous.
+        let decision = detector.consume(fingerprint)
+
+        if settings.detectsAutomatically, decision == .newSlide {
+            await writeSlide(cropped, token: token, trigger: .shareChange)
+            return
+        }
+
+        // Capture périodique : l'échéance **arme** l'écriture, elle ne
+        // l'exécute pas. Écrire au milieu d'une transition donnerait une image
+        // floue, donc on attend le premier tick stable qui suit — `.settling`
+        // signale précisément que ça bouge.
+        //
+        // `decision != .settling` accepte aussi `.ignore`, qui survient dès le
+        // premier tick stable, là où la voie automatique attend
+        // `stableTicksRequired` ticks : une image immobile depuis l'échéance
+        // est donc écrite un tick plus tôt. Conséquence délibérée, pas un
+        // défaut (cf. `CaptureCoordinator` de Teams-Capture).
+        guard let interval = settings.periodicCapture, decision != .settling else { return }
+        guard let since = lastWriteAt,
+              Duration.seconds(now().timeIntervalSince(since)) >= interval else { return }
+
+        detector.acknowledge(fingerprint)
+        await writeSlide(cropped, token: token, trigger: .interval)
+    }
+
+    /// Écrit l'image courante **immédiatement**, sans passer par la détection :
+    /// c'est le geste manuel (bouton `Capturer maintenant`, `⌘⇧S`, pastille du
+    /// lot 8). Fonctionne boucle en marche comme boucle arrêtée, tant qu'une
+    /// session est ouverte.
+    ///
+    /// Ne touche pas `state` : un geste manuel qui échoue n'a pas à mettre la
+    /// session en pause — c'est au tick de le décider sur son propre constat.
+    /// Il publie `lastError`, que l'interface montre déjà.
+    @discardableResult
+    func captureNow() async -> Bool {
+        guard let token = sessionToken, let source, let crop = configuration?.crop else { return false }
+
+        let frame: CGImage?
+        do {
+            frame = try await source.captureFrame()
+        } catch {
+            guard sessionToken == token else { return false }
+            lastError = error.localizedDescription
+            return false
+        }
+
+        guard sessionToken == token else { return false }
+
+        guard let frame else {
+            lastError = "La source est introuvable : il n'y a rien à capturer."
+            return false
+        }
+
+        guard let cropped = crop.apply(to: frame),
+              let fingerprint = SlideFingerprint(image: cropped) else {
+            lastError = "La zone de capture est vide ou invalide."
+            return false
+        }
+
+        // Acquitté **avant** l'écriture, pas après : entre les deux il y a un
+        // `await`, et un tick déjà en vol peut s'y stabiliser sur ce même
+        // contenu et l'écrire une seconde fois. Le détecteur modélise ce qui
+        // est à l'écran, et ce qui est à l'écran vient d'être vu. Contrepartie
+        // assumée : si l'écriture échoue, ce contenu ne sera pas repris
+        // automatiquement — `lastError` le dit.
+        detector.acknowledge(fingerprint)
+        return await writeSlide(cropped, token: token, trigger: .manual, requiresLiveSession: false)
+    }
+
+    /// Publie une pause avec sa cause. Un seul endroit pour les deux, sinon la
+    /// cause finit par mentir sur l'état.
+    private func pause(_ cause: PauseCause, _ raison: String) {
+        pauseCause = cause
+        state = .paused(raison)
     }
 
     /// Force l'écriture de l'image courante, sans attendre la stabilisation.
+    ///
+    /// Délègue à `captureNow()`, seul chemin manuel depuis le lot 7 : deux
+    /// implémentations d'un même geste divergeaient sur l'anti-doublon (l'une
+    /// amorçait le détecteur après l'écriture, l'autre avant, et seule la
+    /// seconde résiste à un tick en vol).
     func snapshot() {
-        Task { await snapshotForTesting() }
+        Task { await captureNow() }
     }
 
     /// Corps attendable de `snapshot()` (visible des tests).
-    ///
-    /// N'amorce le détecteur avec cette empreinte qu'**après** confirmation de
-    /// l'écriture (`writeSlide` réussi) : si l'écriture échoue (jeton périmé, panne
-    /// d'encodage…), le détecteur ne doit pas croire connaître un slide qui n'existe
-    /// pas sur disque.
     func snapshotForTesting() async {
-        guard state == .running, let token = sessionToken, let source, let crop = configuration?.crop else { return }
-        guard let frame = try? await source.captureFrame(), sessionIsLive(token),
-              let cropped = crop.apply(to: frame) else { return }
-        let fingerprint = SlideFingerprint(image: cropped)
-        let wrote = await writeSlide(cropped, token: token)
-        if wrote, let fingerprint {
-            detector.seed([fingerprint])
-        }
+        await captureNow()
     }
 
     /// Vrai si une boucle périodique est armée (tests : détecter une boucle fantôme).
@@ -408,13 +590,26 @@ final class ScreenCaptureService: ObservableObject {
 
     /// Renvoie `true` si le `SlideCapture` a bien été inséré (utilisé par
     /// `snapshotForTesting` pour n'amorcer le détecteur qu'en cas de succès réel).
+    ///
+    /// - Parameter requiresLiveSession: `false` pour le geste manuel, qui doit
+    ///   écrire même boucle arrêtée (`.stopped`) — la session est ouverte, elle
+    ///   ne tourne simplement pas. Les chemins automatiques exigent, eux, une
+    ///   capture active : un tick suspendu pendant `stop()` ne doit rien écrire.
     @discardableResult
-    private func writeSlide(_ image: CGImage, token: UUID) async -> Bool {
-        guard sessionIsLive(token),
+    private func writeSlide(_ image: CGImage,
+                            token: UUID,
+                            trigger: CaptureTrigger,
+                            requiresLiveSession: Bool = true) async -> Bool {
+        guard requiresLiveSession ? sessionIsLive(token) : sessionToken == token,
               let attachment = currentAttachment,
               let context = modelContext,
               let directory = slidesDirectory else { return false }
 
+        // Relevé **avant** l'écriture : pris après, chaque timecode porterait
+        // la durée de l'encodage PNG en plus du temps réellement écoulé, et la
+        // capture serait horodatée plus tard que l'instant où elle était à
+        // l'écran.
+        let t = timecode?()
         let index = nextIndex
         nextIndex += 1
         let date = Date()
@@ -428,16 +623,26 @@ final class ScreenCaptureService: ObservableObject {
             return false
         }
 
-        guard sessionIsLive(token) else {
-            // La session a été close ou arrêtée pendant l'encodage : ce slide ne lui
-            // appartient plus.
+        guard requiresLiveSession ? sessionIsLive(token) : sessionToken == token else {
+            // La session a été close (ou arrêtée, pour un chemin automatique)
+            // pendant l'encodage : ce slide ne lui appartient plus.
             try? FileManager.default.removeItem(at: fileURL)
             return false
         }
 
         let slide = SlideCapture(index: index, capturedAt: date, imagePath: fileURL.path)
+        slide.t = t
+        slide.trigger = trigger
+        slide.source = configuration?.source ?? .screen
         slide.attachment = attachment
         context.insert(slide)
+        // L'échéance périodique repart de cette écriture, quelle qu'en soit
+        // l'origine (spec §5.1 : une capture manuelle repousse la suivante).
+        lastWriteAt = now()
+        // Piège 14 de `One2One-specs.md` : le message d'erreur doit être remis
+        // à zéro sur **tous** les chemins de succès, celui-ci compris — sinon
+        // une panne passée reste affichée sur une session qui marche.
+        clearError()
         // La vue observe `capturedSlidesCount`, calculé depuis `attachment.slides`.
         objectWillChange.send()
         captureLog.info("Slide \(index) écrit")
@@ -500,7 +705,8 @@ final class ScreenCaptureService: ObservableObject {
     }
 
     /// Seul endroit qui remet le message de panne à zéro : appelé sur **tous** les
-    /// chemins de succès (ouverture, reprise, tick réussi après pause, clôture).
+    /// chemins de succès (ouverture, reprise, tick réussi après pause, écriture
+    /// réussie, clôture). Piège 14 de `One2One-specs.md`.
     private func clearError() {
         lastError = nil
     }
