@@ -12,18 +12,28 @@ private let attachmentLog = Logger(subsystem: "com.onetoone.app", category: "att
 ///   ~/Library/Application Support/OneToOne/projects/<code>/<timestamp>_<filename>
 enum AttachmentImporter {
 
-    /// Destination namespace under Application Support. Un seul cas
-    /// aujourd'hui : le bucket par projet. Le cas « par note » a disparu avec
-    /// `NoteEditorSheet` — une note est désormais un `Meeting`, et les pièces
-    /// jointes d'une réunion passent par `MeetingAttachmentService`, qui
-    /// référence le fichier d'origine sans le recopier ici.
+    /// Destination namespace under Application Support. Deux cas :
+    ///
+    /// - `project` : les pièces d'une fiche projet, copiées de longue date.
+    /// - `meetingDocuments` : les pièces d'une séance, copiées depuis la
+    ///   décision **D5** (ADR `2026-09-07-pieces-copiees-jamais-referencees.md`).
+    ///   Avant elle, `MeetingAttachmentService` référençait le fichier d'origine
+    ///   avec un signet : une pièce déposée en séance disparaissait au premier
+    ///   rangement du disque, et ni le partage à l'écran, ni l'épinglage, ni la
+    ///   sauvegarde n'avaient d'ancre fiable.
+    ///
+    /// Le dossier `documents/` voisine `slides/` de la même réunion : tout ce
+    /// qui appartient à une séance vit sous `recordings/<uuid>/`.
     enum Bucket {
         case project(code: String)
+        case meetingDocuments(meetingStableID: UUID)
 
         var subpath: String {
             switch self {
             case .project(let code):
                 return "projects/\(sanitize(code))"
+            case .meetingDocuments(let id):
+                return AttachmentCopyPolicy.documentsSubpath(meetingStableID: id)
             }
         }
     }
