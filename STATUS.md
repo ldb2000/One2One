@@ -4,7 +4,13 @@ Dernière mise à jour : 2026-09-07 CEST
 
 ## Lot 16 — Atelier : socle des planches et mode Croquis (6a partiel) (2026-09-07)
 
-Branche `feat/refonte-lot-16-atelier-socle`, base `feat/refonte-lot-3-rail-actions`.
+Branche `feat/refonte-lot-16-atelier-socle`. Développée depuis
+`feat/refonte-lot-3-rail-actions`, **rebasée** sur `feat/refonte-lot-9-fiche-projet`
+une fois l'intégration de la vague 4 terminée (quatre conflits attendus, tous des
+ajouts « en fin de type » : `MeetingScreenModel`, `StorageStatsService`,
+`MeetingSpaceView` — la branche atelier est entrée dans `contenu`, avant le mode
+Relire, pour que les modificateurs des lots 4, 5 et 6 restent posés une seule fois —
+et `STATUS.md`).
 Tout est derrière **`AppSettings.workshopEnabled`, défaut `false`**.
 ADR : `docs/adr/2026-09-07-moteur-de-planches-excalidraw-embarque.md` (décision D6).
 Plan : `docs/superpowers/plans/2026-09-07-refonte-lot-16-atelier-socle.md`.
@@ -148,7 +154,8 @@ vide, testée), section `SUR CETTE PLANCHE`, `＋ Action depuis la sélection`,
 ### Vérifications
 
 `swift build` propre (avertissements préexistants seuls). `swift test` complet **vert** :
-1 039 XCTest + 954 Swift Testing (1 993 au total), 0 échec, contre 1 931 sur la base.
+1 041 XCTest + 1 419 Swift Testing (**2 460**), 0 échec — contre 2 402 au sommet de la
+pile après l'intégration de la vague 4.
 
 **Prochaine action :** refaire la recette de 6a après les deux correctifs, sur un bureau
 libre, et mesurer le chargement du bundle plus le rendu à 2 000 objets.
