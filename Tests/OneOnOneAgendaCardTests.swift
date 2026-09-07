@@ -243,8 +243,9 @@ struct OneOnOneAgendaCardTests {
     @Test("L'assistant du 1:1 interroge le fil, pas seulement la réunion")
     func contexteDeLAssistant() throws {
         let f = try fixture()
-        let contexte = MeetingAssistantDock.Contexte.fil(of: f.thread)
+        let contexte = MeetingAssistantDock.ThreadContext.fil(of: f.thread)
         #expect(contexte.placeholder == "Interroger l'historique des 1:1 de Laurent")
+        #expect(contexte.threadName == "Laurent")
         #expect(contexte.threadID == f.thread.ensuredStableID)
     }
 }

@@ -55,27 +55,41 @@ struct MeetingAssistantDock: View {
     }
 
     /// Le contexte que l'assistant interroge, quand ce n'est **pas** la seule
-    /// réunion ouverte.
+    /// réunion ouverte (lots 11 et 12, spec §3.3 : « barre assistant en pied,
+    /// contexte = fil (`threadId`), pas seulement la réunion »).
     ///
-    /// En 1:1, la question porte sur le **fil** : « Interroger l'historique des
-    /// 1:1 de Laurent » (capture 2a). Le `threadID` voyage avec le placeholder
-    /// pour que la surface sache de quoi elle parle ; le panneau lui-même reste
-    /// celui de la réunion (lot 15 câblera la portée côté chatbot).
-    struct Contexte: Equatable, Sendable {
+    /// En 1:1, la question porte sur le **fil** : « Interroger l'historique
+    /// des 1:1 de Laurent » en séance (capture 2a), « Qu'a-t-il demandé sans
+    /// réponse depuis juin ? » en préparation (capture 2b). Le `threadID`
+    /// voyage avec le placeholder pour que la surface sache de quoi elle
+    /// parle ; le panneau lui-même reste celui de la réunion (lot 15 câblera
+    /// la portée côté chatbot).
+    ///
+    /// **Un seul type pour les deux écrans** : les lots 11 et 12 en avaient
+    /// écrit un chacun (`Contexte` et `ThreadContext`), pour la même barre au
+    /// même endroit. Le champ `suggestions` du lot 12 a disparu avec eux — la
+    /// barre de contexte n'en affiche pas : sur 2a comme sur 2b, la question
+    /// tient toute la largeur.
+    struct ThreadContext: Equatable, Sendable {
+        /// La question affichée, guillemets compris quand la capture en met.
         var placeholder: String
+        /// Le prénom de la personne du fil, pour le libellé d'aide.
+        var threadName: String = ""
         var threadID: UUID?
 
         /// Le contexte d'un fil 1:1.
         @MainActor
-        static func fil(of thread: OneOnOneThread) -> Contexte {
+        static func fil(of thread: OneOnOneThread) -> ThreadContext {
             let prenom = OneOnOneThreadStore.firstName(of: thread)
-            return Contexte(
+            return ThreadContext(
                 placeholder: prenom.isEmpty
                     ? "Interroger l'historique de ce fil"
                     : "Interroger l'historique des 1:1 de \(prenom)",
+                threadName: prenom,
                 threadID: thread.ensuredStableID
             )
         }
+    }
     }
 
     let meeting: Meeting
@@ -84,16 +98,15 @@ struct MeetingAssistantDock: View {
     /// Le panneau d'assistant est ouvert. Piloté aussi par `⌘K`
     /// (`MeetingMenuActions.openAssistant`).
     @Binding var isOpen: Bool
-
     /// `nil` = la barre de la capture 1a, inchangée : placeholder de réunion et
-    /// deux suggestions. Renseigné, la barre se réduit au placeholder du
-    /// contexte et à `⌘K` — la colonne gauche du 1:1 fait 300 px, deux pilules
-    /// de suggestion n'y tiennent pas.
-    var contexte: Contexte?
+    /// deux suggestions datées. Renseigné, la barre se réduit au placeholder du
+    /// contexte et à `⌘K` — les colonnes latérales du 1:1 font 300 px, deux
+    /// pilules de suggestion n'y tiennent pas.
+    var threadContext: ThreadContext?
 
     var body: some View {
-        if let contexte {
-            barreDeContexte(contexte)
+        if let threadContext {
+            barreDeContexte(threadContext)
         } else {
             barreDeReunion
         }
@@ -101,7 +114,7 @@ struct MeetingAssistantDock: View {
 
     /// La barre étroite d'un contexte nommé (capture 2a, pied de colonne
     /// gauche) : l'étincelle, la question, `⌘K`.
-    private func barreDeContexte(_ contexte: Contexte) -> some View {
+    private func barreDeContexte(_ contexte: ThreadContext) -> some View {
         Button {
             isOpen = true
         } label: {
@@ -132,7 +145,9 @@ struct MeetingAssistantDock: View {
             RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
                 .strokeBorder(One2OneToken.cardBorder, lineWidth: 1)
         )
-        .help("Poser une question sur tout l'historique de ce fil (⌘K)")
+        .help(contexte.threadName.isEmpty
+              ? "Poser une question sur tout l'historique de ce fil (⌘K)"
+              : "Poser une question sur tout l'historique des 1:1 de \(contexte.threadName) (⌘K)")
     }
 
     private var barreDeReunion: some View {
@@ -154,7 +169,8 @@ struct MeetingAssistantDock: View {
             }
             .buttonStyle(.plain)
 
-            ForEach(Self.suggestions(for: meeting, historique: historique), id: \.self) { suggestion in
+            ForEach(Self.suggestions(for: meeting, historique: historique),
+                    id: \.self) { suggestion in
                 Button { isOpen = true } label: {
                     Pill(suggestion, ton: .neutre)
                 }
