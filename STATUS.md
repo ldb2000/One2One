@@ -1,6 +1,165 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-07 CEST
+Dernière mise à jour : 2026-09-08 CEST
+
+## Intégration vague 5 : la pile redevient linéaire (2026-09-08)
+
+Les lots **16, 7, 11 et 12** ont été développés **en parallèle** — le lot 16 depuis
+`feat/refonte-lot-9-fiche-projet`, les trois autres depuis `fix/refonte-1to1-window-crash`.
+Ils sont désormais **empilés** dans cet ordre :
+
+```
+… → #26 → #29 → #25 → #31 → 16 → 7 → 11 → 12
+                              #32  #34  #35  #33
+```
+
+Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 →
+#25 → #31 → #32 → #34 → #35 → #33`. Bases : #32 sur `fix/refonte-1to1-window-crash`,
+#34 sur le lot 16, #35 sur le lot 7, #33 sur le lot 11.
+
+### Conflits résolus, maillon par maillon
+
+| Maillon | Fichier | Résolution |
+| --- | --- | --- |
+| **16** (#32) | `STATUS.md` | union, lot 16 puis correctif de fenêtre |
+| **7** (#34) | `STATUS.md` | union, lot 7 puis lot 16 |
+| | `MeetingTopChromeBar.swift` | fusion automatique, puis la pilule `Local · hors ligne` déplacée **après** la pilule de capture (ordre des blocs, spec §2.1) |
+| **11** (#35) | `MeetingCommands.swift` | union des semis dans un seul item de menu |
+| | `STATUS.md` | union, lot 11 puis 7 puis 16 |
+| | `MeetingSpaceView.swift` | fusion automatique, puis ordre du routage : **Atelier → 1:1 (mode) → standard (mode)** |
+| **12** (#33) | `MeetingSpaceRouting.swift` | union des trois fonctions pures |
+| | `MeetingAssistantDock.swift` | **un seul** paramètre de contexte, `threadContext` |
+| | `MeetingCommands.swift` | une seule ligne de semis des fils 1:1 |
+| | `OneToOneApp.swift` | **un seul** crochet de recette |
+| | `STATUS.md` | union, lot 12 puis 11 puis 7 puis 16 |
+
+`MeetingScreenModel.swift` (lignes `capture` du lot 7 et `workshop` du lot 16) et
+`OneOnOneScreenState.swift` (`prepHistoryExpanded` du lot 12) se sont fusionnés seuls :
+les quatre lots ont écrit **en fin de type**, comme la consigne de l'intégration
+précédente le demandait. C'est la seule leçon de la vague 4 qui a évité six conflits.
+
+### Harmonisations 11 / 12 — une seule définition par règle
+
+Le lot 12 n'a pas pu lire le `Shared/**` du lot 11 : trois règles existaient en double, et
+la préparation (2b) contredisait la séance (2a) sur les deux mêmes engagements.
+`Tests/RefonteVague5IntegrationTests.swift` (10 tests) tient désormais chacune.
+
+1. **Teinte du moral.** Deux tables. Elles divergeaient sur `Bien` : `oneOnOne` (violet)
+   au lot 12, `ok` (vert) au lot 11. `MoodHistogramModel.tone(for:)` délègue maintenant à
+   `OneOnOneMoodTone` (lot 11, `Shared/`) ; un test parcourt les cinq crans et vérifie que
+   `MoodScaleModel.tone` et `MoodHistogramModel.tone` rendent la même chose.
+   **Tranché** : la table du lot 11, parce qu'elle vit dans `Shared/` et porte déjà
+   `isDeep` pour distinguer `Bien` de `Très bien`.
+2. **Identité et avatar.** `PrepHeaderModel` relisait le collaborateur et redessinait la
+   pastille. Il appelle maintenant `PersonCardModel.name` / `.initials` / `.role`,
+   l'en-tête monte `AvatarSide` (34 px, palette du domaine) et l'ancienneté se lit par
+   `OneOnOneSeniority`. Ce qui reste propre à 2b : l'**ordinal** `14ᵉ 1:1`, testé, et la
+   date en année pleine. Le filtre « Néant » de `CollaboratorIdentity` est monté dans
+   `PersonCardModel.role` — il servait aux deux. Le nom de repli devient
+   `PersonCardModel.fallbackName` (« Sans interlocuteur », celui du lot 12) ; il y en avait
+   deux, dont « Personne inconnue ».
+3. **Échéance d'un engagement.** Deux règles pour la même pilule : le lot 11 comparait les
+   **semaines calendaires** (« 9 sept. » pour un mercredi de la semaine suivante), le
+   lot 12 une **fenêtre de sept jours** (« Mercredi »). `CommitmentsRailModel.duePill`
+   appelle maintenant `OneOnOneDateFormat.dueDate`, la seule règle.
+   **Tranché** : la fenêtre de sept jours, parce que `ActionCard.libelleEcheance` (lot 3)
+   l'applique déjà aux échéances d'action — la semaine calendaire aurait fait lire deux
+   règles sur le même écran. Deux tests du lot 11 changent d'attente en conséquence,
+   commentaire compris.
+   Les deux extensions `OneOnOneDateFormat+Lot11` et `+Prep`, qui déclaraient chacune
+   `weekday(_:)`, sont fondues en **`OneOnOneDateFormat+Views.swift`**.
+   Le compteur `n× reporté` venait déjà de `CommitmentLedger.deferralLabel` des deux
+   côtés : rien à unifier, un test le fige. Les états `Tenu` / `En retard` / `Manqué`
+   n'existent que dans le tableau de 2b (le rail de 2a affiche `✓` / `✗`) : **laissés en
+   place**, ce n'est pas un doublon mais deux surfaces.
+4. **Historique** du `PrepHeader` et bloc historique : inchangés, comme prévu.
+
+### Un seul crochet de recette
+
+Les lots 11 et 12 avaient chacun câblé le leur dans le même `ContentView` :
+`ONETOONE_SEED_DEMO_SCREEN=2a` savait choisir la réunion mais pas le mode,
+`ONETOONE_SEED_OPEN=1to1` savait choisir la réunion sans savoir laquelle photographier.
+Il n'en reste qu'un, `ONETOONE_SEED_DEMO_SCREEN`, et il **nomme l'écran** — le code de la
+capture de référence :
+
+| Code | Écran | Réunion ouverte | Mode |
+| --- | --- | --- | --- |
+| `1a` | cockpit | démonstration | En séance |
+| `1b` | espaces et indicateurs | démonstration | En séance |
+| `1c` | poste de pilotage | démonstration | Relire |
+| `2a` | 1:1 mené, séance | entretien mené | En séance |
+| `2b` | 1:1 mené, préparation | entretien mené | Préparer |
+| `3a` | tiroir Ressources | démonstration | En séance |
+| `3b` | fiche projet en panneau | démonstration | En séance |
+| `4a` | sélecteur de capture | démonstration | En séance |
+| `6a` | atelier, planche | atelier | En séance |
+
+La table est `OneToOne/Services/Debug/RecetteScreen.swift`, pure et `CaseIterable` : le
+test la parcourt. Le mode est écrit dans `UserDefaults` (`MeetingScreenModel.modeKey`)
+**avant** l'ouverture — le seul moyen de l'imposer sans clic et de survivre à la relecture
+que fait `attach`. Sans code, rien ne change : le cockpit, au mode qu'il a mémorisé.
+
+```bash
+Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --screen 2b --reset
+```
+
+`Scripts/recette-run.sh` gagne `--screen <code>` (qui implique `--seed`), valide le code
+avant de lancer et le documente dans son en-tête.
+
+### Le jeu de démonstration, tous les semis ensemble
+
+Les six extensions du semis (`Lot5`, `Lot6`, `Lot7`, `Lot11`, `Lot12`, `seedWorkshop`)
+sont appelées **une fois chacune** depuis les deux points d'entrée — l'item de menu et le
+crochet de recette. Deux tests d'intégration : semer tout **deux fois** ne change aucun
+compte (réunions, engagements, humeurs, actions), et le recalage des dates du lot 12
+(`alignLot12SessionDates`) laisse la séance du 4 septembre du lot 11 cohérente — elle
+reste la dernière du fil, son entretien précédent reste à quinze jours, la ligne
+`✓ Accès environnement recette` reste dans `TENUS DEPUIS LE DERNIER 1:1`, et l'histogramme
+de 2b garde ses six dates `12/06 26/06 10/07 24/07 21/08 04/09`.
+
+### Vérifications
+
+`swift build` propre à chaque maillon (avertissements préexistants seuls :
+`MoodTrend.swift:78`, `AudioCompressionService.swift:46`, les captures non-`Sendable` de
+`ManagerCategoryClassifier` et `ManagerSnippetElaborator`). `swift test` complet à chaque
+maillon :
+
+| Maillon | XCTest | Swift Testing | Total |
+| --- | --- | --- | --- |
+| #31 (référence) | 1 041 | 1 361 | **2 402** |
+| + lot 16 | 1 041 | 1 423 | **2 464** |
+| + lot 7 | 1 041 | 1 530 | **2 571** |
+| + lot 11 | 1 041 | 1 622 | **2 663** |
+| + lot 12 et harmonisations | 1 041 | 1 673 | **2 714** |
+
+`MeetingView.swift` : **2 063 lignes**, sous le plafond de 2 100 ; le lot 7 en a retiré
+l'ancien `ScreenCaptureConfigView` et n'y a laissé que du câblage.
+
+**Un échec XCTest, préexistant et horaire.**
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` construit des réunions à
+`startOfDay + 1 h` et `+ 2 h` et les attend **passées** : entre minuit et 2 h du matin
+elles sont à venir, et `tempsPasseSeconds` vaut 0 au lieu de 7 200. La même suite est
+verte quand elle tourne avant minuit (vérifié à 23 h 57 sur le maillon 16, `exit 0`), et
+aucun des quatre lots ne touche `MenuBarStats` ni `TodayStatsCalculator`. **Non corrigé** :
+une PR = une intention, et ce test n'appartient à aucun de ces lots. À reprendre à part —
+il suffit d'injecter `now` à midi.
+
+### Ce qu'il reste
+
+La branche de recette visuelle `fix/refonte-recette-vagues-1-4` est à rebaser sur ce
+sommet ; les recettes des lots 7, 11 et 12 n'ont pas été faites (un seul agent à la fois
+pilote le bureau), et celle du lot 16 est à refaire après ses deux correctifs. La barre du
+haut porte maintenant, dans le pire cas, fil d'Ariane + `Mon équipe` + badge de type +
+pilule `Privé — vous deux` + titre + audio + partage + capture + type + modèle +
+`Rapport 1:1` + `⋯` : **le débordement à 1 280 px n'est pas vérifié** — il n'existe aucun
+test de largeur de `MeetingTopChromeBar`, et une largeur de `HStack` SwiftUI ne se mesure
+pas depuis `swift test`. Le lot 16 avait déjà vu le badge `ATELIER` tronqué à 1 616 px.
+C'est le premier point de la recette à venir.
+
+**Prochaine action :** faire relire et fusionner `#32 → #34 → #35 → #33`, rebaser
+`fix/refonte-recette-vagues-1-4` sur ce sommet, puis une passe de recette unique
+qui parcourt les neuf codes de `--screen` — en commençant par la largeur de la barre du
+haut à 1 280 px.
 
 ## Refonte de l'écran de réunion — lot 12 : 1:1 manager, écran de préparation (2b) (2026-09-07)
 
@@ -89,10 +248,11 @@ Deux choses manquaient au semis du lot 10, et elles ne se voient que sur un écr
 
 Le semis 1:1 du lot 10 **était orphelin** (point tranché n° 3 de l'intégration de la
 vague 4). Il est désormais câblé aux deux points d'entrée : l'item de menu « Charger le jeu
-de démonstration (refonte) » et la variable `ONETOONE_SEED_DEMO` de la recette. Une
-seconde variable, `ONETOONE_SEED_OPEN=1to1`, choisit **quelle** réunion s'ouvre — sans
-elle, c'est celle de `1a-cockpit.png` ; l'entretien de démonstration n'était atteignable
-qu'à la souris, et une recette doit être reproductible sans clic.
+de démonstration (refonte) » et la variable `ONETOONE_SEED_DEMO` de la recette. Quelle
+réunion s'ouvre se choisit avec `ONETOONE_SEED_DEMO_SCREEN=<code>` — l'entretien de
+démonstration n'était atteignable qu'à la souris, et une recette doit être reproductible
+sans clic. *(Ce lot avait écrit une seconde variable, `ONETOONE_SEED_OPEN=1to1` ;
+l'intégration de la vague 5 l'a fondue dans le crochet unique — cf. la section en tête.)*
 
 ### Fichiers partagés touchés, à la ligne près
 
@@ -108,8 +268,9 @@ qu'à la souris, et une recette doit être reproductible sans clic.
   `prepHistoryExpanded`. Le filtre du tableau réutilise `commitmentSideFilter` du lot 10 —
   aucune propriété d'état en double.
 - `Views/Menus/MeetingCommands.swift` : une ligne (`seedLot12`).
-- `OneToOneApp.swift` : le semis de recette appelle `seedLot12` et lit
-  `ONETOONE_SEED_OPEN`. Six lignes, additives.
+- `OneToOneApp.swift` : le semis de recette appelle `seedLot12` et choisit la réunion à
+  ouvrir. Six lignes, additives *(récrites à l'intégration : `RecetteScreen` et le seul
+  `ONETOONE_SEED_DEMO_SCREEN`)*.
 - **Intacts** : `MeetingScreenModel.swift`, `MeetingTopChromeBar.swift`, `MeetingView.swift`,
   `MeetingPrepareSpace.swift`, `Rail/**`, `Review/**`, `Session/**`, `Resources/**`,
   `Notes/**`, et tous les fichiers existants de `Services/OneOnOne/` sauf la propriété
@@ -152,8 +313,8 @@ Ce qu'elle aura à faire, et tout est prêt pour cela :
 ```bash
 swift build -c release                        # fait, propre
 Scripts/recette-app.sh /tmp/recette-lot12
-export ONETOONE_SEED_OPEN=1to1                # ouvre l'entretien de démonstration
-Scripts/recette-run.sh --app /tmp/recette-lot12/OneToOne.app --seed --reset
+# `--screen 2b` sème tout le jeu et ouvre l'entretien en mode Préparer
+Scripts/recette-run.sh --app /tmp/recette-lot12/OneToOne.app --screen 2b --reset
 ```
 
 Puis capturer `recette/lot-12-1920.png` et `recette/lot-12-1280.png` et les comparer à

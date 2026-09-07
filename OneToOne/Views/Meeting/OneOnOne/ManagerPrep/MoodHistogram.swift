@@ -64,17 +64,15 @@ struct MoodHistogramModel: Equatable, Sendable {
         )
     }
 
-    /// La teinte d'un cran. Le cran le plus bas est un signal de rapport, pas
-    /// une alerte de charge : `Difficile` n'est pas « à surveiller », c'est
-    /// « déjà arrivé ».
+    /// La teinte d'un cran — **la table du lot 11**, `OneOnOneMoodTone`, et pas
+    /// une seconde copie.
+    ///
+    /// Le lot 12 en avait écrit une, qui divergeait sur `Bien` (`oneOnOne` au
+    /// lieu d'`ok`) : la barre de l'histogramme et le cran choisi de l'échelle
+    /// de séance auraient coloré le même moral de deux couleurs, à deux écrans
+    /// d'écart. `OneOnOneMoodToneTests` le prouve maintenant cran par cran.
     static func tone(for level: MoodLevel) -> OneOnOneTone {
-        switch level {
-        case .difficile:   return .report
-        case .sousTension: return .warn
-        case .caVa:        return .oneOnOne
-        case .bien:        return .oneOnOne
-        case .tresBien:    return .ok
-        }
+        OneOnOneMoodTone.tone(level)
     }
 
     /// La teinte du libellé de tendance (`en baisse` en `accent/report`,

@@ -154,7 +154,9 @@ struct RefonteDemoSeedLot11Tests {
 
         let chiffrage = try #require(groupes[1].commitments
             .first { $0.text == "Chiffrer la reprise AP restante" })
-        #expect(CommitmentsRailModel.duePill(chiffrage, now: Self.maintenant) == "9 sept.")
+        // Le 9 septembre est dans la fenêtre de sept jours : il s'écrit en jour
+        // de la semaine, comme dans le tableau de la préparation (2b).
+        #expect(CommitmentsRailModel.duePill(chiffrage, now: Self.maintenant) == "Mercredi")
     }
 
     @Test("Les trois lignes de TENUS DEPUIS LE DERNIER 1:1")

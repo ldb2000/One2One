@@ -10,18 +10,39 @@ import Foundation
 @MainActor
 enum PersonCardModel {
 
+    /// Le nom qu'affichent les deux en-têtes faute de collaborateur rattaché
+    /// au fil : un entretien sans personne n'est pas un entretien, et le dire
+    /// vaut mieux qu'un vide.
+    static let fallbackName = "Sans interlocuteur"
+
     /// Nom affiché en tête de carte.
     static func name(of thread: OneOnOneThread) -> String {
-        thread.collaborator?.name ?? "Personne inconnue"
+        let nom = (thread.collaborator?.name ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return nom.isEmpty ? fallbackName : nom
     }
 
     static func initials(of thread: OneOnOneThread) -> String {
-        AvatarPalette.initials(for: thread.collaborator?.name ?? "")
+        let nom = name(of: thread)
+        return nom == fallbackName ? "?" : AvatarPalette.initials(for: nom)
+    }
+
+    /// Le rôle affichable de la personne du fil.
+    ///
+    /// « Néant » est la valeur que `CollaboratorIdentity` met dans une fiche
+    /// dont le champ rôle portait une adresse : l'afficher serait pire que de
+    /// ne rien afficher. Une seule définition, appelée par la carte personne
+    /// (capture 2a) **et** par l'en-tête de préparation (capture 2b), qui
+    /// avait recopié le filtre.
+    static func role(of thread: OneOnOneThread) -> String {
+        let role = (thread.collaborator?.role ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return role == CollaboratorIdentity.roleNeant ? "" : role
     }
 
     /// `Ingénieur CI/CD · dans l'équipe depuis 3 ans`.
     static func roleLine(of thread: OneOnOneThread, now: Date) -> String {
-        OneOnOneSeniority.roleLine(role: thread.collaborator?.role ?? "",
+        OneOnOneSeniority.roleLine(role: role(of: thread),
                                    joinedAt: thread.collaborator?.joinedAt,
                                    now: now)
     }

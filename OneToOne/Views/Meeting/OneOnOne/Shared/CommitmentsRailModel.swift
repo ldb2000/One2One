@@ -101,25 +101,21 @@ enum CommitmentsRailModel {
 
     // MARK: - Pilules d'une carte
 
-    /// L'échéance : le **jour de la semaine** quand elle tombe dans la semaine
-    /// calendaire de la séance (`Vendredi`), la date courte au-delà
-    /// (`9 sept.`).
+    /// L'échéance : le **jour de la semaine** quand elle est imminente
+    /// (`Vendredi`), la date courte au-delà (`11 sept.`).
     ///
-    /// Un « vendredi » ne veut dire quelque chose qu'à l'intérieur de la
-    /// semaine où il est prononcé : passé le dimanche, « vendredi » est
-    /// ambigu, et la capture écrit bien `11 sept.` pour la semaine suivante.
+    /// La règle est celle du domaine, `OneOnOneDateFormat.dueDate` — une
+    /// fenêtre de sept jours — et non plus la semaine calendaire que ce modèle
+    /// calculait pour lui seul. Le tableau d'engagements de la préparation
+    /// (capture 2b) appelle la même fonction : le critère d'acceptation du
+    /// chantier 2 veut qu'un engagement se lise pareil dans 2a et dans 2b, ce
+    /// qui inclut son échéance.
     ///
     /// `nil` sans échéance : on ne peut pas afficher une date qui n'a pas été
     /// prise.
     static func duePill(_ commitment: Commitment, now: Date) -> String? {
         guard let due = commitment.dueAt else { return nil }
-        var calendrier = Calendar(identifier: .gregorian)
-        calendrier.locale = Locale(identifier: "fr_FR")
-        calendrier.firstWeekday = 2 // lundi
-        if calendrier.isDate(due, equalTo: now, toGranularity: .weekOfYear) {
-            return OneOnOneDateFormat.weekday(due)
-        }
-        return OneOnOneDateFormat.dayMonth(due)
+        return OneOnOneDateFormat.dueDate(due, now: now)
     }
 
     /// `Bloquant pour lui` / `Bloquant pour moi` — la criticité, dite du point

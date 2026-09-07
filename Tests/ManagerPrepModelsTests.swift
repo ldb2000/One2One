@@ -102,7 +102,10 @@ struct ManagerPrepModelsTests {
     func teinteDesCrans() {
         #expect(MoodHistogramModel.tone(for: .difficile) == .report)
         #expect(MoodHistogramModel.tone(for: .sousTension) == .warn)
-        #expect(MoodHistogramModel.tone(for: .bien) == .oneOnOne)
+        // `Bien` est en `ok` et non en `oneOnOne` : la table du domaine est
+        // celle du lot 11 (`OneOnOneMoodTone`) depuis l'intégration de la
+        // vague 5, et c'est elle que colore aussi l'échelle de la séance.
+        #expect(MoodHistogramModel.tone(for: .bien) == .ok)
         #expect(MoodHistogramModel.tone(for: .tresBien) == .ok)
         // Le jeu de la capture finit sur « Sous tension » : la dernière barre
         // est donc ambre, comme sur la maquette.

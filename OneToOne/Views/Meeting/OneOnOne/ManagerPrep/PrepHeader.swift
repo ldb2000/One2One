@@ -17,28 +17,39 @@ struct PrepHeaderModel: Equatable, Sendable {
     /// Rang de la séance dans le fil, à partir de 1. `0` hors du fil.
     var sessionNumber: Int
 
-    /// Le nom qu'affiche l'en-tête faute de collaborateur rattaché au fil : le
-    /// titre de la réunion vaut mieux qu'un vide.
-    static let fallbackName = "Sans interlocuteur"
+    /// Le nom qu'affiche l'en-tête faute de collaborateur rattaché au fil.
+    /// Repris de `PersonCardModel`, qui le porte pour les deux écrans depuis
+    /// l'intégration de la vague 5.
+    static var fallbackName: String { PersonCardModel.fallbackName }
 
+    /// L'ancienneté, quand la carte veut la dire : `dans l'équipe depuis
+    /// 3 ans`. L'en-tête de 2b ne la montre pas — sa méta porte le rang de
+    /// séance et la date — mais elle se lit d'ici, par `OneOnOneSeniority`,
+    /// sans second calcul.
+    @MainActor
+    static func seniority(of thread: OneOnOneThread, now: Date) -> String? {
+        OneOnOneSeniority.label(joinedAt: thread.collaborator?.joinedAt, now: now)
+    }
+
+    /// **Le nom, le rôle et l'avatar viennent de `PersonCardModel`** (lot 11),
+    /// pas d'une seconde lecture du collaborateur : la carte personne de la
+    /// séance (2a) et cet en-tête (2b) montrent la même personne, et deux
+    /// lectures finissaient par deux libellés. Ce qui reste propre à 2b est le
+    /// **rang de séance** — `14ᵉ 1:1` — et la date en année pleine.
     @MainActor
     static func build(meeting: Meeting, thread: OneOnOneThread) -> PrepHeaderModel {
-        let personne = thread.collaborator
-        let nom = personne?.name.trimmingCharacters(in: .whitespaces) ?? ""
+        let nom = PersonCardModel.name(of: thread)
         let rang = OneOnOneThreadStore.sessionNumber(of: meeting, in: thread)
 
         var parts: [String] = []
-        let role = (personne?.role ?? "").trimmingCharacters(in: .whitespaces)
-        // « Néant » est la valeur que `CollaboratorIdentity` met dans une fiche
-        // dont le champ rôle portait une adresse : l'afficher ici serait pire
-        // que de ne rien afficher.
-        if !role.isEmpty && role != CollaboratorIdentity.roleNeant { parts.append(role) }
+        let role = PersonCardModel.role(of: thread)
+        if !role.isEmpty { parts.append(role) }
         if rang > 0 { parts.append("\(ordinal(rang)) 1:1") }
         parts.append(OneOnOneDateFormat.dayMonthYear(meeting.date))
 
         return PrepHeaderModel(
-            name: nom.isEmpty ? fallbackName : nom,
-            initials: nom.isEmpty ? "?" : AvatarPalette.initials(for: nom),
+            name: nom,
+            initials: PersonCardModel.initials(of: thread),
             subtitle: parts.joined(separator: " · "),
             sessionNumber: rang
         )
@@ -104,14 +115,12 @@ struct PrepHeader: View {
         }
     }
 
+    /// La pastille du domaine 1:1 (`AvatarSide`, lot 11) et non un second
+    /// dessin : même diamètre de 34 px, même palette, même bulle d'aide.
     private var avatar: some View {
-        let paire = AvatarPalette.pair(for: model.name)
-        return Text(model.initials)
-            .font(.plexSans(12, .semibold))
-            .foregroundStyle(paire.texte)
-            .frame(width: Self.avatarSize, height: Self.avatarSize)
-            .background(Circle().fill(paire.fond))
-            .help(model.name)
+        AvatarSide(initials: model.initials,
+                   identity: model.name,
+                   diametre: Self.avatarSize)
     }
 
     /// Le badge de type, **violet plein** : la capture le montre rempli, là où

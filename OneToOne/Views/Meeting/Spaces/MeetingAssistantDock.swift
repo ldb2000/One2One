@@ -90,7 +90,6 @@ struct MeetingAssistantDock: View {
             )
         }
     }
-    }
 
     let meeting: Meeting
     /// Réunions connues, pour dater la seconde suggestion.
