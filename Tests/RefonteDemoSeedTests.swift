@@ -93,4 +93,56 @@ struct RefonteDemoSeedTests {
         #expect(contexte.alertTitles.count == 5)
         #expect(contexte.lastPoints.isEmpty)   // une seule réunion dans le jeu
     }
+
+    // MARK: - Lot 2 : les quatre notes horodatées de la capture
+
+    @Test("Les quatre notes horodatées de la capture sont semées, dont une décision")
+    func notesHorodatees() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+
+        let notes = MeetingNoteStore.sorted(reunion.timedNotes)
+        #expect(notes.count == 4)
+        #expect(notes.map(\.t) == [252, 468, 663, 920])   // 04:12, 07:48, 11:03, 15:20
+        #expect(notes.map(\.kind) == [.note, .note, .decision, .note])
+        #expect(notes[0].text.contains("Gros morceau"))
+        #expect(notes[2].text.contains("partenaire finalise"))
+    }
+
+    @Test("La reprise de liveNotes n'ajoute pas une cinquième ligne à t = 0")
+    func pasDeReprise() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+
+        // `liveNotes` reste rempli — l'éditeur markdown et les gabarits de
+        // rapport le lisent —, mais le drapeau de migration est posé : sinon la
+        // recette montrerait cinq lignes là où la capture en montre quatre.
+        #expect(!reunion.liveNotes.isEmpty)
+        #expect(reunion.notesMigrated)
+        #expect(MeetingNoteStore.importLiveNotesIfNeeded(reunion, in: context) == nil)
+        #expect(reunion.timedNotes.count == 4)
+    }
+
+    @Test("Rejouer le semis ne duplique pas les notes horodatées")
+    func notesIdempotentes() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        _ = RefonteDemoSeed.seed(in: context)
+        _ = RefonteDemoSeed.seed(in: context)
+        #expect(try context.fetch(FetchDescriptor<MeetingNote>()).count == 4)
+    }
+
+    @Test("La frise porte quatre repères, dont un losange de décision")
+    func reperesDeLaFrise() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+
+        let repères = MeetingTimelineMarkers.markers(for: reunion)
+        #expect(repères.count == 4)
+        #expect(repères.filter { $0.kind == .decision }.map(\.t) == [663])
+        #expect(repères.filter { $0.kind == .note }.count == 3)
+    }
 }

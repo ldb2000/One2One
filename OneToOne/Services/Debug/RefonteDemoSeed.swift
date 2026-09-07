@@ -66,8 +66,23 @@ enum RefonteDemoSeed {
         ("Confirmer la reprise par le partenaire", "Lucas Sylvain")
     ]
 
-    /// Les notes horodatées de la capture, en markdown (`liveNotes`) : le lot 2
-    /// les reprendra en `MeetingNote` par `MeetingNoteStore.importLiveNotesIfNeeded`.
+    /// Les quatre notes horodatées de la colonne MES NOTES de la capture, avec
+    /// leur timecode exact et leur nature.
+    ///
+    /// Semées en `MeetingNote` (D1) **et** laissées dans `liveNotes` : le
+    /// markdown reste lu par l'éditeur des réunions de type `Note` et par les
+    /// gabarits de rapport. Le drapeau `notesMigrated` est posé pour que
+    /// `MeetingNoteStore.importLiveNotesIfNeeded` n'ajoute pas une cinquième
+    /// ligne à `t = 0` — la recette doit montrer exactement quatre lignes.
+    static let timedNotes: [(t: Double, texte: String, nature: MeetingNoteKind)] = [
+        (252, "Gros morceau = AP. Partie data isolée, on a la photo globale de la migration.", .note),
+        (468, "Timing à définir → qui donne le feu vert ?", .note),
+        (663, "Le partenaire finalise lui-même la migration (Olivier Freund).", .decision),
+        (920, "40k déjà payés, rien de finalisé — reste à chiffrer la fin Marine.", .note)
+    ]
+
+    /// Les mêmes notes en markdown (`liveNotes`), telles que l'éditeur
+    /// historique les affiche.
     static let liveNotes = """
     **04:12** Gros morceau = **AP**. Partie data isolée, on a la photo globale de la migration.
 
@@ -116,6 +131,10 @@ enum RefonteDemoSeed {
         reunion.durationSeconds = durationSeconds
         reunion.meetingDurationSeconds = durationSeconds
         reunion.liveNotes = liveNotes
+        // Les lignes horodatées sont semées explicitement : la reprise du
+        // markdown en produirait **une** à `t = 0`, et la capture en montre
+        // quatre, à quatre instants distincts.
+        reunion.notesMigrated = true
         reunion.shortSummary = shortSummary
         reunion.decisions = decisions
         reunion.rawTranscript = transcript.map(\.texte).joined(separator: "\n\n")
@@ -124,6 +143,16 @@ enum RefonteDemoSeed {
         for collaborateur in collaborateurs {
             reunion.participants.append(collaborateur)
             reunion.setParticipantStatus(.present, for: collaborateur)
+        }
+
+        for (index, ligne) in timedNotes.enumerated() {
+            let note = MeetingNote(t: ligne.t,
+                                   text: ligne.texte,
+                                   kind: ligne.nature,
+                                   visibility: MeetingNoteStore.defaultVisibility(for: reunion.kind),
+                                   orderIndex: index)
+            context.insert(note)
+            note.meeting = reunion
         }
 
         for (index, segment) in transcript.enumerated() {
