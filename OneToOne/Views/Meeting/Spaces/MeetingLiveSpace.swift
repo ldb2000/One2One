@@ -33,6 +33,28 @@ struct MeetingLiveSpace: View {
     let onAddToManagerReport: (NSRange, String, String) -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: One2OneToken.cardGap) {
+            // Lot 6, spec §4.2 : la carte « À l'écran » n'existe que **pendant
+            // un partage**. Sans document présenté elle disparaît de la
+            // colonne au lieu de laisser un cadre vide — même règle que la
+            // pilule de la barre du haut.
+            if let presentee {
+                OnScreenCard(meeting: meeting, screen: screen, item: presentee)
+            }
+            carteNotes
+        }
+    }
+
+    /// La ressource à l'écran, `nil` quand rien n'est partagé — ou quand la
+    /// pièce présentée a disparu de la liste (retirée, réunion rechargée) :
+    /// l'identifiant est alors périmé et la carte s'efface d'elle-même, plutôt
+    /// que d'afficher un cadre sans document.
+    private var presentee: ResourceItem? {
+        guard let id = screen.resources.presentedResourceID else { return nil }
+        return ResourceItem.all(for: meeting).first { $0.id == id }
+    }
+
+    private var carteNotes: some View {
         VStack(alignment: .leading, spacing: 0) {
             entete
             GeometryReader { geo in
@@ -73,10 +95,14 @@ struct MeetingLiveSpace: View {
     /// une prise de note serait un défaut visible.
     private var marqueursSignature: String {
         "\(meeting.timedNotes.count)-\(meeting.attachments.flatMap(\.slides).count)"
+            + "-\(meeting.pinnedAttachments.count)"
     }
 
     private func rafraichirMarqueurs() {
-        screen.playhead.markers = MeetingTimelineMarkers.markers(for: meeting)
+        // `allMarkers` et non `markers` : le lot 6 ajoute les pièces épinglées
+        // (`MeetingTimelineMarkers+Pins.swift`), et chaque lot y ajoutera la
+        // sienne sans que cette vue ait à connaître la liste.
+        screen.playhead.markers = MeetingTimelineMarkers.allMarkers(for: meeting)
         // Sans fichier chargé, l'axe temps est celui de la réunion : sinon la
         // frise et les timecodes de notes n'auraient aucune échelle.
         if screen.playhead.duration <= 0 {
