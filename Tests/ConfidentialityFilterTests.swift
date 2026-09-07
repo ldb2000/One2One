@@ -129,3 +129,128 @@ struct SourceRefTests {
         #expect(note.sourceStableID == id)
     }
 }
+
+/// **Critère d'acceptation du chantier 2, n° 1** (spec) : « une note privée
+/// n'apparaît dans aucun export, rapport, récap ou réponse d'assistant : test
+/// automatisé obligatoire ».
+///
+/// Cinq lecteurs de texte existent dans l'app, écrits à cinq endroits
+/// différents. Ce test les appelle **tous les cinq** sur la même réunion : un
+/// sixième lecteur ajouté sans passer par `ConfidentialityFilter` ne serait pas
+/// couvert ici, mais tout changement dans l'un de ces cinq le sera.
+/// Aucun appel réseau ni MLX : les cinq seams sont des fonctions pures ou des
+/// constructeurs de chaîne.
+@Suite("Confidentialité — une note privée ne sort par aucun des cinq flux")
+@MainActor
+struct NotePriveeHorsDesCinqFluxTests {
+
+    // Deux textes **sans caractère échappable** (ni apostrophe, ni chevron) :
+    // le flux HTML échappe le contenu, un `contains` sur une chaîne
+    // apostrophée échouerait pour une raison qui n'a rien à voir avec la
+    // confidentialité.
+    private static let textePrive = "Salaire : augmentation refusée par la DRH"
+    private static let textePartage = "Point architecture sur le socle CI-CD"
+
+    private func makeReunion(kind: MeetingKind = .oneToOne) throws -> (Meeting, ModelContext) {
+        let container = try ModelContainer(
+            for: Schema(CurrentSchema.models),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+        let reunion = Meeting(title: "1:1 Awa Diallo", date: Date(timeIntervalSince1970: 1_700_000_000))
+        reunion.kind = kind
+        reunion.summary = "Compte-rendu généré."
+        reunion.mergedTranscript = "Transcription de la séance."
+        context.insert(reunion)
+
+        let privee = MeetingNote(t: 30, text: Self.textePrive, kind: .note, visibility: .private)
+        privee.meeting = reunion
+        context.insert(privee)
+
+        let partagee = MeetingNote(t: 252, text: Self.textePartage, kind: .decision, visibility: .shared)
+        partagee.meeting = reunion
+        context.insert(partagee)
+
+        try context.save()
+        return (reunion, context)
+    }
+
+    @Test("1. Le prompt de génération de rapport")
+    func fluxPromptDeRapport() throws {
+        let (reunion, context) = try makeReunion()
+        let prompt = AIReportService.assembleTemplatePrompt(meeting: reunion, in: context)
+        #expect(prompt.contains(Self.textePartage))
+        #expect(!prompt.contains(Self.textePrive))
+    }
+
+    @Test("2. Le rapport HTML")
+    func fluxHTML() throws {
+        let (reunion, _) = try makeReunion()
+        let html = ReportHTMLBuilder.build(meeting: reunion, template: nil, includeTranscript: true)
+        #expect(html.contains(Self.textePartage))
+        #expect(!html.contains(Self.textePrive))
+    }
+
+    @Test("3. L'export markdown")
+    func fluxExportMarkdown() throws {
+        let (reunion, _) = try makeReunion()
+        let markdown = ExportService().exportMeetingMarkdown(meeting: reunion)
+        #expect(markdown.contains(Self.textePartage))
+        #expect(!markdown.contains(Self.textePrive))
+    }
+
+    @Test("4. Le texte source de l'indexation RAG")
+    func fluxIndexationRAG() throws {
+        let (reunion, _) = try makeReunion()
+        let source = RAGIndexer.sourceText(for: reunion)
+        #expect(source.contains(Self.textePartage))
+        #expect(!source.contains(Self.textePrive))
+    }
+
+    @Test("5. Le contexte du chat de réunion")
+    func fluxChatDeReunion() throws {
+        let (reunion, _) = try makeReunion()
+        let prompt = MeetingChatView(meeting: reunion)
+            .makePrompt(question: "Que retenir ?", historicalContext: "", history: "")
+        #expect(prompt.contains(Self.textePartage))
+        #expect(!prompt.contains(Self.textePrive))
+    }
+
+    @Test("5 bis. Le contexte de base du chatbot général")
+    func fluxContexteChatbot() throws {
+        let (reunion, _) = try makeReunion()
+        let bloc = MeetingNoteStore.contextBlock(for: reunion, audience: .projectTeam)
+        #expect(bloc.contains(Self.textePartage))
+        #expect(!bloc.contains(Self.textePrive))
+        // `ChatbotView.buildDatabaseContext` assemble ses lignes de réunion à
+        // partir de ce bloc : le vérifier ici garde le test sans environnement
+        // SwiftUI complet (la vue exige des `@Query`).
+        #expect(ChatbotView.meetingNotesContext(for: reunion).contains(Self.textePartage))
+        #expect(!ChatbotView.meetingNotesContext(for: reunion).contains(Self.textePrive))
+    }
+
+    /// Une ligne escaladée n'est pas une ligne partagée : elle ne doit pas
+    /// atterrir dans le récap destiné au collaborateur.
+    @Test("Une ligne escaladée reste hors du rapport d'un 1:1 côté manager")
+    func ligneEscaladeeHorsRecapCollaborateur() throws {
+        let (reunion, context) = try makeReunion()
+        let escaladee = MeetingNote(t: 400, text: "À remonter aux RH", visibility: .escalated)
+        escaladee.meeting = reunion
+        context.insert(escaladee)
+        try context.save()
+
+        let prompt = AIReportService.assembleTemplatePrompt(meeting: reunion, in: context)
+        #expect(!prompt.contains("À remonter aux RH"))
+        #expect(ConfidentialityFilter.audience(for: .oneToOne) == .collaborator)
+    }
+
+    /// Sur une réunion projet, l'audience est l'équipe : les notes partagées
+    /// sortent, les privées non — la règle ne dépend pas du type de réunion.
+    @Test("Sur une réunion projet, seule la ligne partagée sort")
+    func reunionProjet() throws {
+        let (reunion, context) = try makeReunion(kind: .project)
+        let prompt = AIReportService.assembleTemplatePrompt(meeting: reunion, in: context)
+        #expect(prompt.contains(Self.textePartage))
+        #expect(!prompt.contains(Self.textePrive))
+    }
+}

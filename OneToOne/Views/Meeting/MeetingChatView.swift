@@ -212,11 +212,15 @@ struct MeetingChatView: View {
     /// Construit le prompt monolithique : contexte historique RAG (optionnel), historique de
     /// conversation (limité, cf. `serializedConversationHistory`), puis la question.
     func makePrompt(question: String, historicalContext: String, history: String) -> String {
-        """
+        // Notes de la séance, filtrées `.projectTeam` : l'assistant de réunion
+        // répond dans un contexte partagé, les lignes privées et escaladées
+        // n'y entrent pas (spec §3.2, §8).
+        let notesBlock = MeetingNoteStore.contextBlock(for: meeting, audience: .projectTeam)
+        return """
         Tu es l'assistant d'analyse de l'application OneToOne, sollicité pendant la réunion « \(meeting.title) ».
         Réponds à partir du contexte ci-dessous. Si l'information manque, dis-le clairement.
         Sois concret et concis.
-        \(historicalContext.isEmpty ? "" : "\nContexte historique (réunions passées pertinentes):\n\(historicalContext)\n")\(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
+        \(notesBlock.isEmpty ? "" : "\nNotes prises en séance (horodatées):\n\(notesBlock)\n")\(historicalContext.isEmpty ? "" : "\nContexte historique (réunions passées pertinentes):\n\(historicalContext)\n")\(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
         Question actuelle:
         \(question)
         """

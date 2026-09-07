@@ -1012,6 +1012,7 @@ struct ChatbotView: View {
             if !m.openQuestions.isEmpty {
                 block += "\n  Questions ouvertes: " + m.openQuestions.joined(separator: " | ")
             }
+            block += Self.meetingNotesContext(for: m)
             return block
         }
 
@@ -1041,6 +1042,21 @@ struct ChatbotView: View {
         Notes (récentes):
         \(noteLines.isEmpty ? "(aucune note)" : noteLines.joined(separator: "\n"))
         """
+    }
+
+    /// Bloc des notes horodatées d'une réunion pour le contexte du chatbot,
+    /// **filtré `.projectTeam`** : le chatbot répond dans un contexte partagé,
+    /// les lignes privées et escaladées n'y entrent pas (spec §3.2, §8).
+    ///
+    /// Fonction statique, sortie de `buildDatabaseContext` pour être
+    /// vérifiable sans environnement SwiftUI (la vue exige des `@Query`) —
+    /// cf. `Tests/ConfidentialityFilterTests.swift`. Renvoie une chaîne
+    /// **préfixée d'un retour à la ligne**, ou vide, pour se concaténer
+    /// directement au bloc de la réunion.
+    static func meetingNotesContext(for meeting: Meeting) -> String {
+        let bloc = MeetingNoteStore.contextBlock(for: meeting, audience: .projectTeam)
+        guard !bloc.isEmpty else { return "" }
+        return "\n  Notes de séance:\n" + bloc
     }
 
     /// Sérialise la conversation antérieure en blocs `Utilisateur:` / `Assistant:`

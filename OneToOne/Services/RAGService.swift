@@ -107,9 +107,7 @@ struct RAGIndexer {
     /// transcription (préfère `mergedTranscript`, sinon `rawTranscript`).
     /// No-op si le contenu est vide. Opération idempotente.
     static func reindex(meeting: Meeting, context: ModelContext) async throws {
-        let sourceText: String = meeting.kind == .note
-            ? meeting.liveNotes
-            : (meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript)
+        let sourceText = Self.sourceText(for: meeting)
         guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             ragLog.info("reindex: contenu vide, skip")
             return
@@ -140,6 +138,28 @@ struct RAGIndexer {
 
         try context.save()
         ragLog.info("reindex: done, saved \(pieces.count) chunks")
+    }
+
+    /// Texte source de l'indexation, **fonction pure** (aucun embedding, donc
+    /// aucun MLX) : la transcription — fusionnée sinon brute — ou `liveNotes`
+    /// pour une note libre, plus les notes horodatées **indexables**.
+    ///
+    /// Les lignes privées ne sont **jamais** chunkées (spec §3.2 : « ni les
+    /// réponses de l'assistant partagé »). Le filtrage se fait à l'écriture de
+    /// l'index et non à la lecture : sinon chaque nouveau chemin de recherche
+    /// — RRF, BM25, tool calling — devrait le réappliquer, et le premier oubli
+    /// ressortirait une ligne privée dans une réponse.
+    static func sourceText(for meeting: Meeting) -> String {
+        var base = meeting.kind == .note
+            ? meeting.liveNotes
+            : (meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript)
+
+        let notes = MeetingNoteStore.indexable(meeting.timedNotes)
+        if !notes.isEmpty {
+            let bloc = MeetingNoteStore.markdown(notes)
+            base += base.isEmpty ? bloc : "\n\n\(bloc)"
+        }
+        return base
     }
 
     /// Gate d'auto-indexation pour les notes libres : no-op silencieux si
