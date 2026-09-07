@@ -422,6 +422,16 @@ final class Meeting {
     var participantStatusesJSON: String = "{}"
     var adhocAttendeesJSON: String = "[]"
 
+    /// Les trois cases du pied `À L'ENVOI DU RAPPORT` du tiroir Ressources
+    /// (spec §4.1). Vide = les défauts (`AttachmentReportOptions.defaults`,
+    /// deux premières cochées) ; la façade typée est
+    /// `reportAttachmentOptions`, dans `Services/AttachmentReportOptions.swift`.
+    ///
+    /// Un choix **par réunion** : une revue de projet et un 1:1 ne se diffusent
+    /// pas de la même façon. En JSON et non en trois colonnes — ce sont trois
+    /// cases d'une même intention, aucune n'est requêtable seule.
+    var reportAttachmentOptionsJSON: String = ""
+
     /// JSON: {clusterID(String): "collabStableID|null"}.
     /// Source de vérité du mapping cluster → Collaborator décidé par
     /// SpeakerMatcher (auto ou manuel). Bulk-re-assign sur correction user.
