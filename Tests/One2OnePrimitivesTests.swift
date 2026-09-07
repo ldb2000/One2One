@@ -93,4 +93,54 @@ struct One2OnePrimitivesTests {
         let ratio = try #require(ContrastRatio.ratio(ton.encre, ton.fond))
         #expect(ratio >= minimum, "\(ton) : \(String(format: "%.2f", ratio)):1")
     }
+
+    // MARK: - Pile d'avatars
+
+    @Test("Jusqu'à six participants, la pile les montre tous et n'affiche pas de surplus")
+    func avatarStackShowsUpToSix() {
+        let noms = ["Patrice Y", "Nicolas L", "Claire-Amélie P", "Laurent S", "Camille A", "Loïc D"]
+        let mise = AvatarStack.layout(noms: noms, maxVisibles: 6)
+        #expect(mise.visibles.count == 6)
+        #expect(mise.surplus == 0)
+    }
+
+    @Test("Au-delà de six, la pile en montre six et compte le reste")
+    func avatarStackOverflows() {
+        let noms = (1...9).map { "Participant \($0)" }
+        let mise = AvatarStack.layout(noms: noms, maxVisibles: 6)
+        #expect(mise.visibles.count == 6)
+        #expect(mise.surplus == 3)
+        #expect(mise.visibles.first == "Participant 1")
+        #expect(mise.visibles.last == "Participant 6")
+    }
+
+    @Test("Une pile vide n'affiche ni avatar ni « +0 »")
+    func avatarStackEmpty() {
+        let mise = AvatarStack.layout(noms: [], maxVisibles: 6)
+        #expect(mise.visibles.isEmpty)
+        #expect(mise.surplus == 0)
+    }
+
+    @Test("La géométrie de la pile est celle de la conception : 19 px, chevauchement −6")
+    func avatarStackGeometry() {
+        #expect(AvatarStack.diametre == 19)
+        #expect(AvatarStack.chevauchement == -6)
+    }
+
+    // MARK: - Barre de progression
+
+    @Test("Une progression est bornée à 0…1")
+    func progressBarClamps() {
+        #expect(ProgressBar.clamp(0.5) == 0.5)
+        #expect(ProgressBar.clamp(-3) == 0)
+        #expect(ProgressBar.clamp(1.4) == 1)
+    }
+
+    @Test("Une progression indéfinie vaut zéro plutôt qu'une barre de largeur absurde")
+    func progressBarHandlesNaN() {
+        // 3 actions closes sur 0 action produit `nan` : la barre doit rester
+        // vide, pas disparaître ni occuper toute la carte.
+        #expect(ProgressBar.clamp(.nan) == 0)
+        #expect(ProgressBar.clamp(.infinity) == 1)
+    }
 }
