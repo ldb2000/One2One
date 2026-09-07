@@ -18,6 +18,11 @@ struct OneToOneApp: App {
     let container: ModelContainer
 
     init() {
+        // Fontes IBM Plex embarquées enregistrées avant la première image
+        // dessinée. `PlexFont.isInstalled` le referait au premier usage, mais un
+        // enregistrement tardif ferait clignoter la typographie.
+        PlexFont.ensureRegistered()
+
         // Store dédié sous `Application Support/OneToOne/OneToOne.store` :
         // évite la collision avec `default.store` (utilisé par d'autres libs
         // CoreData qui partagent ce nom par défaut) et garantit la persistance
