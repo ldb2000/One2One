@@ -26,6 +26,10 @@ struct WorkshopSpaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             WorkshopToolbar(meeting: meeting, state: state, playheadT: playheadT)
+            // Le bandeau vient **sous** la barre d'outils, dans le flux : en
+            // superposition haute, il la recouvrait (constaté en recette le
+            // 2026-09-07) et l'utilisateur perdait modes, couleurs et export.
+            bandeauErreur
             HStack(spacing: 0) {
                 WorkshopToolPalette(meeting: meeting, state: state)
                 toile
@@ -36,7 +40,6 @@ struct WorkshopSpaceView: View {
             }
         }
         .background(One2OneToken.bgCanvas)
-        .overlay(alignment: .top) { bandeauErreur }
         .background { raccourcis }
         .task(id: meeting.persistentModelID) {
             await state.open(meeting: meeting, playheadT: playheadT, context: context)

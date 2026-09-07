@@ -79,6 +79,14 @@ final class WorkshopState {
     @ObservationIgnored private let makeBridge: @MainActor (UUID) -> any WhiteboardBridge
     @ObservationIgnored private var cachedBridge: (meeting: UUID, bridge: any WhiteboardBridge)?
 
+    /// Chargement demandé avant que la page ne soit prête. La page met une
+    /// seconde à analyser 3,1 Mo de JavaScript ; l'écran, lui, s'affiche tout
+    /// de suite et demande aussitôt sa planche. Sans cette file d'attente, le
+    /// premier `load` échouait en « Le moteur de planches n'est pas encore
+    /// prêt » et la planche restait vide jusqu'au clic suivant (constaté en
+    /// recette le 2026-09-07).
+    @ObservationIgnored private var pendingLoad: (@MainActor () async -> Void)?
+
     /// `store` est optionnel plutôt que défaut `.shared` : une valeur par
     /// défaut est évaluée **chez l'appelant**, qui n'est pas forcément isolé sur
     /// l'acteur principal (erreur en Swift 6).
@@ -101,6 +109,9 @@ final class WorkshopState {
         nouveau.onReady = { [weak self] in
             guard let self else { return }
             self.isReady = true
+            guard let differe = self.pendingLoad else { return }
+            self.pendingLoad = nil
+            Task { await differe() }
         }
         cachedBridge = (meetingStableID, nouveau)
         return nouveau
@@ -157,16 +168,33 @@ final class WorkshopState {
         activeBoardID = board.ensuredStableID
         let scene = store.loadScene(board: board, meeting: meeting) ?? BoardScene.empty
         activeElementCount = BoardScene.elementCount(scene)
+        try? context.save()
+
+        // La page n'est pas encore prête : on garde l'intention et `onReady`
+        // la rejouera. Poser une erreur ici serait mentir — rien n'est cassé,
+        // le moteur charge.
+        guard pont.isReady else {
+            pendingLoad = { [weak self] in
+                await self?.pousse(scene: scene, mode: board.mode, meeting: meeting)
+            }
+            return
+        }
+        await pousse(scene: scene, mode: board.mode, meeting: meeting)
+    }
+
+    /// Envoie la scène et les réglages à la page. Séparé de `select` pour que
+    /// `onReady` puisse rejouer exactement la même séquence.
+    private func pousse(scene: String, mode: BoardMode, meeting: Meeting) async {
+        let pont = bridge(for: meeting.ensuredStableID)
         do {
             try await pont.load(scene: scene)
-            try await pont.setMode(board.mode)
+            try await pont.setMode(mode)
             try await pont.setTool(tool)
             try await pont.setColor(colorHex)
             try await pont.setStroke(stroke)
         } catch {
             errorMessage = "Planche illisible : \(error.localizedDescription)"
         }
-        try? context.save()
     }
 
     /// Crée une planche à la suite de l'active et la retourne (sans la charger :

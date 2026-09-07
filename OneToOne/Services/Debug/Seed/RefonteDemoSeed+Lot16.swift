@@ -113,6 +113,12 @@ extension RefonteDemoSeed {
 
         let collaborateurs = seedWorkshopCollaborators(in: context)
 
+        // Semer l'atelier **arme le drapeau** : une réunion de type Atelier
+        // dont l'ecran 6a reste desactive ne sert a rien, et la recette
+        // n'aurait aucun moyen de l'activer sans passer par les reglages.
+        // Le semis est une commande de recette explicite, pas un demarrage.
+        armeLeDrapeau(in: context)
+
         // 4 septembre 2026, 14:00 à Paris — l'après-midi de la séance.
         let reunion = Meeting(title: workshopTitle,
                               date: Date(timeIntervalSince1970: 1_788_523_200),
@@ -145,6 +151,19 @@ extension RefonteDemoSeed {
 
         try? context.save()
         return reunion
+    }
+
+    /// Arme `workshopEnabled` dans les reglages canoniques, en les creant si
+    /// l'installation n'en a pas encore.
+    private static func armeLeDrapeau(in context: ModelContext) {
+        let existants = (try? context.fetch(FetchDescriptor<AppSettings>())) ?? []
+        if let reglages = existants.canonicalSettings {
+            reglages.workshopEnabled = true
+            return
+        }
+        let reglages = AppSettings()
+        reglages.workshopEnabled = true
+        context.insert(reglages)
     }
 
     /// Le projet de la capture — le fil d'Ariane dit

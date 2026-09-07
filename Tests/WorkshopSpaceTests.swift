@@ -214,6 +214,37 @@ struct WorkshopStateTests {
         #expect(liste.map(\.index) == [0, 1, 2])
     }
 
+    /// Défaut constaté en recette le 2026-09-07 : l'écran demandait sa planche
+    /// avant que la page n'ait fini d'analyser 3,1 Mo de JavaScript, le `load`
+    /// échouait, un bandeau « Le moteur de planches n'est pas encore prêt »
+    /// s'affichait et la toile restait vide jusqu'au clic suivant.
+    @Test("Une planche demandée avant que la page soit prête est chargée à `ready`")
+    func selectionIsDeferredUntilReady() async throws {
+        let b = try bac()
+        defer { try? FileManager.default.removeItem(at: b.racine) }
+        b.pont.isReady = false
+
+        await b.state.open(meeting: b.meeting, playheadT: 495, context: b.context)
+
+        // Rien n'a été poussé, et **aucune erreur** n'a été posée : le moteur
+        // charge, il n'est pas cassé.
+        #expect(!b.pont.calls.contains { if case .load = $0 { return true } else { return false } })
+        #expect(b.state.errorMessage == nil)
+        // La planche existe déjà et elle est l'active.
+        let planche = try #require(b.state.activeBoard(of: b.meeting))
+        #expect(b.state.activeBoardID == planche.stableID)
+
+        b.pont.simulateReady()
+        // Le rejeu passe par un `Task` : on lui laisse un tour de boucle.
+        try await Task.sleep(for: .milliseconds(80))
+
+        #expect(b.state.isReady)
+        #expect(b.pont.calls.contains { if case .load = $0 { return true } else { return false } })
+        #expect(b.pont.calls.contains(.setMode(.sketch)))
+        #expect(b.pont.calls.contains(.setStroke(.moyen)))
+        #expect(b.state.errorMessage == nil)
+    }
+
     @Test("Un seul pont — donc un seul WKWebView — par réunion")
     func bridgeIsCachedPerMeeting() throws {
         var creations = 0
@@ -441,6 +472,16 @@ struct RefonteDemoSeedWorkshopTests {
         #expect(scene.contains("#2563d9"))
         #expect(scene.contains("#b8544c"))
         #expect(scene.contains("dashed"))
+    }
+
+    @Test("Semer l'atelier arme le drapeau des reglages")
+    func seedArmsTheFlag() throws {
+        let (context, store, racine) = try bac()
+        defer { try? FileManager.default.removeItem(at: racine) }
+        #expect((try context.fetch(FetchDescriptor<AppSettings>())).isEmpty)
+        RefonteDemoSeed.seedWorkshop(in: context, store: store)
+        let reglages = try #require((try context.fetch(FetchDescriptor<AppSettings>())).canonicalSettings)
+        #expect(reglages.workshopEnabled)
     }
 
     @Test("Semer deux fois ne duplique rien")
