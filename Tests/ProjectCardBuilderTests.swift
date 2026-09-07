@@ -312,6 +312,36 @@ struct ProjectCardBuilderTests {
         #expect(etat.meetingCount == 0)
     }
 
+    /// `build` est appelé depuis un `body` SwiftUI, plusieurs fois par rendu :
+    /// il ne doit **rien** écrire. `ensuredStableID` backfille et enregistre le
+    /// contexte — l'employer ici muterait le store pendant le calcul d'une vue.
+    /// Le test le vérifie sur une ligne dont le `stableID` est `nil`, et
+    /// s'assure au passage que l'identité rendue est stable d'un appel à
+    /// l'autre (sinon `ForEach` recréerait ses vues à chaque image).
+    @Test("Construire l'état d'affichage n'écrit rien dans le modèle")
+    func buildHasNoSideEffect() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject(context)
+        let jalon = ProjectMilestone(label: "Sans identifiant stable", order: 0)
+        context.insert(jalon)
+        jalon.project = projet
+        jalon.stableID = nil
+        let contact = ProjectContact(name: "Sans identifiant", role: "x", order: 0)
+        context.insert(contact)
+        contact.project = projet
+        contact.stableID = nil
+        try context.save()
+
+        let premier = ProjectCardBuilder.build(project: projet, meetings: [])
+        #expect(jalon.stableID == nil, "build ne doit pas backfiller le stableID")
+        #expect(contact.stableID == nil)
+        #expect(context.hasChanges == false, "build ne doit rien écrire dans le contexte")
+
+        let second = ProjectCardBuilder.build(project: projet, meetings: [])
+        #expect(premier.milestones.map(\.id) == second.milestones.map(\.id))
+        #expect(premier.contacts.map(\.id) == second.contacts.map(\.id))
+    }
+
     @Test("Périmètre et tags sont repris tels quels")
     func scopeAndTags() throws {
         let context = ModelContext(try makeContainer())

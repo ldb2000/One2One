@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// Le statut de la fiche projet, en trois valeurs (spec §4.3 : « menu à
 /// 3 valeurs avec point coloré »).
@@ -149,7 +150,7 @@ enum ProjectCardBuilder {
             budget: budget(project: project),
             milestones: sortedMilestones(project.milestones).map { jalon in
                 ProjectCardState.Milestone(
-                    id: jalon.ensuredStableID,
+                    id: displayID(jalon.stableID, fallback: jalon.persistentModelID),
                     label: jalon.label,
                     state: jalon.state,
                     trailingText: trailingText(for: jalon),
@@ -162,7 +163,7 @@ enum ProjectCardBuilder {
             risks: risks(project: project),
             contacts: sortedContacts(project.contacts).map { contact in
                 ProjectCardState.Contact(
-                    id: contact.ensuredStableID,
+                    id: displayID(contact.stableID, fallback: contact.persistentModelID),
                     name: contact.name,
                     role: contact.role,
                     text: contact.role.isEmpty ? contact.name : "\(contact.name) — \(contact.role)"
@@ -172,6 +173,32 @@ enum ProjectCardBuilder {
     }
 
     // MARK: - Budget
+
+    // MARK: - Identité d'affichage
+
+    /// Identité d'une ligne pour `ForEach`, **sans effet de bord**.
+    ///
+    /// `ensuredStableID` backfille un UUID manquant **et enregistre** le
+    /// contexte : appelé depuis un `body` SwiftUI — et `build` l'est, plusieurs
+    /// fois par rendu — il muterait le store pendant le calcul d'une vue.
+    /// L'écriture reste donc au brouillon (`ProjectCardDraft.snapshot`, appelé
+    /// hors rendu) ; ici, une ligne sans `stableID` reçoit un identifiant
+    /// dérivé de son identité SwiftData, stable pour la durée du processus, ce
+    /// qui suffit à `ForEach`.
+    static func displayID(_ stable: UUID?, fallback: PersistentIdentifier) -> UUID {
+        if let stable { return stable }
+        var octets = [UInt8](repeating: 0, count: 16)
+        var empreinte = UInt64(bitPattern: Int64(fallback.hashValue))
+        for index in 0..<8 {
+            octets[index] = UInt8(truncatingIfNeeded: empreinte)
+            octets[index + 8] = octets[index]
+            empreinte >>= 8
+        }
+        return UUID(uuid: (octets[0], octets[1], octets[2], octets[3],
+                           octets[4], octets[5], octets[6], octets[7],
+                           octets[8], octets[9], octets[10], octets[11],
+                           octets[12], octets[13], octets[14], octets[15]))
+    }
 
     static func tone(ratio: Double) -> BudgetTone {
         if ratio >= reportRatio { return .report }
