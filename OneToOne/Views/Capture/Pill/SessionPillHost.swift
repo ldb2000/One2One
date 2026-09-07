@@ -5,8 +5,8 @@ import SwiftUI
 /// Le point d'entrée de la pastille flottante côté écran de réunion (spec §5.4).
 ///
 /// Un modificateur posé **une seule fois**, sur `MeetingSpaceView`, exactement comme le
-/// lot 4 y pose `.sessionFullscreen(...)` : c'est le seul endroit de l'application qui
-/// tienne à la fois la réunion, son `MeetingScreenModel` et le coordinateur de capture
+/// lot 4 y pose son modificateur de plein écran : c'est le seul endroit de l'application
+/// qui tienne à la fois la réunion, son `MeetingScreenModel` et le coordinateur de capture
 /// du lot 7. La pastille vit dans un `NSPanel` — sans environnement SwiftUI, sans
 /// `@Query`, sans le `@StateObject` de `MeetingView` — et n'a aucun autre moyen de les
 /// atteindre. `FocusedValues`, qu'utilise le menu Réunion, ne convient pas : la pastille

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import OneToOne
 
@@ -122,5 +123,40 @@ struct SessionPillPresentationTests {
         #expect(deux == attenduLesDeux)
         #expect(deux > confirmation)
         #expect(deux > note)
+    }
+
+    // MARK: - Un seul point d'entrée
+
+    @Test("le point d'entrée de la pastille n'est posé qu'une fois dans l'application")
+    func singleEntryPoint() throws {
+        let racine = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("OneToOne", isDirectory: true)
+        let enumerateur = FileManager.default.enumerator(at: racine, includingPropertiesForKeys: nil)
+        var poses: [String] = []
+        while let url = enumerateur?.nextObject() as? URL {
+            guard url.pathExtension == "swift" else { continue }
+            let texte = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            guard texte.contains(".sessionPill(meeting:") else { continue }
+            // La déclaration de l'extension elle-même ne compte pas.
+            guard url.lastPathComponent != "SessionPillHost.swift" else { continue }
+            poses.append(url.lastPathComponent)
+        }
+        // Deux poses inscriraient deux poignées pour la même réunion : la seconde
+        // gagnerait, avec le contexte de la première (même règle que le lot 4).
+        #expect(poses == ["MeetingSpaceView.swift"], "poses trouvées : \(poses)")
+    }
+
+    @Test("le lot 8 ne touche pas MeetingView")
+    func meetingViewUntouched() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("OneToOne/Views/MeetingView.swift")
+        let texte = try String(contentsOf: url, encoding: .utf8)
+        #expect(texte.contains("sessionPill") == false)
+        #expect(texte.contains("SessionPill") == false)
+        #expect(texte.contains("ActiveMeetingRegistry") == false)
     }
 }
