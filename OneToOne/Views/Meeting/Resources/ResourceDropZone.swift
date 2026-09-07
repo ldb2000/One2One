@@ -38,7 +38,8 @@ struct ResourceDropZone: View {
                         .foregroundStyle(One2OneToken.inkMuted)
                     Text("⌘⇧V")
                         .font(.plexMono(10.5))
-                        .foregroundStyle(One2OneToken.inkMuted)
+                        // 10,5 px : `ink/4` (spec §1.2).
+                        .foregroundStyle(One2OneToken.ink4)
                 }
             }
         }

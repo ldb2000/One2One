@@ -43,7 +43,8 @@ struct PinnedInSessionStrip: View {
                 Spacer(minLength: 8)
                 Text("Les pièces épinglées sont citées dans le rapport")
                     .font(.plexSans(11))
-                    .foregroundStyle(One2OneToken.inkMuted)
+                    // 11 px : `ink/4` (spec §1.2).
+                    .foregroundStyle(One2OneToken.ink4)
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
