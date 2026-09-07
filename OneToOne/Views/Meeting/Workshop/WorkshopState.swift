@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import SwiftData
 
@@ -94,6 +95,7 @@ final class WorkshopState {
          makeBridge: @escaping @MainActor (UUID) -> any WhiteboardBridge = { WhiteboardWebBridge(meetingStableID: $0) }) {
         self.store = store ?? .shared
         self.makeBridge = makeBridge
+        configureStylus()
     }
 
     // MARK: - Pont
@@ -126,6 +128,9 @@ final class WorkshopState {
     func releaseBridge() {
         cachedBridge = nil
         isReady = false
+        // Le moniteur de pression survivrait à la page : il écouterait tous les
+        // événements du poste pour rien.
+        stylus.stop()
     }
 
     // MARK: - Planches
@@ -186,10 +191,10 @@ final class WorkshopState {
     /// `onReady` puisse rejouer exactement la même séquence.
     private func pousse(scene: String, mode: BoardMode, meeting: Meeting) async {
         let pont = bridge(for: meeting.ensuredStableID)
+        annotations = BoardAnnotation.list(in: scene)
         do {
             try await pont.load(scene: scene)
-            try await pont.setMode(mode)
-            try await pont.setTool(tool)
+            try await pousseMode(mode, meeting: meeting)
             try await pont.setColor(colorHex)
             try await pont.setStroke(stroke)
         } catch {
@@ -263,7 +268,7 @@ final class WorkshopState {
             courante.mode = mode
             courante.updatedAt = Date()
             try? context.save()
-            try? await bridge(for: meeting.ensuredStableID).setMode(mode)
+            try? await pousseMode(mode, meeting: meeting)
         case .createNew:
             let planche = createBoard(mode: mode, meeting: meeting, t: t, context: context)
             await select(planche, meeting: meeting, context: context)
@@ -277,6 +282,9 @@ final class WorkshopState {
     func apply(_ change: WhiteboardChange, meeting: Meeting, context: ModelContext) async {
         guard let planche = activeBoard(of: meeting) else { return }
         activeElementCount = change.elementCount
+        // La section `SUR CETTE PLANCHE` suit le dessin : annoter un objet doit
+        // le faire apparaître dans le dock sans changer de planche.
+        annotations = BoardAnnotation.list(in: change.scene)
         do {
             try store.save(scene: change.scene, board: planche, meeting: meeting)
             lastSavedAt = planche.updatedAt
@@ -367,6 +375,180 @@ final class WorkshopState {
     private func authorName(for meeting: Meeting) -> String {
         meeting.participants.first?.name ?? "Moi"
     }
+
+    // MARK: - Lot 17 : modes, annotations, pièces
+
+    /// Les objets annotés `question` / `risque` de la planche affichée — la
+    /// section `SUR CETTE PLANCHE` du dock (spec §7.2). Recalculée à chaque
+    /// changement de scène : c'est une **vue** de la planche, pas un second
+    /// magasin qui pourrait divergerd'elle.
+    var annotations: [BoardAnnotation] = []
+
+    /// Pression courante du stylet, `nil` quand aucune tablette ne dessine.
+    /// Affichée nulle part : c'est la page qui l'applique. Publiée quand même,
+    /// pour qu'une future jauge n'ait pas à rebrancher le moniteur.
+    var pressure: Double?
+
+    /// Le moniteur d'événements de pression. Un seul pour l'écran, démarré
+    /// quand une planche `ink` s'affiche et arrêté sinon : écouter tous les
+    /// événements du poste pour un mode qui n'est pas actif serait gratuit.
+    @ObservationIgnored let stylus = StylusPressureMonitor()
+
+    /// Branche le moniteur sur la page. Appelé une fois, à la construction.
+    private func configureStylus() {
+        stylus.onChange = { [weak self] valeur in
+            guard let self else { return }
+            self.pressure = valeur
+            guard let cache = self.cachedBridge else { return }
+            Task { try? await cache.bridge.setPressure(valeur) }
+        }
+    }
+
+    /// Applique un mode à la page : ses réglages, sa bibliothèque de formes et
+    /// l'outil par défaut de sa palette.
+    ///
+    /// Un mode qui garderait l'outil du précédent laisserait un crayon armé
+    /// dans une palette qui n'en a pas (spec §7.1 : « chacun sa palette »).
+    private func pousseMode(_ mode: BoardMode, meeting: Meeting) async throws {
+        let pont = bridge(for: meeting.ensuredStableID)
+        try await pont.setMode(mode)
+        if mode == .diagram {
+            try await pont.setLibrary(BoardShapeLibrary.libraryJSON())
+        }
+        let outil = WorkshopPalette.tools(for: mode).contains(tool)
+            ? tool
+            : WorkshopPalette.defaultTool(for: mode)
+        tool = outil
+        try await pont.setTool(outil)
+        if mode == .ink { stylus.start() } else { stylus.stop() }
+    }
+
+    /// Dépose une forme de la bibliothèque sur la planche.
+    func insert(shape: BoardShapeLibrary.Shape, meeting: Meeting) async {
+        let elements = BoardShapeLibrary.elementsJSON(for: shape, at: Self.dropOrigin)
+        do {
+            try await bridge(for: meeting.ensuredStableID).insertShape(elements)
+        } catch {
+            errorMessage = "Forme non insérée : \(error.localizedDescription)"
+        }
+    }
+
+    /// Aligne ou répartit la sélection. Sans assez d'objets sélectionnés, rien
+    /// n'est envoyé : `BoardAlignment` rend un dictionnaire vide et le pont
+    /// n'est pas dérangé.
+    func align(_ operation: BoardAlignment.Operation, meeting: Meeting) async {
+        let pont = bridge(for: meeting.ensuredStableID)
+        do {
+            let selection = try await pont.selection()
+            guard selection.count >= operation.minimumSelection else { return }
+            let scene = try await pont.scene()
+            let positions = BoardAlignment.moves(scene: scene,
+                                                 selectedIDs: selection,
+                                                 operation: operation)
+            guard !positions.isEmpty else { return }
+            try await pont.moveElements(positions)
+        } catch {
+            errorMessage = "Alignement impossible : \(error.localizedDescription)"
+        }
+    }
+
+    /// Annote la sélection depuis le menu contextuel de la toile.
+    func annotateSelection(as kind: BoardAnnotation.Kind?, meeting: Meeting) async {
+        do {
+            try await bridge(for: meeting.ensuredStableID).setSelectionKind(kind)
+        } catch {
+            errorMessage = "Annotation impossible : \(error.localizedDescription)"
+        }
+    }
+
+    /// Sélectionne l'objet annoté qu'on vient de cliquer dans le dock.
+    func reveal(_ annotation: BoardAnnotation, meeting: Meeting) async {
+        try? await bridge(for: meeting.ensuredStableID).select(elementIDs: [annotation.id])
+    }
+
+    // MARK: Action et épinglage
+
+    /// `＋ Action depuis la sélection` (spec §7.2, critère n° 4).
+    ///
+    /// Passe par `MeetingScreenModel.requestAction` **puis** par
+    /// `ActionComposerService.creer` : le rail d'actions n'est pas monté en
+    /// atelier (le dock le remplace), donc personne ne consommerait le
+    /// brouillon. L'action est donc créée tout de suite, avec le même service
+    /// que le composeur du rail — une seconde implémentation divergerait sur
+    /// l'ordre, le responsable et la charge.
+    @discardableResult
+    func createAction(title: String,
+                      t: Double,
+                      screen: MeetingScreenModel,
+                      meeting: Meeting,
+                      context: ModelContext) -> ActionTask? {
+        let propre = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !propre.isEmpty, let planche = activeBoard(of: meeting) else { return nil }
+        let reference = SourceRef(kind: .board, stableID: planche.ensuredStableID, t: t)
+        screen.requestAction(from: ActionDraft(title: propre, sourceRef: reference))
+        return ActionComposerService.creer(from: screen, meeting: meeting, in: context)
+    }
+
+    /// `Épingler à mm:ss` : une note horodatée qui cite la planche, donc un
+    /// repère sur la frise (`MeetingTimelineMarkers.boardMarkers`).
+    @discardableResult
+    func pinActiveBoard(t: Double,
+                        meeting: Meeting,
+                        context: ModelContext) -> MeetingNote? {
+        guard let planche = activeBoard(of: meeting) else { return nil }
+        let titre = planche.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let libelle = titre.isEmpty
+            ? "◫ Planche \(planche.index + 1)"
+            : "◫ Planche \(planche.index + 1) · \(titre)"
+        let note = MeetingNote(t: t,
+                               text: libelle,
+                               kind: .note,
+                               visibility: MeetingNoteStore.defaultVisibility(for: meeting.kind),
+                               orderIndex: MeetingNoteStore.nextOrderIndex(at: t, in: meeting))
+        context.insert(note)
+        note.meeting = meeting
+        note.sourceRef = SourceRef(kind: .board, stableID: planche.ensuredStableID, t: t)
+        try? context.save()
+        return note
+    }
+
+    // MARK: Pièces et captures
+
+    /// `Insérer` : l'image est **copiée** dans la réunion, bornée à 2 048 px,
+    /// puis posée verrouillée sur la planche (spec §7.2, §7.4, §8).
+    ///
+    /// - Returns: le chemin relatif de la copie, pour que la vue sache que la
+    ///   pièce est désormais « Sur la planche ».
+    @discardableResult
+    func insertImage(from url: URL, meeting: Meeting, context: ModelContext) async -> String? {
+        let reunion = meeting.ensuredStableID
+        do {
+            let copie = try BoardImageInsertion.copy(source: url,
+                                                     meetingStableID: reunion,
+                                                     store: store)
+            try await bridge(for: reunion).insertImage(dataURL: copie.dataURL,
+                                                       fileID: copie.fileID,
+                                                       width: copie.size.width,
+                                                       height: copie.size.height)
+            insertedFileNames.insert(url.lastPathComponent)
+            return copie.relativePath
+        } catch {
+            errorMessage = "Insertion impossible : \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Les noms des pièces déjà insérées pendant cette séance de travail : le
+    /// bouton devient `Sur la planche` (spec §7.2). État d'écran, non persisté —
+    /// la vérité est dans la scène, et la relire à chaque rendu du dock
+    /// coûterait un aller-retour de pont par ligne.
+    var insertedFileNames: Set<String> = []
+
+    /// Point de dépôt d'une forme ou d'une image : un décalage constant depuis
+    /// l'origine de la planche. Le centre exact de la vue demanderait de
+    /// connaître le panoramique de la page ; ce n'est pas ce que la spec exige,
+    /// et l'objet est déposé sélectionné, donc immédiatement déplaçable.
+    static let dropOrigin = CGPoint(x: 120, y: 120)
 }
 
 extension BoardStore {
