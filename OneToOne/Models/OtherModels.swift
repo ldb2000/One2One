@@ -140,8 +140,42 @@ enum ActionAudience: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// Priorité d'une action (spec §1.3 `Action.priority`). Valeurs brutes
+/// persistées dans `ActionTask.priorityRaw`.
+enum ActionPriority: String, Codable, CaseIterable, Identifiable, Sendable {
+    case normal = "normal"
+    case urgent = "urgent"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .normal: return "Normale"
+        case .urgent: return "Urgente"
+        }
+    }
+}
+
+/// Statut d'une action (spec §1.3 `Action.status`). `dropped` — abandonnée —
+/// n'a pas d'équivalent parmi les champs historiques.
+enum ActionStatus: String, Codable, CaseIterable, Identifiable, Sendable {
+    case open    = "open"
+    case done    = "done"
+    case dropped = "dropped"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .open:    return "Ouverte"
+        case .done:    return "Terminée"
+        case .dropped: return "Abandonnée"
+        }
+    }
+}
+
 @Model
-final class ActionTask {
+final class ActionTask: SourceRefCarrying {
     var title: String
     var project: Project?
     var meeting: Meeting?
@@ -182,6 +216,54 @@ final class ActionTask {
     /// nom brut ici. L'UI affiche un chip orange "💡 Auto : <nom>" cliquable
     /// qui ouvre la sheet de recherche pré-remplie sur ce nom.
     var unresolvedAssigneeName: String? = nil
+
+    // MARK: - Modèle cible (spec §1.3 `Action`)
+
+    /// Priorité. **Miroir requêtable** de `isUrgent`, qui reste la source de
+    /// vérité : deux colonnes vraiment indépendantes finiraient par ne plus
+    /// afficher le même nombre d'actions urgentes selon l'écran. Le getter lit
+    /// donc `isUrgent`, le setter écrit les deux.
+    var priorityRaw: String = ActionPriority.normal.rawValue
+    var priority: ActionPriority {
+        get { isUrgent ? .urgent : .normal }
+        set {
+            priorityRaw = newValue.rawValue
+            isUrgent = (newValue == .urgent)
+        }
+    }
+
+    /// Statut à trois états. `done` est exactement `isCompleted` (source de
+    /// vérité, lue par tous les écrans existants) ; seul `dropped` n'existe que
+    /// dans la colonne — une action abandonnée n'est pas une action cochée.
+    var statusRaw: String = ActionStatus.open.rawValue
+    var status: ActionStatus {
+        get {
+            if isCompleted { return .done }
+            return ActionStatus(rawValue: statusRaw) == .dropped ? .dropped : .open
+        }
+        set {
+            statusRaw = newValue.rawValue
+            isCompleted = (newValue == .done)
+        }
+    }
+
+    /// Charge estimée en minutes (`30min` du composeur). `nil` = non estimée.
+    /// Distinct de `pomodoros`, conservé pour les vues existantes.
+    var effortMinutes: Int? = nil
+
+    // Chaîne de citation — trois colonnes plates, vue typée `sourceRef`
+    // (protocole `SourceRefCarrying`).
+    var sourceKindRaw: String? = nil
+    var sourceStableID: UUID? = nil
+    var sourceT: Double? = nil
+
+    /// Nombre de fois où l'action a été reportée d'une réunion à la suivante.
+    var deferralCount: Int = 0
+
+    /// Réunion d'où l'action a été reportée. Relation `.nullify` sans inverse
+    /// sur `Meeting` : une trace de provenance, pas un contenu que la
+    /// suppression de la réunion d'origine doit emporter.
+    var carriedFromMeeting: Meeting?
 
     @Relationship(deleteRule: .cascade, inverse: \ActionComment.task)
     var comments: [ActionComment] = []
@@ -303,6 +385,18 @@ final class Meeting {
     /// au lieu d'un .wav original.
     var wavIsCompressed: Bool = false
     var wavFilePath: String?
+    /// Instant de démarrage du premier enregistrement de cette réunion.
+    /// **Origine de l'axe temps** (`t = 0`) partagé par les notes horodatées,
+    /// les captures et la frise audio : `MeetingPlayhead` calcule `t` comme
+    /// `maintenant − recordingStartedAt` pendant la séance. `nil` tant que rien
+    /// n'a été enregistré. Un enregistrement complémentaire ne la réécrit pas,
+    /// sinon toutes les notes déjà posées glisseraient.
+    var recordingStartedAt: Date?
+    /// Vrai dès que `liveNotes` a été repris en `MeetingNote` (une fois, à la
+    /// première ouverture). Drapeau d'idempotence de
+    /// `MeetingNoteStore.importLiveNotesIfNeeded` : `liveNotes` n'est pas
+    /// effacé, il ne peut donc pas servir de marqueur.
+    var notesMigrated: Bool = false
     /// Durée d'enregistrement audio (≠ durée réelle de la réunion).
     var durationSeconds: Int = 0
     /// Durée réelle de la réunion en secondes (event Calendar end-start).
@@ -347,6 +441,16 @@ final class Meeting {
 
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.meeting)
     var tasks: [ActionTask] = []
+
+    /// Notes horodatées de la séance (spec §1.3 `Note`). Nommée `timedNotes`
+    /// et non `notes` : `Meeting.notes` est déjà une colonne texte.
+    @Relationship(deleteRule: .cascade, inverse: \MeetingNote.meeting)
+    var timedNotes: [MeetingNote] = []
+
+    /// Planches produites en atelier. Le fichier de scène et la vignette
+    /// vivent sur disque ; la cascade ne supprime que les lignes.
+    @Relationship(deleteRule: .cascade, inverse: \Board.meeting)
+    var boards: [Board] = []
 
     @Relationship(deleteRule: .cascade, inverse: \MeetingAttachment.meeting)
     var attachments: [MeetingAttachment] = []
@@ -422,6 +526,9 @@ final class Meeting {
             ("absents cités", referencedAbsent),
             ("prochaine échéance", nextDeadline)
         ]
+        content += timedNotes
+            .sorted { ($0.t, $0.orderIndex) < ($1.t, $1.orderIndex) }
+            .map { ("note horodatée", $0.text) }
         content += keyPoints.map { ("point clé", $0) }
         content += decisions.map { ("décision", $0) }
         content += openQuestions.map { ("question", $0) }

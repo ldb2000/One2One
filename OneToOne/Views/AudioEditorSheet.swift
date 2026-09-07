@@ -88,7 +88,8 @@ struct AudioEditorSheet: View {
                 AudioWaveformEditor(
                     url: url,
                     markerSeconds: $markerSeconds,
-                    mode: waveformMode
+                    mode: waveformMode,
+                    player: MeetingPlayhead.for(meeting: meeting).player
                 )
             } else {
                 Text("Fichier audio introuvable.").foregroundStyle(.red)

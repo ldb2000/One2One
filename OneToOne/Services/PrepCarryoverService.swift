@@ -92,7 +92,7 @@ extension PrepCarryoverService {
                 project.standingPrepUpdatedAt = Date()
                 verse = true
             }
-        case .global, .work, .note:
+        case .global, .work, .note, .workshop:
             // Ces types n'ont aucune préparation à recevoir, jamais : fermer
             // la porte ne leur coûte rien et évite de re-vérifier.
             meeting.prepDrainDone = true
@@ -151,7 +151,7 @@ extension PrepCarryoverService {
                 project.standingPrepNotes = block + project.standingPrepNotes
                 project.standingPrepUpdatedAt = Date()
             }
-        case .global, .work, .note:
+        case .global, .work, .note, .workshop:
             break  // pool absent — items perdus (cf. spec, intentionnel)
         }
 

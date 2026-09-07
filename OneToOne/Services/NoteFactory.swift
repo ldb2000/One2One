@@ -115,6 +115,8 @@ enum NoteFactory {
         guard meeting.attachments.isEmpty,
               meeting.tags.isEmpty,
               meeting.tasks.isEmpty,
+              meeting.timedNotes.isEmpty,
+              meeting.boards.isEmpty,
               meeting.transcriptChunks.isEmpty,
               meeting.transcriptSegments.isEmpty,
               meeting.reportRevisions.isEmpty,
@@ -145,7 +147,13 @@ enum NoteFactory {
     /// **aucun tableau inverse** sur `Meeting` : lire les collections du modèle
     /// ne les voit pas, il faut les chercher depuis leur propre côté.
     ///
-    /// Les quatre appartiennent au 1:1 manager, dont le contenu ne passe pas
+    /// Depuis le lot 0B, quatre références du domaine 1:1 s'y ajoutent
+    /// (`Commitment.promisedInMeeting`, `OneOnOneAgendaItem.meeting` et
+    /// `.deferredToMeeting`, `MoodEntry.meeting`). Aucun de ces objets ne naît
+    /// sur une réunion de kind `.note` — mais le prédicat suit la règle de
+    /// prudence énoncée plus haut : en cas de doute sur un champ, le retenir.
+    ///
+    /// Les quatre premières appartiennent au 1:1 manager, dont le contenu ne passe pas
     /// par les champs d'une réunion ordinaire — `ManagerCRGenerator` écrit le
     /// CR dans `ManagerMeetingReport.generatedSummary`, archive les points
     /// avec `archivedInMeeting` et matérialise les actions sur
@@ -176,6 +184,13 @@ enum NoteFactory {
                 || $0.archivedInMeeting?.persistentModelID == id
         }) || exists(#Predicate<ActionTask> {
             $0.managerMeeting?.persistentModelID == id
+        }) || exists(#Predicate<Commitment> {
+            $0.promisedInMeeting?.persistentModelID == id
+        }) || exists(#Predicate<OneOnOneAgendaItem> {
+            $0.meeting?.persistentModelID == id
+                || $0.deferredToMeeting?.persistentModelID == id
+        }) || exists(#Predicate<MoodEntry> {
+            $0.meeting?.persistentModelID == id
         })
     }
 
