@@ -8,9 +8,16 @@ private let attachLog = Logger(subsystem: "com.onetoone.app", category: "attach"
 // MARK: - MeetingAttachmentService
 
 /// Ingestion de documents rattachés à une réunion :
-///   1. Copie la référence (bookmark) dans `MeetingAttachment`
+///   1. **Copie le fichier** dans `recordings/<uuid>/documents/` et crée la
+///      ligne `MeetingAttachment` avec ses métadonnées (D5, ADR
+///      `2026-09-07-pieces-copiees-jamais-referencees.md`)
 ///   2. Extrait le texte (PDF / PPTX / XLSX / TXT / MD / DOCX best-effort)
-///   3. Chunking → Embeddings Ollama → `TranscriptChunk(sourceType: "attachment")`
+///   3. Chunking → Embeddings → `TranscriptChunk(sourceType: "attachment")`
+///
+/// L'étape 1 est `attachDocument`, synchrone et sans réseau ; les étapes 2 et 3
+/// sont `importDocument`, qui l'appelle. La séparation n'est pas cosmétique :
+/// la politique de copie se vérifie sans modèle d'embedding, et une extraction
+/// qui échoue ne doit pas perdre le fichier déjà copié.
 ///
 /// Les chunks produits sont visibles dans les recherches `RAGQuery` via leur
 /// `meeting` associé, au même titre que les transcriptions audio.
@@ -28,20 +35,60 @@ struct MeetingAttachmentService {
         }
     }
 
+    /// **Copie** le fichier dans la réunion et crée la ligne correspondante,
+    /// sans extraction ni indexation (D5).
+    ///
+    /// La copie précède l'insertion : une source illisible ne doit pas laisser
+    /// derrière elle une ligne sans fichier, qui ne se distinguerait pas d'une
+    /// pièce orpheline et pour laquelle le tiroir proposerait de « relier » un
+    /// document n'ayant jamais existé.
+    ///
+    /// - Parameter base: racine du stockage ; paramétrée pour les tests.
+    @discardableResult
+    static func attachDocument(
+        url: URL,
+        into meeting: Meeting,
+        context: ModelContext,
+        base: URL = AttachmentImporter.baseDirectory()
+    ) throws -> MeetingAttachment {
+        let ext = url.pathExtension.lowercased()
+        let copie = try AttachmentImporter.copyIntoAppSupport(
+            source: url,
+            bucket: .meetingDocuments(meetingStableID: meeting.ensuredStableID),
+            base: base)
+
+        let attach = MeetingAttachment(url: copie, kind: AttachmentCopyPolicy.kind(forExtension: ext))
+        // Le nom **affiché** est celui du fichier d'origine, pas le nom
+        // horodaté de la copie : c'est celui-là qu'on reconnaît dans le tiroir.
+        attach.fileName = url.lastPathComponent
+        // Un signet vers une copie interne n'a aucune valeur : son absence est
+        // le signal le plus simple qu'une pièce relève de la politique D5.
+        attach.bookmarkData = nil
+        attach.scope = .meeting
+        attach.mimeType = AttachmentCopyPolicy.mimeType(forExtension: ext)
+        attach.byteCount = fileSize(at: copie)
+        attach.addedByName = ownerName(in: context)
+        _ = attach.ensuredStableID
+        attach.meeting = meeting
+        context.insert(attach)
+        try context.save()
+        attachLog.info("attach: \(url.lastPathComponent, privacy: .public) -> \(copie.path, privacy: .public)")
+        return attach
+    }
+
     /// Ajoute un document à la réunion + indexe son contenu pour RAG.
     /// - Returns: l'attachment créé.
     @discardableResult
     static func importDocument(
         url: URL,
         into meeting: Meeting,
-        context: ModelContext
+        context: ModelContext,
+        base: URL = AttachmentImporter.baseDirectory()
     ) async throws -> MeetingAttachment {
-        let ext = url.pathExtension.lowercased()
-        let kind = kindForExtension(ext)
-
-        let attach = MeetingAttachment(url: url, kind: kind)
-        attach.meeting = meeting
-        context.insert(attach)
+        let attach = try attachDocument(url: url, into: meeting, context: context, base: base)
+        // L'extraction lit la **copie** : l'original peut déjà avoir disparu,
+        // c'est tout l'intérêt de D5.
+        let url = URL(fileURLWithPath: attach.filePath)
 
         // 1. Extract text via AIIngestionService (réutilise le parseur existant).
         let ingester = AIIngestionService()
@@ -109,20 +156,20 @@ struct MeetingAttachmentService {
 
     // MARK: - Helpers
 
-    /// Mappe une extension de fichier vers la catégorie `kind` stockée sur
-    /// `MeetingAttachment`. Le cas `"image"` est purement informatif (icône /
-    /// affichage) : aucun texte n'en est extrait, donc rien n'est indexé pour RAG.
-    private static func kindForExtension(_ ext: String) -> String {
-        switch ext {
-        case "pdf":               return "pdf"
-        case "pptx", "ppt":       return "pptx"
-        case "docx", "doc":       return "docx"
-        case "xlsx", "xls", "csv": return "xlsx"
-        case "md", "markdown":    return "markdown"
-        case "txt", "text":       return "text"
-        case "png", "jpg", "jpeg", "heic", "gif", "tiff": return "image"
-        default:                   return "document"
-        }
+    /// Taille du fichier copié, `0` si elle n'est pas lisible (la colonne
+    /// `byteCount` traite `0` comme « inconnue » et le tiroir omet alors la
+    /// mention, plutôt que d'afficher « 0 o »).
+    private static func fileSize(at url: URL) -> Int {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attrs?[.size] as? NSNumber)?.intValue ?? 0
+    }
+
+    /// Le nom du déposant, en clair (app mono-utilisateur) : `Ajouté par
+    /// Sylvain` sur la vignette de `3a-tiroir-ressources.png`. Vide si les
+    /// réglages ne le donnent pas — la vignette omet alors la mention.
+    private static func ownerName(in context: ModelContext) -> String {
+        let tous = (try? context.fetch(FetchDescriptor<AppSettings>())) ?? []
+        return tous.canonicalSettings?.ownerName ?? ""
     }
 }
 

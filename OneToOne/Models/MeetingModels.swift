@@ -273,6 +273,13 @@ final class MeetingAttachment {
     /// Nombre de citations de la pièce dans les notes et le rapport.
     var citationCount: Int = 0
 
+    /// Identifiant stable, cible des `sourceRef` (spec §1.3 `Ref`) : c'est lui
+    /// que porte la puce `◫ <nom> · p.n` insérée dans une note quand on cite
+    /// ou qu'on épingle la pièce. Optionnel et `nil` par défaut — les lignes
+    /// antérieures sont backfillées par `ensuredStableID`, comme `Meeting` et
+    /// `Collaborator` le font depuis toujours (lightweight migration).
+    var stableID: UUID? = nil
+
     var meeting: Meeting?
 
     @Relationship(deleteRule: .cascade, inverse: \TranscriptChunk.attachment)
