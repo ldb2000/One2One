@@ -42,11 +42,19 @@ enum WantedItemsBuilder {
     static func build(_ thread: OneOnOneThread,
                       excluding unanswered: [UnansweredItemsBuilder.Item]) -> [OneOnOneAgendaItem] {
         let dejaPortees = Set(unanswered.compactMap(\.family))
+        // Les sujets **déjà versés** par le bouton `En faire mon ordre du jour`
+        // gardent leur préfixe de provenance : ce sont des lignes du bloc du
+        // haut, et les reprendre ici les afficherait deux fois sur la même
+        // carte une fois le bouton cliqué. La comparaison est faite sur le
+        // texte exact que `PrepToAgenda` écrit, pas sur une heuristique de
+        // préfixe.
+        let versees = Set(unanswered.map { PrepToAgenda.prefix(for: $0.source) + $0.text })
         return AgendaCarryover.sorted(thread.agendaItems)
             .filter { item in
                 guard item.kind == .topic,
                       item.state == .todo,
-                      item.visibility == .private else { return false }
+                      item.visibility == .private,
+                      !versees.contains(item.text) else { return false }
                 guard let famille = RecurringTopicsBuilder.family(of: item.text) else { return true }
                 return !dejaPortees.contains(famille)
             }

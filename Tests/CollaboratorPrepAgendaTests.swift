@@ -291,6 +291,32 @@ struct CollaboratorPrepAgendaTests {
         #expect(Set(categories.map(\.identifier)).count == categories.count)
     }
 
+    // MARK: - Aucune ligne deux fois sur la carte
+
+    @Test("Une ligne versée à l'ordre du jour ne réapparaît pas dans les sujets voulus")
+    func aucunDoublonApresVersement() throws {
+        let jeu = try planDeDemonstration()
+        let plan = PrepToAgenda.plan(unanswered: jeu.unanswered, wanted: jeu.wanted)
+        PrepToAgenda.apply(plan, for: jeu.meeting, in: jeu.thread, in: jeu.context)
+
+        // Les sujets créés sont des sujets privés `todo` : sans exclusion, la
+        // carte du bas les reprendrait tous les deux.
+        let suspens = UnansweredItemsBuilder.build(jeu.thread, now: Self.seedDate)
+        let voulus = WantedItemsBuilder.build(jeu.thread, excluding: suspens)
+        #expect(!voulus.contains { $0.text.hasPrefix("Promesse : ") })
+        #expect(!voulus.contains { $0.text.hasPrefix("Sujet : ") })
+        #expect(!voulus.contains { $0.text.hasPrefix("Demande : ") })
+    }
+
+    @Test("La carte est étroite et centrée, sans rail ni bandeau")
+    func largeurDeLaCarte() {
+        // La capture 5b : une carte de ~940 px, seule à l'écran. La largeur est
+        // une constante de la vue et non un jeton partagé : c'est le seul écran
+        // de la refonte qui la porte.
+        #expect(CollaboratorPrepView.cardMaxWidth == 940)
+        #expect(CollaboratorPrepView.cardMaxWidth < One2OneToken.actionsRailWidth * 3)
+    }
+
     // MARK: - Le crochet de recette
 
     @Test("Le code 5b ouvre l'entretien subi en mode Préparer")

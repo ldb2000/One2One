@@ -102,5 +102,5 @@ final class OneOnOneScreenState {
     /// les coche tous par défaut — je les ai écrits pour les dire —, donc
     /// l'état d'écran ne retient que le refus : un ensemble vide veut dire
     /// « tout est coché », y compris un sujet ajouté à l'instant.
-    var collabPrepDroppedWanted: Set<String> = []
+    var collabPrepDroppedWanted: Set<PersistentIdentifier> = []
 }
