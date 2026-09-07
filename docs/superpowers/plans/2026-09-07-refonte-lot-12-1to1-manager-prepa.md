@@ -314,8 +314,11 @@ struct ThreadHistoryModel: Equatable {
 - [ ] **Étape 3 : implémenter** `seedLot12` (idempotent, appelle `seedOneOnOneThreads`)
   et l'appel dans l'item de menu « Charger le jeu de démonstration (refonte) ».
 - [ ] **Étape 4 : `swift test`** complet vert.
-- [ ] **Étape 5 : recette** `Scripts/recette-app.sh` puis `Scripts/recette-run.sh --seed`,
-  captures `recette/lot-12-1920.png` et `recette/lot-12-1280.png`, comparaison à `2b`.
+- [ ] **Étape 5 : recette — différée.** Consigne du 7 septembre en cours de lot : aucun
+  lancement d'application graphique depuis un lot, plusieurs agents pilotant le même
+  bureau. La recette (`Scripts/recette-app.sh`, `Scripts/recette-run.sh --seed`, captures
+  `recette/lot-12-1920.png` et `recette/lot-12-1280.png`, comparaison à `2b`) appartient à
+  la **passe de recette dédiée**. La commande exacte est consignée dans `STATUS.md`.
 - [ ] **Étape 6 : `STATUS.md`** — section en tête (état, écarts, prochaine action, date).
 - [ ] **Étape 7 : commit + push + `gh pr create --base fix/refonte-1to1-window-crash`.**
 

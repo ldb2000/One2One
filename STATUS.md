@@ -2,6 +2,245 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 12 : 1:1 manager, écran de préparation (2b) (2026-09-07)
+
+Branche `feat/refonte-lot-12-1to1-manager-prepa`, **sur**
+`fix/refonte-1to1-window-crash` : la PR empile donc les lots 0A, 0B, 1a, 1b, 2, 3, 4, 5, 6,
+10a, 10b, 9 et le correctif de fenêtre (PR #19 → … → #31, non fusionnées). Plan
+d'exécution : `docs/superpowers/plans/2026-09-07-refonte-lot-12-1to1-manager-prepa.md`.
+
+**État : livré, `swift build` propre (debug et release), `swift test` complet vert
+(2 443 tests), PR ouverte, non mergée. Recette visuelle **différée à la passe de recette
+dédiée** — plusieurs lots tournaient en parallèle sur le même bureau et se tuaient
+mutuellement leurs instances ; une seule passe est désormais autorisée à piloter
+l'interface.**
+
+### Ce qui est en place
+
+Le mode **Préparer** d'une réunion `.oneToOne` n'est plus la colonne générique du lot 1 :
+c'est l'écran de suivi de `2b-1to1-manager-preparation.png`. Il prend **toute la surface**,
+comme le poste de pilotage du lot 5 — ni bandeau d'indicateurs (rien n'a encore été dit),
+ni rail d'actions de 330 px (spec §3.1 retire les projets affectés et les vues Kanban d'un
+1:1).
+
+**Aucun calcul métier neuf.** Tout vient des services purs du lot 10 : `MoodTrend`,
+`OneOnOneObjectiveTone`, `ReminderRules`, `CommitmentLedger`, `RecurringTopicsBuilder`,
+`OneOnOneThreadStore`. Ce lot n'ajoute que la traduction de ces calculs en lignes
+dessinables, et il la met dans des **modèles de vue purs** — un par carte — parce qu'une
+vue SwiftUI ne se teste pas et qu'un histogramme périmé ne se voit pas à la relecture.
+
+| Fichier (`Views/Meeting/OneOnOne/ManagerPrep/`) | Modèle pur | Ce qu'il porte |
+| --- | --- | --- |
+| `ManagerPrepView.swift` | — | L'assemblage : en-tête, rangée de trois cartes, rangée `1fr \| 320`, dock d'assistant. Aucune règle. |
+| `PrepHeader.swift` | `PrepHeaderModel` | `Ingénieur CI/CD · 14ᵉ 1:1 · 4 sept. 2026`, l'ordinal français, l'avatar, les badges `1:1`/`Privé`, `Historique`, `Démarrer l'entretien`. |
+| `MoodHistogram.swift` | `MoodHistogramModel` | Les six barres, la teinte du dernier cran, la tendance, la phrase. **Critère chantier 2 n° 3.** |
+| `ObjectivesCard.swift` | `ObjectivesCardModel` | Les trois barres, le ton par avancement, `Revue prévue le 18 sept.`, l'ajout et l'édition inline. |
+| `RemindersCard.swift` | `PrepRemindersModel` | Les trois règles dans leur ordre, la puce colorée, `Mettre à l'ordre du jour` et sa désactivation. |
+| `CommitmentsTable.swift` | `CommitmentsTableModel`, `PrepCommitmentFilter` | `20 \| 1fr \| 92 \| 84 \| 96`, le filtre, le badge de retard manager, le taux, le composeur `⌘⏎`. |
+| `RecurringTopicsCard.swift` | `RecurringTopicsCardModel`, `ChipFlow` | Les chips `label · n` par famille, sur deux lignes dans 320 px. |
+| `ThreadHistoryCard.swift` | `ThreadHistoryModel` | Les quatre dernières séances, date mono + résumé d'une ligne, cliquables. |
+
+### Trois décisions à retenir
+
+1. **Le tableau ne montre pas tout le fil.** La capture affiche quatre lignes pour un fil
+   qui en compte quatorze, et son pied dit « 8 tenus sur 11 ». Le tableau montre donc les
+   engagements **ouverts** plus ceux **soldés depuis l'entretien précédent** — la même
+   borne que `TENUS DEPUIS LE DERNIER 1:1` de la capture 2a, et le même calcul
+   (`CommitmentLedger.settledSince`). Le pied, lui, compte l'histoire entière : c'est un
+   taux de tenue, pas un décompte d'écran.
+2. **Un manquement ne se rouvre pas d'un clic.** La pastille d'état solde un engagement
+   ouvert et rouvre un engagement tenu, mais reste sans effet sur un `missed` : le
+   manquement est un fait de l'entretien, et l'effacer par inadvertance depuis un écran de
+   préparation reviendrait à réécrire l'historique. Il faut passer par la séance.
+3. **Le mode d'ouverture est imposé sans toucher à `MeetingScreenModel`.** Spec §3 :
+   « `2b` s'ouvre par défaut en mode `Préparer` ». `MeetingSpaceRouting.initialMode` est
+   pure et rend `nil` dès qu'un choix est mémorisé ; `MeetingSpaceView` l'applique en
+   écrivant **et** la clé `UserDefaults` **et** le mode, parce que l'ordre des `onAppear`
+   de SwiftUI ne dit pas si `MeetingScreenModel.attach` a déjà relu ses réglages.
+
+### Écritures — un seul service
+
+`Services/OneOnOne/Prep/OneOnOnePrepStore.swift` porte les trois gestes de l'écran :
+nouvel engagement, bascule tenu/rouvert, ajout et édition d'objectif. Un fichier
+d'extension et non un ajout dans `CommitmentLedger` ou `OneOnOneObjectiveTone` : le lot 10
+les documente comme **purs**, et y glisser un `context.insert` les rendrait intestables et
+ferait mentir leur en-tête. Deux autres extensions, pures :
+`ReminderRules+Prep.areAllOnAgenda` (le bouton sait qu'il a déjà fait son travail) et
+`OneOnOneDateFormat+Prep.dueDate` (la quatrième écriture de date du domaine : le jour de la
+semaine d'une échéance imminente).
+
+### Jeu de démonstration — `RefonteDemoSeed+Lot12.swift`
+
+Deux choses manquaient au semis du lot 10, et elles ne se voient que sur un écran.
+
+1. **Les dates.** Le lot 10 pose une cadence parfaitement régulière de quinze jours, soit
+   `26/06 10/07 24/07 07/08 21/08 04/09`. La capture écrit
+   `12/06 26/06 10/07 24/07 21/08 04/09` : **pas d'entretien la première semaine d'août**,
+   et l'`HISTORIQUE` saute la même séance. `alignLot12SessionDates` recale le fil sur cette
+   grille — cadence nominale pour les deux dernières séances, une période de plus pour tout
+   ce qui précède — et réaligne `MoodEntry.recordedAt` sur la date de sa séance, sans quoi
+   l'histogramme, qui se trie sur `recordedAt`, se désordonnerait. Les dates sont
+   **assignées** depuis le 4 septembre et non décalées : un décalage relatif appliqué deux
+   fois reculerait tout le fil d'un mois, et un semis se clique deux fois. Le rang
+   « 14ᵉ 1:1 » est conservé.
+2. **Les résumés d'une ligne** de l'`HISTORIQUE` : aucun rapport n'est semé, donc
+   `Meeting.shortSummary` est vide et la carte retombe sur sa reconstruction
+   (`moral « Bien » · <sujet>`). Les quatre phrases de la capture sont écrites à leur date.
+
+Le semis 1:1 du lot 10 **était orphelin** (point tranché n° 3 de l'intégration de la
+vague 4). Il est désormais câblé aux deux points d'entrée : l'item de menu « Charger le jeu
+de démonstration (refonte) » et la variable `ONETOONE_SEED_DEMO` de la recette. Une
+seconde variable, `ONETOONE_SEED_OPEN=1to1`, choisit **quelle** réunion s'ouvre — sans
+elle, c'est celle de `1a-cockpit.png` ; l'entretien de démonstration n'était atteignable
+qu'à la souris, et une recette doit être reproductible sans clic.
+
+### Fichiers partagés touchés, à la ligne près
+
+- `Services/Meeting/MeetingSpaceRouting.swift` : **deux fonctions pures**
+  (`usesOneOnOnePreparation`, `initialMode`). Rien de retiré.
+- `Views/Meeting/Spaces/MeetingSpaceView.swift` : **une branche** dans `contenu`, la vue
+  `preparation1a1`, et le `onAppear` du mode d'ouverture. Le rail, le bandeau et le tiroir
+  sont inchangés pour tous les autres modes.
+- `Views/Meeting/Spaces/MeetingAssistantDock.swift` : **un paramètre optionnel**
+  `threadContext` (spec §3.3 : « contexte = fil, pas seulement la réunion »). `nil` hors
+  1:1, et la barre est alors exactement celle d'avant.
+- `Services/OneOnOne/OneOnOneScreenState.swift` : **une propriété en fin de type**,
+  `prepHistoryExpanded`. Le filtre du tableau réutilise `commitmentSideFilter` du lot 10 —
+  aucune propriété d'état en double.
+- `Views/Menus/MeetingCommands.swift` : une ligne (`seedLot12`).
+- `OneToOneApp.swift` : le semis de recette appelle `seedLot12` et lit
+  `ONETOONE_SEED_OPEN`. Six lignes, additives.
+- **Intacts** : `MeetingScreenModel.swift`, `MeetingTopChromeBar.swift`, `MeetingView.swift`,
+  `MeetingPrepareSpace.swift`, `Rail/**`, `Review/**`, `Session/**`, `Resources/**`,
+  `Notes/**`, et tous les fichiers existants de `Services/OneOnOne/` sauf la propriété
+  d'état ci-dessus.
+
+### Tests
+
+`swift build` propre (mêmes avertissements préexistants, dont `MoodTrend.swift:78` sur
+`historyLength`, vérifié présent avant ce lot). `swift test` complet : **1 041 XCTest
+(1 ignoré, 0 échec) + 1 402 Swift Testing dans 180 suites, 0 échec** — 2 443 tests, soit
+**+41** par rapport à la référence de 2 402.
+
+Trois suites nouvelles :
+
+- `ManagerPrepModelsTests` (20) : en-tête et ordinal, histogramme et **critère chantier 2
+  n° 3** (une `MoodEntry` saisie pour la séance courante apparaît aussitôt dans la série, et
+  une correction remplace la barre au lieu d'en ajouter une), objectifs et bornes, ordre des
+  rappels et désactivation du bouton, chips, historique (quatre lignes, courante exclue,
+  déplié, résumé reconstruit, invite), idempotence du semis et des dates.
+- `ManagerPrepCommitmentsTableTests` (13) : quatre lignes et non quatorze, tri, porteurs et
+  teintes, les cinq écritures de la colonne `ÉCHÉANCE`, fenêtre du jour de la semaine,
+  filtre, **critère chantier 2 n° 2** (badge « 1 en retard côté manager » et taux
+  « 8 tenus sur 11 · taux 73 % »), composeur, bascule d'état, largeurs de colonnes.
+- `ManagerPrepRoutingTests` (8) : aiguillage `(1:1, Préparer)` seul, mode d'ouverture,
+  respect d'un choix mémorisé, contexte de fil de la barre d'assistant.
+
+**Aucune zone vide sans invite** : les six modèles portent un `isEmpty` et la vue
+correspondante monte un `MeetingEmptyInvite`. Un fil neuf (aucune humeur, aucun objectif,
+aucun engagement, aucun sujet, aucune séance antérieure) est couvert test par test.
+
+### Recette visuelle — différée
+
+**Aucune recette n'a été lancée pour ce lot**, et c'est une consigne, pas un oubli :
+plusieurs lots de la vague travaillaient en parallèle sur le même bureau et se tuaient
+mutuellement leurs instances. Une **passe de recette dédiée** la fera, seule à piloter
+l'interface.
+
+Ce qu'elle aura à faire, et tout est prêt pour cela :
+
+```bash
+swift build -c release                        # fait, propre
+Scripts/recette-app.sh /tmp/recette-lot12
+export ONETOONE_SEED_OPEN=1to1                # ouvre l'entretien de démonstration
+Scripts/recette-run.sh --app /tmp/recette-lot12/OneToOne.app --seed --reset
+```
+
+Puis capturer `recette/lot-12-1920.png` et `recette/lot-12-1280.png` et les comparer à
+`2b-1to1-manager-preparation.png`. Les écarts **déjà connus** — relevés en lisant la
+maquette et les données semées, pas un rendu — sont listés ci-dessous : ils servent de
+grille de lecture à cette comparaison, qui doit surtout chercher ce que cette liste ne
+contient pas (métriques, alignements, hauteurs de carte, retours à la ligne).
+
+### Écarts attendus avec la capture 2b
+
+1. **Le tri met l'engagement en retard en première ligne**, là où la maquette l'affiche en
+   deuxième. C'est la règle de la spec §6.2 (« cartes triées par retard décroissant »), et
+   c'est aussi la seule qui se défend : ce qu'on doit depuis six semaines se lit avant ce
+   qu'on doit vendredi.
+2. **L'objectif à 10 % est ambre et non violet.** La spec §3.4 dit « < 30 % `warn` », et
+   `OneOnOneObjectiveTone` la porte depuis le lot 10, testée. La maquette colore cette barre
+   en violet : elle se contredit elle-même. La spec fait foi.
+3. **Les phrases des rappels sont celles de `ReminderRules`**, pas celles de la maquette :
+   « Vous lui devez Retour sur la grille d'astreinte — reporté 2 fois. » (la maquette écrit
+   « un retour »), « Mobilité archi évoquée 3 fois, jamais tranchée. » (sans « depuis
+   avril »), « Féliciter pour la présentation COSUI. » (sans « du 1er sept. »). Les
+   corriger demanderait de toucher `Services/OneOnOne/ReminderRules.swift`, hors périmètre
+   de ce lot et couvert par les tests du lot 10.
+4. **La phrase sous l'histogramme est `MoodTrend.explanation`** : « Cause citée 5 fois :
+   Charge de travail. » La maquette écrit « Deuxième séance consécutive sous « Bien ». Cause
+   citée deux fois : charge sur la migration AP. » Sa première phrase n'est portée par
+   aucune règle du lot 10 — et elle contredit son propre histogramme, où une seule séance
+   est sous « Bien » ; son comptage n'est pas celui du fil. La spec §3.4 ne demande que « le
+   sujet récurrent le plus cité sur la période », qui est ce qui s'affiche.
+5. **`taux 73 %`** avec l'espace de la typographie française (lot 10), là où la maquette
+   écrit `taux 73%`.
+6. **L'échéance imminente affiche `Samedi` et non `Vendredi`** : le jeu du lot 10 pose cette
+   échéance au lendemain du 4 septembre 2026, qui est un samedi. La règle d'affichage est
+   bonne, la donnée semée diffère d'un jour ; la corriger touche le semis du lot 10.
+7. **La barre du haut de l'application reste au-dessus de l'en-tête violet** (fil d'Ariane,
+   barre d'espaces, sélecteur de mode). La maquette ne montre que le composant 2b : c'est le
+   même écart que les captures 1a, 3b et 1c, et il est assumé depuis le lot 1.
+8. **`MeetingPrepareSpace.swift` n'a pas de branche.** Le programme en prévoyait une ; le
+   routage est finalement dans `MeetingSpaceView`, à l'endroit exact où le mode Relire du
+   lot 5 est déjà aiguillé. Y passer aurait obligé à traverser `MeetingPrepareSpace` avec
+   cinq paramètres (`screen`, `menuActions`, `historique`, `isAssistantOpen`,
+   `onOpenMeeting`) dont elle n'a aucun usage — et le programme §8 interdit exactement cela.
+   Un fichier partagé de moins touché, aussi, pendant que les lots 7, 11 et 16 tournent.
+
+### Doublons probables avec le lot 11, à harmoniser à l'intégration
+
+Le lot 11 crée `Views/Meeting/OneOnOne/Shared/**` et `Views/Meeting/OneOnOne/Manager/**`
+pendant que ce lot vit dans `ManagerPrep/**`, sans les voir. À la passe d'intégration :
+
+- **L'avatar et l'identité** : `PrepHeader.avatar` et le sous-titre `rôle · nᵉ 1:1 · date`
+  recouvrent la `PersonCard` et l'`AvatarSide` du lot 11. Le modèle à garder est
+  `PrepHeaderModel` (l'ordinal français y est testé) ; le rendu peut passer dans `Shared/`.
+- **L'échelle de moral** : `MoodHistogramModel.tone(for: MoodLevel)` et la `MoodScale` du
+  lot 11 doivent donner la **même** teinte par cran, sinon la séance et la préparation
+  colorent le même « Sous tension » différemment. Une seule table, dans `Shared/`.
+- **La ligne d'engagement** : `CommitmentsTableModel.Row` et `CommitmentRow` du lot 11
+  portent tous deux le porteur, l'échéance et le compteur de reports. Les libellés
+  (`Moi`/`<Prénom>`, `Tenu`, `En retard`, `n× reporté`) doivent être calculés une fois.
+- **Le contexte d'assistant** : si le lot 11 ajoute lui aussi un paramètre à
+  `MeetingAssistantDock`, il porte le même nom (`threadContext`) — l'union est alors
+  triviale.
+- **Le semis** : le lot 11 câble peut-être `seedOneOnOneThreads` au même endroit. La ligne
+  de `MeetingCommands` et celle d'`OneToOneApp` ne doivent pas être doublées ; `seedLot12`
+  appelle déjà `seedOneOnOneThreads`, qui est idempotent.
+
+### Laissé de côté
+
+- La carte `À NE PAS OUBLIER` n'offre pas de retrait ligne par ligne : le bouton verse tout
+  ou rien. La spec ne demande pas plus, et un rappel qu'on écarte sans le traiter est
+  précisément ce que la carte veut empêcher.
+- Le composeur d'engagement ne saisit ni échéance ni porteur : porteur `Moi` par défaut
+  (spec §3.4), échéance à poser en séance. Un sélecteur de date dans un pied de tableau
+  aurait été un formulaire.
+- `Historique` déplie la carte au lieu de naviguer vers `CollaboratorFicheView` : la fiche
+  collaborateur n'est pas un panneau de l'écran de réunion, et l'y ouvrir demanderait un
+  point d'entrée que ce lot n'a pas à inventer.
+- Le mode `.manager` (je suis le collaborateur) garde la préparation générique : son écran
+  est la capture 5b, au **lot 14**.
+
+### Prochaine action
+
+Faire relire la PR, puis la fusionner **après** le lot 11 (les deux touchent
+`MeetingAssistantDock` et se partagent les composants 1:1) et exécuter la passe
+d'harmonisation `ManagerPrep/**` ↔ `Shared/**` décrite ci-dessus. La **recette visuelle du
+lot 12 reste due** : elle appartient à la passe de recette dédiée, avec la commande donnée
+plus haut.
+
 ## Refonte de l'écran de réunion — lot 11 : 1:1 manager, écran de séance (2a) (2026-09-07)
 
 Branche `feat/refonte-lot-11-1to1-manager-seance`, sur `fix/refonte-1to1-window-crash` (sommet de

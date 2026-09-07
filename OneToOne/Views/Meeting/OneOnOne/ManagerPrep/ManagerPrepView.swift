@@ -113,7 +113,6 @@ struct ManagerPrepView: View {
                               onFillAgenda: { mettreALOrdreDuJour(fil) })
                     .frame(maxWidth: .infinity)
             }
-            .id(revision)
 
             // Rangée 2 : le tableau des engagements, puis la colonne de droite.
             HStack(alignment: .top, spacing: One2OneToken.cardGap) {
@@ -134,7 +133,6 @@ struct ManagerPrepView: View {
                                      revision += 1
                                  })
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .id(revision)
 
                 VStack(spacing: One2OneToken.cardGap) {
                     RecurringTopicsCard(model: RecurringTopicsCardModel.build(fil, now: now))
@@ -154,9 +152,13 @@ struct ManagerPrepView: View {
                                          threadContext: contexteAssistant(fil))
                 }
                 .frame(width: Self.sideColumnWidth)
-                .id(revision)
             }
         }
+        // Un seul jeton de rafraîchissement pour tout l'écran : les modèles de
+        // vue sont purs et se recalculent au rendu, mais une écriture SwiftData
+        // faite depuis une closure n'invalide pas toujours la vue qui l'a
+        // déclenchée. Le jeton la force, une fois, au bon niveau.
+        .id(revision)
     }
 
     // MARK: - Actions
