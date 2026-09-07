@@ -36,6 +36,14 @@ struct OneOnOneComposerContext {
     /// **qui parle**, pas la commande.
     var section: NoteCommandParser.FeedbackSection = .given
 
+    /// La visibilité par défaut **de la séance** (les pilules `Partagé` /
+    /// `Privé` de l'en-tête, spec §3.2 : « la bascule se fait par ligne […] et
+    /// par défaut au niveau de la réunion »).
+    ///
+    /// `nil` = le défaut du rôle. `/privé` prime toujours : une commande
+    /// explicite ne se fait pas contredire par un réglage d'en-tête.
+    var defaultVisibility: Visibility?
+
     /// Les pilules à afficher sous le champ.
     var commands: [NoteCommandCatalog.Entry] {
         NoteCommandCatalog.commands(for: OneOnOneThreadStore.meetingKind(for: role), role: role)
@@ -59,7 +67,7 @@ struct OneOnOneComposerContext {
             let note = MeetingNote(t: t,
                                    text: brouillon.text,
                                    kind: brouillon.kind,
-                                   visibility: brouillon.visibility,
+                                   visibility: resolved(brouillon.visibility, parsed),
                                    authorSide: brouillon.authorSide,
                                    orderIndex: MeetingNoteStore.nextOrderIndex(at: t, in: meeting))
             context.insert(note)
@@ -71,7 +79,7 @@ struct OneOnOneComposerContext {
             let engagement = Commitment(text: brouillon.text,
                                         ownerSide: brouillon.ownerSide,
                                         promisedAt: meeting.date,
-                                        visibility: brouillon.visibility)
+                                        visibility: resolved(brouillon.visibility, parsed))
             context.insert(engagement)
             engagement.thread = thread
             engagement.promisedInMeeting = meeting
@@ -82,7 +90,7 @@ struct OneOnOneComposerContext {
             let sujet = OneOnOneAgendaItem(text: brouillon.text,
                                            addedBySide: brouillon.addedBySide,
                                            order: nextAgendaOrder(),
-                                           visibility: brouillon.visibility,
+                                           visibility: resolved(brouillon.visibility, parsed),
                                            kind: brouillon.kind,
                                            requestStatus: .pending,
                                            requestedAt: meeting.date)
@@ -96,6 +104,15 @@ struct OneOnOneComposerContext {
             try? context.save()
         }
         return resultat
+    }
+
+    /// La visibilité effective d'une ligne : celle de la commande quand elle
+    /// est explicite (`/privé`), sinon le défaut de la séance, sinon celui du
+    /// rôle (que le parseur a déjà résolu).
+    private func resolved(_ fromCommand: Visibility,
+                          _ parsed: NoteCommandParser.OneOnOneParsed) -> Visibility {
+        guard parsed.basePill != .secret else { return fromCommand }
+        return defaultVisibility ?? fromCommand
     }
 
     /// Le rang du prochain sujet d'ordre du jour : à la fin, comme une saisie

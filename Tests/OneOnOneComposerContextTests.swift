@@ -138,6 +138,25 @@ struct OneOnOneComposerContextTests {
         #expect(privee.note?.visibility == .private)
     }
 
+    @Test("La bascule Partagé / Privé de l'en-tête gouverne les lignes suivantes")
+    func defautDeSeance() throws {
+        let f = try fixture()
+        var prive = f.composer
+        prive.defaultVisibility = .private
+        let ligne = prive.apply("Deux migrations en parallèle", at: 160,
+                                to: f.meeting, in: f.context)
+        #expect(ligne.note?.visibility == .private)
+
+        // `/privé` prime : une commande explicite ne se fait pas contredire
+        // par un réglage d'en-tête — et l'inverse serait pire, une ligne
+        // écrite « privée » qui partirait dans un récap.
+        var partage = f.composer
+        partage.defaultVisibility = .shared
+        let explicite = partage.apply("/privé Risque de départ", at: 1_050,
+                                      to: f.meeting, in: f.context)
+        #expect(explicite.note?.visibility == .private)
+    }
+
     @Test("/demande crée à la fois la note et le sujet suivi")
     func ligneDeDemande() throws {
         let f = try fixture(role: .collaborator)
