@@ -279,17 +279,19 @@ visible et conforme à ce qui était assumé.
   **1 361 Swift Testing** en 177 suites = **2 402 tests**, exactement le
   chiffre de référence du sommet de la pile. Aucun test n'a changé de nombre :
   les corrections sont toutes des ajustements de vue.
-- **Un échec XCTest, préexistant et indépendant de ces corrections** :
+- **Un seul échec XCTest, préexistant et dépendant de l'heure d'exécution** :
   `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`
-  (`XCTAssertEqual failed: 0.0 ≠ 7200.0`). Le test place ses réunions
-  « passées » à `startOfDay + 1 h` et `+ 2 h` et attend qu'elles soient
-  révolues : entre minuit et 3 h du matin, elles sont dans le futur et
-  `tempsPasseSeconds` vaut 0. La suite a été rejouée **sur les sources du
-  commit de base** (`1fe3f0a`, `git checkout 1fe3f0a -- OneToOne/`) : elle
-  échoue à l'identique. Le diff de cette branche ne touche aucun `Services/`
-  ni `Models/`, et `TodayStatsCalculator` n'y figure pas. À corriger au
-  lot 19 en injectant l'heure de référence, comme le font déjà les autres
-  tests de la suite.
+  (`XCTAssertEqual failed: 0.0 ≠ 7200.0`), suite lancée à **00:04 CEST le
+  2026-09-08**. Le test place ses réunions « passées » à `startOfDay + 1 h` et
+  `+ 2 h` et attend qu'elles soient révolues : entre minuit et 2 h du matin,
+  elles sont dans le futur et `tempsPasseSeconds` vaut 0. La suite a été
+  rejouée **sur les sources du commit de base** (`1fe3f0a`, restauration de
+  `OneToOne/` seul) : elle échoue à l'identique. Le diff de cette branche ne
+  touche aucun `Services/` ni `Models/`, et `TodayStatsCalculator` n'y figure
+  pas. **Non corrigé ici** — une PR de recette n'a pas à toucher un test de
+  statistiques ; à reprendre au lot 19 en injectant l'heure de référence,
+  comme le font déjà les autres tests de la suite. Le même échec est constaté
+  par le lot 8 à 00:33 CEST, sur une autre base.
 - Aucun test de lecture des sources (`SessionNoChromeTests`,
   `ActionsRailNoModalTests`, `ReviewCardsInviteTests`) n'est passé au rouge :
   aucune correction n'introduit de couleur nommée, de largeur en dur ni de

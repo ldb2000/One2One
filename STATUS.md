@@ -134,13 +134,20 @@ frise (lot 2 n° 5) ; `Documents 4` au lieu de `Documents ＋`.
 
 `swift build` propre. `swift test` complet, `exit 0` : **1 041 XCTest**
 (1 ignoré) + **1 361 Swift Testing** en 177 suites = **2 402 tests**, le
-chiffre exact du sommet de la pile. Un échec XCTest **préexistant et
-dépendant de l'heure** : `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`
-place ses réunions « passées » à `startOfDay + 1 h` et `+ 2 h` et attend
-qu'elles soient révolues — entre minuit et 3 h du matin elles sont dans le
-futur. Rejoué **sur les sources du commit de base** (`git checkout 1fe3f0a --
-OneToOne/`) : échec à l'identique. Le diff ne touche aucun `Services/` ni
-`Models/`. À corriger au lot 19 en injectant l'heure de référence.
+chiffre exact du sommet de la pile.
+
+**Un seul échec XCTest, préexistant et dépendant de l'heure d'exécution** :
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`, suite lancée à
+**00:04 CEST le 2026-09-08**. Le test place ses réunions « passées » à
+`startOfDay + 1 h` et `+ 2 h` et attend qu'elles soient révolues — entre
+minuit et 2 h du matin, elles sont dans le futur et `tempsPasseSeconds` vaut 0.
+Rejoué **sur les sources du commit de base** (`1fe3f0a`, restauration de
+`OneToOne/` seul) : échec à l'identique. Le diff de cette branche ne touche
+aucun `Services/` ni `Models/`, et `TodayStatsCalculator` n'y figure pas.
+**Non corrigé ici** — une PR de recette n'a pas à toucher un test de
+statistiques ; à reprendre au lot 19 en injectant l'heure de référence, comme
+le font déjà les autres tests de la suite. Le même échec est constaté par le
+lot 8 à 00:33 CEST, sur une autre base.
 
 ### Prochaine action
 
