@@ -41,7 +41,25 @@ enum ReportSendPreparation {
                 .filter { FileManager.default.fileExists(atPath: $0) }
         }
         if let pdf = capturesPDF(for: meeting) { chemins.append(pdf.path) }
+        // Lot 18 : les PNG des planches cochées, comme les captures. Les
+        // vignettes sont déjà sur disque et déjà à jour (spec §7.4) : rien à
+        // rendre, rien à convertir.
+        chemins += boardImagePaths(for: meeting)
         return chemins
+    }
+
+    /// Les vignettes des planches cochées `Joindre au rapport` (encart de
+    /// clôture de 6b, spec §7.3), dans l'ordre du bloc de rapport.
+    ///
+    /// `store` est injectable : `Board.thumbPath` est relatif au dossier de la
+    /// réunion, et un test ne doit pas lire le `recordings/` de production.
+    /// Une vignette absente est ignorée en silence, comme une pièce dont le
+    /// fichier a disparu.
+    static func boardImagePaths(for meeting: Meeting, store: BoardStore? = nil) -> [String] {
+        ReportOptionalBlocks.boards(of: meeting, store: store)
+            .filter { $0.includeInReport && !$0.thumbAbsolutePath.isEmpty }
+            .map(\.thumbAbsolutePath)
+            .filter { FileManager.default.fileExists(atPath: $0) }
     }
 
     /// Un PDF d'une page par capture cochée, dans l'ordre du bloc de rapport.

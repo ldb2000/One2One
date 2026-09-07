@@ -170,6 +170,19 @@ enum ReportOptionalBlocks {
         var mode: String
         var authors: String
         var thumbPath: String
+        /// La légende textuelle de la planche (`BoardCaptionBuilder`, lot 18).
+        /// Vide quand la planche n'a pas encore été décrite.
+        var caption: String = ""
+        /// La case `Joindre au rapport` de l'encart de clôture de 6b (lot 18).
+        /// Elle ne décide pas de la **citation** — le rapport dit toujours ce
+        /// que la séance a produit — mais de l'**annexe** : l'image de la
+        /// planche et le fichier joint au message.
+        var includeInReport: Bool = false
+        /// Chemin **absolu** de la vignette, résolu par `BoardStore`. Vide
+        /// quand la planche n'a pas de vignette : `Board.thumbPath` est
+        /// relatif au dossier de la réunion, et le rapport ne sait pas le
+        /// résoudre lui-même.
+        var thumbAbsolutePath: String = ""
     }
 
     nonisolated static let boardsTitle = "Planches"
@@ -183,17 +196,31 @@ enum ReportOptionalBlocks {
     /// de la chronologie, et l'ordre d'une relation SwiftData n'est de toute
     /// façon pas garanti.
     ///
-    /// La légende textuelle générée par l'assistant est au lot 18 ; ici le bloc
-    /// rend ce que la base sait déjà — titre, mode, auteur, vignette.
-    static func boards(of meeting: Meeting) -> [BoardEntry] {
-        meeting.boards
+    /// Depuis le lot 18, l'entrée porte aussi la **légende** de la planche
+    /// (`Board.caption`, produite par `BoardCaptionBuilder`), sa case `Joindre
+    /// au rapport` et le chemin absolu de sa vignette.
+    ///
+    /// `store` est injectable : résoudre `Board.thumbPath`, qui est relatif au
+    /// dossier de la réunion, demande une racine, et un test ne doit pas lire
+    /// le `recordings/` de production.
+    static func boards(of meeting: Meeting, store: BoardStore? = nil) -> [BoardEntry] {
+        let magasin = store ?? .shared
+        let reunion = meeting.ensuredStableID
+        return meeting.boards
             .sorted { ($0.t, $0.index) < ($1.t, $1.index) }
             .map { planche in
-                BoardEntry(t: planche.t,
-                           title: planche.title,
-                           mode: planche.mode.label,
-                           authors: planche.authorNames,
-                           thumbPath: planche.thumbPath)
+                let vignette = planche.thumbPath.isEmpty
+                    ? ""
+                    : magasin.url(meetingStableID: reunion,
+                                  relativePath: planche.thumbPath).path
+                return BoardEntry(t: planche.t,
+                                  title: planche.title,
+                                  mode: planche.mode.label,
+                                  authors: planche.authorNames,
+                                  thumbPath: planche.thumbPath,
+                                  caption: planche.caption,
+                                  includeInReport: planche.includeInReport,
+                                  thumbAbsolutePath: vignette)
             }
     }
 
@@ -203,11 +230,23 @@ enum ReportOptionalBlocks {
             let titre = entry.title.isEmpty ? "Planche sans titre" : entry.title
             var ligne = "- \(MeetingPlayhead.mmss(entry.t)) · \(titre) · \(entry.mode)"
             if !entry.authors.isEmpty { ligne += " · \(entry.authors)" }
+            // La légende sur une ligne de continuation indentée (lot 18) : le
+            // modèle la lit comme faisant partie de la puce, et une planche
+            // sans légende ne laisse pas de ligne vide derrière elle.
+            if !entry.caption.isEmpty { ligne += "\n  \(entry.caption)" }
             return ligne
         }.joined(separator: "\n")
     }
 
-    nonisolated static func boardsHTML(_ entries: [BoardEntry]) -> String {
+    /// `embedImages` : la vignette des planches **cochées** en annexe, en
+    /// `data:` URI — même arbitrage que pour les captures (l'aperçu la veut,
+    /// l'export mail non, l'image y arrive en pièce jointe).
+    ///
+    /// La citation, elle, ne dépend pas de la case : le rapport d'atelier dit
+    /// ce que la séance a produit, et une planche non jointe reste une planche
+    /// qui a existé.
+    nonisolated static func boardsHTML(_ entries: [BoardEntry],
+                                       embedImages: Bool = false) -> String {
         guard !entries.isEmpty else { return "" }
         var html = "<h2>\(boardsTitle)</h2>\n<ul>\n"
         for entry in entries {
@@ -215,10 +254,20 @@ enum ReportOptionalBlocks {
             var ligne = "<li><code>\(MeetingPlayhead.mmss(entry.t))</code> "
                 + "\(escape(titre)) · \(escape(entry.mode))"
             if !entry.authors.isEmpty { ligne += " · \(escape(entry.authors))" }
+            if !entry.caption.isEmpty { ligne += "<br/><em>\(escape(entry.caption))</em>" }
             ligne += "</li>\n"
             html += ligne
         }
         html += "</ul>\n"
+        if embedImages {
+            for entry in entries where entry.includeInReport {
+                guard !entry.thumbAbsolutePath.isEmpty,
+                      let data = try? Data(contentsOf: URL(fileURLWithPath: entry.thumbAbsolutePath))
+                else { continue }
+                html += "<div><img src=\"data:image/png;base64,\(data.base64EncodedString())\""
+                     + " style=\"max-width:100%;border-radius:6px;\" /></div>\n"
+            }
+        }
         return html
     }
 
