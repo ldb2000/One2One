@@ -4,7 +4,11 @@ import SwiftUI
 enum MeetingMenuItem {
     case startStopRecording, appendRecording, pause, generateReport, retranscribe,
          customPrompt, importCalendar, importWAV, editAudio, revealWAV, delete,
-         exportMarkdown, exportPDF, exportMail, exportOutlook, exportNotes
+         exportMarkdown, exportPDF, exportMail, exportOutlook, exportNotes,
+         /// `⌘K` — l'assistant (spec §1.4).
+         assistant,
+         /// `⌘M` — un marqueur sur l'axe temps (spec §1.4).
+         marker
 }
 
 /// Source de vérité unique des actions « secondaires » d'une réunion, partagée
@@ -61,6 +65,12 @@ struct MeetingMenuActions {
     var exportOutlook: (MeetingMailExportOptions) -> Void
     var exportAppleNotes: (MeetingMailExportOptions) -> Void
 
+    // Actions — assistant et axe temps (spec §1.4)
+    /// `⌘K` : ouvre l'assistant sur la réunion courante.
+    var openAssistant: () -> Void
+    /// `⌘M` : pose un marqueur sur l'axe temps à l'instant courant.
+    var addPlayheadMarker: () -> Void
+
     /// Occupé par une opération longue (enreg./transcription/rapport).
     var busy: Bool { isRecording || isTranscribing || isGeneratingReport }
 
@@ -77,7 +87,10 @@ struct MeetingMenuActions {
     /// exports (ces derniers restent de toute façon liés à `hasReport`).
     private static let disabledForNote: Set<MeetingMenuItem> = [
         .startStopRecording, .appendRecording, .pause, .generateReport,
-        .retranscribe, .importWAV, .editAudio, .revealWAV
+        .retranscribe, .importWAV, .editAudio, .revealWAV,
+        // Un marqueur sans axe temps n'a pas d'ancre : une note n'a pas
+        // d'audio. `assistant` reste actif — il est « partout » (spec §1.1).
+        .marker
     ]
 
     /// Item activable dans l'état courant.
@@ -97,6 +110,12 @@ struct MeetingMenuActions {
         case .delete:             return true
         case .exportMarkdown, .exportPDF, .exportMail, .exportOutlook, .exportNotes:
             return hasReport
+        // L'assistant est une surface, pas un onglet : jamais grisé, même
+        // pendant une génération — c'est souvent là qu'on l'interroge.
+        case .assistant:          return true
+        // Un marqueur exige un axe temps : enregistrement en cours, ou audio
+        // relisible.
+        case .marker:             return isRecording || hasPlayableAudio
         }
     }
 }
