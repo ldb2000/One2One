@@ -5,10 +5,23 @@ import SwiftUI
 ///   le contenu (l'appelant l'enveloppe dans un ScrollView) — pour la carte réunion.
 /// - `fillsAvailableSpace == true` : vrai 2×2 qui remplit la hauteur dispo, chaque
 ///   quadrant ayant son propre ascenseur — pour l'écran Actions plein.
+/// - `compact == true` : quadrants resserrés pour le rail d'actions de 330 px
+///   (décision D10 du programme de refonte : la matrice **reste** dans le rail).
 struct EisenhowerBoard: View {
     let tasks: [ActionTask]
     var onToggle: (ActionTask) -> Void
     var fillsAvailableSpace: Bool = false
+    /// Rendu resserré du rail de 330 px. Défaut `false` : le rendu des
+    /// appelants existants ne change pas d'un pixel.
+    var compact: Bool = false
+
+    /// Hauteur minimale d'un quadrant, `nil` quand c'est le conteneur qui
+    /// l'impose (plein écran). Extraite pour être vérifiable : une matrice
+    /// écrasée sur l'écran Actions plein ne se voit dans aucun test de rendu.
+    static func boxMinHeight(fillsAvailableSpace: Bool, compact: Bool) -> CGFloat? {
+        if fillsAvailableSpace { return nil }
+        return compact ? 54 : 90
+    }
 
     private struct Quad { let urgent: Bool; let important: Bool; let title: String }
     private let quads: [Quad] = [
@@ -70,7 +83,8 @@ struct EisenhowerBoard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .frame(minHeight: fillsAvailableSpace ? nil : 90)
+        .frame(minHeight: Self.boxMinHeight(fillsAvailableSpace: fillsAvailableSpace,
+                                            compact: compact))
         .frame(maxHeight: fillsAvailableSpace ? .infinity : nil)
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.06)))
