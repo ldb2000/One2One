@@ -23,6 +23,8 @@ struct NoteComposer: View {
     let meeting: Meeting
     let screen: MeetingScreenModel
 
+    @Environment(\.one2OneTheme) private var theme
+    private var c: One2OneColors { theme.colors }
     @Environment(\.modelContext) private var context
 
     var body: some View {
@@ -51,7 +53,7 @@ struct NoteComposer: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                .strokeBorder(One2OneToken.strongBorder,
+                .strokeBorder(c.strongBorder,
                               style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
         )
         .padding(.horizontal, 12)

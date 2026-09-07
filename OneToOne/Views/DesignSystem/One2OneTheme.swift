@@ -29,6 +29,30 @@ struct One2OneColors: Sendable {
     let ok: Color
     let hair: Color
     let cardBorder: Color
+
+    // MARK: - Champs ajoutés au lot 4
+    //
+    // Les composants des lots 2 et 3 lisaient encore `One2OneToken` en direct
+    // pour ces sept rôles : la colonne de notes et la colonne de transcription
+    // du mode séance en avaient besoin. Ajoutés ici, et non écrits dans les
+    // vues, pour que la règle « seul `One2OneTokens.swift` nomme une couleur »
+    // reste vraie — donc vérifiable.
+
+    /// Sous-zone d'une carte, ligne de tableau alternée. Fond du bouton
+    /// secondaire au repos.
+    let surfaceAlt: Color
+    /// Contour d'un bouton secondaire ou d'un champ.
+    let strongBorder: Color
+    /// Placeholder et métadonnée. Jamais sous 11,5 px.
+    let inkMuted: Color
+    /// Encre d'un texte posé sur `actionBg` (lien, pilule d'action active).
+    let actionInk: Color
+    /// Fond doux d'un élément d'action (segment survolé, pilule `Suivre`).
+    let actionBg: Color
+    /// Encre d'un texte de décision ou de rapport sur son fond doux.
+    let reportInk: Color
+    /// Encre d'un texte de risque sur son fond doux.
+    let warnInk: Color
 }
 
 /// Thème d'écran de la refonte.
@@ -59,7 +83,14 @@ enum One2OneTheme: String, CaseIterable, Sendable {
                 warn: One2OneToken.warn,
                 ok: One2OneToken.ok,
                 hair: One2OneToken.hair,
-                cardBorder: One2OneToken.cardBorder
+                cardBorder: One2OneToken.cardBorder,
+                surfaceAlt: One2OneToken.surfaceAlt,
+                strongBorder: One2OneToken.strongBorder,
+                inkMuted: One2OneToken.inkMuted,
+                actionInk: One2OneToken.actionInk,
+                actionBg: One2OneToken.actionBg,
+                reportInk: One2OneToken.reportInk,
+                warnInk: One2OneToken.warnInk
             )
         case .session:
             One2OneColors(
@@ -84,7 +115,21 @@ enum One2OneTheme: String, CaseIterable, Sendable {
                 // claire y sont invisibles. Nommées ici, dans le système de
                 // conception, et non dans une vue.
                 hair: Color.white.opacity(0.07),
-                cardBorder: Color.white.opacity(0.09)
+                cardBorder: Color.white.opacity(0.09),
+                // Une « sous-zone » sur fond sombre est un cran **plus
+                // claire** que la carte, alors qu'elle est plus sombre que la
+                // surface en clair : c'est le rapport au fond qui compte, pas
+                // le sens de la variation.
+                surfaceAlt: One2OneToken.darkCard,
+                strongBorder: Color.white.opacity(0.14),
+                inkMuted: One2OneToken.darkInk4,
+                // Sur fond sombre, l'encre d'action **est** l'accent : il n'y a
+                // pas de version « profonde » à poser sur un fond doux, la
+                // palette `dark/*` n'en publie pas.
+                actionInk: One2OneToken.darkAction,
+                actionBg: One2OneToken.darkPill,
+                reportInk: One2OneToken.darkReport,
+                warnInk: One2OneToken.darkWarn
             )
         }
     }

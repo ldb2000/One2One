@@ -18,6 +18,12 @@ struct TimedNotesColumn: View {
     let meeting: Meeting
     let screen: MeetingScreenModel
 
+    /// Thème de l'écran hôte. La colonne est identique en clair (espace
+    /// Réunion, capture 1a) et en sombre (mode séance plein écran, capture
+    /// 1b) : seules ses couleurs changent, et elle ne les choisit pas.
+    @Environment(\.one2OneTheme) private var theme
+    private var c: One2OneColors { theme.colors }
+
     @Environment(\.modelContext) private var context
     /// Ligne en cours d'édition inline. Une seule à la fois : deux champs
     /// ouverts en même temps sur la même colonne, c'est une saisie perdue.
@@ -70,7 +76,7 @@ struct TimedNotesColumn: View {
             Button("tout afficher") { screen.noteFilter = nil }
                 .buttonStyle(.plain)
                 .font(.plexSans(10.5, .medium))
-                .foregroundStyle(One2OneToken.actionInk)
+                .foregroundStyle(c.actionInk)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -96,8 +102,8 @@ struct TimedNotesColumn: View {
                     .font(.plexMono(10, .medium))
                     .monospacedDigit()
                     .foregroundStyle(note.kind == .decision
-                                     ? One2OneToken.report
-                                     : One2OneToken.action)
+                                     ? c.report
+                                     : c.action)
                     .frame(width: TimecodeLabel.width, alignment: .leading)
                     .contentShape(Rectangle())
             }
@@ -116,7 +122,7 @@ struct TimedNotesColumn: View {
                 Button("OK") { commitEdition(note) }
                     .buttonStyle(.plain)
                     .font(.plexSans(10.5, .medium))
-                    .foregroundStyle(One2OneToken.actionInk)
+                    .foregroundStyle(c.actionInk)
             } else {
                 texte(for: note)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,16 +146,16 @@ struct TimedNotesColumn: View {
     private func texte(for note: MeetingNote) -> some View {
         let corps = Text(note.text)
             .font(.plexSans(12))
-            .foregroundStyle(One2OneToken.ink2)
+            .foregroundStyle(c.ink2)
         if note.kind == .note {
             corps.textSelection(.enabled)
         } else {
             (Text("\(note.kind.label) ").font(.plexSans(12, .semibold))
                 .foregroundColor(note.kind == .decision
-                                 ? One2OneToken.reportInk
-                                 : One2OneToken.warnInk)
-             + Text("— ").font(.plexSans(12)).foregroundColor(One2OneToken.ink4)
-             + Text(note.text).font(.plexSans(12)).foregroundColor(One2OneToken.ink2))
+                                 ? c.reportInk
+                                 : c.warnInk)
+             + Text("— ").font(.plexSans(12)).foregroundColor(c.ink4)
+             + Text(note.text).font(.plexSans(12)).foregroundColor(c.ink2))
                 .textSelection(.enabled)
         }
     }
@@ -158,8 +164,8 @@ struct TimedNotesColumn: View {
     /// pour un risque, rien pour le reste (spec §2.4).
     private func barre(for kind: MeetingNoteKind) -> Color? {
         switch kind {
-        case .decision: return One2OneToken.report
-        case .risk:     return One2OneToken.warn
+        case .decision: return c.report
+        case .risk:     return c.warn
         case .note, .feedback, .promise, .request, .proof: return nil
         }
     }
@@ -170,7 +176,7 @@ struct TimedNotesColumn: View {
         } label: {
             Text("⋯")
                 .font(.plexSans(12, .medium))
-                .foregroundStyle(One2OneToken.ink4)
+                .foregroundStyle(c.ink4)
                 .frame(width: 20, height: 18)
                 .contentShape(Rectangle())
         }

@@ -80,6 +80,12 @@ enum One2OneToken {
     static let darkInk3 = Color(hex: 0xC9C3B8)
     static let darkInk4 = Color(hex: 0x9A9285)
 
+    /// Portion **écoulée** de l'axe de la colonne temps du mode séance
+    /// (spec §2.6). Ce n'est pas `accent/report` (`#b8544c`) : la spec nomme
+    /// une valeur propre, plus saturée, et la capture le confirme — l'axe est
+    /// nettement plus vif que le carré de la décision qu'il traverse.
+    static let railElapsed = Color(hex: 0xE04B3F)
+
     static let darkAction = Color(hex: 0x9AB6F0)
     /// Décision et rapport sur fond sombre. Absent de `Teams-Capture`, qui
     /// n'affiche que la pastille : ajouté pour le mode séance.

@@ -36,6 +36,8 @@ struct TranscriptColumn: View {
     /// manager depuis la transcription.
     let onAddToManagerReport: (NSRange, String, String) -> Void
 
+    @Environment(\.one2OneTheme) private var theme
+    private var c: One2OneColors { theme.colors }
     @Environment(\.modelContext) private var context
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived })
     private var allCollaborators: [Collaborator]
@@ -102,14 +104,14 @@ struct TranscriptColumn: View {
                     Text(TranscriptFollow.label(following: screen.follow))
                         .font(.plexSans(10.5, .medium))
                         .foregroundStyle(screen.follow
-                                         ? One2OneToken.actionInk
-                                         : One2OneToken.ink3)
+                                         ? c.actionInk
+                                         : c.ink3)
                         .padding(.horizontal, 8)
                         .frame(height: 20)
                         .background(
                             Capsule().fill(screen.follow
-                                           ? One2OneToken.actionBg
-                                           : One2OneToken.surface)
+                                           ? c.actionBg
+                                           : c.card)
                         )
                         .contentShape(Rectangle())
                 }
@@ -122,7 +124,7 @@ struct TranscriptColumn: View {
                 Button(action: onDiarize) {
                     Image(systemName: "person.wave.2")
                         .font(.system(size: 10))
-                        .foregroundStyle(One2OneToken.ink3)
+                        .foregroundStyle(c.ink3)
                 }
                 .buttonStyle(.plain)
                 .disabled(segments.isEmpty || (meeting.wavFilePath ?? "").isEmpty)
@@ -131,7 +133,7 @@ struct TranscriptColumn: View {
                 Button(action: onReidentify) {
                     Image(systemName: "person.crop.circle.badge.questionmark")
                         .font(.system(size: 10))
-                        .foregroundStyle(One2OneToken.ink3)
+                        .foregroundStyle(c.ink3)
                 }
                 .buttonStyle(.plain)
                 .disabled((meeting.wavFilePath ?? "").isEmpty)
@@ -149,7 +151,7 @@ struct TranscriptColumn: View {
         if let erreur {
             Text(erreur)
                 .font(.plexSans(11))
-                .foregroundStyle(One2OneToken.reportInk)
+                .foregroundStyle(c.reportInk)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
         }
@@ -192,11 +194,11 @@ struct TranscriptColumn: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(live.isLive ? One2OneToken.report : One2OneToken.ink4)
+                    .fill(live.isLive ? c.report : c.ink4)
                     .frame(width: 6, height: 6)
                 Text("En direct")
                     .font(.plexSans(11, .semibold))
-                    .foregroundStyle(One2OneToken.ink2)
+                    .foregroundStyle(c.ink2)
                 if let statut = live.statusMessage {
                     MonoMeta(statut)
                 }
@@ -204,8 +206,8 @@ struct TranscriptColumn: View {
             Text(live.liveTranscript.isEmpty ? "En écoute…" : live.liveTranscript)
                 .font(.plexSans(12))
                 .foregroundStyle(live.liveTranscript.isEmpty
-                                 ? One2OneToken.inkMuted
-                                 : One2OneToken.ink2)
+                                 ? c.inkMuted
+                                 : c.ink2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -247,8 +249,8 @@ struct TranscriptColumn: View {
                         .font(.plexMono(10, .medium))
                         .monospacedDigit()
                         .foregroundStyle(meeting.wavFileURL == nil
-                                         ? One2OneToken.ink4
-                                         : One2OneToken.action)
+                                         ? c.ink4
+                                         : c.action)
                         .frame(width: TimecodeLabel.width, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -271,16 +273,16 @@ struct TranscriptColumn: View {
                             )
                             Text("—")
                                 .font(.plexSans(12))
-                                .foregroundStyle(One2OneToken.ink4)
+                                .foregroundStyle(c.ink4)
                         }
                         if segment.isHighlighted {
                             Image(systemName: "star.fill")
                                 .font(.system(size: 8.5))
-                                .foregroundStyle(One2OneToken.warn)
+                                .foregroundStyle(c.warn)
                         }
                         Text(segment.text)
                             .font(.plexSans(12))
-                            .foregroundStyle(One2OneToken.ink2)
+                            .foregroundStyle(c.ink2)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -294,7 +296,7 @@ struct TranscriptColumn: View {
         .padding(.horizontal, 6)
         .background(
             RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                .fill(survole ? One2OneToken.actionBg : Color.clear)
+                .fill(survole ? c.actionBg : Color.clear)
         )
         .contextMenu { menuDeSegment(segment) }
         .onHover { entre in
@@ -320,7 +322,7 @@ struct TranscriptColumn: View {
                     .background(
                         RoundedRectangle(cornerRadius: One2OneToken.radiusButton,
                                          style: .continuous)
-                            .fill(One2OneToken.action)
+                            .fill(c.action)
                     )
                     .contentShape(Rectangle())
             }
@@ -340,18 +342,18 @@ struct TranscriptColumn: View {
         Button(action: action) {
             Text(titre)
                 .font(.plexSans(10.5, .medium))
-                .foregroundStyle(One2OneToken.ink2)
+                .foregroundStyle(c.ink2)
                 .padding(.horizontal, 9)
                 .frame(height: 22)
                 .background(
                     RoundedRectangle(cornerRadius: One2OneToken.radiusButton,
                                      style: .continuous)
-                        .fill(One2OneToken.surface)
+                        .fill(c.card)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: One2OneToken.radiusButton,
                                      style: .continuous)
-                        .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
+                        .strokeBorder(c.strongBorder, lineWidth: 1)
                 )
                 .contentShape(Rectangle())
         }

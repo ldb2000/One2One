@@ -175,9 +175,25 @@ extension View {
     /// 0,07 em, couleur `ink/4`. Jamais `ink/muted` : sous 12 pt il faut 4,5:1
     /// de contraste (spec §1.2).
     func sectionLabel() -> some View {
-        self.font(.plexMono(9.5, .semibold))
+        modifier(SectionLabelModifier())
+    }
+}
+
+/// Le libellé de section, en encre de libellé mono **du thème courant**.
+///
+/// Un `ViewModifier` et non un simple enchaînement de modificateurs : une
+/// extension de `View` n'a pas accès à l'environnement, et le mode séance du
+/// lot 4 affiche les mêmes libellés (`NOTES`, `TRANSCRIPTION LIVE`,
+/// `ASSISTANT`, `CAPTURÉ CETTE SÉANCE`) sur `#1c1a17`, où `ink/4` (`#6b6659`)
+/// est illisible. En `.paper`, la couleur résolue est exactement celle d'avant.
+private struct SectionLabelModifier: ViewModifier {
+    @Environment(\.one2OneTheme) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .font(.plexMono(9.5, .semibold))
             .tracking(9.5 * 0.07)
             .textCase(.uppercase)
-            .foregroundStyle(One2OneToken.ink4)
+            .foregroundStyle(theme.colors.ink4)
     }
 }
