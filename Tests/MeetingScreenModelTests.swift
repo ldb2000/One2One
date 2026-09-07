@@ -176,4 +176,39 @@ struct MeetingScreenModelTests {
         model.space = .report
         #expect(defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("onetoone.meetingScreen") } == false)
     }
+
+    // MARK: - Tête de lecture (lot 1)
+
+    @Test("La tête de lecture appartient au modèle d'écran : une par réunion")
+    func playheadBelongsToScreen() {
+        // Reprend l'écart n° 1 du lot 0B : le registre statique de
+        // `MeetingPlayhead` disparaît, chaque écran porte la tête de lecture
+        // de sa réunion.
+        let a = MeetingScreenModel(defaults: makeDefaults())
+        a.attach(meetingID: UUID())
+        let premiere = a.playhead
+        #expect(a.playhead === premiere)          // deux accès, une instance
+
+        let b = MeetingScreenModel(defaults: makeDefaults())
+        b.attach(meetingID: UUID())
+        #expect(b.playhead !== premiere)          // deux réunions, deux têtes
+    }
+
+    @Test("La tête de lecture porte le stableID de la réunion rattachée")
+    func playheadCarriesTheMeetingID() {
+        let id = UUID()
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        model.attach(meetingID: id)
+        #expect(model.playhead.meetingStableID == id)
+    }
+
+    @Test("Un marqueur posé sur la tête de lecture y reste, trié")
+    func markerIsKept() {
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        model.attach(meetingID: UUID())
+        model.playhead.addMarker(at: 30, kind: .note)
+        model.playhead.addMarker(at: 10, kind: .decision)
+        #expect(model.playhead.markers.map(\.t) == [10, 30])
+        #expect(model.playhead.marker(at: 10.2)?.kind == .decision)
+    }
 }

@@ -104,41 +104,35 @@ struct MeetingPlayheadTests {
         #expect(playhead.marker(at: 260, tolerance: 2) == nil)
     }
 
-    @Test("Le registre rend une seule tête de lecture par réunion")
-    func registreParReunion() throws {
+    @Test("Une réunion en enregistrement recale l'axe sur son instant de démarrage")
+    func rattachementSurEnregistrement() throws {
+        // Remplace les deux tests du registre statique, retiré au lot 1 : la
+        // tête de lecture appartient désormais à `MeetingScreenModel`, qui la
+        // cale sur la réunion par `attachPlayhead(meeting:)`. Le partage entre
+        // surfaces est vérifié par `MeetingScreenModelTests`.
         let container = try makeContainer()
         let context = ModelContext(container)
         let reunion = Meeting(title: "COPIL")
         context.insert(reunion)
-        let autre = Meeting(title: "Atelier")
-        context.insert(autre)
         try context.save()
 
-        let premier = MeetingPlayhead.for(meeting: reunion)
-        let second = MeetingPlayhead.for(meeting: reunion)
-        #expect(premier === second)
-        #expect(premier.player === second.player)
-        #expect(MeetingPlayhead.for(meeting: autre) !== premier)
+        let ecran = MeetingScreenModel(defaults: UserDefaults(suiteName: "MeetingPlayheadTests.\(UUID().uuidString)")!)
+        ecran.attach(meetingID: reunion.ensuredStableID)
+        #expect(ecran.playhead.meetingStableID == reunion.ensuredStableID)
+
+        // Sans enregistrement en cours, l'axe reste à l'arrêt : rien ne doit
+        // faire courir `t` d'une réunion close.
+        reunion.recordingStartedAt = Date(timeIntervalSince1970: 1_000)
+        ecran.attachPlayhead(meeting: reunion)
+        #expect(ecran.playhead.source == .idle)
     }
 
-    @Test("Le registre est borné : la plus ancienne tête de lecture est évincée")
-    func registreBorne() throws {
-        let container = try makeContainer()
-        let context = ModelContext(container)
-        var reunions: [Meeting] = []
-        for i in 0..<(MeetingPlayhead.registryCapacity + 1) {
-            let m = Meeting(title: "Réunion \(i)")
-            context.insert(m)
-            reunions.append(m)
-        }
-        try context.save()
-
-        let premiere = MeetingPlayhead.for(meeting: reunions[0])
-        for reunion in reunions.dropFirst() {
-            _ = MeetingPlayhead.for(meeting: reunion)
-        }
-        // La première a quitté le cache : on en obtient une instance neuve.
-        #expect(MeetingPlayhead.for(meeting: reunions[0]) !== premiere)
-        #expect(MeetingPlayhead.registryCount <= MeetingPlayhead.registryCapacity)
+    @Test("Un marqueur ajouté par la tête de lecture est trié et retrouvable")
+    func ajoutDeMarqueur() {
+        let playhead = MeetingPlayhead(meetingStableID: UUID())
+        playhead.addMarker(at: 252, kind: .decision, label: "Décision")
+        playhead.addMarker(at: 12, kind: .note)
+        #expect(playhead.markers.map(\.t) == [12, 252])
+        #expect(playhead.marker(at: 252)?.label == "Décision")
     }
 }

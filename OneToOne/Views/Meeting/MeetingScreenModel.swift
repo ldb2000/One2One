@@ -71,6 +71,42 @@ final class MeetingScreenModel {
     /// domicile.
     var follow = true
 
+    // MARK: - Tête de lecture
+
+    /// La tête de lecture **de cette réunion**, créée au premier accès.
+    ///
+    /// Le lot 0B l'avait confiée à un registre statique borné en LRU
+    /// (`MeetingPlayhead.for(meeting:)`), faute de propriétaire : `MeetingView`
+    /// est une `struct` qui ne peut rien retenir sans initialiseur explicite.
+    /// Ce modèle-là est ce propriétaire — un par réunion ouverte, détruit avec
+    /// l'écran. Plus de registre global, donc plus d'éviction à contretemps ni
+    /// de lecteur qui joue sans surface pour l'arrêter.
+    /// `@ObservationIgnored` : l'instance est créée paresseusement **dans le
+    /// getter**, qui peut être appelé pendant un rendu. Observée, cette
+    /// écriture invaliderait la vue en cours de calcul. Ce qui doit être
+    /// observé, c'est la tête de lecture elle-même (`@Observable` de son côté),
+    /// pas la case qui la retient.
+    @ObservationIgnored private var storedPlayhead: MeetingPlayhead?
+
+    var playhead: MeetingPlayhead {
+        if let storedPlayhead { return storedPlayhead }
+        // Sans rattachement, la tête de lecture reçoit tout de même un
+        // identifiant : elle est alors purement locale, jamais partagée.
+        let nouvelle = MeetingPlayhead(meetingStableID: meetingID ?? UUID())
+        storedPlayhead = nouvelle
+        return nouvelle
+    }
+
+    /// Cale la tête de lecture sur l'état réel de la réunion : si son
+    /// enregistrement tourne, l'axe repart de `recordingStartedAt` — sinon les
+    /// notes posées après une réouverture d'écran seraient horodatées à zéro.
+    func attachPlayhead(meeting: Meeting) {
+        let tete = playhead
+        guard let startedAt = meeting.recordingStartedAt,
+              AudioRecorderService.shared.isRecording(for: meeting.ensuredStableID) else { return }
+        tete.beginRecording(startedAt: startedAt)
+    }
+
     // MARK: - Saisies éphémères des surfaces filles
 
     /// Nom en cours de saisie dans la modale de gestion des participants.
@@ -110,6 +146,13 @@ final class MeetingScreenModel {
     func attach(meetingID: UUID) {
         guard self.meetingID != meetingID else { return }
         self.meetingID = meetingID
+        // Une tête de lecture créée avant le rattachement porte un identifiant
+        // d'emprunt : elle est jetée pour que `playhead.meetingStableID` dise
+        // toujours la vérité (c'est lui qui nomme les fichiers et les journaux).
+        if let ancienne = storedPlayhead, ancienne.meetingStableID != meetingID {
+            ancienne.player.pause()
+            storedPlayhead = nil
+        }
         isRestoring = true
         space = Space(rawValue: defaults.string(forKey: Self.spaceKey(for: meetingID)) ?? "") ?? .meeting
         mode = Mode(rawValue: defaults.string(forKey: Self.modeKey(for: meetingID)) ?? "") ?? .live

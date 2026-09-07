@@ -85,7 +85,7 @@ struct MeetingView: View {
     /// haut, à la barre d'enregistrement et à la frise de l'éditeur audio.
     /// Résolue par le registre à chaque lecture : il retient l'instance, la
     /// vue n'a rien à retenir.
-    private var playhead: MeetingPlayhead { MeetingPlayhead.for(meeting: meeting) }
+    private var playhead: MeetingPlayhead { screen.playhead }
     private var player: AudioPlayerService { playhead.player }
     @StateObject private var captureService = ScreenCaptureService()
 
@@ -343,7 +343,7 @@ struct MeetingView: View {
             )
         }
         .sheet(item: $audioEditMode) { mode in
-            AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
+            AudioEditorSheet(meeting: meeting, mode: mode, playhead: playhead) { _ in }
         }
         .sheet(isPresented: $showDetailsSheet) {
             MeetingDetailsBlock(
@@ -391,6 +391,7 @@ struct MeetingView: View {
         }
         .onAppear {
             screen.attach(meetingID: meeting.ensuredStableID)
+            screen.attachPlayhead(meeting: meeting)
             MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
             // Reprise unique des notes markdown en notes horodatées (lot 0B).
             // Idempotent : le drapeau `notesMigrated` fait de ce `onAppear`,
