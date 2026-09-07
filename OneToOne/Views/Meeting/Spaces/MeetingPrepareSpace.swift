@@ -17,25 +17,12 @@ struct MeetingPrepareSpace: View {
     /// Coche ou décoche une action reportée.
     let onToggleAction: (PersistentIdentifier) -> Void
 
+    /// La colonne principale seule : le rail de 330 px est monté par
+    /// `MeetingSpaceView`, pour **tous** les modes (spec §2.5 : il est
+    /// permanent). Le lot 1 l'avait esquissé ici, faute de rail à installer ;
+    /// le garder produirait deux rails côte à côte.
     var body: some View {
-        GeometryReader { geo in
-            let colonnes = MeetingSpaceLayout.columns(
-                totalWidth: geo.size.width,
-                rail: One2OneToken.actionsRailWidth,
-                sideNav: nil
-            )
-            HStack(alignment: .top, spacing: 0) {
-                colonnePrincipale
-                    .frame(width: colonnes.fluid)
-                if colonnes.rail > 0 {
-                    Rectangle()
-                        .fill(One2OneToken.hair)
-                        .frame(width: MeetingSpaceLayout.hairlineWidth)
-                    railReduit
-                        .frame(width: colonnes.rail - MeetingSpaceLayout.hairlineWidth)
-                }
-            }
-        }
+        colonnePrincipale
     }
 
     // MARK: - Colonne principale
@@ -170,32 +157,6 @@ struct MeetingPrepareSpace: View {
             MeetingPrepTab(meeting: meeting)
                 .frame(minHeight: 320)
         }
-    }
-
-    // MARK: - Rail réduit
-
-    /// Le rail est « réduit » en mode Préparer (spec §2.2) mais garde sa
-    /// largeur de 330 px : le lot 3 y installera `ActionsRail` sans que la
-    /// colonne fluide ne bouge.
-    private var railReduit: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("RAIL D'ACTIONS").sectionLabel()
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(One2OneToken.hair).frame(height: 1)
-            }
-            MeetingEmptyInvite(
-                titre: "Rail réduit en préparation",
-                invite: "Les actions, les risques et l'historique s'affichent ici pendant la séance."
-            )
-            Spacer(minLength: 0)
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(One2OneToken.surface)
     }
 
     // MARK: - Fabrique de section
