@@ -73,6 +73,9 @@ struct MeetingView: View {
     @Query private var projects: [Project]
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var allCollaborators: [Collaborator]
     @Query private var settingsList: [AppSettings]
+    /// Toutes les réunions : le mode Préparer y prend les trois derniers
+    /// points du projet, et l'assistant y date sa seconde suggestion.
+    @Query(sort: \Meeting.date, order: .reverse) private var allMeetings: [Meeting]
     @Environment(\.modelContext) private var context
 
     // MARK: - Services
@@ -99,6 +102,8 @@ struct MeetingView: View {
     @State private var showDetailsSheet = false
     /// L'assistant est ouvert (barre d'invocation ou `⌘K`, spec §1.4).
     @State private var showAssistant = false
+    /// Une génération de résumé en une phrase est en cours (mode Relire).
+    @State private var isSummarizing = false
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
     @State private var reportEditMode: Bool = false
@@ -211,10 +216,11 @@ struct MeetingView: View {
             }
 
             HStack {
-                prepBadgeView
+                MeetingPrepBadge(etat: MeetingPrepBadge.etat(for: meeting),
+                                 onPrepare: { screen.space = .meeting; screen.mode = .prepare })
                 Spacer()
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, MeetingTopChromeBar.paddingHorizontal)
             .padding(.vertical, 2)
 
             if isGeneratingReport, let warning = reportActivity.warning() {
@@ -317,6 +323,9 @@ struct MeetingView: View {
         .sheet(item: $audioEditMode) { mode in
             AudioEditorSheet(meeting: meeting, mode: mode, playhead: playhead) { _ in }
         }
+        .sheet(isPresented: $showAssistant) {
+            MeetingAssistantPanel(meeting: meeting, onClose: { showAssistant = false })
+        }
         .sheet(isPresented: $showDetailsSheet) {
             MeetingDetailsBlock(
                 meeting: meeting,
@@ -344,7 +353,10 @@ struct MeetingView: View {
                 onResync: { resyncFromCalendarInMeetingView() },
                 onClose: { showParticipantsSheet = false })
         }
-        .popover(isPresented: $showSlidesList) { slidesPopover }
+        .popover(isPresented: $showSlidesList) {
+            MeetingSlidesPopover(slides: currentSlides,
+                                 onDelete: { captureService.deleteSlide($0) })
+        }
         .popover(isPresented: $showCaptureSetup) {
             ScreenCaptureConfigView(service: captureService, meeting: meeting)
         }
@@ -596,7 +608,15 @@ struct MeetingView: View {
         case .meeting:
             meetingSpace
         case .report:
-            reportView
+            MeetingReportSpace(
+                meeting: meeting,
+                settings: settings,
+                editMode: $reportEditMode,
+                debouncedSave: { debouncedSave() },
+                saveNow: saveContext,
+                onGenerate: { Task { await startReportFlow() } },
+                toolbar: { generateToolbar }
+            )
         case .resources:
             MeetingResourcesSpace(
                 meeting: meeting,
@@ -614,9 +634,9 @@ struct MeetingView: View {
         }
     }
 
-    /// L'espace `Réunion`. Contenu provisoire du lot 1 : le bandeau KPI, la
-    /// carte notes ↔ transcription et la barre d'assistant arrivent avec la
-    /// branche 1b ; les colonnes définitives, aux lots 2 et 3.
+    /// L'espace `Réunion` : bandeau d'indicateurs, contenu du mode, barre
+    /// d'assistant. Tout est dans `MeetingSpaceView` — ici il ne reste que le
+    /// câblage des données et des closures.
     ///
     /// Une note (`MeetingKind.note`) garde **exactement** son éditeur markdown
     /// et son `liveNotesEditorID` : les chemins `adoptPendingLiveNotes()` /
@@ -627,27 +647,94 @@ struct MeetingView: View {
         if meeting.kind == .note {
             liveNotesEditor
         } else {
-            switch screen.mode {
-            case .prepare:
-                MeetingPrepTab(meeting: meeting)
-                    .onAppear {
-                        PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
-                    }
-            case .live, .review:
-                GeometryReader { geo in
-                    let colonnes = MeetingSpaceLayout.evenSplit(width: geo.size.width)
-                    HStack(spacing: 0) {
-                        liveNotesEditor
-                            .frame(width: colonnes.0)
-                        Rectangle()
-                            .fill(One2OneToken.hair)
-                            .frame(width: MeetingSpaceLayout.hairlineWidth)
-                        transcriptView
-                            .frame(width: colonnes.1)
-                    }
+            MeetingSpaceView(
+                meeting: meeting,
+                screen: screen,
+                kpi: MeetingKPIBuilder.build(meeting: meeting),
+                prepareContext: MeetingPrepareBuilder.build(meeting: meeting,
+                                                            allMeetings: allMeetings),
+                historique: allMeetings,
+                showsSpeakerToggle: settings.transcriptionMode == .diarizeFirst
+                    && !meeting.transcriptSegments.isEmpty,
+                isSummarizing: isSummarizing,
+                isAssistantOpen: $showAssistant,
+                onSummarize: { Task { await generateShortSummary() } },
+                onManageParticipants: { showParticipantsSheet = true },
+                // Le filtre `kind:decision` sur les notes horodatées arrive au
+                // lot 2, avec la colonne qui sait les afficher : d'ici là, le
+                // mode Relire est le seul endroit qui liste les décisions.
+                onFilterDecisions: { screen.mode = .review },
+                // L'onglet Risques du rail arrive au lot 3 ; les alertes de la
+                // réunion sont pour l'instant dans le rapport.
+                onOpenRisks: { screen.space = .report },
+                onOpenMeeting: { id in openMeeting(id) },
+                onToggleAction: { id in toggleTask(id) },
+                notes: { liveNotesEditor },
+                transcript: { transcriptView },
+                actions: {
+                    ActionsPanel(
+                        meeting: meeting,
+                        settings: settings,
+                        allCollaborators: allCollaborators,
+                        screen: screen,
+                        onAddTask: addTask,
+                        onDeleteTask: { task in context.delete(task); saveContext() },
+                        onToggleTaskCompletion: { task in
+                            task.isCompleted.toggle()
+                            saveContext()
+                        },
+                        saveContext: saveContext
+                    )
+                }
+            )
+            .onAppear {
+                // Le versement des sujets permanents dans `prepNotes` était
+                // fait par l'onglet Préparation ; il suit son contenu dans le
+                // mode Préparer.
+                if screen.mode == .prepare {
+                    PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
+                }
+            }
+            .onChange(of: screen.mode) { _, nouveau in
+                if nouveau == .prepare {
+                    PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
                 }
             }
         }
+    }
+
+    /// Génère le résumé en une phrase du mode Relire. Même chemin que la carte
+    /// Résumé du dashboard : `SummaryCard.generate` est la seule définition du
+    /// prompt et de la source.
+    @MainActor
+    private func generateShortSummary() async {
+        guard !isSummarizing else { return }
+        isSummarizing = true
+        defer { isSummarizing = false }
+        do {
+            try await SummaryCard.generate(meeting: meeting, settings: settings)
+            saveContext()
+        } catch {
+            reportError = error.localizedDescription
+        }
+    }
+
+    /// Ouvre une autre réunion dans sa fenêtre — les « derniers points » du
+    /// mode Préparer sont cliquables.
+    private func openMeeting(_ id: PersistentIdentifier) {
+        guard let cible = allMeetings.first(where: { $0.persistentModelID == id }) else { return }
+        QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
+            meetingID: cible.ensuredStableID,
+            autoStartRecording: false
+        )
+    }
+
+    /// Coche ou décoche une action désignée par son identifiant persistant —
+    /// la liste d'actions reportées du mode Préparer ne porte que des valeurs.
+    private func toggleTask(_ id: PersistentIdentifier) {
+        guard let tache = meeting.tasks.first(where: { $0.persistentModelID == id }) else { return }
+        tache.isCompleted.toggle()
+        saveContext()
     }
 
     /// L'éditeur markdown du corps de la réunion, inchangé depuis l'onglet
@@ -814,73 +901,6 @@ struct MeetingView: View {
         }
     }
 
-    private var slidesPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Slides capturées (\(captureService.capturedSlidesCount))")
-                .font(.headline)
-                .padding()
-            
-            Divider()
-            
-            ScrollView {
-                VStack(spacing: 12) {
-                    let slides = currentSlides
-                    
-                    if slides.isEmpty {
-                        Text("Aucune slide capturée dans cette session.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding()
-                    }
-                    
-                    ForEach(slides) { slide in
-                        HStack(spacing: 12) {
-                            if let image = NSImage(contentsOfFile: slide.imagePath) {
-                                Image(nsImage: image)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 80, height: 60)
-                                    .background(Color.black.opacity(0.1))
-                                    .cornerRadius(4)
-                            } else {
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.1))
-                                    .frame(width: 80, height: 60)
-                                    .cornerRadius(4)
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Slide \(slide.index)")
-                                    .font(.subheadline.bold())
-                                Text(slide.capturedAt.formatted(date: .omitted, time: .standard))
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Button(action: { NSWorkspace.shared.open(URL(fileURLWithPath: slide.imagePath)) }) {
-                                Image(systemName: "eye")
-                                    .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Ouvrir dans Aperçu")
-                            
-                            Button(action: { captureService.deleteSlide(slide) }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal)
-                    }
-                }
-                .padding(.vertical)
-            }
-            .frame(width: 300, height: 400)
-        }
-    }
-
     @MainActor
     private func importDocuments(result: Result<[URL], Error>) async {
         attachmentError = nil
@@ -909,53 +929,6 @@ struct MeetingView: View {
             attachmentError = error.localizedDescription
         }
     }
-
-    // MARK: - Prep badge
-
-    /// État du badge de préparation affiché sous la barre d'outils.
-    private enum PrepBadge { case none, toPrepare, prepared }
-
-    /// Calcule l'état du badge : « à préparer » pour une réunion future sans
-    /// contenu, « préparée » dès qu'il existe des notes (ponctuelles ou
-    /// permanentes), sinon aucun badge.
-    private var prepBadgeState: PrepBadge {
-        let standingNonEmpty: Bool = {
-            switch meeting.kind {
-            case .oneToOne, .manager:
-                return !(meeting.participants.first?.standingPrepNotes.isEmpty ?? true)
-            case .project:
-                return !(meeting.project?.standingPrepNotes.isEmpty ?? true)
-            case .global, .work, .note, .workshop:
-                return false
-            }
-        }()
-        let isFuture = (meeting.scheduledStart ?? meeting.date) > Date()
-        let hasContent = !meeting.prepNotes.isEmpty || standingNonEmpty
-        if isFuture && !hasContent { return .toPrepare }
-        if hasContent { return .prepared }
-        return .none
-    }
-
-    @ViewBuilder
-    private var prepBadgeView: some View {
-        switch prepBadgeState {
-        case .toPrepare:
-            Label("À préparer", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption.bold())
-                .foregroundColor(.white)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Capsule().fill(Color.orange))
-        case .prepared:
-            Label("Préparée", systemImage: "checkmark.seal.fill")
-                .font(.caption.bold())
-                .foregroundColor(.white)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Capsule().fill(Color.green))
-        case .none:
-            EmptyView()
-        }
-    }
-
 
     /// Vrai tant qu'une session live tourne ou qu'un texte live existe (avant que
     /// le transcript final ne soit produit au `stop()`).
@@ -1013,7 +986,7 @@ struct MeetingView: View {
                         MeetingHighlightableTextView(
                             text: .constant(meeting.mergedTranscript),
                             isEditable: false,
-                            highlightedRanges: managerHighlightedRanges(for: "mergedTranscript"),
+                            highlightedRanges: ManagerReportService.highlightedRanges(meeting: meeting, field: "mergedTranscript", in: context),
                             onAddToManagerReport: { range, snippet in
                                 startManagerReportFlow(range: range, snippet: snippet, field: "mergedTranscript")
                             }
@@ -1023,7 +996,7 @@ struct MeetingView: View {
                         MeetingHighlightableTextView(
                             text: .constant(meeting.rawTranscript),
                             isEditable: false,
-                            highlightedRanges: managerHighlightedRanges(for: "transcript"),
+                            highlightedRanges: ManagerReportService.highlightedRanges(meeting: meeting, field: "transcript", in: context),
                             onAddToManagerReport: { range, snippet in
                                 startManagerReportFlow(range: range, snippet: snippet, field: "transcript")
                             }
@@ -1034,184 +1007,6 @@ struct MeetingView: View {
             }
             .padding()
         }
-    }
-
-    private var reportView: some View {
-        VStack(spacing: 0) {
-            // Bandeau d'avertissement si transcription supprimée
-            if !meeting.reportRevisions.isEmpty,
-               meeting.rawTranscript.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text("Transcription supprimée après édition audio — re-transcrire pour mettre à jour le rapport.")
-                        .font(.caption)
-                    Spacer()
-                }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.08)))
-                .padding(.horizontal).padding(.top, 8)
-            }
-
-            if meeting.summary.isEmpty {
-                ContentUnavailableView(
-                    "Aucun rapport",
-                    systemImage: "wand.and.stars",
-                    description: Text("Génère le rapport une fois la transcription prête.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                generateToolbar
-                    .padding(.horizontal, 8).padding(.top, 4)
-                Divider()
-                if reportEditMode {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            MarkdownEditorView(
-                                text: Binding(
-                                    get: { meeting.summary },
-                                    set: { meeting.summary = $0; debouncedSave() }
-                                ),
-                                textViewID: "reportEditor.\(meeting.persistentModelID.hashValue)"
-                            )
-                            .frame(minHeight: 280)
-
-                            Divider()
-
-                            decisionsEditor
-
-                            Divider()
-
-                            metaHeaderEditor
-
-                            Divider()
-
-                            actionsNotice
-                        }
-                        .padding(12)
-                    }
-                } else {
-                    MeetingReportPreview(html: ReportHTMLBuilder.build(
-                        meeting: meeting,
-                        template: meeting.reportTemplate,
-                        includeTranscript: false,
-                        managerName: settings.ownerName,
-                        managerRole: settings.ownerRole
-                    ))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var decisionsEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("DÉCISIONS")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                    .tracking(1.2)
-                Text("(\(meeting.decisions.count))")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                Button {
-                    meeting.decisions.append("")
-                    try? context.save()
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(Color.accentColor)
-                }
-                .buttonStyle(.plain)
-                .help("Ajouter une décision")
-            }
-
-            if meeting.decisions.isEmpty {
-                Text("Aucune décision. Ces lignes apparaîtront automatiquement comme tableau « Relevé de décisions » dans le rapport.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ForEach(Array(meeting.decisions.enumerated()), id: \.offset) { idx, _ in
-                    HStack(spacing: 6) {
-                        Text("D\(idx + 1)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, alignment: .leading)
-                        TextField("Décision…", text: Binding(
-                            get: { idx < meeting.decisions.count ? meeting.decisions[idx] : "" },
-                            set: { newValue in
-                                guard idx < meeting.decisions.count else { return }
-                                meeting.decisions[idx] = newValue
-                                debouncedSave()
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        Button {
-                            guard idx < meeting.decisions.count else { return }
-                            meeting.decisions.remove(at: idx)
-                            try? context.save()
-                        } label: {
-                            Image(systemName: "trash")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Supprimer cette décision")
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var metaHeaderEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("EN-TÊTE DU RAPPORT")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-                .tracking(1.2)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Référencés (non présents)")
-                    .font(.caption2).foregroundStyle(.secondary)
-                TextField("ex: Zied · Nicolas Hauvinet · Travaux McKinsey",
-                          text: Binding(
-                            get: { meeting.referencedAbsent },
-                            set: { meeting.referencedAbsent = $0; debouncedSave() }
-                          ))
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Prochaine échéance")
-                    .font(.caption2).foregroundStyle(.secondary)
-                TextField("ex: Partage du modèle puis présentation McKinsey",
-                          text: Binding(
-                            get: { meeting.nextDeadline },
-                            set: { meeting.nextDeadline = $0; debouncedSave() }
-                          ))
-                    .textFieldStyle(.roundedBorder)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var actionsNotice: some View {
-        HStack(spacing: 6) {
-            Text("PLAN D'ACTIONS")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-                .tracking(1.2)
-            Text("(\(meeting.tasks.count))")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Spacer()
-            Text("↗ Éditer via le panneau Actions (droite)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .italic()
-        }
-        .padding(.vertical, 4)
     }
 
     // MARK: - Participants
@@ -1293,104 +1088,22 @@ struct MeetingView: View {
         screen.newAdhocName = ""
     }
 
+    /// Applique l'événement choisi dans le sélecteur. La logique vit dans
+    /// `MeetingCalendarSync` : ce n'est pas une vue.
     private func importCalendarEvent(_ event: CalendarMeetingEvent) {
         calendarImportError = nil
-        meeting.title = event.title
-        meeting.date = event.startDate
-        meeting.calendarEventID = event.id
-        // Identité d'une occurrence = (identifiant, date de début) : sans
-        // `scheduledStart`, le parcours Teams ne retrouverait pas cette réunion
-        // et en créerait un doublon (cf. CalendarMeetingImportService.findExisting).
-        meeting.scheduledStart = event.startDate
-        meeting.scheduledEnd = event.endDate
-        meeting.calendarEventTitle = event.title
-        meeting.meetingDurationSeconds = max(0, Int(event.endDate.timeIntervalSince(event.startDate).rounded()))
-
-        for attendee in event.attendees {
-            let collaborator = resolveCollaborator(for: attendee)
-            if !meeting.participants.contains(where: { $0.persistentModelID == collaborator.persistentModelID }) {
-                meeting.participants.append(collaborator)
-            }
-            meeting.setParticipantStatus(attendee.status, for: collaborator)
-        }
-
+        MeetingCalendarSync.apply(event: event,
+                                  to: meeting,
+                                  knownCollaborators: allCollaborators,
+                                  in: context)
         saveContext()
     }
 
-    /// Recharge titre, dates, lien Teams et participants depuis l'événement calendrier
-    /// correspondant à `meeting.calendarEventID`, puis modifie le modèle, sauvegarde le
-    /// contexte et reprogramme la notification. Sans correspondance, ne fait rien.
-    /// Les participants sont dédupliqués par email puis par nom (insensible à la casse).
-    /// Logique partagée (DRY) entre le bouton Resync de `MeetingDetailsBlock` et celui
-    /// de `ManageParticipantsSheet` — les deux pointent vers cette méthode unique.
+    /// Recharge la réunion depuis son événement calendrier. Appelée par les
+    /// deux boutons Resync (feuille Détails et gestion des participants).
     @MainActor
     private func resyncFromCalendarInMeetingView() {
-        let eventID = meeting.calendarEventID
-        guard !eventID.isEmpty else { return }
-        let importer = CalendarMeetingImportService()
-        let now = Date()
-        let cal = Calendar.current
-        let start = cal.date(byAdding: .day, value: -30, to: now) ?? now
-        let end = cal.date(byAdding: .day, value: 60, to: now) ?? now
-        let events = importer.fetchEvents(start: start, end: end)
-        guard let match = events.first(where: { $0.id == eventID }) else { return }
-
-        meeting.title = match.title
-        meeting.scheduledStart = match.startDate
-        meeting.scheduledEnd = match.endDate
-        meeting.teamsJoinURL = match.teamsJoinURL
-        meeting.date = match.startDate
-        if !match.title.isEmpty { meeting.calendarEventTitle = match.title }
-        meeting.meetingDurationSeconds = max(0, Int(match.endDate.timeIntervalSince(match.startDate).rounded()))
-
-        // Re-import missing participants (dedup by email then name).
-        let me = settings.userEmail.lowercased()
-        let allCollabs = (try? context.fetch(FetchDescriptor<Collaborator>())) ?? []
-        for attendee in match.attendees {
-            let email = (attendee.email ?? "").lowercased()
-            if !me.isEmpty && email == me { continue }
-            let name = attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let collab: Collaborator
-            if !email.isEmpty, let m = allCollabs.first(where: { $0.email.lowercased() == email }) {
-                collab = m
-            } else if !name.isEmpty, let m = allCollabs.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
-                collab = m
-            } else {
-                let c = Collaborator(name: name.isEmpty ? "Participant" : name)
-                c.email = attendee.email ?? ""
-                context.insert(c)
-                collab = c
-            }
-            if !meeting.participants.contains(where: { $0.persistentModelID == collab.persistentModelID }) {
-                meeting.participants.append(collab)
-            }
-            meeting.setParticipantStatus(attendee.status, for: collab)
-        }
-
-        // Persist before scheduling so storeIdentifier stays stable.
-        try? context.save()
-        MeetingNotificationService.shared.schedule(for: meeting, settings: settings)
-    }
-
-    private func resolveCollaborator(for attendee: CalendarMeetingAttendee) -> Collaborator {
-        let normalizedName = attendee.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-
-        if let existing = allCollaborators.first(where: {
-            $0.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current) == normalizedName
-        }) {
-            // Compléter l'email s'il était vide.
-            if existing.email.isEmpty, let email = attendee.email, !email.isEmpty {
-                existing.email = email
-            }
-            return existing
-        }
-
-        let collaborator = Collaborator(name: attendee.name, role: "Calendrier")
-        collaborator.email = attendee.email ?? ""
-        collaborator.isAdhoc = true
-        collaborator.pinLevel = 0
-        context.insert(collaborator)
-        return collaborator
+        MeetingCalendarSync.resync(meeting: meeting, settings: settings, in: context)
     }
 
     // MARK: - Actions panel
@@ -2155,17 +1868,6 @@ struct MeetingView: View {
     /// Résout le texte source complet correspondant à un champ de rapport
     /// manager (`mergedTranscript`, `transcript`, `summary`, `notes`,
     /// `liveNotes`) ; chaîne vide pour un champ inconnu.
-    private func fieldText(_ field: String) -> String {
-        switch field {
-        case "mergedTranscript": return meeting.mergedTranscript
-        case "transcript":       return meeting.rawTranscript
-        case "summary":          return meeting.summary
-        case "notes":            return meeting.notes
-        case "liveNotes":        return meeting.liveNotes
-        default:                 return ""
-        }
-    }
-
     /// Démarre le flux d'ajout d'un extrait au rapport manager : pré-remplit une
     /// élaboration de repli immédiate, ouvre la feuille de classification puis
     /// lance en parallèle la catégorisation et l'élaboration IA.
@@ -2177,7 +1879,7 @@ struct MeetingView: View {
 
         // Compute deterministic context for both initial elaboration fallback
         // (shown immediately) and the AI prompt context.
-        let fullText = fieldText(field)
+        let fullText = ManagerReportService.sourceText(field: field, in: meeting)
         let ctx = SentenceContextExtractor.extractContext(text: fullText, range: range)
         // Pre-fill the elaboration field with raw context+snippet so user has
         // something usable instantly, even before AI returns or if AI fails.
@@ -2230,7 +1932,7 @@ struct MeetingView: View {
                                     tag: String,
                                     elaboratedText: String,
                                     aiSuggested: String?) {
-        let fullText = fieldText(pending.field)
+        let fullText = ManagerReportService.sourceText(field: pending.field, in: meeting)
         let ctx = SentenceContextExtractor.extractContext(text: fullText, range: pending.range)
         do {
             _ = try ManagerReportService.add(
@@ -2251,12 +1953,6 @@ struct MeetingView: View {
             print("[Manager] add failed: \(error)")
         }
         pendingMgrSelection = nil
-    }
-
-    private func managerHighlightedRanges(for field: String) -> [NSRange] {
-        ManagerReportService.itemsHighlightingSource(meeting: meeting, field: field, in: context).map {
-            NSRange(location: $0.sourceRangeStart, length: $0.sourceRangeLength)
-        }
     }
 
     // MARK: - Transcript / speakers UI

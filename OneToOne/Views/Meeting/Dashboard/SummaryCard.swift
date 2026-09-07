@@ -15,9 +15,7 @@ struct SummaryCard: View {
     @State private var errorMessage: String?
 
     /// Source du résumé : transcript fusionné, sinon brut.
-    private var transcriptSource: String {
-        meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript
-    }
+    private var transcriptSource: String { Self.transcriptSource(for: meeting) }
 
     var body: some View {
         DashboardCard(title: "Résumé",
@@ -63,10 +61,35 @@ struct SummaryCard: View {
 
     @MainActor
     private func generate() async {
-        let source = transcriptSource
-        guard !source.isEmpty else { return }
         isGenerating = true
         errorMessage = nil
+        do {
+            try await Self.generate(meeting: meeting, settings: settings)
+            saveContext()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isGenerating = false
+    }
+
+    /// La source du résumé : transcript fusionné, sinon brut. Extraite de
+    /// l'instance pour que le mode Relire de l'espace Réunion emploie **la
+    /// même** — deux définitions du « texte de la réunion » finiraient par
+    /// produire deux résumés différents. Comportement inchangé : pas de repli
+    /// sur les notes live.
+    static func transcriptSource(for meeting: Meeting) -> String {
+        meeting.mergedTranscript.isEmpty ? meeting.rawTranscript : meeting.mergedTranscript
+    }
+
+    /// Écrit `meeting.shortSummary`. Ne sauvegarde pas : l'appelant décide
+    /// quand persister (la carte le fait aussitôt, le mode Relire aussi).
+    ///
+    /// Sans texte à résumer, ne fait rien plutôt que d'appeler le modèle pour
+    /// rien.
+    @MainActor
+    static func generate(meeting: Meeting, settings: AppSettings) async throws {
+        let source = transcriptSource(for: meeting)
+        guard !source.isEmpty else { return }
         let prompt = """
         Résume la réunion suivante en 10 lignes maximum, en français, sous forme de \
         puces concises. Va à l'essentiel : sujets abordés, décisions, actions à suivre. \
@@ -74,13 +97,7 @@ struct SummaryCard: View {
 
         \(source)
         """
-        do {
-            let result = try await AIClient.send(prompt: prompt, settings: settings)
-            meeting.shortSummary = result.trimmingCharacters(in: .whitespacesAndNewlines)
-            saveContext()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isGenerating = false
+        let result = try await AIClient.send(prompt: prompt, settings: settings)
+        meeting.shortSummary = result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

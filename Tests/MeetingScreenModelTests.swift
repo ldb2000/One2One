@@ -202,6 +202,52 @@ struct MeetingScreenModelTests {
         #expect(model.playhead.meetingStableID == id)
     }
 
+    // MARK: - Critère d'acceptation n° 4 (chantier 1)
+
+    @Test("Préparer → En séance → Relire ne perd ni le brouillon d'action ni le texte en cours")
+    func modeChangeKeepsDrafts() {
+        // « Le passage Préparer → En séance → Relire ne perd aucune saisie en
+        // cours. » Le mode ne change que la disposition (spec §2.2) : il ne
+        // remet rien à zéro, et c'est ce test qui l'empêche de le faire un
+        // jour par inadvertance.
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        model.attach(meetingID: UUID())
+        model.newTaskTitle = "Chiffrer la fin de migration"
+        model.newTaskUrgent = true
+        model.newTaskPomodoros = 2
+        model.pendingNoteText = "40k déjà payés, rien de finalisé"
+
+        for mode in [MeetingScreenModel.Mode.prepare, .live, .review, .prepare] {
+            model.mode = mode
+            #expect(model.newTaskTitle == "Chiffrer la fin de migration")
+            #expect(model.newTaskUrgent)
+            #expect(model.newTaskPomodoros == 2)
+            #expect(model.pendingNoteText == "40k déjà payés, rien de finalisé")
+        }
+        // Même exigence en changeant d'espace : le composeur de note reste
+        // rempli quand on va voir le rapport et qu'on revient.
+        for space in MeetingScreenModel.Space.allCases {
+            model.space = space
+            #expect(model.newTaskTitle == "Chiffrer la fin de migration")
+            #expect(model.pendingNoteText == "40k déjà payés, rien de finalisé")
+        }
+    }
+
+    @Test("Le texte en cours n'est pas mémorisé d'une ouverture à l'autre")
+    func pendingNoteIsNotPersisted() {
+        // Une note à moitié écrite est une intention du moment, pas une
+        // donnée : elle ne doit pas ressusciter trois jours plus tard.
+        let defaults = makeDefaults()
+        let id = UUID()
+        let premier = MeetingScreenModel(defaults: defaults)
+        premier.attach(meetingID: id)
+        premier.pendingNoteText = "en cours"
+
+        let second = MeetingScreenModel(defaults: defaults)
+        second.attach(meetingID: id)
+        #expect(second.pendingNoteText.isEmpty)
+    }
+
     @Test("Un marqueur posé sur la tête de lecture y reste, trié")
     func markerIsKept() {
         let model = MeetingScreenModel(defaults: makeDefaults())
