@@ -2,6 +2,220 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 4 : mode séance plein écran (2026-09-07)
+
+Branche `feat/refonte-lot-4-mode-seance`, sur `feat/refonte-lot-3-rail-actions` : la PR
+**empile** les lots 0A, 0B, 1a, 1b, 2 et 3 (PR #19–#24, non fusionnées). Ordre de fusion
+`#19 → #20 → #21 → #22 → #23 → #24 → celle-ci`. Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-4-mode-seance.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert, PR ouverte, non mergée.
+Recette visuelle non faite — voir plus bas.**
+
+### Ce qui est en place
+
+**`SessionFullscreenView` : grille `78 | 1fr | 400`, thème `.session`, aucun chrome.**
+La barre d'état est la seule surface de chrome de l'écran (spec §2.6) :
+`● En séance · P25_110` — le point pulse **si et seulement si** l'enregistrement de cette
+réunion tourne —, `mm:ss / mm:ss` de la tête de lecture, les pastilles des participants,
+`CP parle`, et `Clore la séance` en `accent/report` plein. Ni barre d'espaces, ni bandeau
+d'indicateurs, ni fil d'Ariane, ni rail de 330 px : en séance, douze actions listées à
+droite sont une invitation à faire autre chose qu'écouter. Ce qu'il en reste est le bandeau
+`EN ATTENTE`, qui ne parle que de ce qui vient d'être décidé.
+
+**Le locuteur courant vient des segments résolus, pas d'un signal live.**
+`LiveTranscriptionService` ne publie **aucun** locuteur : la diarisation est *batch*,
+`LiveDiarizationAligner.alignToBlocks` s'exécute après le `stop()`, par recouvrement de
+timestamps. `SessionCurrentSpeaker` cherche donc le `TranscriptSegment` qui couvre `t` et
+dont le `speaker` est résolu en `Collaborator` ; sans lui, la mention est **masquée** (spec
+§2.6 : « sinon masqué ») — `S2 parle` dans une barre d'état est du bruit. Bornes
+`début ≤ t < fin`, pour qu'un locuteur ne reste pas affiché pendant le silence qui suit son
+tour.
+
+**`TimeRailColumn` : axe 3 px, `#e04b3f` sur la portion écoulée.** Ronds `dark/accent
+action` pour les notes, carré de rayon 3 `accent/report` pour les décisions, trait `dark/ink`
+pour la position — dessiné **après** les repères, pour qu'on voie où l'on est même quand une
+note est posée juste là. Libellés mono à 30 px du rail : ils passent donc légèrement derrière
+l'axe, comme sur la capture, où l'on lit `04:1` et non `04:12`. Toute la géométrie est dans
+`TimeRailGeometry`, pure et testée — une durée nulle est le cas **courant** de cet écran
+(séance qui vient de démarrer), et un `Canvas` à qui l'on passe un `NaN` ne dessine rien sans
+rien signaler.
+
+**`⌘M` pose une `MeetingNote(kind: .note, text: "")`** (décision D4.1). Un type « marqueur
+pur » aurait demandé une colonne, une migration et un second chemin de repère pour le même
+besoin : `MeetingTimelineMarkers` lit déjà `meeting.timedNotes`, donc le repère apparaît sur
+l'axe sans rien ajouter. En contrepartie, `TimedNotesColumn` **filtre les lignes vides** —
+sinon la colonne afficherait une ligne muette dont seul le timecode se lit, et qu'on ne
+saurait pas supprimer.
+
+**`AssignmentQueue` : la file en trois gestes, pure et générique.** `responsable → échéance →
+suivante`, `Tab` et `⌘⏎` avancent, `Esc` sort **à n'importe quelle étape**, « Passer » saute
+sans rien poser, une file vide est close d'emblée (`Assigner maintenant` sur zéro action est
+une impasse, pas un formulaire vide). Générique sur l'identifiant : la vue l'instancie sur
+`PersistentIdentifier`, les tests sur `Int`. `AssignmentQueueSheet` réutilise
+`OwnerPickerMenu` et `ActionCardEditing.raccourcisEcheance` du lot 3 — trois sélecteurs de
+responsable dans l'application finiraient par ne plus proposer les mêmes personnes. Le
+bandeau lui-même délègue « sans responsable » à `ActionsRailGrouping` (groupe `À ASSIGNER`) :
+deux définitions afficheraient deux nombres pour le même écran.
+
+**`SessionCapturedSummary` compte depuis le début de la séance, et rien avant.** La réunion
+porte tout son historique, préparation de la veille comprise : `meeting.tasks.count`
+afficherait 12 actions là où la séance en a produit 4. L'origine est `recordingStartedAt`
+**même s'il précède** l'ouverture du mode (on passe souvent en plein écran une fois la séance
+lancée), sinon l'instant d'ouverture. Un horodatage `nil` ne compte pas — `ActionTask.createdAt`
+est optionnel, et ces lignes-là sont justement les anciennes.
+
+**`MeetingAssistantController` : la logique d'envoi sort de la vue.** Le panneau de séance
+pose les mêmes questions que `MeetingChatView`, qui **délègue désormais** la construction du
+prompt au contrôleur (ses tests continuent de passer par `makePrompt`, qui ne fait plus que
+transmettre) — un test vérifie que les deux chemins produisent la même chaîne au caractère
+près. Les **sources horodatées** de la capture ne sont pas extraites du texte du modèle (un
+modèle qui cite mal produirait des liens morts) mais du contexte qu'on lui a effectivement
+donné : les chunks RAG retenus, plus la dernière note de la séance. Les `TranscriptChunk` ne
+portent pas de timecode — ils sont découpés par longueur, pas par tour de parole — donc
+l'instant est retrouvé par recouvrement de texte avec les segments de la réunion d'origine
+(`instant(ofExtract:inSegments:)`), et **`nil` plutôt qu'un instant inventé** quand
+l'extrait est trop court ou étranger. Une source dans la séance replace la tête de lecture ;
+ailleurs, elle ouvre sa réunion.
+
+**Mention `@Prénom` en pilule.** `SessionMentionRuns` découpe la ligne ; la règle
+intéressante n'est pas la pilule mais **ce qui en est une** : `@Yann` oui,
+`laurent@april.com` non (le `@` y est au milieu d'un mot), `@Inconnu` non tant qu'aucun
+collaborateur ne porte ce nom — peindre en bleu une personne qui n'existe pas promet une
+notification qui n'aura pas lieu. La reconnaissance passe par `CollaboratorMentionSource`,
+la même que l'éditeur markdown. Un test de non-perte recompose la ligne d'origine au
+caractère près. Rendu seulement en thème `.session`, par `MentionFlow` + `WrapLayout` (une
+`Layout` de flot minimale) : `AttributedString.backgroundColor` ne donne qu'un rectangle
+plein, qui se colle au bord du bloc sur une mention en fin de ligne. Le prix payé est la
+sélection du texte, perdue sur les lignes qui portent une mention.
+
+**Entrée et sortie.** Le mode est présenté en **substituant le `contentView` de la fenêtre
+courante** (`SessionWindowSwapper`), pas dans une `WindowGroup` de plus et pas par un
+`overlay` : un overlay posé sur `MeetingSpaceView` laisse visibles la barre du haut, le badge
+de préparation et la barre d'enregistrement de `MeetingView` — donc du chrome. La demande
+passe par `SessionFullscreenPresenter`, un objet partagé : la pilule audio de
+`MeetingTopChromeBar` et l'item `⌃⌘F` de `MeetingCommands` n'ont ni l'un ni l'autre accès au
+`MeetingScreenModel`, et faire descendre un binding jusqu'à eux aurait exigé de modifier
+`MeetingView`. Un **jeton** et non un booléen : deux `⌃⌘F` de suite doivent tous deux
+basculer. `Esc` suit `SessionExitPolicy` — confirmation si et seulement si l'enregistrement
+tourne, et un second `Esc` **referme** le dialogue au lieu de le valider.
+
+**Les composants des lots 2 et 3 lisent le thème, ils ne le choisissent pas.**
+`TimedNotesColumn`, `NoteComposer`, `TranscriptColumn`, `Chip` et `sectionLabel()` sont passés
+de `One2OneToken.*` à `theme.colors.*`. En `.paper`, les couleurs résolues sont **identiques**
+et `SessionThemeTests` le fixe : sans ce test, une seule correspondance erronée repeindrait
+discrètement l'espace Réunion en clair sans qu'aucune autre suite s'en aperçoive.
+`One2OneColors` gagne les sept champs qui manquaient (`surfaceAlt`, `strongBorder`,
+`inkMuted`, `actionInk`, `actionBg`, `reportInk`, `warnInk`) ; `One2OneToken` gagne
+`railElapsed` (`#e04b3f`), distinct d'`accent/report` — la spec §2.6 nomme une valeur propre,
+et la capture le confirme.
+
+### Créés
+
+`OneToOne/Views/Meeting/Session/` : `SessionFullscreenView`, `SessionFullscreenState`
+(+ `SessionExitPolicy`), `SessionFullscreenPresenter` (+ `SessionWindowSwapper`, le
+modificateur `sessionFullscreen`), `SessionStatusBar`, `TimeRailColumn`,
+`AssignmentQueueSheet` (+ `SessionPendingBand`), `SessionAssistantPanel`
+(+ `SessionCapturedBlock`), `SessionCapturedSummary`, `SessionCurrentSpeaker`,
+`SessionMentionRuns`, `MentionFlow` (+ `WrapLayout`), `MeetingAssistantController`.
+`OneToOne/Services/Meeting/` : `TimeRailGeometry`, `AssignmentQueue` (+ `PendingAssignment`).
+
+### Modifiés
+
+`MeetingScreenModel` : **une ligne** (`var session = SessionFullscreenState()`).
+`MeetingSpaceView` : **un modificateur** (le point d'entrée). `MeetingTopChromeBar` :
+**la pilule audio seule** (le bouton plein écran, visible quand un écran est en mesure de
+présenter). `MeetingMenuActions` / `MeetingCommands` : `⌃⌘F` et son item de menu.
+`One2OneTokens`, `One2OneTheme`, `One2OneTypography`, `Chip`, `TimedNotesColumn`,
+`NoteComposer`, `TranscriptColumn` : lecture du thème. `MeetingChatView` : délégation du
+prompt. **`MeetingView.swift` n'est pas touché — un test le vérifie.**
+
+### Tests
+
+`swift build` propre (avertissements préexistants seuls). `swift test` complet **vert** :
+**1 039 XCTest (1 ignoré, 0 échec) + 974 Swift Testing en 142 suites = 2 013 tests**, contre
+1 931 après l'intégration des lots 2+3 (**+82, +12 suites**), aucune régression.
+
+Nouvelles suites : `TimeRailGeometryTests` (13), `AssignmentQueueTests` (10),
+`PendingAssignmentTests` (3), `SessionCapturedSummaryTests` (6),
+`SessionCurrentSpeakerTests` (5), `SessionExitPolicyTests` (3),
+`SessionFullscreenStateTests` (4), `SessionMentionRunsTests` (8), `SessionThemeTests` (6),
+`SessionNoChromeTests` (6), `SessionFullscreenEntryTests` (6),
+`MeetingAssistantControllerTests` (9).
+
+Le critère « **aucun chrome hors la barre d'état** » ne se vérifie pas par l'état d'un
+modèle : un `MeetingKPIBand` recopié demain par distraction passerait toutes les autres
+suites. `SessionNoChromeTests` **lit les sources** du dossier `Session/` (chemin dérivé de
+`#filePath`, avec un premier test qui garde le chemin lui-même) et refuse
+`MeetingSpacesBar`, `MeetingKPIBand`, `MeetingTopChromeBar(`,
+`MeetingContextualRecorderBar`, `MeetingPrepBadge`, `MeetingAssistantDock(`, `ActionsRail(`
+et `MeetingSpaceLayout`, plus toute couleur nommée hors `One2OneToken`. Deux autres tests
+lisent tout `OneToOne/` pour vérifier que le point d'entrée n'est posé **qu'une fois** (deux
+poses substitueraient deux fois le contenu de la même fenêtre, et la seconde restauration
+rendrait la première) et que `MeetingView` ne mentionne rien du lot.
+
+### Recette visuelle : non faite
+
+`ioreg -n Root -d1 -r | grep CGSSessionScreenIsLocked` ne rend **aucune clé** : la session
+n'est pas verrouillée. Le `.app` a bien été empaqueté depuis le worktree (`Lot4.app`, HOME
+**et** `CFFIXED_USER_HOME` jetables, garde-fou d'isolation vérifié : le store atterrit dans
+le home jetable). Trois obstacles ont fait renoncer, dans cet ordre :
+
+1. **Premier lancement : crash `EXC_BREAKPOINT` dans `_NSViewUpdateConstraints`** (AppKit,
+   exception pendant la mise à jour des contraintes). C'est **la signature exacte** du crash
+   qu'une autre session bisecte en parallèle sur la même base (`bisect-step.sh`, « crash de
+   la fenêtre 1to1 », `grep "Update Constraints"`) : défaut **préexistant**, pas du lot 4.
+2. **Lancements suivants : l'application tourne, crée son store, mais n'ouvre aucune
+   fenêtre** (`count windows of process "OneToOne"` = 0, menu `Fenêtre` sans liste, journal
+   vide). Le menu `Réunion` est complet et porte bien « Mode séance plein écran » ; l'item
+   « Charger le jeu de démonstration (refonte) » a été cliqué, sans fenêtre pour l'afficher.
+   Piste non tranchée : l'autorisation d'accessibilité est accordée par **identité de
+   signature**, et le bundle de recette est signé ad hoc sur un chemin neuf — l'API AX peut
+   donc rendre zéro fenêtre alors qu'il y en a une.
+3. **Le poste était en réunion Teams réelle** (« OJ — Comité Urbanisation », 20 participants,
+   enregistrement en cours) et deux autres sessions se disputaient le bureau. Prendre l'écran
+   pour une capture aurait interrompu une réunion en cours. Processus de recette arrêté.
+
+`docs/superpowers/specs/refonte-2026-09/recette/lot-4-1920.png` **n'existe donc pas**, et
+aucun écart avec `1b-mode-seance.png` n'est mesuré. À refaire dès que le crash du point 1 est
+corrigé (lot en cours ailleurs) et que le poste est libre.
+
+### Écarts assumés avec la capture
+
+- **`EN ATTENTE  3 actions sans responsable`** : le jeu de démonstration du lot 1 pose
+  **9** actions sans responsable (`12 · 9 non assignées` au bandeau, `À ASSIGNER — 9` au
+  rail), et son arithmétique est vérifiée par `RefonteDemoSeedTests`. Le bandeau affichera
+  donc 9 et non 3. Changer le semis pour faire tomber le 3 casserait les trois nombres de
+  `1a-cockpit.png` : le compteur est juste, c'est le jeu de données qui diffère.
+- **La ligne `18:42 Formation Admin à planifier`** de la capture est la ligne **en cours de
+  saisie** (curseur rouge, aucun repère à 18:42 sur l'axe), pas une note enregistrée. Aucun
+  fichier `RefonteDemoSeed+Lot4.swift` n'a donc été ajouté : y semer cette ligne poserait un
+  cinquième rond sur l'axe, que la capture ne montre pas.
+- **Le composeur en séance n'a pas de cadre pointillé** et suit la dernière note dans le
+  flot, là où le mode fenêtré l'ancre en pied d'une colonne courte : la colonne de séance
+  occupe toute la hauteur de l'écran, et un composeur collé en bas serait à trente
+  centimètres du regard. Le rendu clair du lot 2 est inchangé.
+- **`DÉCISION` passe au-dessus du texte** en séance (libellé mono `accent/report`, comme la
+  capture) alors qu'il reste inline en 1a. Même raison : la colonne est plus large et la
+  ligne respire.
+- **Pas de barre de titre** : `titleVisibility` passe à `.hidden` pendant la présentation.
+  Une barre de titre est du chrome.
+
+### Fichiers partagés touchés malgré les conventions anti-conflit
+
+`One2OneTheme.swift` (sept champs ajoutés à `One2OneColors`), `One2OneTypography.swift`
+(`sectionLabel()` devient un `ViewModifier` pour lire le thème), `Chip.swift`
+(`encre(_:)` / `fond(_:)` par thème, les propriétés d'avant conservées),
+`Transcript/TranscriptColumn.swift`, `Notes/TimedNotesColumn.swift`, `Notes/NoteComposer.swift`
+(lecture du thème), `MeetingChatView.swift` (délégation du prompt). Aucun n'appartient au
+périmètre déclaré des lots 5, 6 ou 10 ; tous les changements sont additifs ou neutres en
+`.paper`, et `SessionThemeTests` verrouille cette neutralité.
+
+### Prochaine action
+
+Faire relire, puis fusionner dans l'ordre `#19 → #20 → #21 → #22 → #23 → #24 → cette PR`.
+Rejouer la recette visuelle du lot 4 une fois le crash `_NSViewUpdateConstraints` corrigé.
+
 ## Intégration des lots 2 + 3 : la pile redevient linéaire (2026-09-07)
 
 Les lots 2 et 3 ont été développés **en parallèle** depuis
