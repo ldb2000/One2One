@@ -119,7 +119,10 @@ frise (lot 2 n° 5) ; `Documents 4` au lieu de `Documents ＋`.
 
 - **Écran** : déverrouillé pendant toute la série de captures (19 h 50 –
   20 h 30), verrouillé ensuite — c'est ce qui a empêché la recapture d'après
-  correction.
+  correction. L'attente réglementaire a été tenue : sondage toutes les 50 s
+  de **00:09 à 00:49 CEST**, soit 40 minutes, l'écran est resté verrouillé.
+  La procédure de recapture, outillage compris, est écrite en fin du fichier
+  de recette.
 - **Teams** : aucune réunion en cours ; la seule fenêtre du processus `MSTeams`
   portait « Calendar | APRIL | … », vérifié avant chaque série.
 - **Instance de l'utilisateur** : jamais d'événement envoyé, jamais arrêtée.

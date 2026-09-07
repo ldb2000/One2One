@@ -297,6 +297,55 @@ visible et conforme à ce qui était assumé.
   aucune correction n'introduit de couleur nommée, de largeur en dur ni de
   présentation modale.
 
+## Procédure de recapture (pour la reprise)
+
+L'attente réglementaire a été tenue : sondage du verrou toutes les 50 s de
+**00:09 à 00:49 CEST le 2026-09-08**, soit 40 minutes — l'écran est resté
+verrouillé. Conformément à la consigne, la recette est livrée en l'état et la
+recapture reste due.
+
+Pour la rejouer sans reconstruire l'outillage, écran déverrouillé :
+
+1. `swift build -c release`, puis `Scripts/recette-app.sh <dossier>`.
+   **Vérifier que le bundle vient bien du build** (écart (c) n° 12) :
+   comparer `mtime` et taille de `<dossier>/OneToOne.app/Contents/MacOS/OneToOne`
+   à ceux de `.build/release/OneToOne`, ou chercher dans le binaire une chaîne
+   propre au dernier lot (`Assigner maintenant` pour le lot 4,
+   `Glissez un fichier ici` pour le lot 6).
+2. `Scripts/recette-run.sh --app <…>/OneToOne.app --seed --reset`, puis
+   vérifier l'isolation : `lsof -p <pid> | grep OneToOne.store` doit ne montrer
+   que le home jetable, et **zéro** ligne sur
+   `~/Library/Application Support/OneToOne`.
+3. Item de menu **Réunion ▸ Charger le jeu de démonstration (refonte)** pour
+   ajouter les compléments des lots 5 et 6.
+4. Pour chaque écran : poser l'état, redimensionner, capturer.
+
+| Écran | État à poser | Tailles |
+| --- | --- | --- |
+| 1a | mode **En séance** (état d'ouverture) | 1 280 × 800 puis la plus grande atteignable |
+| 1c | presser **Relire** | idem |
+| 3a | **En séance**, menu **Réunion ▸ Ressources…**, puis `Présenter` sur `Chiffrage_Marine_v3.xlsx` | idem |
+| 3b | fermer le tiroir, presser le segment projet du fil d'Ariane ; puis la bascule `Édition` | la plus grande atteignable |
+| 1b | menu **Réunion ▸ Mode séance plein écran** — vérifier d'abord que `Clore la séance` apparaît dans l'arbre AX, sinon l'écart (c) n° 1 n'est pas corrigé | plein écran |
+
+**Outillage obligatoire, jamais AppleScript** (écart (c) n° 7) :
+
+- fenêtres et identifiants : `CGWindowListCopyWindowInfo([.optionOnScreenOnly,
+  .excludeDesktopElements], kCGNullWindowID)` filtré sur
+  `kCGWindowOwnerPID == <mon pid>`, puis `kCGWindowNumber` ;
+- redimensionnement : `AXUIElementCreateApplication(<mon pid>)` →
+  `kAXWindowsAttribute` → `kAXPositionAttribute` / `kAXSizeAttribute`
+  (deux passes : AppKit contraint la première) ;
+- clics et menus : `AXUIElementPerformAction(…, kAXPressAction)` sur l'élément
+  trouvé dans l'arbre de ce pid, et `kAXMenuBarAttribute` pour les items de
+  menu ;
+- capture : `screencapture -l <kCGWindowNumber> -x -o` (le `-o` retire l'ombre,
+  sans quoi l'image dépasse la taille de la fenêtre) ;
+- **ne pas activer l'application** avant de capturer : `screencapture -l` lit le
+  backing store, et voler le focus expose les champs de saisie aux frappes
+  clavier de l'utilisateur — un « Dfgqdsf » s'est ainsi glissé dans le
+  composeur d'action pendant cette session, ce qui a coûté une recapture.
+
 ## Reste à faire
 
 1. **Recapturer les neuf écrans** avec le binaire corrigé, écran déverrouillé,
