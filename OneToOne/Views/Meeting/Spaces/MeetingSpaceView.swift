@@ -108,6 +108,16 @@ struct MeetingSpaceView: View {
                                onOpenMeeting: onOpenMeeting,
                                onDiarize: onDiarize,
                                onReidentify: onReidentify)
+            // Le point d'entrée de la pastille flottante (lot 8, spec §5.4) : il
+            // n'ajoute rien à l'écran, il inscrit cette réunion comme « réunion
+            // active » pour la pastille, `⌘⇧S` et `⌘⇧N` — trois surfaces qui vivent
+            // hors de toute hiérarchie de vues. Même place et même raison que le
+            // modificateur du lot 4 juste au-dessus : c'est ici que se trouvent à la
+            // fois la réunion, son modèle d'écran et le coordinateur de capture.
+            .sessionPill(meeting: meeting,
+                         screen: screen,
+                         capture: capture,
+                         estEligible: screen.mode == .live)
             // Lot 12, spec §3 : « `2b` s'ouvre par défaut en mode `Préparer` ».
             .onAppear(perform: appliquerModeInitial)
     }

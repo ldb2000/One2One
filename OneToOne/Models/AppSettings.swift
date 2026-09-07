@@ -220,6 +220,30 @@ final class AppSettings {
         set { slideCaptureSensitivityRaw = newValue.rawValue }
     }
 
+    // MARK: - Pastille flottante (lot 8, spec §5.4)
+
+    /// Quand la pastille flottante s'affiche. Stockée en `…Raw` (contournement du
+    /// bug SwiftData sur les énumérations persistées).
+    var sessionPillModeRaw: String = SessionPillMode.sessionOnly.rawValue
+    var sessionPillMode: SessionPillMode {
+        get { SessionPillMode(rawValue: sessionPillModeRaw) ?? .sessionOnly }
+        set { sessionPillModeRaw = newValue.rawValue }
+    }
+
+    /// Le coin d'écran où la pastille est aimantée. C'est le **coin** qui est
+    /// mémorisé, jamais la position en pixels : un écran débranché replacerait
+    /// sinon la pastille hors champ, sans moyen de la récupérer.
+    var sessionPillCornerRaw: String = ScreenCorner.bottomTrailing.rawValue
+    var sessionPillCorner: ScreenCorner {
+        get { ScreenCorner(rawValue: sessionPillCornerRaw) ?? .bottomTrailing }
+        set { sessionPillCornerRaw = newValue.rawValue }
+    }
+
+    /// `⌘⇧S` global (capture la source configurée), actif par défaut.
+    var captureHotkeyEnabled: Bool = true
+    /// `⌘⇧N` global (note au timecode courant), actif par défaut.
+    var noteHotkeyEnabled: Bool = true
+
     /// Layout configuré de la sidebar droite des réunions.
     /// JSON : `[{"id":"actions","visible":true}, …]`. Vide → defaultLayout
     /// est appliqué par le helper computed.

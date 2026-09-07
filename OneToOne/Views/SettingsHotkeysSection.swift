@@ -18,6 +18,7 @@ struct SettingsHotkeysSection: View {
     private var settings: AppSettings? { settingsList.canonicalSettings }
 
     var body: some View {
+        sectionPastille
         Section("Raccourcis 1:1") {
             HStack {
                 Label("Ouvrir le sélecteur 1:1", systemImage: "magnifyingglass")
@@ -49,6 +50,73 @@ struct SettingsHotkeysSection: View {
                 }
             }
         }
+    }
+
+    /// Les réglages de la pastille flottante (lot 8, spec §5.4) : quand elle s'affiche,
+    /// et les deux raccourcis globaux — avec leur échec s'ils n'ont pas pu être
+    /// enregistrés.
+    ///
+    /// Dans ce fichier et non dans `SettingsView` : la section est déjà montée, et un
+    /// bloc localisé vaut mieux qu'une ligne de plus dans un fichier que trois lots
+    /// modifient en parallèle.
+    @ViewBuilder
+    private var sectionPastille: some View {
+        Section("Pastille flottante") {
+            Picker("Afficher la pastille", selection: Binding(
+                get: { settings?.sessionPillMode ?? .sessionOnly },
+                set: { nouveau in
+                    settings?.sessionPillMode = nouveau
+                    try? context.save()
+                    SessionPillPanelController.shared.refresh()
+                }
+            )) {
+                ForEach(SessionPillMode.allCases, id: \.rawValue) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            Text((settings?.sessionPillMode ?? .sessionOnly).explanation)
+                .font(.caption).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            bascule(CaptureHotkey.capture,
+                    libelle: "⌘⇧S — capturer la source configurée",
+                    valeur: Binding(
+                        get: { settings?.captureHotkeyEnabled ?? true },
+                        set: { nouveau in
+                            settings?.captureHotkeyEnabled = nouveau
+                            enregistrer()
+                        }))
+
+            bascule(CaptureHotkey.note,
+                    libelle: "⌘⇧N — note au timecode courant",
+                    valeur: Binding(
+                        get: { settings?.noteHotkeyEnabled ?? true },
+                        set: { nouveau in
+                            settings?.noteHotkeyEnabled = nouveau
+                            enregistrer()
+                        }))
+        }
+    }
+
+    /// Une case, et sous elle le message d'échec s'il y en a un : un raccourci
+    /// silencieusement mort est indétectable.
+    @ViewBuilder
+    private func bascule(_ hotkey: CaptureHotkey,
+                         libelle: String,
+                         valeur: Binding<Bool>) -> some View {
+        Toggle(libelle, isOn: valeur)
+        if valeur.wrappedValue, let panne = CaptureHotkeyFailures.shared.message(for: hotkey) {
+            Label(panne, systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .foregroundColor(.orange)
+        }
+    }
+
+    private func enregistrer() {
+        try? context.save()
+        // Même canal que les raccourcis 1:1 : `ContentView` réenregistre tout d'un
+        // coup, ce qui garde `GlobalHotkeyService` idempotent.
+        NotificationCenter.default.post(name: .collaboratorHotkeysChanged, object: nil)
     }
 
     private func setHotkey(_ key: String, to newValue: String) {

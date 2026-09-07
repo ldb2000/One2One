@@ -59,4 +59,25 @@ struct CaptureHotkeysTests {
         #expect(echecs.message(for: .note) == nil)
         #expect(echecs.failed.isEmpty)
     }
+
+    @Test("les réglages neufs arment les deux raccourcis et suivent la séance")
+    func settingsDefaults() {
+        let settings = AppSettings()
+        #expect(settings.captureHotkeyEnabled)
+        #expect(settings.noteHotkeyEnabled)
+        #expect(settings.sessionPillMode == .sessionOnly)
+        #expect(settings.sessionPillCorner == .bottomTrailing)
+
+        // Les deux réglages passent par leur `…Raw`, contournement du bug SwiftData sur
+        // les énumérations persistées : la conversion doit fonctionner dans les deux
+        // sens, et une valeur illisible retomber sur le défaut.
+        settings.sessionPillMode = .never
+        #expect(settings.sessionPillModeRaw == "never")
+        settings.sessionPillCorner = .topLeading
+        #expect(settings.sessionPillCornerRaw == "topLeading")
+        settings.sessionPillModeRaw = "n'importe quoi"
+        #expect(settings.sessionPillMode == .sessionOnly)
+        settings.sessionPillCornerRaw = ""
+        #expect(settings.sessionPillCorner == .bottomTrailing)
+    }
 }
