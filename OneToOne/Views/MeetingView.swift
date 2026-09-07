@@ -606,6 +606,7 @@ struct MeetingView: View {
             MeetingReportSpace(
                 meeting: meeting,
                 settings: settings,
+                playhead: screen.playhead,
                 editMode: $reportEditMode,
                 debouncedSave: { debouncedSave() },
                 saveNow: saveContext,

@@ -41,6 +41,14 @@ enum MeetingReportSpaceInvites {
 struct MeetingReportSpace<Toolbar: View>: View {
     @Bindable var meeting: Meeting
     let settings: AppSettings
+    /// La tête de lecture de l'écran, pour les citations du rapport (lot 15).
+    ///
+    /// **Injectée** et non retrouvée : une `MeetingPlayhead` appartient à
+    /// l'état d'un écran monté et aucun registre ne l'expose — c'est la raison
+    /// que `QuickLaunchURLHandler.handle` donne pour la recevoir en paramètre.
+    /// Sans ce câblage, le clic sur `04:12` dans l'aperçu était intercepté
+    /// puis perdu : le lien restait inerte.
+    let playhead: MeetingPlayhead
     /// Mode édition markdown du rapport.
     @Binding var editMode: Bool
     /// Sauvegarde différée (l'éditeur écrit à chaque frappe).
@@ -52,6 +60,10 @@ struct MeetingReportSpace<Toolbar: View>: View {
     /// La barre « Template · Aperçu/Éditer · Générer », restée dans
     /// `MeetingView` : elle lit l'état de génération, qui y vit.
     @ViewBuilder let toolbar: Toolbar
+
+    /// Le contexte sert au repli de `handle` : une citation vers une **autre**
+    /// réunion ouvre sa fenêtre au lieu de déplacer cette tête de lecture.
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,13 +91,20 @@ struct MeetingReportSpace<Toolbar: View>: View {
                 if editMode {
                     editeur
                 } else {
-                    MeetingReportPreview(html: ReportHTMLBuilder.build(
-                        meeting: meeting,
-                        template: meeting.reportTemplate,
-                        includeTranscript: false,
-                        managerName: settings.ownerName,
-                        managerRole: settings.ownerRole
-                    ))
+                    MeetingReportPreview(
+                        html: ReportHTMLBuilder.build(
+                            meeting: meeting,
+                            template: meeting.reportTemplate,
+                            includeTranscript: false,
+                            managerName: settings.ownerName,
+                            managerRole: settings.ownerRole
+                        ),
+                        onCitation: { url in
+                            QuickLaunchURLHandler.handle(url: url,
+                                                         router: QuickLaunchRouter.shared,
+                                                         context: modelContext,
+                                                         playhead: playhead)
+                        })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }

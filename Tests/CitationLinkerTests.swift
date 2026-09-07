@@ -124,4 +124,56 @@ struct CitationURLHandlingTests {
         playhead.seek(to: 252)
         #expect(playhead.t == 252)
     }
+
+    // MARK: - La chaîne complète (câblage posé à l'intégration de la vague 6)
+
+    private func contexte() throws -> ModelContext {
+        let schema = Schema(versionedSchema: CurrentSchema.self)
+        let cfg = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return ModelContext(try ModelContainer(for: schema, configurations: cfg))
+    }
+
+    /// Le lot 15 avait laissé `handle` sans appelant : `MeetingReportPreview`
+    /// interceptait bien le clic, mais `MeetingReportSpace` ne recevait aucune
+    /// tête de lecture et le lien mourait là. Ce test verrouille la chaîne
+    /// telle qu'elle est désormais câblée — le HTML du rapport écrit l'URL, et
+    /// cette URL déplace la tête de lecture de **cet** écran.
+    @Test("Le lien écrit dans le rapport déplace la tête de lecture de l'écran")
+    @MainActor
+    func chaineCompleteDuClicAuSeek() throws {
+        let html = CitationLinker.link("<code>04:12</code>",
+                                       mode: .internalLinks(meetingStableID: reunion))
+        // On relit l'URL dans le HTML plutôt que de la reconstruire : c'est
+        // bien celle que le lecteur clique qui doit fonctionner.
+        let debut = try #require(html.range(of: "href=\"")).upperBound
+        let fin = try #require(html.range(of: "\">", range: debut..<html.endIndex)).lowerBound
+        let url = try #require(URL(string: String(html[debut..<fin])))
+
+        let playhead = MeetingPlayhead(meetingStableID: reunion)
+        playhead.duration = 600
+        let traite = QuickLaunchURLHandler.handle(url: url,
+                                                 router: QuickLaunchRouter.shared,
+                                                 context: try contexte(),
+                                                 playhead: playhead)
+        #expect(traite)
+        #expect(playhead.t == 252)
+    }
+
+    /// Une citation vers une **autre** réunion ne doit pas déplacer la tête de
+    /// lecture courante : absente de la base, `handle` rend `false` et laisse
+    /// l'axe où il est.
+    @Test("Une citation vers une autre réunion laisse la tête de lecture en place")
+    @MainActor
+    func citationVersUneAutreReunion() throws {
+        let playhead = MeetingPlayhead(meetingStableID: reunion)
+        playhead.duration = 600
+        playhead.seek(to: 100)
+        let ailleurs = CitationLinker.url(meetingStableID: UUID(), t: 252)
+        let traite = QuickLaunchURLHandler.handle(url: try #require(URL(string: ailleurs)),
+                                                 router: QuickLaunchRouter.shared,
+                                                 context: try contexte(),
+                                                 playhead: playhead)
+        #expect(!traite)
+        #expect(playhead.t == 100)
+    }
 }
