@@ -10,11 +10,14 @@ import UserNotifications
 @Suite("MeetingNotificationService — catalogue de catégories")
 struct MeetingNotificationCategoriesTests {
 
-    @Test("Les neuf catégories sont enregistrées ensemble")
+    @Test("Les dix catégories sont enregistrées ensemble")
     func allCategoriesPresent() {
         let ids = Set(MeetingNotificationService.makeCategories().map(\.identifier))
+        // Dix depuis le lot 14, qui ajoute le pré-rappel d'un **1:1 subi** :
+        // le même rappel, plus l'action « Préparer » (capture 5b).
         #expect(ids == [
-            "MEETING_PRE_START", "MEETING_START", "MEETING_END", "RECORDING_STARTED",
+            "MEETING_PRE_START", "MEETING_PRE_START_1TO1",
+            "MEETING_START", "MEETING_END", "RECORDING_STARTED",
             "TEAMS_CALL_DETECTED", "TEAMS_CALL_LINK", "TEAMS_CALL_ENDED",
             "TEAMS_TRANSCRIPT_READY", "TEAMS_RECORDING_ERROR"
         ])
