@@ -624,6 +624,7 @@ struct MeetingView: View {
                 prepareContext: MeetingPrepareBuilder.build(meeting: meeting,
                                                             allMeetings: allMeetings),
                 historique: allMeetings,
+                menuActions: makeMenuActions(),
                 showsSpeakerToggle: settings.transcriptionMode == .diarizeFirst
                     && !meeting.transcriptSegments.isEmpty,
                 isSummarizing: isSummarizing,
@@ -644,6 +645,9 @@ struct MeetingView: View {
                 onReidentify: { reidentifySpeakers() },
                 onAddToManagerReport: { range, extrait, champ in
                     startManagerReportFlow(range: range, snippet: extrait, field: champ)
+                },
+                onShowCaptures: {
+                    if currentSlides.isEmpty { showCaptureSetup = true } else { showSlidesList = true }
                 }
             )
             .onAppear {
@@ -1531,7 +1535,11 @@ struct MeetingView: View {
                     self.apply(report: report, createRevision: false)
                     self.meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
                     self.saveContext()
-                    self.screen.space = .report
+                    // Le rapport écrit, l'écran passe en **Relire** et pose le
+                    // curseur sur la première action sans responsable (spec
+                    // §2.2 et §2.7, lot 5). L'espace Rapport reste à un clic,
+                    // dans la nav latérale du poste de pilotage.
+                    ReviewState.apresGenerationDuRapport(self.screen)
                     TeamsAutoRecordCoordinator.shared.reportDidFinish(
                         meetingID: self.meeting.ensuredStableID, succeeded: true)
                 }

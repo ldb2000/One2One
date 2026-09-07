@@ -81,4 +81,39 @@ struct ReviewStateTests {
             #expect(!section.symbole.isEmpty)
         }
     }
+
+    // MARK: - La nav latérale remplace la barre d'espaces
+
+    @Test("La barre d'espaces est masquée dans le poste de pilotage, et là seulement")
+    func spacesBarHiddenInReview() {
+        // Décision D0 : la nav latérale de 190 px remplace la barre d'espaces
+        // dans ce mode.
+        #expect(MeetingSpacesBar.estMasquee(space: .meeting, mode: .review))
+        // Ailleurs elle reste : en mode Relire, les espaces Rapport et
+        // Ressources n'ont pas de nav latérale, et sans barre on s'y
+        // retrouverait sans rien pour en sortir.
+        #expect(!MeetingSpacesBar.estMasquee(space: .report, mode: .review))
+        #expect(!MeetingSpacesBar.estMasquee(space: .resources, mode: .review))
+        #expect(!MeetingSpacesBar.estMasquee(space: .meeting, mode: .live))
+        #expect(!MeetingSpacesBar.estMasquee(space: .meeting, mode: .prepare))
+    }
+
+    // MARK: - Le chemin post-génération de MeetingView
+
+    /// `MeetingView.swift`, lu depuis `#filePath`.
+    private var sourceMeetingView: String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()      // Tests/
+            .deletingLastPathComponent()      // racine
+            .appendingPathComponent("OneToOne/Views/MeetingView.swift")
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    @Test("La génération de rapport passe par la transition du mode Relire")
+    func meetingViewUsesTheTransition() {
+        let source = sourceMeetingView
+        // Sans cette garde, le test passerait sur un fichier introuvable.
+        #expect(source.contains("private func generateReport() async"))
+        #expect(source.contains("ReviewState.apresGenerationDuRapport(self.screen)"))
+    }
 }
