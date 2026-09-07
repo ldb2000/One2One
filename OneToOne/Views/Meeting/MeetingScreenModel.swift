@@ -320,10 +320,20 @@ final class MeetingScreenModel {
     }
 
     /// Pose l'intention de créer une action depuis une phrase et préremplit le
-    /// composeur du rail.
+    /// composeur du rail : son titre, et son responsable quand la source en
+    /// suggère un — le locuteur du segment, règle 1 d'`OwnerSuggestion`.
+    ///
+    /// Le responsable est écrit dans les pilules du composeur (`newTaskAudience`
+    /// et `selectedCollaborator`) et pas seulement gardé dans le brouillon :
+    /// c'est là qu'on le lit avant de valider, et une suggestion qu'on ne voit
+    /// pas ne se refuse pas.
     func requestAction(from draft: ActionDraft) {
         pendingActionDraft = draft
         newTaskTitle = draft.title
+        if let suggere = draft.suggestedOwner {
+            newTaskAudience = .collaborateur
+            selectedCollaborator = suggere
+        }
     }
 
     /// Active le filtre de notes sur `kind`, ou le retire si c'est déjà lui.

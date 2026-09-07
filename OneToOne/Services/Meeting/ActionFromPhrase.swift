@@ -73,35 +73,26 @@ enum ActionFromPhrase {
 
     /// Brouillon depuis un segment de transcription : la source est le segment,
     /// le responsable suggéré son locuteur (règle 1 d'`OwnerSuggestion`).
+    ///
+    /// Le titre de secours s'applique ici : une phrase que le nettoyage vide
+    /// entièrement (« euh, donc… ») donnerait un brouillon sans titre, et le
+    /// composeur refuse de créer sans titre — le clic ne ferait alors rien.
     @MainActor
     static func draft(from segment: TranscriptSegment) -> ActionDraft {
-        draft(phrase: segment.text,
-              kind: .transcript,
-              stableID: segment.ensuredStableID,
-              t: segment.startSeconds,
-              speaker: segment.speaker)
+        var brouillon = draft(phrase: segment.text,
+                              kind: .transcript,
+                              stableID: segment.ensuredStableID,
+                              t: segment.startSeconds,
+                              speaker: segment.speaker)
+        if brouillon.title.isEmpty { brouillon.title = fallbackTitle }
+        return brouillon
     }
 
-    /// Crée l'action et la rattache à la réunion. **Un seul appel** : c'est le
-    /// clic du bouton `＋ Action` de la colonne de transcription.
-    ///
-    /// L'action naît en **tête** du rail (`sortOrder` minimal − 1), comme la
-    /// spec §2.4 l'exige (« l'action apparaît immédiatement en tête du rail »).
-    @MainActor
-    @discardableResult
-    static func createAction(from segment: TranscriptSegment,
-                             in meeting: Meeting,
-                             context: ModelContext) -> ActionTask {
-        let brouillon = draft(from: segment)
-        let action = ActionTask(title: brouillon.title.isEmpty ? fallbackTitle : brouillon.title)
-        action.sourceRef = brouillon.sourceRef
-        action.collaborator = segment.speaker
-        action.sortOrder = (meeting.tasks.map(\.sortOrder).min() ?? 0) - 1
-        context.insert(action)
-        action.meeting = meeting
-        try? context.save()
-        return action
-    }
+    // La création d'action a quitté ce service : elle vit **uniquement** dans
+    // `ActionComposerService.creer`, qui consomme le brouillon posé ici. Deux
+    // fabriques d'`ActionTask` sur le même geste, c'était deux actions pour un
+    // clic — et une seule des deux plaçait la charge et l'échéance du
+    // composeur.
 
     /// Crée la note de décision au timecode du segment, avec la même source.
     @MainActor

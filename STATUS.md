@@ -2,11 +2,78 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Intégration des lots 2 + 3 : la pile redevient linéaire (2026-09-07)
+
+Les lots 2 et 3 ont été développés **en parallèle** depuis
+`feat/refonte-lot-1b-espaces-kpi-assistant` (`a8f8f32`). Le lot 3 a été **rebasé sur le
+lot 2** : la pile est de nouveau linéaire — `1b → 2 → 3` — et l'ordre de fusion est
+`#19 → #20 → #21 → #22 → #23 → #24`. La branche du lot 3 porte donc ses 11 commits rebasés
+plus un commit d'intégration.
+
+**Six fichiers en conflit, six résolutions :**
+
+- `MeetingScreenModel.swift` — les deux lots ajoutaient « en fin de type ». Toutes les
+  propriétés des deux sont gardées (`noteFilter`, `noteComposerFocusToken`,
+  `lastDiarizationEmbeddings`, `railTab`, `railViewMode`, `newTaskEffortMinutes`), et
+  `pendingActionDraft`, déclaré deux fois, n'existe plus qu'une : de type `ActionDraft`
+  (lot 3). Le brouillon du lot 2 (`ActionFromPhrase.Draft`, qui portait un *nom* de
+  locuteur) **disparaît** au profit d'`ActionDraft`, qui porte un `Collaborator` — le
+  composeur doit pouvoir l'affecter, pas seulement l'afficher.
+- `MeetingSpaceView.swift` — plus **aucun générique** : le lot 2 avait retiré
+  `Notes`/`Transcript`, le lot 3 `Actions`. La vue compose `MeetingLiveSpace` à gauche et
+  `ActionsRail` à droite via `MeetingSpaceLayout` ; le placeholder de rail du lot 1 est
+  retiré, l'overlay et le dock assistant du lot 1 conservés.
+- `MeetingView.swift` — les deux retraits, **aucun ajout** : les ~480 lignes d'UI de
+  transcription (lot 2, `runDiarization`/`reidentifySpeakers` restant exposées par
+  closures) **et** `actions:` + `addTask` (lot 3). **2 045 lignes**, contre 2 525 pour le
+  lot 3 seul.
+- `RefonteDemoSeed.swift` — les apports des deux : 4 notes horodatées + `notesMigrated`
+  (lot 2), les 12 actions dont 9 non assignées et 3 reportées, et l'année **2026**
+  (lot 3). Les chiffres de `1a-cockpit.png` tombent toujours juste : PRÉSENCE 6/6,
+  ACTIONS 12 · 9 non assignées, DÉCISIONS 3, RISQUES 5 · 2 critiques.
+- `Tests/MeetingScreenModelTests.swift` — union des deux, **un seul** test de
+  non-persistance du brouillon (celui du lot 2, qui couvre aussi le filtre de notes).
+- `STATUS.md` — les deux sections, lot 3 au-dessus du lot 2, cette section en tête.
+
+**La couture `/action → rail` est branchée.** Le lot 2 posait `pendingActionDraft` sans
+que personne ne le consomme et créait l'action par `MeetingView.addTask()`, qui perdait
+`sourceRef` ; le lot 3 consommait un brouillon que personne ne posait. Après rebase :
+
+1. `/action <texte>` dans le composeur de notes pose l'intention avec une source de nature
+   **`note`** (et non `transcript` : `OwnerSuggestion` ne cherche un locuteur que dans les
+   sources `transcript`) horodatée à la tête de lecture. La ligne n'écrit **aucune** note.
+2. `＋ Action` sur une phrase de transcription pose l'intention avec la source du segment
+   et le locuteur en responsable suggéré. **Il ne crée plus rien** : il créait *et* laissait
+   le composeur créer — deux actions pour un clic. `ActionFromPhrase.createAction` est
+   supprimée, `ActionComposerService.creer` est le **seul** point de création.
+3. `requestAction` préremplit le titre **et** les pilules du responsable
+   (`newTaskAudience` + `selectedCollaborator`) : une suggestion qu'on ne voit pas ne se
+   refuse pas.
+4. `⌘⏎` crée l'`ActionTask` avec `sourceRef` intact, vide le champ sans toucher au focus,
+   et l'action paraît en tête d'`À ASSIGNER` (ou du groupe de son responsable).
+
+Nouvelle suite `ActionSeamIntegrationTests` (4 tests, sans aucune vue) : les deux chemins de
+bout en bout, la reformulation du titre qui ne coupe pas le lien vers la phrase, et une
+lecture des sources amont qui refuse toute autre fabrique d'`ActionTask` ou tout reliquat
+d'`addTask`.
+
+**`swift build` propre** (avertissements préexistants seuls : `PyannoteDiarizer`,
+`MLXEmbeddingEngine`, `AudioCompressionService`). **`swift test` complet vert : 1 039 XCTest
+(1 ignoré, 0 échec) + 892 Swift Testing en 130 suites = 1 931 tests**, contre 1 874 pour le
+lot 2 seul et 1 855 pour le lot 3 seul (+3 sur l'union attendue : les 4 tests de la nouvelle
+suite moins le test de `pendingActionDraft` dédoublonné).
+
+### Prochaine action
+
+Faire relire et fusionner dans l'ordre `#19 → #20 → #21 → #22 → #23 → #24`, puis attaquer
+le **lot 4** (mode séance plein écran) et le **lot 5** (poste de pilotage).
+
 ## Refonte de l'écran de réunion — lot 3 : rail d'actions 330 px permanent (2026-09-07)
 
-Branche `feat/refonte-lot-3-rail-actions`, partie de
-`origin/feat/refonte-lot-1b-espaces-kpi-assistant` : la PR **empile** les lots 0A, 0B, 1a et
-1b (PR #19–#22, non fusionnées). Plan d'exécution :
+Branche `feat/refonte-lot-3-rail-actions`, **rebasée sur**
+`feat/refonte-lot-2-notes-transcription` (elle-même sur
+`feat/refonte-lot-1b-espaces-kpi-assistant`) : la PR **empile** les lots 0A, 0B, 1a, 1b et 2
+(PR #19–#23, non fusionnées). Plan d'exécution :
 `docs/superpowers/plans/2026-09-07-refonte-lot-3-rail-actions.md` (11 tâches).
 
 **État : livré, `swift build` propre, `swift test` complet vert, PR ouverte, non mergée.**
@@ -81,8 +148,8 @@ les actions closes, abandonnées et reportées, une ligne datée par entrée.
 **`ActionsPanel` est hors de tout chemin actif de l'espace Réunion** (point 8 du périmètre) :
 il n'est plus instancié que par `OverviewDashboard`, que le lot 1 ne monte plus (D8) et que
 le lot 19 supprimera. `MeetingView` perd sa closure `actions:` **et** sa fonction `addTask`
-(2 553 → 2 525 lignes) ; la carte RISQUES du bandeau ouvre désormais l'onglet Risques du rail
-au lieu du rapport.
+(−28 lignes ; 2 073 → **2 045** après rebase sur le lot 2, qui en avait déjà retiré 480) ; la
+carte RISQUES du bandeau ouvre désormais l'onglet Risques du rail au lieu du rapport.
 
 **`compact: Bool` sur `CalendarBoard` et `EisenhowerBoard`** (décision D10) : ajout dont le
 défaut reproduit les métriques d'avant, extraites en fonctions statiques
@@ -339,11 +406,12 @@ Critères d'acceptation couverts :
    accolées au mot « Tape ». Le champ de saisie doit occuper la largeur restante ; le mettre
    après les pilules le réduirait à rien dès qu'on tape. Les commandes restent **toujours
    visibles**, ce qu'exige la spec.
-3. **`/action` dans le composeur de notes ne conserve pas encore `sourceRef` sur l'action
-   créée** : il pose l'intention (`pendingActionDraft`, source comprise) et préremplit le
-   composeur existant du rail, dont la création passe par `MeetingView.addTask()`. C'est le
-   rail du lot 3 qui consommera l'intention complète. Le chemin du critère n° 2 — `＋ Action`
-   sur un segment — crée l'action **immédiatement**, source comprise.
+3. ~~**`/action` dans le composeur de notes ne conserve pas encore `sourceRef` sur l'action
+   créée**~~ — **levé à l'intégration des lots 2 + 3** (section en tête) : `/action` pose
+   l'intention avec une source de nature `note`, le composeur du rail la consomme et
+   `ActionComposerService.creer` conserve `sourceRef`. `＋ Action` sur un segment suit
+   désormais le même chemin et ne crée plus l'action directement — il en créait une
+   deuxième.
 4. **`⌘⇧A` et `⌘⇧N` sont des boutons d'opacité nulle dans les colonnes**, pas des items de
    `MeetingCommands` : le programme §2.4 interdit d'ajouter quoi que ce soit à
    `MeetingView.swift`, et un item de menu y aurait exigé deux closures de plus. Conséquence
@@ -365,8 +433,9 @@ Critères d'acceptation couverts :
 
 **Lot 4** (mode séance plein écran 1b : palette `dark/*`, colonne temps verticale, file
 d'assignation) et **lot 5** (poste de pilotage = mode Relire 1c : nav latérale 190 px, tableau
-d'actions éditable en place, frise pleine largeur). Le lot 3 (rail d'actions 330 px) tourne en
-parallèle ; il consommera `MeetingScreenModel.pendingActionDraft` posé ici.
+d'actions éditable en place, frise pleine largeur). Le lot 3 (rail d'actions 330 px) tournait
+en parallèle ; il est depuis **rebasé sur ce lot** et consomme bien
+`MeetingScreenModel.pendingActionDraft` posé ici (cf. la section d'intégration en tête).
 
 ## Refonte de l'écran de réunion — lot 1 : barre du haut, trois espaces, modes, bandeau KPI (2026-09-07)
 

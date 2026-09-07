@@ -109,12 +109,19 @@ struct NoteComposer: View {
         let t = screen.playhead.t
 
         if parsed.opensActionComposer {
-            // Le composeur d'action du rail arrive au lot 3 : l'intention est
-            // posée ici, avec la source (la réunion, faute de segment) et le
-            // titre nettoyé. Elle préremplit dès maintenant le composeur
-            // existant du rail.
+            // `/action` n'écrit **aucune** note : il pose l'intention — titre
+            // nettoyé, source comprise — et c'est le composeur du rail
+            // (`ActionComposerService.creer`) qui crée l'`ActionTask` au `⌘⏎`
+            // suivant. Une seule création, un seul endroit.
+            //
+            // Source de nature `note` et non `transcript` : la ligne vient de
+            // la colonne de notes, à l'instant de la tête de lecture. Faute de
+            // note écrite, c'est la réunion qui porte l'identifiant — mais la
+            // nature doit rester juste : `OwnerSuggestion` ne cherche un
+            // locuteur que dans les sources `transcript`.
             screen.requestAction(from: ActionFromPhrase.draft(
                 phrase: parsed.text,
+                kind: .note,
                 stableID: meeting.ensuredStableID,
                 t: t
             ))
