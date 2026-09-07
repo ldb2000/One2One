@@ -146,6 +146,27 @@ struct ReminderRulesTests {
         #expect(ReminderRules.reminders(for: fil, now: Self.quatreSeptembre).isEmpty)
     }
 
+    @Test("Un sujet déjà inscrit à l'ordre du jour ne remonte pas")
+    func sujetDejaALOrdreDuJour() throws {
+        let (fil, context, collab) = try makeFil()
+        let reunion = seance(context, collab, Self.vingtEtUnAout)
+        for texte in ["Mobilité archi évoquée", "Souhait d'évolution vers l'archi",
+                      "Mobilité : réponse ferme attendue"] {
+            note(reunion, context, texte, kind: .note)
+        }
+
+        // La carte s'appelle « À NE PAS OUBLIER » : un sujet déjà à l'ordre du
+        // jour ne risque pas d'être oublié.
+        let inscrit = OneOnOneAgendaItem(text: "Mobilité archi : trancher cette fois")
+        context.insert(inscrit)
+        inscrit.thread = fil
+        #expect(ReminderRules.reminders(for: fil, now: Self.quatreSeptembre).isEmpty)
+
+        // Reporté, en revanche, veut dire « pas traité » : le rappel revient.
+        inscrit.state = .deferred
+        #expect(ReminderRules.reminders(for: fil, now: Self.quatreSeptembre).count == 1)
+    }
+
     @Test("Un sujet tranché par une décision ne remonte pas")
     func sujetTranche() throws {
         let (fil, context, collab) = try makeFil()

@@ -71,14 +71,36 @@ enum ReminderRules {
     /// par **famille de lexique** et non par chaîne.
     private static func undecidedTopicReminders(_ thread: OneOnOneThread, now: Date) -> [Reminder] {
         let tranchees = decidedFamilies(thread, now: now)
+        let dejaALOrdreDuJour = agendaFamilies(thread)
         return RecurringTopicsBuilder.build(thread, now: now, since: nil)
-            .filter { $0.count >= recurringTopicThreshold && !tranchees.contains($0.family) }
+            .filter { $0.count >= recurringTopicThreshold
+                      && !tranchees.contains($0.family)
+                      && !dejaALOrdreDuJour.contains($0.family) }
             .map { topic in
                 Reminder(id: "r2-\(topic.family.rawValue)",
                          rule: .undecidedRecurringTopic,
                          text: "\(topic.label) évoquée \(topic.count) fois, jamais tranchée.",
                          tone: .warn)
             }
+    }
+
+    /// Les familles déjà portées par un sujet **à traiter** de l'ordre du jour.
+    ///
+    /// La carte s'appelle `À NE PAS OUBLIER` : un sujet déjà inscrit à l'ordre
+    /// du jour ne risque pas d'être oublié, et le rappeler à côté de lui
+    /// donnerait deux fois la même ligne à l'écran. Même règle que
+    /// `AgendaCarryover.stillOpen`.
+    ///
+    /// Un sujet `deferred`, lui, **ne couvre pas** : il n'a justement pas été
+    /// traité.
+    private static func agendaFamilies(_ thread: OneOnOneThread) -> Set<RecurringTopicFamily> {
+        var familles: Set<RecurringTopicFamily> = []
+        for item in thread.agendaItems where item.state == .todo {
+            if let famille = RecurringTopicsBuilder.family(of: item.text) {
+                familles.insert(famille)
+            }
+        }
+        return familles
     }
 
     /// Les familles qu'une décision du fil a tranchées.
