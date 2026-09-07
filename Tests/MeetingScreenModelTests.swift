@@ -375,4 +375,48 @@ struct MeetingScreenModelTests {
         model.attach(meetingID: id)
         #expect(model.railViewMode == .liste)
     }
+
+    // MARK: - Fiche projet (lot 9)
+
+    @Test("La fiche projet est fermée à l'ouverture de l'écran")
+    func projectCardIsClosedByDefault() {
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        #expect(model.showProjectCard == false)
+    }
+
+    /// Un panneau ouvert est un geste, pas un réglage : contrairement à
+    /// l'espace et au mode, il ne survit pas à la fermeture de l'écran.
+    /// Retrouver une fiche ouverte en rouvrant une réunion masquerait la
+    /// colonne principale sans que personne ne l'ait demandé.
+    @Test("L'ouverture de la fiche n'est pas mémorisée d'une ouverture à l'autre")
+    func projectCardIsNotPersisted() {
+        let defaults = makeDefaults()
+        let id = UUID()
+        let premier = MeetingScreenModel(defaults: defaults)
+        premier.attach(meetingID: id)
+        premier.showProjectCard = true
+
+        let second = MeetingScreenModel(defaults: defaults)
+        second.attach(meetingID: id)
+        #expect(second.showProjectCard == false)
+        #expect(defaults.dictionaryRepresentation().keys
+                    .contains { $0.contains("projectCard") } == false)
+    }
+
+    /// La fiche se superpose à n'importe quel espace et à n'importe quel mode
+    /// (spec §4.3) : changer de l'un ou de l'autre ne la referme pas.
+    @Test("Changer d'espace ou de mode laisse la fiche ouverte")
+    func projectCardSurvivesSpaceAndModeChanges() {
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        model.attach(meetingID: UUID())
+        model.showProjectCard = true
+        for espace in MeetingScreenModel.Space.allCases {
+            model.space = espace
+            #expect(model.showProjectCard)
+        }
+        for mode in MeetingScreenModel.Mode.allCases {
+            model.mode = mode
+            #expect(model.showProjectCard)
+        }
+    }
 }

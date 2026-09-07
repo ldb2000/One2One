@@ -68,4 +68,15 @@ struct MeetingTopChromeBarTests {
         #expect(playhead.formatted == "04:12")
         #expect(MeetingPlayhead.mmss(playhead.duration) == "23:24")
     }
+
+    // MARK: - Segment projet du fil d'Ariane (lot 9)
+
+    /// Le segment projet est le déclencheur de la fiche (spec §4.3). Le chevron
+    /// `⌄` de la capture 3b dit qu'il ouvre quelque chose : sans lui, un cadre
+    /// bleu ressemble à une sélection, pas à un bouton.
+    @Test("Le segment projet annonce l'ouverture de la fiche")
+    func projectSegmentAnnouncesTheCard() {
+        #expect(MeetingTopChromeBar.projectSegmentChevron == "⌄")
+        #expect(MeetingTopChromeBar.projectSegmentHelp == "Ouvrir la fiche du projet")
+    }
 }

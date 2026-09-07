@@ -28,6 +28,12 @@ struct MeetingTopChromeBar: View {
     /// Largeur du bouton `⋯`, fixée par la spec §2.1.
     static let moreButtonWidth: CGFloat = 28
 
+    /// Le chevron du segment projet (capture `3b-fiche-projet.png`). Il dit que
+    /// le segment ouvre quelque chose : sans lui, un cadre `accent/action`
+    /// ressemble à une sélection, pas à un bouton.
+    static let projectSegmentChevron = "⌄"
+    static let projectSegmentHelp = "Ouvrir la fiche du projet"
+
     /// Fond de la barre. Les deux types 1:1 sont teintés
     /// `accent/oneonone bg` (`#f4f1f6`) : c'est le signal permanent que la
     /// séance est privée (spec §1.2, §3.2).
@@ -208,12 +214,18 @@ struct MeetingTopChromeBar: View {
             chevron
             if let project = meeting.project {
                 // Segment projet bordé `accent/action` : la seule partie
-                // cliquable du fil, et la spec veut qu'on le voie.
+                // cliquable du fil, et la spec veut qu'on le voie. Depuis le
+                // lot 9 il ouvre la fiche projet en panneau de 430 px
+                // (spec §4.3) et non plus la feuille « Détails ».
                 Button(action: onOpenProject) {
-                    Text(project.name)
-                        .font(.plexSans(11, .medium))
+                    HStack(spacing: 4) {
+                        Text(project.name)
+                            .font(.plexSans(11, .medium))
+                            .lineLimit(1)
+                        Text(Self.projectSegmentChevron)
+                            .font(.plexSans(11, .medium))
+                    }
                         .foregroundStyle(One2OneToken.actionInk)
-                        .lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
@@ -226,7 +238,7 @@ struct MeetingTopChromeBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Ouvrir la fiche du projet")
+                .help(Self.projectSegmentHelp)
                 chevron
             }
             // Signalétique 1:1 (lot 10) : le badge de type, puis la pilule de

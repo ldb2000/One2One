@@ -178,7 +178,9 @@ struct MeetingView: View {
                 // il attend la bande de captures du lot 7 plutôt que d'offrir
                 // une seconde galerie au même endroit.
                 onShowSlides: { screen.resources.open(filter: .captures) },
-                onOpenProject: { showDetailsSheet = true },
+                // Lot 9 : le segment projet ouvre la fiche en panneau de
+                // 430 px (spec §4.3), plus la feuille « Détails ».
+                onOpenProject: { screen.showProjectCard = true },
                 onCreateMeeting: createMeeting,
                 onBack: isPushed ? { dismiss() } : nil
             )
@@ -554,10 +556,33 @@ struct MeetingView: View {
             )
             spaceContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // La colonne principale passe à 55 % d'opacité quand la fiche
+                // est ouverte (spec §4.3) et **reste consultable** : pas de
+                // `allowsHitTesting(false)`, la spec insiste.
+                .opacity(screen.showProjectCard ? One2OneToken.dimmedOpacity : 1)
         }
         .background(One2OneToken.bgCanvas)
+        // Le panneau se superpose à n'importe quel espace et à n'importe quel
+        // mode : l'overlay vit donc ici, au-dessus de `spaceContent`, et non
+        // dans `MeetingSpaceView`, qui ne connaît que l'espace Réunion.
+        .overlay(alignment: .trailing) { projectCardOverlay }
         .onAppear { normalizeSpace() }
         .onChange(of: meeting.kind) { _, _ in normalizeSpace() }
+    }
+
+    /// La fiche projet en panneau, glissant depuis la droite.
+    @ViewBuilder
+    private var projectCardOverlay: some View {
+        if screen.showProjectCard, let projet = meeting.project {
+            ProjectCardPanel(project: projet,
+                             meeting: meeting,
+                             meetings: allMeetings,
+                             settings: settings,
+                             isPresented: Binding(get: { screen.showProjectCard },
+                                                  set: { screen.showProjectCard = $0 }))
+                .transition(.move(edge: .trailing))
+                .animation(.easeOut(duration: 0.18), value: screen.showProjectCard)
+        }
     }
 
     /// Écarte un espace ou un mode que le type courant ne propose pas.
