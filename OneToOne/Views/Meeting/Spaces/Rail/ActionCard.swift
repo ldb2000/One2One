@@ -102,10 +102,31 @@ enum ActionCardEditing {
         nom.split(separator: " ").first.map(String.init) ?? nom
     }
 
-    /// `11 sept.`, `1er sept.`, ou l'invite `＋ échéance`.
-    static func libelleEcheance(_ task: ActionTask, calendar: Calendar = .current) -> String {
+    /// `Demain`, `Vendredi`, `11 sept.`, ou l'invite `＋ échéance`.
+    ///
+    /// Une échéance de la semaine se nomme par son jour (capture 1a :
+    /// « Vendredi ») — c'est ainsi qu'on en parle en séance, et « 11 sept. »
+    /// oblige à compter. Au-delà de six jours, et pour toute échéance
+    /// **passée**, la date reprend la main : « Mardi » pour un mardi révolu
+    /// serait un piège.
+    static func libelleEcheance(_ task: ActionTask,
+                                reference: Date = Date(),
+                                calendar: Calendar = .current) -> String {
         guard let due = task.dueDate else { return "＋ échéance" }
-        return ActionsRailGrouping.dateOrdinale(due, calendar: calendar)
+        let jours = calendar.dateComponents([.day],
+                                            from: calendar.startOfDay(for: reference),
+                                            to: calendar.startOfDay(for: due)).day ?? 0
+        switch jours {
+        case 0: return "Aujourd'hui"
+        case 1: return "Demain"
+        case 2...6:
+            var style = Date.FormatStyle.dateTime.weekday(.wide)
+            style.locale = Locale(identifier: "fr_FR")
+            style.timeZone = calendar.timeZone
+            return due.formatted(style).capitalized
+        default:
+            return ActionsRailGrouping.dateOrdinale(due, calendar: calendar)
+        }
     }
 
     /// `◫ mm:ss` pour une capture, `mm:ss ↗` pour une phrase ou une note,

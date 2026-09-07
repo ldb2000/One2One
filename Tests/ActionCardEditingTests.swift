@@ -129,16 +129,35 @@ struct ActionCardEditingTests {
         #expect(ActionCardEditing.libelleResponsable(sans, suggestion: nil) == "Yann")
     }
 
-    @Test("Une échéance renseignée se lit en date courte, vide c'est une invite")
+    @Test("Une échéance de la semaine se nomme par son jour, au-delà par sa date")
     func dueDatePill() throws {
         let context = try makeContext()
         let t = ActionTask(title: "Clarifier la situation de facturation (40k)")
         context.insert(t)
-        #expect(ActionCardEditing.libelleEcheance(t, calendar: calendrier) == "＋ échéance")
+        // Référence : mardi 8 septembre 2026.
+        let reference = date(8, 9, 2026)
+        #expect(ActionCardEditing.libelleEcheance(t, reference: reference,
+                                                  calendar: calendrier) == "＋ échéance")
+
+        t.dueDate = date(8, 9, 2026)
+        #expect(ActionCardEditing.libelleEcheance(t, reference: reference,
+                                                  calendar: calendrier) == "Aujourd'hui")
+        t.dueDate = date(9, 9, 2026)
+        #expect(ActionCardEditing.libelleEcheance(t, reference: reference,
+                                                  calendar: calendrier) == "Demain")
+        // La capture montre « Vendredi » : dans la semaine, on nomme le jour.
         t.dueDate = date(11, 9, 2026)
-        #expect(ActionCardEditing.libelleEcheance(t, calendar: calendrier) == "11 sept.")
+        #expect(ActionCardEditing.libelleEcheance(t, reference: reference,
+                                                  calendar: calendrier) == "Vendredi")
+        // Au-delà de six jours, la date reprend la main.
+        t.dueDate = date(18, 9, 2026)
+        #expect(ActionCardEditing.libelleEcheance(t, reference: reference,
+                                                  calendar: calendrier) == "18 sept.")
+        // Une échéance passée montre sa date : « Mardi » pour un mardi révolu
+        // serait un piège.
         t.dueDate = date(1, 9, 2026)
-        #expect(ActionCardEditing.libelleEcheance(t, calendar: calendrier) == "1er sept.")
+        #expect(ActionCardEditing.libelleEcheance(t, reference: reference,
+                                                  calendar: calendrier) == "1er sept.")
     }
 
     @Test("La pilule de source distingue une capture d'une phrase")

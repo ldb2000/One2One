@@ -27,6 +27,14 @@ struct RefonteDemoSeedTests {
         #expect(reunion.project?.name == "S/D — Modernisation CI/CD")
         #expect(reunion.kind == .project)
         #expect(reunion.durationSeconds == 1_404)          // 23:24
+        // « 4 sept. 2026 · 9:15 » dans la barre d'espaces de la capture. Le
+        // premier semis tombait un an trop tôt, ce qui décalait le jour de la
+        // semaine et tous les raccourcis d'échéance avec lui.
+        var composantes = Calendar(identifier: .gregorian)
+        composantes.timeZone = TimeZone(identifier: "Europe/Paris") ?? .current
+        #expect(composantes.component(.year, from: reunion.date) == 2026)
+        #expect(composantes.component(.month, from: reunion.date) == 9)
+        #expect(composantes.component(.day, from: reunion.date) == 4)
         #expect(reunion.participants.count == 6)
         #expect(reunion.tasks.count == 12)
         #expect(reunion.decisions.count == 3)
@@ -48,6 +56,70 @@ struct RefonteDemoSeedTests {
         #expect(kpi.risks.criticalCount == 2)
     }
 
+    @Test("Reproduit les groupes du rail : À ASSIGNER — 9, REPORTÉES DU 1ER SEPT. — 3")
+    func matchesRailGroups() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+
+        let groupes = ActionsRailGrouping.groupes(for: reunion.tasks)
+        #expect(groupes.count == 2)
+        #expect(groupes[0].identite == .aAssigner)
+        #expect(groupes[0].actions.count == 9)
+        #expect(groupes[1].actions.count == 3)
+        // Les trois libellés de la capture, dans leur ordre.
+        #expect(groupes[0].actions.prefix(3).map(\.title) == [
+            "Vérifier l'état des comptes GitLab",
+            "Clarifier la situation de facturation (40k)",
+            "Chiffrer la fin de migration Marine"
+        ])
+        #expect(groupes[1].libelle == "Reportées du 1er sept. — 3")
+        #expect(groupes[1].rendu == .lignes)
+        #expect(groupes[1].actions.map(\.title).sorted() == [
+            "Planification de la formation Admin",
+            "Préparer gitlab.rb et valider les flux",
+            "Relancer Alexis/Jeff pour l'estimation"
+        ])
+    }
+
+    @Test("Les pilules des trois premières cartes sont celles de la capture")
+    func matchesCardPills() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+        let cartes = ActionsRailGrouping.groupes(for: reunion.tasks)[0].actions
+
+        // « ＋ ... · <jour> · 2h » — une échéance dans la semaine, donc nommée
+        // par son jour, et une charge de deux heures. Le mot exact dépend
+        // d'aujourd'hui : mesuré depuis la date de la réunion, c'est « Lundi ».
+        #expect(cartes[0].effortMinutes == 120)
+        #expect(ActionCardEditing.chargeLabel(cartes[0].effortMinutes ?? 0) == "2h")
+        #expect(ActionCardEditing.libelleEcheance(cartes[0], reference: reunion.date) == "Lundi")
+        // « ＋ Patrice · ＋ échéance » : rien de renseigné, deux invites.
+        #expect(cartes[1].dueDate == nil)
+        #expect(cartes[1].effortMinutes == nil)
+        #expect(ActionCardEditing.libelleEcheance(cartes[1]) == "＋ échéance")
+        // « ... · 11 sept. · 1j »
+        #expect(ActionCardEditing.chargeLabel(cartes[2].effortMinutes ?? 0) == "1j")
+    }
+
+    @Test("La première action porte sa chaîne de citation et suggère un responsable")
+    func firstActionCarriesItsSource() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let reunion = RefonteDemoSeed.seed(in: context)
+        let carte = ActionsRailGrouping.groupes(for: reunion.tasks)[0].actions[0]
+
+        // Le segment de 04:12 : « Tous les comptes ont été désactivés… »
+        #expect(carte.sourceRef?.kind == .transcript)
+        #expect(carte.sourceRef?.t == 252)
+        #expect(ActionCardEditing.libelleSource(carte) == "04:12 ↗")
+        // Règle 1 de `OwnerSuggestion` : le locuteur de ce segment.
+        let suggestion = OwnerSuggestion.suggestion(for: carte, in: reunion,
+                                                    projectTasks: reunion.tasks)
+        #expect(suggestion?.name == "Laurent Deberti")
+    }
+
     @Test("Rejouer le semis ne duplique ni la réunion, ni le projet, ni les collaborateurs")
     func idempotent() throws {
         let container = try makeContainer()
@@ -55,7 +127,9 @@ struct RefonteDemoSeedTests {
         _ = RefonteDemoSeed.seed(in: context)
         _ = RefonteDemoSeed.seed(in: context)
 
-        #expect(try context.fetch(FetchDescriptor<Meeting>()).count == 1)
+        // Deux réunions : celle de la capture et le COSUI du 1er septembre
+        // d'où trois actions sont reportées.
+        #expect(try context.fetch(FetchDescriptor<Meeting>()).count == 2)
         #expect(try context.fetch(FetchDescriptor<Project>()).count == 1)
         #expect(try context.fetch(FetchDescriptor<Collaborator>()).count == 6)
         #expect(try context.fetch(FetchDescriptor<ActionTask>()).count == 12)
@@ -88,10 +162,14 @@ struct RefonteDemoSeedTests {
         #expect(!reunion.decisions.isEmpty)
 
         // Préparer : les alertes du projet remontent (les cinq risques y sont
-        // aussi rattachés).
-        let contexte = MeetingPrepareBuilder.build(meeting: reunion, allMeetings: [reunion])
+        // aussi rattachés), et le COSUI du 1er septembre alimente « DERNIERS
+        // POINTS » avec son résumé.
+        let toutes = try context.fetch(FetchDescriptor<Meeting>())
+        let contexte = MeetingPrepareBuilder.build(meeting: reunion, allMeetings: toutes)
         #expect(contexte.alertTitles.count == 5)
-        #expect(contexte.lastPoints.isEmpty)   // une seule réunion dans le jeu
+        #expect(contexte.lastPoints.count == 1)
+        #expect(contexte.lastPoints.first?.title == RefonteDemoSeed.carriedMeetingTitle)
+        #expect(contexte.lastPoints.first?.shortSummary.isEmpty == false)
     }
 
     // MARK: - Lot 2 : les quatre notes horodatées de la capture
