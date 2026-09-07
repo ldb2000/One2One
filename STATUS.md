@@ -2,6 +2,80 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Intégration vague 4 : la pile redevient linéaire (2026-09-07)
+
+Les lots **4, 5, 6, 10a, 10b et 9** ont été développés **en parallèle** — les cinq premiers
+depuis `feat/refonte-lot-3-rail-actions`, le lot 9 depuis
+`feat/refonte-lot-1b-espaces-kpi-assistant`. Ils sont désormais **empilés** dans cet ordre :
+
+```
+0A/0B → 1a → 1b → 2 → 3 → 4 → 5 → 6 → 10a → 10b → 9
+#19–#24              #27  #28  #30  #26   #29   #25
+```
+
+Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 → #25`.
+
+### Conflits résolus, maillon par maillon
+
+| Maillon | Fichier | Résolution |
+| --- | --- | --- |
+| **4** (#27) | — | déjà sur le lot 3, aucun conflit |
+| **5** (#28) | `MeetingScreenModel.swift` | union : `session` (4) **et** `review` (5) |
+| | `MeetingSpaceView.swift` | `body` éclaté en `contenu` (`if .review` du lot 5) + le modificateur `.sessionFullscreen` du lot 4 posé dessus, `estEligible: screen.mode == .live` |
+| | `STATUS.md` | sections 5 puis 4 |
+| **6** (#30) | `MeetingScreenModel.swift` | union : `session`, `review`, `resources` |
+| | `MeetingSpaceView.swift` | `@Environment(\.modelContext)` **rétabli** (le lot 5 l'avait retiré, le tiroir en a besoin), `.onDrop` + `.overlay { tiroirRessources }` posés sur `contenu` — le tiroir s'ouvre donc aussi depuis le mode Relire ; `onShowCaptures` (5) **et** `onImportResources` (6) |
+| | `MeetingView.swift` | `onShowCaptures` du lot 5 mène au tiroir filtre `Captures` : le lot 6 a supprimé `showSlidesList` et son popover |
+| | `Menus/MeetingCommands.swift` | union : `⌃⌘F` (4), `⌘⇧V` et `Ressources…` (6) ; **un seul** item de démonstration, qui appelle `seedLot5` puis `seedLot6` (tous deux partent de `seed`, idempotent) |
+| | `Menus/MeetingMenuActions.swift` | union de `MeetingMenuItem`, des closures et de `isEnabled` |
+| | `Tests/SessionNoChromeTests.swift` | le constructeur du lot 4 fournit `pasteResource`/`openResources` |
+| | `STATUS.md` | recomposé section par section (une résolution avait laissé le bloc « Tests » du lot 6 dans la section du lot 5) |
+| **10a** (#26) | `MeetingScreenModel.swift` | union : + `oneOnOne` |
+| **10b** (#29) | `STATUS.md` | section du lot 10 en tête |
+| | `Maintenance/StorageStatsService.swift` | union automatique : `documents/` (6) **et** `annual/` (10) |
+| **9** (#25) | `MeetingScreenModel.swift` | union : + `showProjectCard` — cinq propriétés d'état, aucune perdue, aucune dupliquée |
+| | `MeetingView.swift` | `onShowSlides` (6, tiroir) **et** `onOpenProject` (9, fiche en panneau) |
+| | `Services/Debug/RefonteDemoSeed.swift` | union ; le `tags` du lot 5 devient **`tagsLot5`** — le semis de base porte désormais un `tags`, les thèmes du *projet* de la fiche 3b |
+| | `Tests/MeetingScreenModelTests.swift` | les trois tests de la fiche ajoutés en fin de suite, ceux des lots 2 et 3 intacts |
+| | `STATUS.md` | section du lot 9 en tête |
+
+### Chiffres
+
+`swift build` propre à chaque maillon (avertissements préexistants seuls : `PyannoteDiarizer`,
+`MLXEmbeddingEngine`, `AudioCompressionService`, `MeetingTagSuggester`, `AppDelegate`).
+`swift test` **complet vert** à chaque maillon :
+
+| Maillon | XCTest | Swift Testing | Total | Seul, avant intégration |
+| --- | --- | --- | --- | --- |
+| lot 3 (référence) | — | — | **1 931** | — |
+| 4 | 1 039 | 974 | **2 013** | 2 013 |
+| 5 | 1 039 | 1 048 | **2 087** | 2 005 |
+| 6 | 1 041 | 1 132 | **2 173** | 2 017 |
+| 10a | 1 041 | 1 207 | **2 248** | — |
+| 10b | 1 041 | 1 277 | **2 318** | 2 076 |
+| 9 | 1 041 | 1 357 | **2 398** | 1 881 (base 1b) |
+
+`MeetingView.swift` : **2 051 lignes** (2 045 après l'intégration 2 + 3, + le câblage des lots
+5, 6 et 9 ; aucune logique nouvelle).
+
+### Points tranchés
+
+1. **Le tiroir Ressources s'ouvre en mode Relire.** L'`overlay` du lot 6 est posé sur
+   `contenu`, en amont de la bifurcation `.review` : le poste de pilotage garde donc son
+   entrée `Documents n/＋`, et le tiroir se superpose à lui comme à la séance.
+2. **Le plein écran n'est offert qu'en mode En séance** (`estEligible: screen.mode == .live`) :
+   le poste de pilotage relit une réunion terminée, un écran de séance n'y a pas de sens.
+3. **`RefonteDemoSeed.seedOneOnOneThreads` (lot 10) n'est pas câblé au menu.** Il ne complète
+   pas la réunion de `1a-cockpit.png` : il sème **deux fils 1:1 et dix séances** propres. Le
+   lot 10 avait choisi de ne pas le mettre derrière l'item « Charger le jeu de démonstration
+   (refonte) », et l'y ajouter changerait ce que cet item produit — décision laissée à la
+   relecture. Il reste appelé par `RefonteDemoSeedLot10Tests`, vert.
+
+### Prochaine action
+
+Faire relire les six PR dans l'ordre de fusion ci-dessus. Les recettes visuelles restent dues
+(lots 4, 5, 6, 10) ; cette passe d'intégration n'en a lancé aucune.
+
 ## Refonte de l'écran de réunion — lot 9 : fiche projet en panneau (3b) (2026-09-07)
 
 Branche `feat/refonte-lot-9-fiche-projet`, **empilée** sur
