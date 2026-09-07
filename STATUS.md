@@ -4,7 +4,10 @@ Dernière mise à jour : 2026-09-07 CEST
 
 ## Crash à l'ouverture de la fenêtre de réunion dédiée — corrigé (2026-09-07)
 
-Branche `fix/refonte-1to1-window-crash`, sur `feat/refonte-lot-3-rail-actions`.
+Branche `fix/refonte-1to1-window-crash`, **au sommet de la vague 4** — sur
+`feat/refonte-lot-9-fiche-projet` depuis l'intégration (elle était sur le lot 3 quand le
+correctif a été écrit). Il est indispensable à toute recette en bundle release, d'où sa
+place en dernier maillon : les lots 4, 5, 6, 9, 10a et 10b l'ont donc tous en amont.
 
 **Symptôme.** En **bundle release**, ouvrir une réunion dans la fenêtre dédiée
 (`WindowGroup "1to1-meeting"`) tuait l'application ~3 s après l'ouverture :
@@ -59,8 +62,8 @@ Reproduction avant/après en bundle release, dans un `HOME`/`CFFIXED_USER_HOME` 
 après → fenêtre `1:1 — Debug` ouverte et application vivante à 15 s.
 
 **Reste à faire.** Le même défaut guette toute future scène dont le contenu racine ne
-borne pas sa taille. Les lots 4, 5, 6, 9 et 10 en cours doivent reprendre ce correctif
-(il est en amont de leur base) ; le lot 9 avait signalé le crash.
+borne pas sa taille. Les recettes visuelles des lots 4, 5, 6, 9 et 10 sont maintenant
+possibles en bundle release : elles doivent être rejouées depuis ce sommet.
 
 ## Intégration vague 4 : la pile redevient linéaire (2026-09-07)
 
@@ -69,11 +72,13 @@ depuis `feat/refonte-lot-3-rail-actions`, le lot 9 depuis
 `feat/refonte-lot-1b-espaces-kpi-assistant`. Ils sont désormais **empilés** dans cet ordre :
 
 ```
-0A/0B → 1a → 1b → 2 → 3 → 4 → 5 → 6 → 10a → 10b → 9
-#19–#24              #27  #28  #30  #26   #29   #25
+0A/0B → 1a → 1b → 2 → 3 → 4 → 5 → 6 → 10a → 10b → 9 → fix fenêtre
+#19–#24              #27  #28  #30  #26   #29   #25   #31
 ```
 
-Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 → #25`.
+Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 →
+#25 → #31` — la PR #31 (correctif du crash Auto Layout de la fenêtre dédiée) est rebasée
+au sommet, sur le lot 9.
 
 ### Conflits résolus, maillon par maillon
 
@@ -133,8 +138,9 @@ Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 �
 
 ### Prochaine action
 
-Faire relire les six PR dans l'ordre de fusion ci-dessus. Les recettes visuelles restent dues
-(lots 4, 5, 6, 10) ; cette passe d'intégration n'en a lancé aucune.
+Faire relire les sept PR dans l'ordre de fusion ci-dessus. Les recettes visuelles restent
+dues (lots 4, 5, 6, 10) ; cette passe d'intégration n'en a lancé aucune — elles sont
+désormais faisables en bundle release, le correctif de la PR #31 étant au sommet.
 
 ## Refonte de l'écran de réunion — lot 9 : fiche projet en panneau (3b) (2026-09-07)
 
