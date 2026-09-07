@@ -2,6 +2,66 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Crash à l'ouverture de la fenêtre de réunion dédiée — corrigé (2026-09-07)
+
+Branche `fix/refonte-1to1-window-crash`, sur `feat/refonte-lot-3-rail-actions`.
+
+**Symptôme.** En **bundle release**, ouvrir une réunion dans la fenêtre dédiée
+(`WindowGroup "1to1-meeting"`) tuait l'application ~3 s après l'ouverture :
+`NSGenericException` — « The window has been marked as needing another Update Constraints
+in Window pass, but it has already had more […] passes than there are views in the
+window » — depuis `NSHostingView.updateConstraints()` →
+`updateWindowContentSizeExtremaIfNecessary` (pile complète dans les cinq
+`~/Library/Logs/DiagnosticReports/OneToOne-2026-09-07-13*.ips`). Pas un plantage
+d'affichage : une **boucle de passes Auto Layout**.
+
+**Établi.** `master` (`a3c44f2`) **ne crashe pas** (fenêtre ouverte, application vivante,
+release + bundle). La bissection (9 pas, harnais de reproduction en bundle isolé) désigne
+`6cc892b` « feat(reunion): barre du haut sur une ligne de 38 px » (lot 1a) comme premier
+commit fautif ; `f74ad86` et tout le lot 0A/0B sont sains.
+
+**Cause racine.** La fenêtre de réunion était la seule des trois scènes à ne pas déclarer
+d'enveloppe de taille pour son contenu racine. Le `NSHostingView` racine doit alors
+**mesurer toute la hiérarchie de l'écran de réunion** pour en déduire
+`contentMinSize`/`contentMaxSize`, et il le fait *pendant* la passe de contraintes de la
+fenêtre ; la mesure réinvalide le graphe, qui remarque la fenêtre « needs update
+constraints », et la passe se relance jusqu'à épuisement du budget d'AppKit. La barre du
+haut sur une ligne a rendu cette mesure instable : son titre est `flex:1` (spec §2.1),
+donc `maxWidth: .infinity` + `layoutPriority(1)` — avant `6cc892b`, le titre était borné
+(`maxWidth: 460` + `fixedSize`).
+
+**Expériences discriminantes** (lot 3, release, fenêtre dédiée) : titre borné à 460 px →
+**pas de crash** ; `maxWidth: .infinity` avec `fixedSize` → crash ; `TextField` SwiftUI à
+la place du champ AppKit → crash ; simple `Text` → crash. Ce n'est donc pas le champ
+AppKit `EditableTextField`, c'est la mesure non bornée de la racine de fenêtre. Enveloppe
+déclarée sur la racine → **pas de crash**.
+
+**Correctif** (`OneToOne/OneToOneApp.swift`, 1 fichier) : `MeetingWindowSizing`
+(960 × 640 de plancher, 1 280 × 800 à l'ouverture) et
+`.frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:)` sur le contenu de
+`OneToOneMeetingWindowContent` — la même chose que `PrepWindowView` fait depuis toujours
+(600 × 480). Le `.frame(minWidth: 600, minHeight: 400)` du `ProgressView` d'attente
+disparaît : c'est l'enveloppe qui gouverne, et un plancher qui changeait au moment où le
+contenu se résolvait faisait partie du problème. **Aucune vue de la refonte n'est touchée**
+(barre du haut, espaces, rail : inchangés).
+
+**Tests.** `Tests/MeetingWindowSizingTests.swift` (4 tests) : le plancher de largeur garde
+le rail d'actions affiché (`MeetingSpaceLayout.showsRail`, colonne fluide ≥ 520), le
+plancher de hauteur laisse la place aux deux barres, l'ideal ne descend pas sous le
+plancher, et une garde de non-régression vérifie que la fenêtre **applique** l'enveloppe
+(retirer le `.frame` fait échouer ce test — vérifié). La passe Auto Layout elle-même n'est
+pas observable depuis `swift test`, d'où cette garde.
+
+**Vérifié.** `swift build` propre ; `swift test` complet **1 039 XCTest (1 ignoré, 0 échec)
++ 896 Swift Testing (131 suites, 0 échec)**, soit +4 par rapport au sommet du lot 3.
+Reproduction avant/après en bundle release, dans un `HOME`/`CFFIXED_USER_HOME` jetable
+(jamais le store de production) : avant → mort à ~3 s avec l'exception au journal ;
+après → fenêtre `1:1 — Debug` ouverte et application vivante à 15 s.
+
+**Reste à faire.** Le même défaut guette toute future scène dont le contenu racine ne
+borne pas sa taille. Les lots 4, 5, 6, 9 et 10 en cours doivent reprendre ce correctif
+(il est en amont de leur base) ; le lot 9 avait signalé le crash.
+
 ## Intégration vague 4 : la pile redevient linéaire (2026-09-07)
 
 Les lots **4, 5, 6, 10a, 10b et 9** ont été développés **en parallèle** — les cinq premiers
