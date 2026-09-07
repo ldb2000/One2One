@@ -53,6 +53,11 @@ struct MeetingCommands: Commands {
             Button("Poser un marqueur") { menu?.addPlayheadMarker() }
                 .keyboardShortcut("m", modifiers: .command)
                 .disabled(!isEnabled(.marker))
+            // Spec §2.6 : le mode séance plein écran s'ouvre depuis la pilule
+            // audio ou par `⌃⌘F`. `⌘⌃F` et non `⌘F`, qui reste la recherche.
+            Button("Mode séance plein écran") { menu?.toggleSessionFullscreen() }
+                .keyboardShortcut("f", modifiers: [.control, .command])
+                .disabled(!isEnabled(.sessionFullscreen))
 
             Divider()
             Button("Générer le rapport") { menu?.generateReport() }

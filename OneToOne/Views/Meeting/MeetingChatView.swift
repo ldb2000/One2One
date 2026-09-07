@@ -215,15 +215,19 @@ struct MeetingChatView: View {
         // Notes de la séance, filtrées `.projectTeam` : l'assistant de réunion
         // répond dans un contexte partagé, les lignes privées et escaladées
         // n'y entrent pas (spec §3.2, §8).
-        let notesBlock = MeetingNoteStore.contextBlock(for: meeting, audience: .projectTeam)
-        return """
-        Tu es l'assistant d'analyse de l'application OneToOne, sollicité pendant la réunion « \(meeting.title) ».
-        Réponds à partir du contexte ci-dessous. Si l'information manque, dis-le clairement.
-        Sois concret et concis.
-        \(notesBlock.isEmpty ? "" : "\nNotes prises en séance (horodatées):\n\(notesBlock)\n")\(historicalContext.isEmpty ? "" : "\nContexte historique (réunions passées pertinentes):\n\(historicalContext)\n")\(history.isEmpty ? "" : "\nConversation antérieure:\n\(history)\n")
-        Question actuelle:
-        \(question)
-        """
+        //
+        // Le texte du prompt vit dans `MeetingAssistantController` depuis le
+        // lot 4 : le panneau assistant du mode séance pose les mêmes questions,
+        // et deux copies du même prompt finiraient par ne plus donner les mêmes
+        // réponses selon l'écran. Cette méthode reste l'entrée testée
+        // (`MeetingChatViewTests`) et ne fait plus que transmettre.
+        MeetingAssistantController.prompt(
+            meetingTitle: meeting.title,
+            notesBlock: MeetingNoteStore.contextBlock(for: meeting, audience: .projectTeam),
+            question: question,
+            historicalContext: historicalContext,
+            history: history
+        )
     }
 
     /// Sérialise la conversation antérieure en blocs `Utilisateur:` / `Assistant:`, en ignorant

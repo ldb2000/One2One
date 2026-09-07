@@ -255,7 +255,13 @@ struct MeetingTopChromeBar: View {
         } else if actions.hasWav {
             pillShell { playbackContent }
         } else {
+            // Le plein écran ne dépend pas de l'audio : on passe en mode
+            // séance pour prendre des notes, l'enregistrement est un choix
+            // séparé. Le bouton accompagne donc aussi la pilule d'attente.
             idlePill
+            if SessionFullscreenPresenter.shared.peutEntrer(meeting.stableID) {
+                pillShell { fullscreenButton }
+            }
         }
     }
 
@@ -280,6 +286,7 @@ struct MeetingTopChromeBar: View {
                  action: actions.togglePause)
         pillIcon("stop.fill", aide: "Arrêter et transcrire", action: actions.stopRecording)
         markerButton
+        fullscreenButton
     }
 
     @ViewBuilder
@@ -295,6 +302,7 @@ struct MeetingTopChromeBar: View {
                  action: actions.editAudio)
             .disabled(!meeting.hasPlayableAudio || stt.isTranscribing || isGeneratingReport)
             .opacity(meeting.hasPlayableAudio ? 1 : 0.4)
+        fullscreenButton
     }
 
     /// Position courante et durée. Un clic ouvre la saisie directe : c'est le
@@ -333,6 +341,23 @@ struct MeetingTopChromeBar: View {
     /// sur la réunion (un audio non encore chargé a une durée de 0).
     private var displayDuration: Double {
         max(playhead.duration, Double(meeting.durationSeconds))
+    }
+
+    /// L'entrée du mode séance plein écran (lot 4, spec §2.6 : « bouton dans la
+    /// pilule audio ou `⌃⌘F` »).
+    ///
+    /// Affichée seulement quand un écran est en mesure de présenter — le mode
+    /// En séance de l'espace Réunion (`SessionFullscreenPresenter.hote`). Un
+    /// bouton grisé dans une pilule de 24 px de haut est un bouton qu'on
+    /// n'identifie pas ; ici il apparaît quand il sert.
+    @ViewBuilder
+    private var fullscreenButton: some View {
+        if SessionFullscreenPresenter.shared.peutEntrer(meeting.stableID) {
+            pillIcon("arrow.up.left.and.arrow.down.right",
+                     aide: "Mode séance plein écran (⌃⌘F)") {
+                SessionFullscreenPresenter.shared.demanderBascule()
+            }
+        }
     }
 
     private var markerButton: some View {

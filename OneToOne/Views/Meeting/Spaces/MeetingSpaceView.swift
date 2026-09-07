@@ -76,6 +76,17 @@ struct MeetingSpaceView: View {
             }
         }
         .background(One2OneToken.bgCanvas)
+        // Le point d'entrée du mode séance plein écran (lot 4, spec §2.6) :
+        // une seule pose dans l'application. Il substitue le contenu de la
+        // fenêtre, la barre du haut de `MeetingView` comprise — d'où sa place
+        // ici et non dans une colonne.
+        .sessionFullscreen(meeting: meeting,
+                           screen: screen,
+                           settings: settings,
+                           estEligible: screen.mode == .live,
+                           onOpenMeeting: onOpenMeeting,
+                           onDiarize: onDiarize,
+                           onReidentify: onReidentify)
     }
 
     /// La colonne de gauche : indicateurs, contenu du mode, assistant.
