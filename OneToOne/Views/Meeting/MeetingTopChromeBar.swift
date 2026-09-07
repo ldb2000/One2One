@@ -38,6 +38,27 @@ struct MeetingTopChromeBar: View {
         }
     }
 
+    /// Badge de type affiché dans le fil d'Ariane. `nil` pour les types qui
+    /// n'en portent pas : seul le 1:1 en a un sur les captures, et un badge
+    /// « Projet » redondant avec le segment projet ne dirait rien de plus.
+    static func typeBadge(for kind: MeetingKind) -> String? {
+        switch kind {
+        case .oneToOne, .manager: return "1:1"
+        case .global, .project, .work, .note, .workshop: return nil
+        }
+    }
+
+    /// La pilule de rôle, **obligatoire** pour un 1:1 subi (D4, spec §6.1).
+    ///
+    /// `nil` ailleurs — y compris pour le 1:1 mené : la spec dit « badge de
+    /// rôle : implicite » côté manager. Le rôle mené est déjà lisible au fait
+    /// qu'aucune pilule ne contredit le badge `1:1`, et une pilule « Je suis le
+    /// manager » sur tous les entretiens deviendrait du décor qu'on ne lit
+    /// plus — ce qui ferait rater la seule qui compte.
+    static func collaboratorPillLabel(for kind: MeetingKind) -> String? {
+        kind == .manager ? "Je suis le collaborateur" : nil
+    }
+
     /// Lecture d'un timecode tapé à la main dans la pilule audio (spec §2.1 :
     /// « Clic sur le temps = saisie directe d'un timecode »).
     ///
@@ -207,6 +228,16 @@ struct MeetingTopChromeBar: View {
                 .buttonStyle(.plain)
                 .help("Ouvrir la fiche du projet")
                 chevron
+            }
+            // Signalétique 1:1 (lot 10) : le badge de type, puis la pilule de
+            // rôle quand l'entretien est subi.
+            if let badge = Self.typeBadge(for: meeting.kind) {
+                Pill(badge, ton: .oneOnOne)
+                    .help("Entretien individuel — notes privées par ligne")
+            }
+            if let role = Self.collaboratorPillLabel(for: meeting.kind) {
+                Pill(role, ton: .oneOnOne, bordee: true)
+                    .help("Vous ne menez pas cet entretien : vos notes sont privées par défaut")
             }
             audioStatusBadge
         }
