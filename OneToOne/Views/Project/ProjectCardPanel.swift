@@ -596,7 +596,7 @@ struct ProjectCardPanel: View {
         // `WrappingHStack` n'existe pas dans le projet : un `FlowLayout` maison
         // serait une dépendance de plus. Les tags d'une fiche tiennent sur une
         // ou deux lignes, et `LazyVGrid` adaptatif suffit.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 160), spacing: 6)],
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 78, maximum: 200), spacing: 6)],
                   alignment: .leading,
                   spacing: 6) {
             ForEach(isEditing ? draft.tags : card.tags, id: \.self) { tag in
@@ -621,7 +621,11 @@ struct ProjectCardPanel: View {
                     .buttonStyle(.plain)
                     .help("Retirer le thème")
                 } else {
-                    Chip(tag)
+                    // `fixedSize` : sans lui, une colonne adaptative trop
+                    // étroite coupe « PostgreSQL » en « PostgreS / QL » —
+                    // constaté à la recette du lot 9. Une chip ne se replie
+                    // jamais : elle déborde ou elle passe à la ligne suivante.
+                    Chip(tag).fixedSize()
                 }
             }
             if isEditing { addTagChip }
@@ -678,7 +682,9 @@ struct ProjectCardPanel: View {
             HStack(spacing: 7) {
                 Text(Self.risksLabel).sectionLabel()
                 let compte = isEditing ? draft.risks.count : card.risks.count
-                MonoMeta("\(compte)", emphase: compte > 0)
+                // « RISQUES · 5 » : le point médian est celui de la capture,
+                // comme sur les cartes du bandeau d'indicateurs.
+                MonoMeta("· \(compte)", emphase: compte > 0)
                 Spacer(minLength: 0)
             }
             if isEditing {

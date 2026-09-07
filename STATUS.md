@@ -10,8 +10,36 @@ sur 0B (#20) et 0A (#19). La PR **contient donc les lots 0A, 0B, 1a et 1b** tant
 ne sont pas fusionnées. Plan d'exécution :
 `docs/superpowers/plans/2026-09-07-refonte-lot-9-fiche-projet.md`.
 
-**État : livré, `swift build` propre, `swift test` complet vert (1 880 tests), recette
-visuelle faite, PR ouverte, non mergée.**
+**État : livré, `swift build` propre, `swift test` complet vert (1 881 tests), recette
+visuelle faite à 1 280 px, PR ouverte, non mergée.** Trois constats à lire avant tout :
+un **crash préexistant** de l'écran de réunion en bundle `.app` (§ Recette ci-dessous),
+une **pollution du store de production** par le semis de démonstration, et le correctif
+d'isolation qui l'empêche de se reproduire.
+
+### ⚠️ À traiter : le store de production contient des lignes de démonstration
+
+Le premier lancement de recette a ouvert le **vrai** store — `HOME` ne suffit pas à isoler
+une application en bundle, cf. § Recette. Le semis y a écrit, à 13:19 le 2026-09-07 :
+
+| Ligne | Repère |
+| --- | --- |
+| 1 projet | `S/D — Modernisation CI/CD`, code **`P25_110_1`** (le code a été dédoublonné à l'ouverture) |
+| 1 réunion | `[P25_110] Partage statut final et chiffrage reste à faire`, **4 sept. 2025** 9:15 |
+| 12 actions, 5 risques, 4 segments | rattachés à cette réunion |
+| 3 jalons, 3 interlocuteurs | rattachés au projet `P25_110_1` |
+| 6 collaborateurs | Pierre-Yves Nallet, Nathalie Lefèvre, Cédric Payet, Lucas Sylvain, Camille Aubert, **Laurent Deberti** (créé faute de correspondance avec « DE BERTI Laurent ») |
+
+**Aucune donnée réelle n'a été modifiée** : le vrai projet `P25_110`
+(`S/D - Modernisation Chaine CI/CD`, Z_PK 52) est intact — budgets vides, périmètre vide,
+tags vides, aucun jalon, aucun interlocuteur. Le semis n'a pas reconnu l'homonyme
+(tiret contre cadratin, « Chaine » contre « Chaîne ») et a donc **créé** un projet séparé
+au lieu d'écraser le vôtre.
+
+**Rien n'a été supprimé** : effacer des lignes d'un store de production de 32 Mo n'est pas
+une décision que je prends seul. La suppression se fait proprement depuis l'application :
+la réunion par `Réunion ▸ Supprimer la réunion…` (elle emporte actions, risques et
+segments), puis le projet `P25_110_1` (il emporte jalons et interlocuteurs), puis les six
+collaborateurs s'ils ne servent à rien d'autre. Dis-moi si tu préfères que je le fasse.
 
 ### Ce qui est en place
 
@@ -98,14 +126,86 @@ le rappel d'ouverture), `MeetingPrepareSpace` (section `FICHE PROJET`),
 ### Tests
 
 `swift build` propre. `swift test` complet **vert** : **1 039 XCTest (1 ignoré, 0 échec) +
-841 Swift Testing en 120 suites (0 échec)**, soit **1 880 tests** contre 1 801 après le lot 1
-(**+79, +5 suites**), aucune régression.
+842 Swift Testing en 120 suites (0 échec)**, soit **1 881 tests** contre 1 801 après le lot 1
+(**+80, +5 suites**), aucune régression.
 
-Nouvelles suites : `ProjectCardBuilderTests` (19), `ProjectCardSuggestionsTests` (23),
+Nouvelles suites : `ProjectCardBuilderTests` (20), `ProjectCardSuggestionsTests` (23),
 `ProjectCardDraftTests` (10), `ProjectCardPanelTests` (9), `UndoBannerTests` (5). Ajouts :
 3 dans `MeetingScreenModelTests`, 4 dans `MeetingPrepareBuilderTests`, 3 dans
 `RefonteDemoSeedTests`, 2 dans `One2OneTokensTests`, 1 dans `MeetingTopChromeBarTests`.
 Aucun test ne touche MLX, le réseau ni une session graphique.
+
+### Recette visuelle
+
+`docs/superpowers/specs/refonte-2026-09/recette/lot-9-1280.png` — fenêtre de 1 280 × 800 pt
+(image 2 562 × 1 600, écran Retina), fiche projet **ouverte**, hors édition. Obtenue avec
+`Scripts/recette-app.sh` puis `Scripts/recette-run.sh`, sur un store isolé ne contenant que
+le jeu de démonstration.
+
+**Ce qui correspond à `3b-fiche-projet.png`** : le segment projet bordé bleu avec son
+chevron ; `FICHE PROJET`, le nom, `P25_110 · 1 réunion · dernière mise à jour le 4 sept. par
+vous` ; les cartes `STATUT ● À surveiller` et `BUDGET CONSOMMÉ 40 000 € / 61 000 €` avec sa
+barre ; les trois jalons avec point vert daté « 30 sept. », point orange `bloqué` en rouge,
+cercle vide « 15 nov. » ; `PÉRIMÈTRE & CONTEXTE` + `éditer`, le texte encadré, les chips
+`GitLab Nexus PostgreSQL Cléva` ; `RISQUES · 5` et `INTERLOCUTEURS` sur deux colonnes ; la
+colonne principale visiblement atténuée ; le panneau à 430 px exactement.
+
+**Écarts avec la maquette relevés sur la capture** :
+
+1. **La barre de budget est verte**, la maquette la dessine orange (cf. écarts assumés n° 1).
+2. **La maquette montre le mode Édition actif** (`＋ ajouter`, ligne `Nouveau jalon…`, chip
+   `＋`, `＋ Ajouter un risque`, `＋ Ajouter`, pied `Annuler` / `Enregistrer`) ; la capture
+   est en **lecture**, où la spec veut que tout cela disparaisse. Le passage en édition n'a
+   pas pu être capturé : le clic sur la pilule `Édition` n'a pas abouti par script — AX ne
+   résout pas correctement le survol d'un `overlay` SwiftUI — puis la session s'est
+   verrouillée. **À vérifier à la main.**
+3. **Pas d'encart de l'assistant** : le home de recette repart de zéro, donc aucun endpoint
+   IA n'est configuré. C'est le comportement attendu (« sans endpoint : encart absent, pas
+   d'erreur ») et la capture en est la démonstration, mais elle ne montre pas l'encart.
+
+**Capture à 1 920 px non faite** : la session s'est verrouillée en cours de recette
+(`ioreg -n Root -d1 -r` → `"CGSSessionScreenIsLocked"=Yes`, `IOConsoleLocked = Yes`), les
+fenêtres ne sont plus adressables et `screencapture` ne rend plus qu'une image noire. Comme
+au lot 1 : rien de faux n'a été déposé.
+
+**Deux défauts trouvés par la recette et corrigés** : la chip « PostgreSQL » se repliait en
+« PostgreS / QL » (colonne adaptative trop étroite, `fixedSize` ajouté) et le compteur des
+risques s'écrivait `RISQUES 5` au lieu de `RISQUES · 5`.
+
+### 🐛 Crash préexistant de l'écran de réunion en bundle `.app`
+
+**Trouvé par cette recette, présent sur la branche de base, hors périmètre du lot 9.**
+
+Ouvrir une réunion dans la **fenêtre dédiée** (`WindowGroup "1to1-meeting"`, celle
+qu'ouvrent le semis de démonstration, `QuickLaunchRouter` et la pastille) fait **crasher
+l'application** en build release empaqueté :
+
+```
+EXC_BREAKPOINT / +[NSApplication _crashOnException:]
+-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]
+-[NSView setNeedsUpdateConstraints:]
+SwiftUI.NSHostingView.setNeedsUpdate()
+SwiftUI.NSHostingView.updateWindowContentSizeExtremaIfNecessary()
+SwiftUI.NSHostingView.updateConstraints()
+```
+
+C'est la ré-entrance Auto Layout de la famille `_NSDetectedLayoutRecursion` que le programme
+§2.4 point 4 signale déjà. **Vérification faite** : la même manipulation, sur
+`origin/feat/refonte-lot-1b-espaces-kpi-assistant` recompilée en release et empaquetée avec
+les mêmes scripts, crashe **à l'identique** (journaux `OneToOne-2026-09-07-1324*.ips` et
+`-1330*.ips`). Le lot 9 n'y est pour rien — les lots 0A à 1b n'ont jamais été lancés en
+bundle, la session étant verrouillée à ce moment-là.
+
+**Contournement utilisé pour la recette** : ouvrir la réunion depuis la liste `Réunions` de
+la fenêtre principale, où la navigation se fait **en place**. Ce chemin ne crashe pas — c'est
+lui qui a produit la capture. `NSApplicationCrashOnExceptions = false` dans les préférences
+n'y change rien.
+
+**Prochaine action recommandée** : un lot de correction dédié. La piste la plus probable est
+une contrainte de taille minimale que la hiérarchie de `MeetingView` renégocie pendant la
+passe de contraintes de la fenêtre — candidats : le `.fixedSize()` du fil d'Ariane dans
+`MeetingTopChromeBar`, la `ScrollView` non bornée d'un espace, ou `MeetingSpaceLayout` qui
+calcule ses colonnes depuis un `GeometryReader`.
 
 ### Écarts assumés
 
@@ -132,6 +232,22 @@ Aucun test ne touche MLX, le réseau ni une session graphique.
 6. **Le `＋` des thèmes n'a pas de disposition en flot** : `LazyVGrid` adaptatif au lieu d'un
    `FlowLayout`. Les thèmes d'une fiche tiennent sur une à deux lignes ; un layout maison
    serait à écrire pour tout le programme, pas pour ce lot.
+7. **Le plan directeur rejoint le suivi git dans cette PR.**
+   `docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md` était encore hors suivi
+   alors que tous les lots s'y réfèrent, et le lot 9 devait en amender le §7 étape 6. Le
+   dossier `docs/superpowers/specs/refonte-2026-09/` (spec et treize captures) reste, lui,
+   hors suivi : ce n'est pas au lot 9 d'en décider.
+
+### Prochaine action
+
+1. **Trancher la teinte de la barre de budget** : règle chiffrée (vert à 65,6 %) ou maquette
+   (orange) ?
+2. **Décider du sort des lignes de démonstration dans le store de production** (liste et
+   procédure ci-dessus).
+3. **Ouvrir un lot de correction du crash de la fenêtre de réunion** : il bloque toute
+   recette visuelle des lots ≥ 1 par le chemin normal, et il touchera l'usage réel (le semis,
+   `QuickLaunchRouter` et la pastille passent tous par cette fenêtre).
+4. Vérifier à la main le mode Édition de la fiche et capturer 1 920 px, session déverrouillée.
 
 ## Refonte de l'écran de réunion — lot 10 : socle 1:1 (2026-09-07)
 
