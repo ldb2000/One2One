@@ -138,7 +138,8 @@ struct SessionFullscreenEntryTests {
             editAudio: {}, revealWAV: {}, deleteMeeting: {},
             exportMarkdown: {}, exportPDF: {}, exportMail: { _ in },
             exportOutlook: { _ in }, exportAppleNotes: { _ in },
-            openAssistant: {}, addPlayheadMarker: {}
+            openAssistant: {}, addPlayheadMarker: {},
+            pasteResource: {}, openResources: {}
         )
     }
 
