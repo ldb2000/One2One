@@ -2,6 +2,173 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 6 : ressources en séance, tiroir et épinglage (2026-09-07)
+
+Branche `feat/refonte-lot-6-ressources`, **sur** `feat/refonte-lot-3-rail-actions` : la PR
+**empile** les lots 0A, 0B, 1a, 1b, 2 et 3 (PR #19–#24, non fusionnées). Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-6-ressources.md` (14 tâches, toutes faites).
+ADR : `docs/adr/2026-09-07-pieces-copiees-jamais-referencees.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert (2 017 tests), PR ouverte, non
+mergée. Recette visuelle non faite — voir « Écarts assumés » n° 1.**
+
+### Ce qui est en place
+
+**La politique de stockage a changé de camp (D5).** Une pièce de séance était *référencée* :
+`filePath` gardait le chemin d'origine et `bookmarkData` un signet vers lui. Elle disparaissait
+donc au premier rangement du disque, la sauvegarde n'était pas autonome, et ni le partage à
+l'écran, ni l'annotation, ni l'épinglage n'avaient d'ancre. Elle est désormais **copiée** dans
+`recordings/<uuid>/documents/<yyyyMMdd-HHmmss>_<nom>`, à côté de `slides/` de la même réunion.
+`MeetingAttachmentService.attachDocument` copie **avant** d'insérer la ligne — une source
+illisible ne laisse plus derrière elle une pièce sans fichier, qu'on ne distinguerait pas d'une
+orpheline — puis `importDocument` extrait et indexe le texte **de la copie**. La ligne porte
+`scope`, `mimeType`, `byteCount`, `addedByName` (`AppSettings.ownerName`) et un `stableID`
+(colonne optionnelle neuve, cible des `sourceRef` de citation). `bookmarkData` est explicitement
+`nil` : un signet vers une copie interne n'a aucune valeur, et son absence est le signal le plus
+simple qu'une pièce relève de D5.
+
+**La migration des anciennes pièces est paresseuse, et ne supprime jamais rien.**
+`AttachmentMigration.migrate(meeting:in:)` tourne à l'ouverture de l'espace Ressources — pas au
+lancement : migrer 500 réunions au démarrage bloquerait l'app pour un bénéfice nul sur celles
+qu'on ne consulte plus. Source présente → copiée, `filePath` réécrit, `byteCount`/`mimeType`
+complétés, signet effacé. Source disparue → la pièce **reste visible** et devient *orpheline*
+(état **calculé**, pas une colonne : un drapeau mentirait après restauration d'une sauvegarde sur
+une autre machine), et sa vignette affiche « Fichier introuvable — relier », qui ouvre un
+`NSOpenPanel` et **copie** le fichier redésigné. Le signet sert une dernière fois, en migration
+seulement : il donne une chance de retrouver un fichier simplement *déplacé*, ce que le chemin
+brut ne sait pas faire. Le passage backfille aussi les `stableID` manquants — sans eux, `Citer`
+n'a rien à mettre dans la référence de la puce.
+
+**Les trois services de maintenance connaissent le nouveau dossier** (programme §2.4 point 6).
+`StorageStatsService.documentsUsage(inRecordings:)` scanne `recordings/*/documents` — le dossier
+fait foi, y compris pour un fichier qu'aucune ligne ne réclame plus, qui est justement celui
+qu'on veut voir dans la répartition ; les lignes encore référencées hors de l'app s'y ajoutent
+sans double-compte. `OrphanCleanupService.orphanAttachments` **exclut** deux familles : les
+pièces copiées (un fichier interne manquant est un incident à signaler, pas une ligne à effacer
+avec son texte extrait, ses chunks RAG et ses citations) et les pièces `link`, dont `filePath`
+porte une URL — `fileExists` y répond toujours faux, et les proposer aurait supprimé tous les
+liens collés en séance. `MeetingAttachmentDTO` transporte les sept colonnes cibles en champs
+**optionnels** : une sauvegarde antérieure reste décodable et retombe sur les défauts.
+
+**Un adaptateur, pas trois listes.** `ResourceItem` unifie `MeetingAttachment`,
+`ProjectAttachment` et `SlideCapture` — trois modèles sans parenté qui alimentent la même
+colonne de 396 px. Structure de valeur, fonctions pures : `all(for:)`, `sorted`,
+`filtered(_:by:)`, `counts`, `metadata(calendar:)` (« Ajouté par Sylvain · 09:22 · 84 Ko », chaque
+partie disparaissant quand elle est inconnue au lieu de laisser un séparateur orphelin). Trois
+décisions y sont inscrites : le **lot** de captures (kind `slides`) est un conteneur à chemin
+virtuel, il ne paraît pas comme ressource mais ses PNG oui, un par vignette ; le `t` d'une
+capture **est** son épinglage — une capture prise en séance est ancrée dans le temps par
+construction ; et les captures ne comptent pas dans « Cette séance », qui annonce `4 séance` sans
+elles. L'identité d'une pièce de projet, qui n'a pas de `stableID`, est dérivée de son chemin
+(FNV-1a) : aléatoire, SwiftUI remonterait la vignette à chaque rendu.
+
+**Les liens n'appellent personne.** `AttachmentLinkImporter` reconnaît une URL http(s) et refuse
+tout le reste (`about:`, `file:`, `mailto:`, un bloc multi-lignes, du texte libre) : coller trois
+lignes de notes ne doit pas produire une ressource intitulée « trois lignes de notes ». Le
+libellé vient de l'URL seule — dernier segment décodé, à défaut le domaine sans `www.` — parce
+qu'aller chercher le `<title>` d'une page ferait sortir l'app de la boucle locale pour un
+libellé, ce que le §8 interdit sans le signaler. Les extensions techniques (`.html`, `.php`)
+disparaissent du libellé, un `.pdf` distant reste : il dit ce qu'on va ouvrir. La cible vit dans
+`filePath` — une colonne `linkURL` dédiée aurait créé deux vérités pour la même information.
+
+**Le tiroir : un seul corps pour deux surfaces.** `ResourcesPanel` porte l'en-tête (compteurs
+`n séance` / `n projet`, `＋ Importer` plein `accent/action`), les quatre filtres, les vignettes,
+la zone de dépôt permanente et le pied. `ResourcesDrawer` l'emballe à 396 px, superposé, ombre
+`-8px 0 24px rgba(0,0,0,.07)`, `Esc` pour fermer — **sans voile** sur la colonne de gauche,
+contrairement à la fiche projet du lot 9 : on continue de prendre des notes pendant qu'on cherche
+un document, et un voile dirait le contraire. `MeetingResourcesSpace` montre le **même**
+`ResourcesPanel` en pleine largeur (spec §4.1) ; deux vues jumelles auraient divergé au premier
+ajustement. Son contenu provisoire du lot 1 — la liste de lignes avec menu `⋯` — est retiré.
+
+**Les vignettes.** `ResourceTypeIcon` 34 × 40 : le **texte** porte le type (`XLS`, `PDF`, `PNG`,
+`URL`), la couleur le confirme — une palette seule serait illisible pour un daltonien ; cinq tons
+pris dans les accents existants, aucune couleur nommée hors `One2OneTokens`. `ResourceTile` : la
+pièce présentée est **la seule** à porter trois actions (`À l'écran` plein, `Citer`, `Envoyer`),
+les autres n'affichent que la leur (`Présenter`, `Ouvrir` pour un lien) — c'est ce que montre la
+capture, et c'est ce qui garde la colonne lisible : trois boutons sur vingt vignettes noieraient
+celle qui compte. Le clic droit porte le reste. Un filtre vide dit **quoi faire**, table
+exhaustive sans `default` : un cinquième filtre ne compilera pas sans son invite.
+
+**Le pied `À L'ENVOI DU RAPPORT`.** Trois cases, les deux premières cochées par défaut,
+persistées **par réunion** sur `Meeting.reportAttachmentOptionsJSON` (une revue de projet et un
+1:1 ne se diffusent pas de la même façon). Un JSON vide, tronqué ou écrit par une version future
+retombe sur les défauts — un pied sans cases serait un cul-de-sac, et une exception empêcherait
+d'ouvrir l'espace. Les libellés portent des nombres réels (`les 2 pièces épinglées`, `les 6
+participants`) : une case qui promet des pièces épinglées quand il n'y en a aucune promet du
+vide. La troisième case disparaît si la réunion n'a pas de projet.
+
+**Les quatre ouvertures de la spec §4.1** : l'espace `Ressources` ; le bouton `Capture` de la
+barre du haut (filtre Captures — le tiroir **devient** la galerie, et le retrait d'une capture y
+est possible pour ne pas perdre la capacité que l'ancien popover portait) ; le dépôt **n'importe
+où** dans la fenêtre (une ligne dans `MeetingSpaceView`) ; `⌘⇧V`. Le collage cherche un lien
+**avant** une image : une adresse copiée depuis un navigateur arrive souvent avec un aperçu, et
+l'inverse transformerait chaque lien collé en capture.
+
+**`ResourceCoordinator` a vidé `MeetingView` de ses imports.** Les quatre chemins qui y vivaient
+(`onDrop`, `handleFileDrop`, `importDocuments`, `fileImporter`) n'y avaient rien à faire : ils ne
+parlent que de ressources, et le programme §2.4 point 1 interdit d'ajouter à ce fichier.
+`MeetingView` perd ~45 lignes, deux `@State` (`attachmentError`, `isImportingAttachment`), un
+troisième devenu inutile (`isDraggingDoc`) et le popover `showSlidesList` sans appelant ; il n'y
+gagne **aucune** ligne de logique. **1 984 lignes**, contre 2 045 pour le lot 3.
+
+**La carte « À l'écran ».** `À l'écran <nom> · p. 2`, pagination pour les PDF, `Annoter` /
+`Épingler à mm:ss` / `Arrêter le partage`. Elle n'existe que **pendant** un partage — sans
+document présenté elle disparaît de la colonne au lieu de laisser un cadre vide, même règle que
+la pilule de la barre. Le bouton porte le timecode : un simple « Épingler » laisserait deviner à
+quel instant l'épingle tombe. Si l'identifiant présenté ne désigne plus rien (pièce retirée), la
+carte s'efface d'elle-même.
+
+**L'aperçu.** `PDFKit` rend une page **en image** plutôt que de monter un `PDFView` : la scène
+est un document figé à la page courante, pas un lecteur dont les barres de défilement et les
+gestes de zoom se disputeraient le défilement de la colonne. Une image se charge telle quelle ;
+tout le reste — `.xlsx`, `.pptx`, `.docx` — affiche « Aperçu indisponible — le document reste
+partagé et citable », parce qu'un cadre blanc laisserait croire à un chargement qui n'arrive
+jamais. La légende « Aperçu — les participants voient la même page » est **sous** le document :
+posée par-dessus, elle masquerait le bas de la page, c'est-à-dire souvent le total du chiffrage
+qu'on est précisément en train de montrer. La scène est mesurée en `background` et non dans un
+`GeometryReader` englobant — le programme §2.4 point 4 interdit de faire dépendre une mise en
+page d'elle-même (`_NSDetectedLayoutRecursion`).
+
+**L'annotation.** Cadre, flèche, texte — trois formes et pas une de plus : le besoin en séance
+est d'attirer l'œil en trois secondes, un éditeur graphique serait un autre produit. Les
+coordonnées sont **normalisées** `0…1` : en points, une annotation glisserait à côté de ce
+qu'elle désigne au premier redimensionnement de fenêtre. Un clic sans glisser ne sème pas de
+point invisible. `Enregistrer` compose la page rendue et le calque en un **PNG neuf** sous
+`recordings/<uuid>/slides/`, enregistré comme `SlideCapture` horodatée à la tête de lecture, donc
+visible sur la frise : le fichier source n'est jamais ouvert en écriture (spec §4.2).
+
+**L'épinglage.** `pinnedAtT`, la puce `◫ Chiffrage_Marine_v3 · p.2` **collée à la note courante**
+— la dernière ligne posée à ou avant le timecode — parce que la pièce illustre ce qu'on vient
+d'écrire et n'est pas un événement séparé ; c'est aussi ce que montre la capture, une seule ligne
+à `12:08`. La puce vit dans le **texte** et pas seulement dans le `sourceRef` : la colonne
+affiche du texte, et une référence invisible n'aide personne à relire la séance. Le `sourceRef`
+(`kind: .capture`, `stableID` de la pièce) est posé en plus, pour que le clic mène quelque part
+et que le rapport du lot 15 sache quoi citer. `Citer` fait la même chose **sans** épingler ;
+citer deux fois la même page n'écrit qu'une puce, mais `citationCount` compte les deux clics —
+c'est bien deux fois qu'on a désigné la pièce. Désépingler **laisse** la puce déjà écrite :
+réécrire l'historique parce qu'on a changé d'avis serait pire que le désépinglage.
+`Meeting.pinnedAttachments` est trié par timecode, `MeetingTimelineMarkers+Pins` ajoute le
+**carré** de la spec §2.4 sur la frise (fichier d'extension : trois lots travaillent en parallèle
+et deux autres y ajouteront leurs repères), et la bande `ÉPINGLÉ DANS LA SÉANCE` en est la
+surface — chips horodatées, celle du moment courant en `accent/action` à 1,5 s près, clic →
+`seek` + remise à l'écran. `Envoyer` = `NSSharingServicePicker`.
+
+**La pilule de la barre du haut.** `MeetingSharingState` est pur : `pillLabel(isPresenting:
+presentCount:)`. Six présents, **cinq** spectateurs — on ne se compte pas parmi ceux à qui l'on
+montre quelque chose, et la capture l'énonce en trois endroits (6 au bandeau, `5 voient` dans la
+barre, `6 participants` au pied). Jamais négatif. Sans partage, la pilule **disparaît** : pas
+d'état grisé, qui occuperait la place et se lirait comme un contrôle désactivé.
+
+**Jeu de démonstration** : `RefonteDemoSeed+Lot6.swift`, extension —
+`RefonteDemoSeed.swift` n'est **pas** touché (il a déjà été le lieu d'un conflit à l'intégration
+des lots 2 et 3). Les chiffres de la capture sont tenus exactement : `4 séance` (trois fichiers
+**plus le lien**, ce sont bien les quatre vignettes de l'image), `17 projet`, deux épinglées à
+`04:12` et `12:08`, une pièce « citée 3 fois », `84 Ko` sur la vignette présentée. Les fichiers
+sont **réellement écrits** sur disque : une vignette pointant un fichier absent s'afficherait
+orpheline, et la recette montrerait quatre invites de reliaison au lieu du tiroir. Le menu
+**Réunion → Charger le jeu de démonstration (refonte)** appelle désormais `seedLot6`, toujours
+idempotent.
+
 ## Refonte de l'écran de réunion — lot 5 : poste de pilotage (mode Relire) (2026-09-07)
 
 Branche `feat/refonte-lot-5-poste-pilotage`, **empilée** sur
@@ -120,6 +287,7 @@ paramètres au call-site), `MeetingCommands.swift` (le menu de démonstration ap
 ### Tests
 
 `swift build` propre (avertissements préexistants seuls : `PyannoteDiarizer`,
+<<<<<<< HEAD
 `MLXEmbeddingEngine`, `AudioCompressionService`). `swift test` complet **vert** :
 **1 039 XCTest (1 ignoré, 0 échec) + 966 Swift Testing en 136 suites = 2 005 tests**, contre
 1 931 après l'intégration des lots 2 + 3 (**+74, +6 suites**), aucune régression.
@@ -490,6 +658,105 @@ périmètre déclaré des lots 5, 6 ou 10 ; tous les changements sont additifs o
 
 Faire relire, puis fusionner dans l'ordre `#19 → #20 → #21 → #22 → #23 → #24 → cette PR`.
 Rejouer la recette visuelle du lot 4 une fois le crash `_NSViewUpdateConstraints` corrigé.
+=======
+`MLXEmbeddingEngine`, `AudioCompressionService`, `MeetingTagSuggester`). **`swift test` complet
+vert : 1 041 XCTest (1 ignoré, 0 échec) + 976 Swift Testing en 140 suites = 2 017 tests**, contre
+1 931 au lot 3. Dix suites neuves, 86 tests :
+
+| Suite | Ce qu'elle tient |
+| --- | --- |
+| `AttachmentCopyPolicyTests` (12) | sous-dossier, nommage horodaté, MIME `UTType`, catégories, poids `84 Ko`, badges et tons |
+| `AttachmentCopyImportTests` (6) | **supprimer l'original ne rend pas la pièce illisible** ; métadonnées ; une source illisible n'insère aucune ligne |
+| `AttachmentMigrationTests` (7) | source présente → copiée, idempotent ; absente → orpheline **sans exception** ; reliaison ; backfill des `stableID` |
+| `StorageStatsDocumentsTests` (3) | le nouveau dossier est compté, sans double-compter WAV ni captures |
+| `ResourceItemTests` (12) | les trois sources, les quatre filtres, les compteurs `4/17`, le tri, les métadonnées |
+| `AttachmentLinkImporterTests` (7) | libellé hors ligne, refus de tout ce qui n'est pas http(s) |
+| `ResourcesStateTests` (15) | **critère chantier 3 n° 1** : un dépôt ne change ni espace, ni mode, ni focus, ni note en cours ; pagination bornée ; options du pied |
+| `MeetingSharingStateTests` (6) | **critère n° 2** : l'état se dérive sans le tiroir ; 6 présents → `5 voient` ; sans partage, rien |
+| `AttachmentPinningTests` (12) | **critère n° 3** : `pinnedAtT`, `pinnedAttachments` trié, puce et `sourceRef` dans les notes, repère de frise, idempotence |
+| `RefonteDemoSeedLot6Tests` (6) | les chiffres de la capture, aucune orpheline, idempotence |
+
+Suites de non-régression exigées, vertes : `OrphanCleanupServiceTests` (+2 tests),
+`IndexStatsServiceTests`, `BackupWithoutInterviewTests`, `SchemaV3MigrationTests`.
+
+### Écarts assumés
+
+1. **Recette visuelle non faite : deux processus portent le nom `OneToOne`.** L'écran était
+   déverrouillé (19 h, aucune fenêtre Teams ne portait de titre de réunion — la seule était
+   « Conversation | … »), un `.app` de recette a bien été empaqueté depuis le build **debug** du
+   worktree (binaire + `Info.plist` + `PkgInfo` + `OneToOne_OneToOne.bundle` + `default.metallib`
+   repris de `Mickey.app` + signature ad hoc) et **lancé avec `HOME` et `CFFIXED_USER_HOME`
+   isolés** dans le scratchpad, garde-fou vérifié : son store est bien
+   `…/scratchpad/fakehome-lot6/Library/Application Support/OneToOne/OneToOne.store`, **le store
+   de production n'a jamais été touché**. Mais un **second** processus nommé `OneToOne` tournait
+   (`.build/arm64-apple-macosx/release/OneToOne`, une bissection d'un autre agent) : `System
+   Events` cible un processus **par son nom**, et c'est cette autre instance qu'il a atteinte —
+   son menu « Réunion » n'avait ni `Assistant…`, ni `Poser un marqueur`, ni l'entrée de
+   démonstration, ce qui l'a trahie (elle est bâtie sur un commit antérieur au lot 1). Piloter
+   les menus dans ces conditions revenait à agir au hasard sur l'app d'un autre agent : la
+   recette a été **abandonnée**, et l'instance de recette fermée par son PID seul. Rien n'a été
+   déposé dans `docs/superpowers/specs/refonte-2026-09/recette/`.
+   **À refaire quand aucun autre `OneToOne` ne tourne** (`ps aux | grep [O]neToOne` doit ne
+   montrer que le `.app` de recette) : `zsh scratchpad/package-lot6.sh` puis
+   `zsh scratchpad/run-lot6.sh` (les deux scripts sont écrits et fonctionnels), menu **Réunion →
+   Charger le jeu de démonstration (refonte)**, ouvrir `[P25_110] Partage statut final…` depuis
+   la **fenêtre principale** (la fenêtre dédiée `1to1-meeting` a un crash préexistant en bundle,
+   traité ailleurs), espace **Ressources** ou bouton **Capture** pour déplier le tiroir,
+   `Présenter` sur `Chiffrage_Marine_v3.xlsx`, redimensionner à 1 280 puis 1 920 px,
+   `screencapture -x` vers `recette/lot-6-{1280,1920}.png`, comparer à
+   `ecrans/3a-tiroir-ressources.png`.
+2. **La puce `◫ … · p.n` est du texte, pas une chip bleue.** La capture la montre en pilule
+   `accent/action` dans la ligne de note ; ici elle est **écrite dans le texte** de la note et
+   `TimedNotesColumn` (lot 2) l'affiche comme le reste. La rendre en pilule demanderait de
+   toucher la colonne de notes, que les conventions anti-conflit du lot 6 réservent. Le
+   `sourceRef` est bien posé : le rendu en chip est un ajout de vue, pas de donnée, et il peut
+   se faire au lot 15 avec le bloc de rapport.
+3. **`MeetingAttachment` gagne une colonne `stableID`** alors que le périmètre annonçait
+   « uniquement `reportAttachmentOptionsJSON` et l'état orphelin » dans `Models/`. Sans elle, un
+   `SourceRef` ne peut pas désigner une pièce — or le critère n° 3 exige que la puce insérée dans
+   la note mène à la pièce citée. C'est une colonne **optionnelle à défaut `nil`**, backfillée par
+   `ensuredStableID` comme `Meeting` et `Collaborator` le font depuis toujours : lightweight
+   migration, aucune version de schéma. `reportAttachmentOptionsJSON` est allée dans
+   `OtherModels.swift`, où `Meeting` vit réellement.
+4. **Le filtre `Cette séance` compte le lien.** La capture annonce `4 séance` et montre quatre
+   vignettes dont l'URL : un lien déposé en séance est une ressource de la séance, exactement
+   comme un PDF. Les **captures**, elles, en sont exclues — elles ont leur propre onglet, et les
+   compter deux fois aurait fait mentir le compteur.
+5. **Une capture ne s'épingle pas ; son `t` **est** son épinglage.** `SlideCapture` n'a pas de
+   `pinnedAtT`, et lui en ajouter un aurait créé deux vérités pour la même chose : une capture
+   prise pendant la séance est ancrée dans le temps par construction. La bande `ÉPINGLÉ DANS LA
+   SÉANCE` liste donc les pièces épinglées **et** les captures horodatées, ce qui est exactement
+   ce que la capture montre (`04:12 · Comptes_GitLab.png` à côté d'un document).
+6. **`MeetingSlidesPopover` n'a plus d'appelant.** Le bouton `Capture` mène au tiroir, qui est
+   devenu la galerie ; le retrait d'une capture y est possible au clic droit, pour ne pas perdre
+   la seule capacité que le popover portait. La vue reste dans le dépôt : le lot 7 lui substitue
+   sa bande de captures, et la supprimer maintenant aurait empiété sur son périmètre.
+7. **`Relier` passe par un `NSOpenPanel`**, pas par un second `.fileImporter` : macOS n'en
+   présente pas fiablement deux dans la même hiérarchie de vues — l'un masque l'autre, ce que
+   `MeetingView.FileImportTarget` documentait déjà. Le panneau est indépendant de la hiérarchie.
+
+### Fichiers partagés touchés
+
+Conformes aux conventions anti-conflit, au minimum près :
+`MeetingScreenModel.swift` (**une** ligne, `var resources`), `MeetingSpaceView.swift` (**deux**
+modifications — overlay du tiroir et `onDrop` — plus le paramètre `onImportResources` qu'elles
+exigent), `MeetingTopChromeBar.swift` (la pilule de partage et son entrée `resources` seulement),
+`MeetingView.swift` (**retraits** + le câblage de trois closures), `MeetingLiveSpace.swift`
+(montage de la carte « À l'écran » et `allMarkers`), `Models/MeetingModels.swift` (`stableID`),
+`Models/OtherModels.swift` (`reportAttachmentOptionsJSON`), `Menus/{MeetingCommands,
+MeetingMenuActions}.swift` (`⌘⇧V` et `Ressources…`), `Services/{AttachmentImporter,
+MeetingAttachmentService, BackupService}.swift`, `Services/Maintenance/*`. Aucun fichier de
+`Views/Meeting/Session/**` (lot 4), `Spaces/Review/**` (lot 5), `Services/OneOnOne/**` ou
+`Models/OneOnOne*`/`Commitment*` (lot 10) n'est touché ; `Rail/**`, `Notes/**` et `Transcript/**`
+sont réutilisés sans modification.
+
+### Prochaine action
+
+Faire relire et fusionner dans l'ordre `#19 → #20 → #21 → #22 → #23 → #24 → (lot 6)`, puis
+reprendre la **recette visuelle** du lot 6 quand aucun autre `OneToOne` ne tourne (écart n° 1).
+Le bloc de rapport « pièces épinglées » — seconde moitié du critère n° 3 — est au **lot 15** et
+lira `Meeting.pinnedAttachments`, déjà exposé et testé.
+>>>>>>> 4cebdc2 (docs(status): consigner le lot 6 — ressources en séance, tiroir et épinglage)
 
 ## Intégration des lots 2 + 3 : la pile redevient linéaire (2026-09-07)
 
