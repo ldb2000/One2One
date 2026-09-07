@@ -28,6 +28,9 @@ enum RecetteScreen: String, CaseIterable, Sendable {
     case oneOnOnePreparation = "2b"
     /// `5a-1to1-collaborateur-seance.png` — l'entretien **subi**, en séance.
     case collaboratorSession = "5a"
+    /// `5b-1to1-collaborateur-preparation.png` — le même entretien, en
+    /// préparation : la carte étroite de la veille.
+    case collaboratorPreparation = "5b"
     /// `3a-tiroir-ressources.png` — la réunion de démonstration, tiroir ouvert.
     case tiroirRessources = "3a"
     /// `3b-fiche-projet.png` — la même réunion, fiche projet en panneau.
@@ -57,7 +60,7 @@ enum RecetteScreen: String, CaseIterable, Sendable {
             return .demonstration
         case .oneOnOneSession, .oneOnOnePreparation:
             return .entretienMene
-        case .collaboratorSession:
+        case .collaboratorSession, .collaboratorPreparation:
             return .entretienSubi
         case .atelierPlanche:
             return .atelier
@@ -71,7 +74,9 @@ enum RecetteScreen: String, CaseIterable, Sendable {
     var mode: MeetingScreenModel.Mode {
         switch self {
         case .posteDePilotage:      return .review
-        case .oneOnOnePreparation:  return .prepare
+        case .oneOnOnePreparation,
+             .collaboratorPreparation:
+            return .prepare
         case .cockpit, .espaces, .oneOnOneSession, .collaboratorSession,
              .tiroirRessources, .ficheProjet, .captureSelecteur, .atelierPlanche:
             return .live

@@ -50,7 +50,10 @@ struct ManagerPrepRoutingTests {
 
     @Test("Les autres types gardent leur mode d'ouverture")
     func autresTypes() {
-        for kind in [MeetingKind.global, .project, .work, .manager, .workshop, .note] {
+        // `.manager` n'y est plus depuis le lot 14 : un 1:1 subi s'ouvre lui
+        // aussi en Préparer, sur la capture 5b. Cf.
+        // `CollaboratorPrepAgendaTests.modeParDefaut`.
+        for kind in [MeetingKind.global, .project, .work, .workshop, .note] {
             #expect(MeetingSpaceRouting.initialMode(persistedRaw: nil, kind: kind,
                                                     hasRecording: false) == nil)
         }
