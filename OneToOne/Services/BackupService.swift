@@ -151,6 +151,20 @@ final class BackupService {
         var extractedText: String
         var importedAt: Date
         var slides: [SlideCaptureDTO]
+
+        // MARK: - Modèle cible (spec §1.3 `Attachment`, lot 6)
+        //
+        // Tous **optionnels** : une sauvegarde antérieure au lot 6 ne les
+        // porte pas, et elle doit rester décodable. La restauration retombe
+        // alors sur les valeurs par défaut du modèle, et la migration
+        // paresseuse (D5) fera le reste à la première ouverture.
+        var scopeRaw: String?
+        var mimeType: String?
+        var byteCount: Int?
+        var addedByName: String?
+        var pinnedAtT: Double?
+        var citationCount: Int?
+        var stableID: UUID?
     }
 
     struct TranscriptChunkDTO: Codable {
@@ -378,7 +392,14 @@ final class BackupService {
                                     ocrText: slide.ocrText,
                                     perceptualHash: slide.perceptualHash
                                 )
-                            }
+                            },
+                            scopeRaw: att.scopeRaw,
+                            mimeType: att.mimeType,
+                            byteCount: att.byteCount,
+                            addedByName: att.addedByName,
+                            pinnedAtT: att.pinnedAtT,
+                            citationCount: att.citationCount,
+                            stableID: att.stableID
                         )
                     },
                     transcriptChunks: meeting.transcriptChunks
@@ -666,6 +687,17 @@ final class BackupService {
                 attachment.bookmarkData = attachmentDTO.bookmarkData
                 attachment.extractedText = attachmentDTO.extractedText
                 attachment.importedAt = attachmentDTO.importedAt
+                // Colonnes du modèle cible (lot 6). Absentes d'une sauvegarde
+                // antérieure : on garde alors les défauts du modèle, et la
+                // migration paresseuse (D5) complétera à la première ouverture
+                // de l'espace Ressources.
+                if let raw = attachmentDTO.scopeRaw { attachment.scopeRaw = raw }
+                if let mime = attachmentDTO.mimeType { attachment.mimeType = mime }
+                if let octets = attachmentDTO.byteCount { attachment.byteCount = octets }
+                if let auteur = attachmentDTO.addedByName { attachment.addedByName = auteur }
+                attachment.pinnedAtT = attachmentDTO.pinnedAtT
+                if let citations = attachmentDTO.citationCount { attachment.citationCount = citations }
+                attachment.stableID = attachmentDTO.stableID ?? UUID()
                 attachment.meeting = meeting
                 context.insert(attachment)
 
