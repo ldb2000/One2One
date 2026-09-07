@@ -2,6 +2,184 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Refonte de l'écran de réunion — lot 14 : 1:1 collaborateur, préparation en 2 minutes (5b) (2026-09-08)
+
+Branche `feat/refonte-lot-14-1to1-collab-prepa`, sur `feat/refonte-lot-13-1to1-collab-seance`
+(sommet de la pile). Plan du lot dans
+`docs/superpowers/plans/2026-09-08-refonte-lot-14-1to1-collab-prepa.md`.
+
+**État : livré, `swift build` propre, `swift test` vert (1 767 Swift Testing + 1 041 XCTest, un
+seul échec, préexistant et horaire — cf. plus bas), PR ouverte, non mergée.**
+**Recette visuelle différée à la passe de recette dédiée** ; le crochet est prêt
+(`ONETOONE_SEED_DEMO_SCREEN=5b`).
+
+### L'écran
+
+`kind == .manager` + mode **Préparer** → `CollaboratorPrepView` : une **carte étroite de 940 px,
+centrée**, et rien d'autre — ni rail d'actions, ni bandeau d'indicateurs, ni barre d'assistant.
+Deux minutes veut dire dix lignes qu'on lit d'un coup d'œil ; une colonne de plus et l'écran
+devient un tableau de bord qu'on remet à plus tard. Une branche dans `MeetingSpaceView.contenu`,
+gardée par `MeetingSpaceRouting.usesOneOnOneCollaboratorPreparation` — exclusive des quatre autres
+branches, ce que vérifie `CollaboratorPrepAgendaTests.routageExclusif` type par type et mode par
+mode.
+
+C'est aussi le **mode d'ouverture par défaut** d'un entretien subi sans enregistrement :
+`initialMode` accepte désormais les **deux** types de tête-à-tête (`OneOnOneThreadStore.faceToFace`)
+et non le seul `.oneToOne`.
+
+| Bloc | Contenu |
+| --- | --- |
+| En-tête (`CollabPrepHeader`) | avatar `YP`, `1:1 avec Yann — demain 14:00`, `Préparation · 2 min · dernier point le <date>`, badge **bordé** `Collaborateur`. **Sans bouton** : un entretien subi ne se démarre pas depuis chez moi. |
+| `RESTÉ SANS RÉPONSE` (`UnansweredCard`, `accent/report`) | cases **décochées**, libellé + `depuis le <date>` |
+| `CE QUE J'AI LIVRÉ DEPUIS` (`DeliveredSinceCard`, `accent/ok`) | `DeliveredItemsBuilder` du lot 13, lignes `✓ … · date` et `◐ … · cause`, **sans bouton `Citer`** |
+| `CE QUE JE VEUX OBTENIR` (`WantedCard`, `accent/oneonone`) | cases **cochées**, composeur pointillé `Ajouter…` |
+| Pied | `En faire mon ordre du jour` (violet plein), `Partager les sujets à Yann` (bordé, confirmation légère), mention de provenance |
+
+### La règle « resté sans réponse » — critère chantier 5 n° 4
+
+`UnansweredItemsBuilder` (pur). Trois sources, **aucune saisie** :
+
+1. **les promesses du manager non tenues** — manquées, ou ouvertes et échues (`CommitmentLedger`,
+   la définition de la règle 1 de `ReminderRules`) ;
+2. **les sujets évoqués ≥ 3 fois qu'aucune décision ne tranche** (`RecurringTopicsBuilder`, seuil
+   `ReminderRules.recurringTopicThreshold`) ;
+3. **les demandes `pending`/`waiting`** du fil (`AgendaCarryover.requests`, la liste même de
+   `MyRequestsCard` au lot 13).
+
+**La règle 2 du lot 10 est adaptée, pas appelée.** `ReminderRules.reminders` écarte les familles
+déjà portées par un sujet `todo` de l'ordre du jour : sur la carte manager `À NE PAS OUBLIER`
+c'est juste — un sujet inscrit ne risque pas d'être oublié. Ici c'est l'inverse du propos : un
+sujet que je porte depuis trois séances **sans obtenir de décision** est exactement ce que cet
+écran doit me remettre sous les yeux. Le seuil, le lexique et l'exclusion par décision sont
+repris ; celle par l'ordre du jour ne l'est pas.
+
+**Une ligne par famille de lexique.** Les trois sources se recoupent — la demande « Compensation
+des astreintes » et la promesse « Grille de compensation des astreintes » sont le même sujet.
+Sans regroupement l'écran afficherait quatre lignes là où la capture en montre deux, et cocher les
+deux moitiés du même sujet le porterait deux fois à l'ordre du jour. Dans un groupe, **la source
+la plus forte parle** (promesse > sujet récurrent > demande : une parole donnée et non tenue est
+le fait le plus lourd d'un entretien), et `depuis le …` prend la **plus ancienne** date du groupe —
+c'est l'ancienneté qui plaide, et c'est elle qui trie les lignes.
+
+Sur le jeu des lots 10 et 13, cela donne exactement les deux lignes de la capture :
+`Mobilité archi — 4 fois évoquée, jamais tranchée · depuis le 10 juil.` et
+`Grille de compensation des astreintes promise, 2 reports · depuis le 24 juil.`
+
+### `En faire mon ordre du jour`
+
+`PrepToAgenda`. Le **plan** est pur : les lignes cochées de `RESTÉ SANS RÉPONSE`, préfixées selon
+leur source (`Promesse : `, `Sujet : `, `Demande : ` — sans quoi l'ordre du jour de la séance
+suivante afficherait une phrase sans dire d'où elle sort), puis les sujets voulus non décochés,
+tels que je les ai écrits.
+
+`apply` retrouve par le **texte** ou crée, rattache à la séance préparée, et numérote `0…n-1`
+**dans l'ordre du plan** ; les autres sujets de la séance sont renumérotés à la suite, sans quoi
+un sujet voulu — qui existait déjà avec un rang bas — devancerait les lignes sans réponse dès le
+premier clic. Les demandes gardent leurs rangs : les deux cartes de la séance filtrent des listes
+séparées (ce que documente déjà `CollaboratorSessionModel.moveTopics`). Idempotent, donc un second
+clic ne duplique rien ; le bouton se désactive alors sur `Ordre du jour prêt · n sujets`.
+
+Tout est créé `private` (spec §6.1 : côté collaborateur le défaut n'est pas négociable).
+`Partager les sujets à <Prénom>` est le geste explicite du critère n° 2 : il verse (idempotent)
+puis passe **ces lignes-là** en `shared`, après une confirmation qui n'affiche que leur **compte** —
+la seule chose qu'on veut relire avant de rendre visible ce qu'on avait écrit pour soi. Une ligne
+`escalated` ne redescend jamais vers le manager par ce geste (D9).
+
+Un sujet déjà versé est retiré de `CE QUE JE VEUX OBTENIR` : les lignes créées sont des sujets
+privés `todo`, et sans cela la carte du bas les reprendrait toutes après le premier clic.
+
+### Ouverture la veille
+
+Le pré-rappel d'une réunion `kind == .manager` prend une **catégorie propre**
+(`MEETING_PRE_START_1TO1`) dont la première action est `Préparer`. Une catégorie et non une action
+de plus sur `MEETING_PRE_START` : les actions d'une notification sont figées par sa catégorie, et
+un « Préparer » sur une réunion de projet ouvrirait un écran qui n'existe pas pour elle.
+`preStartCategory(for:)` est **pure et `nonisolated`** — la présence de l'action ne dépend d'aucun
+réglage. L'action **impose le mode par la clé mémorisée** (`MeetingScreenModel.modeKey`) avant de
+poster le même avis d'ouverture que « Ouvrir » : c'est le chemin qu'emploient déjà le crochet de
+recette et `MeetingSpaceView.appliquerModeInitial`, pas un second chemin. Aucun test n'instancie
+`UNUserNotificationCenter`.
+
+### Fichiers
+
+**Services (purs, testés) :** `Services/OneOnOne/Prep/{CollaboratorUnansweredItems,
+CollaboratorWantedItems, CollaboratorPrepModel, CollaboratorPrepToAgenda,
+CollaboratorPrepStore}.swift`.
+
+**Vues :** `Views/Meeting/OneOnOne/CollaboratorPrep/{CollaboratorPrepView, CollabPrepHeader,
+CollabPrepCheckbox, UnansweredCard, DeliveredSinceCard, WantedCard}.swift`.
+
+**Pas de `RefonteDemoSeed+Lot14.swift`** : le périmètre le prévoyait « seulement si une donnée
+manque », et rien ne manque — les deux lignes sans réponse, les quatre livrés et les deux sujets
+voulus de la capture sortent tous du jeu des lots 10 et 13. Un semis de plus serait un doublon à
+tenir en phase.
+
+**Fichiers partagés touchés, en blocs localisés :** `MeetingSpaceRouting.swift` (une fonction +
+la garde de `initialMode`), `MeetingSpaceView.swift` (une branche), `OneOnOneScreenState.swift`
+(`collabPrepCheckedUnanswered`, `collabPrepDroppedWanted`, **en fin de type**),
+`RecetteScreen.swift` (code `5b`), `MeetingNotificationService.swift` (la catégorie, l'action, la
+fonction pure et une branche du gestionnaire). `MeetingTopChromeBar.swift`, `MeetingView.swift`,
+`MeetingScreenModel.swift`, `OneToOneApp.swift` : **rien**.
+
+**Tests :** `Tests/CollaboratorPrepBuildersTests.swift` (9 cas) et
+`Tests/CollaboratorPrepAgendaTests.swift` (18 cas). Trois suites existantes ajustées d'une ou deux
+lignes : `RefonteVague5IntegrationTests` (onzième code de recette, cinquième branche exclusive),
+`ManagerPrepRoutingTests` (`.manager` sort de la liste des types qui gardent leur mode
+d'ouverture), `MeetingNotificationCategoriesTests` (dixième catégorie).
+
+### Les critères
+
+- **Chantier 5 n° 4** — `UnansweredItemsBuilder` sur le jeu du lot 13 : la promesse ouverte et
+  échue du 24 juillet, reportée deux fois, remonte **seule**, avec son ancienneté. Personne ne l'a
+  ressaisie.
+- **`PrepToAgenda`** — ordre (les lignes sans réponse préfixées devant les sujets voulus),
+  idempotence (un second clic ne crée rien, les rangs ne bougent pas), visibilité privée par tous
+  les chemins, passage en `shared` par le second bouton et par lui seul, et l'escalade qui ne
+  redescend pas.
+- **Cases par défaut** — décochées à gauche, cochées à droite : l'état d'écran ne retient que les
+  cases cochées d'un côté et les **refus** de l'autre, donc un sujet ajouté à l'instant naît
+  coché.
+- **En-tête** — `demain 14:00` avec horloge injectée, plus `aujourd'hui`, le jour de la semaine
+  dans les sept jours (`OneOnOneDateFormat.dueDate`, la règle de toutes les échéances du domaine)
+  et la date au-delà.
+- **Notification** — la catégorie du 1:1 subi porte `Préparer` en tête ; **aucune** autre
+  catégorie ne la porte, pour aucun autre type.
+- **Aucune zone vide sans invite** — sur un fil neuf, les trois blocs ont leur invite, et chacune
+  dit quoi faire.
+
+### Écarts avec la capture, assumés
+
+- **Les libellés reprennent le texte des données, pas celui de la maquette.** La capture écrit
+  `Grille d'astreinte promise, 2 reports` là où la promesse semée s'appelle « Grille de
+  compensation des astreintes » : le gabarit est celui de la capture, le texte reste celui de la
+  donnée. Une table de synonymes pour raccourcir les libellés ne serait tenue par personne.
+- **Le compteur d'occurrences est celui du fil.** La capture dit « 3 fois évoquée » ; le jeu de
+  démonstration compte **quatre** mentions de la famille `carriere` (deux sujets, deux notes).
+- **`5b` ouvre la séance du 4 septembre en mode Préparer**, celle de `5a` : c'est la seule séance
+  du fil, et c'est elle qui porte les quatre livrables et les deux lignes sans réponse de la
+  capture. L'en-tête y écrit donc sa date réelle et non `demain 14:00` — la règle « demain » est
+  tenue et **testée avec une horloge injectée** plutôt que mise en scène par un semis qui
+  décalerait la fenêtre de `CE QUE J'AI LIVRÉ DEPUIS`.
+- **Le détail d'un livrable suit son libellé sur la même ligne**, comme la capture : une carte qui
+  tient en deux minutes ne double pas sa hauteur pour une date.
+
+### Un échec de test préexistant, horaire
+
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` (XCTest) échoue **entre 0 h et 2 h du
+matin**, indépendamment de tout lot : la suite a été passée à **01:07 CEST le 8 septembre**, et
+c'est le **seul** échec. Non corrigé — il n'appartient pas à ce lot.
+
+### Pour la passe de recette
+
+`ONETOONE_SEED_DEMO_SCREEN=5b` (crochet unique, table `RecetteScreen`) sème les fils des lots 10
+à 13 et ouvre l'entretien subi **en mode Préparer**. Le menu **Réunion** charge le même jeu.
+
+### Prochaine action
+
+Vague 6 (lots 8, 13, 15, 17) : à l'intégration, rebaser cette branche sur le lot 13 rebasé — la
+règle est dans l'en-tête de la PR — puis fusionner dans l'ordre de la pile. La recette visuelle de
+`5a` et `5b` se fait dans la passe dédiée.
+
 ## Intégration vague 6 : la pile redevient linéaire (2026-09-08)
 
 Cinq branches développées en parallèle sur le sommet `feat/refonte-lot-12-1to1-manager-prepa`
