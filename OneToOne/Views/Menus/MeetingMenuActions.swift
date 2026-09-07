@@ -23,7 +23,7 @@ struct MeetingMenuActions {
 
     /// Type de la réunion affichée. Porté ici — et non réduit à un booléen —
     /// parce que c'est le vocabulaire déjà employé partout ailleurs pour la
-    /// même règle (`MeetingTopChromeBar`, `MeetingView.visibleSections(for:)`,
+    /// même règle (`MeetingTopChromeBar`, `MeetingSpaceRouting.spaces(for:)`,
     /// `MeetingStatsScope`) et parce qu'une restriction future propre à un
     /// autre kind n'exigera pas un drapeau de plus. Sans valeur par défaut :
     /// tout appelant doit déclarer le kind, c'est précisément l'oubli que
