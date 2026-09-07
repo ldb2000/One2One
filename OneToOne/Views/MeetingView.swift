@@ -85,16 +85,11 @@ struct MeetingView: View {
 
     // MARK: - Local state
 
-    @State private var newTaskTitle = ""
-    @State private var selectedCollaborator: Collaborator?
-    @State private var showNewTaskDueDate = false
-    @State private var newTaskDueDate: Date? = nil
-    @State private var newTaskAudience: ActionAudience = .moi
-    @State private var newTaskUrgent = false
-    @State private var newTaskImportant = false
-    @State private var newTaskPomodoros = 0
-    @State private var didSetActionDefaults = false
-    @State private var newAdhocName = ""
+    /// L'état d'écran de cette réunion : espace, moment, brouillon d'action,
+    /// bascules d'affichage. Remplace treize `@State` dont huit descendaient en
+    /// `@Binding` sur deux niveaux (`OverviewDashboard` → `ActionsPanel`), cf.
+    /// `MeetingScreenModel`. Rattaché à la réunion dans `.onAppear`.
+    @State private var screen = MeetingScreenModel()
     @State private var showDetailsSheet = false
     @State private var activeSection: MeetingSection = .overview
     @State private var isGeneratingReport = false
@@ -125,7 +120,6 @@ struct MeetingView: View {
     @State private var reportElapsedSeconds: Int = 0
     @State private var reportActivity = AIReportProgress()
     @State private var saveDebounceTask: Task<Void, Never>?
-    @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
     @State private var showDeleteConfirm = false
@@ -138,9 +132,6 @@ struct MeetingView: View {
     @State private var isBeingDeleted = false
     @State private var showParticipantsSheet = false
     @State private var isEditingLayout = false
-    /// Thèmes proposés par l'IA (chips « fantômes ») — éphémères, non persistés :
-    /// régénérés à chaque rapport ou à la demande, jamais appliqués d'office.
-    @State private var suggestedTagNames: [String] = []
     @State private var isSuggestingTags = false
     @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
@@ -164,7 +155,6 @@ struct MeetingView: View {
     @State private var mgrElaborationFallbackReason: String = ""
 
     // Speaker view toggle + rename popover state
-    @State private var showSpeakersView: Bool = true
     @State private var renamingSpeakerID: Int?
     @State private var segmentToDelete: TranscriptSegment?
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
@@ -227,11 +217,11 @@ struct MeetingView: View {
                 reportWaitWarning: reportActivity.warning(),
                 capturedSlidesCount: currentSlides.count,
                 actions: makeMenuActions(),
-                onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
+                onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); screen.showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
                 onShowSlides: { showSlidesList = true },
                 onBack: isPushed ? { dismiss() } : nil,
-                suggestedTagNames: $suggestedTagNames,
+                screen: screen,
                 isSuggestingTags: isSuggestingTags,
                 onRequestTagSuggestions: { Task { await suggestTags() } }
             )
@@ -265,7 +255,7 @@ struct MeetingView: View {
                 player: player,
                 captureService: captureService,
                 hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
-                showPlayback: showPlayback,
+                showPlayback: screen.showPlayback,
                 onSnapshot: { captureService.snapshot() },
                 onStopCapture: { captureService.stop() },
                 onResumeCapture: { captureService.resume() },
@@ -294,7 +284,7 @@ struct MeetingView: View {
             )
             .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
             .animation(.easeInOut(duration: 0.15), value: captureService.hasOpenSession)
-            .animation(.easeInOut(duration: 0.15), value: showPlayback)
+            .animation(.easeInOut(duration: 0.15), value: screen.showPlayback)
 
             // Le drapeau vit sur le singleton : sans `isRecordingThisMeeting`
             // le bandeau s'afficherait dans *toutes* les fenêtres réunion, et
@@ -363,7 +353,7 @@ struct MeetingView: View {
                 meeting: meeting, settings: settings,
                 availableCollaborators: availableCollaborators,
                 collaboratorsCount: allCollaborators.count,
-                newAdhocName: $newAdhocName,
+                screen: screen,
                 addParticipant: addParticipant,
                 removeParticipant: removeParticipant,
                 removeAllParticipants: removeAllParticipants,
@@ -394,6 +384,7 @@ struct MeetingView: View {
             }
         }
         .onAppear {
+            screen.attach(meetingID: meeting.ensuredStableID)
             MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
             applyActionDraftDefaultsIfNeeded()
             consumeTeamsRequestIfAny()
@@ -727,10 +718,7 @@ struct MeetingView: View {
             OverviewDashboard(
                 meeting: meeting, settings: settings, allCollaborators: allCollaborators,
                 currentSlides: currentSlides, isEditing: $isEditingLayout,
-                newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
-                showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
-                newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
-                newTaskImportant: $newTaskImportant, newTaskPomodoros: $newTaskPomodoros,
+                screen: screen,
                 onAddTask: addTask,
                 onDeleteTask: { task in context.delete(task); saveContext() },
                 onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
@@ -1106,7 +1094,7 @@ struct MeetingView: View {
                         transcriptToolbar
                     }
                     if settings.transcriptionMode == .diarizeFirst
-                        && showSpeakersView && !meeting.transcriptSegments.isEmpty {
+                        && screen.showSpeakers && !meeting.transcriptSegments.isEmpty {
                         transcriptSegmentsView
                     } else if !meeting.mergedTranscript.isEmpty {
                         MeetingHighlightableTextView(
@@ -1377,7 +1365,7 @@ struct MeetingView: View {
 
     /// Crée un `Collaborator` adhoc (réutilisable) et l'ajoute à la réunion.
     private func addAdhocParticipant() {
-        let name = newAdhocName.trimmingCharacters(in: .whitespaces)
+        let name = screen.newAdhocName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
 
         if let existing = allCollaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
@@ -1389,7 +1377,7 @@ struct MeetingView: View {
             context.insert(c)
             addParticipant(c)
         }
-        newAdhocName = ""
+        screen.newAdhocName = ""
     }
 
     private func importCalendarEvent(_ event: CalendarMeetingEvent) {
@@ -2087,7 +2075,7 @@ struct MeetingView: View {
 
         // Un thème déjà posé sur la réunion n'est pas re-proposé.
         let linked = Set(meeting.tags.map { MeetingTag.normalizedKey($0.name) })
-        suggestedTagNames = names.filter { !linked.contains(MeetingTag.normalizedKey($0)) }
+        screen.suggestedTagNames = names.filter { !linked.contains(MeetingTag.normalizedKey($0)) }
     }
 
     /// Retourne un bloc texte avec les extraits pertinents des réunions précédentes.
@@ -2194,36 +2182,31 @@ struct MeetingView: View {
 
     private func addTask() {
         let t = ActionTask(
-            title: newTaskTitle,
-            dueDate: showNewTaskDueDate ? (newTaskDueDate ?? Date()) : nil
+            title: screen.newTaskTitle,
+            dueDate: screen.showNewTaskDueDate ? (screen.newTaskDueDate ?? Date()) : nil
         )
         t.meeting = meeting
         t.project = meeting.project
-        t.destinataire = newTaskAudience
-        t.collaborator = newTaskAudience == .collaborateur ? selectedCollaborator : nil
-        t.isUrgent = newTaskUrgent
-        t.isImportant = newTaskImportant
-        t.pomodoros = newTaskPomodoros
+        t.destinataire = screen.newTaskAudience
+        t.collaborator = screen.newTaskAudience == .collaborateur ? screen.selectedCollaborator : nil
+        t.isUrgent = screen.newTaskUrgent
+        t.isImportant = screen.newTaskImportant
+        t.pomodoros = screen.newTaskPomodoros
         context.insert(t)
-        newTaskTitle = ""
-        newTaskDueDate = nil
-        showNewTaskDueDate = false
-        newTaskUrgent = false
-        newTaskImportant = false
-        newTaskPomodoros = 0
+        screen.resetActionDraft()
         saveContext()
     }
 
     /// Défaut malin du destinataire à la 1re apparition : en 1:1, on pré-remplit
     /// « Collaborateur » avec le partenaire ; sinon « Moi ». Une seule fois.
     private func applyActionDraftDefaultsIfNeeded() {
-        guard !didSetActionDefaults else { return }
-        didSetActionDefaults = true
+        guard !screen.didApplyActionDefaults else { return }
+        screen.didApplyActionDefaults = true
         if meeting.kind == .oneToOne, let partner = meeting.participants.first {
-            newTaskAudience = .collaborateur
-            selectedCollaborator = partner
+            screen.newTaskAudience = .collaborateur
+            screen.selectedCollaborator = partner
         } else {
-            newTaskAudience = .moi
+            screen.newTaskAudience = .moi
         }
     }
 
@@ -2359,7 +2342,9 @@ struct MeetingView: View {
     @ViewBuilder
     private var transcriptToolbar: some View {
         HStack(spacing: 12) {
-            Toggle("Afficher speakers", isOn: $showSpeakersView)
+            Toggle("Afficher speakers",
+                   isOn: Binding(get: { screen.showSpeakers },
+                                 set: { screen.showSpeakers = $0 }))
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .disabled(meeting.transcriptSegments.isEmpty)

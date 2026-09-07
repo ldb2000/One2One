@@ -56,6 +56,33 @@ struct One2OneTypographyTests {
         ]))
     }
 
+    /// Parade du risque « fontes Plex absentes du bundle `.app` » (programme
+    /// §8). En développement `Bundle.module` résout ; dans le `.app` packagé,
+    /// `bump-and-build.sh` copie `OneToOne_OneToOne.bundle` **en bloc** sous
+    /// `Contents/Resources/` (ligne 93 du script), un niveau plus bas que là où
+    /// l'accesseur généré regarde. Ce test monte cette disposition dans un
+    /// dossier temporaire plutôt que d'exiger un `.app` réel.
+    @Test("Dans la disposition du .app packagé, les fontes sont retrouvées sous Contents/Resources")
+    func packagedLayoutIsFound() throws {
+        let racine = URL.temporaryDirectory.appending(path: "PlexFontTests-\(UUID().uuidString)")
+        let bundle = racine.appending(path: "OneToOne_OneToOne.bundle")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: racine) }
+
+        let nom = try #require(PlexFont.bundledFileNames.first)
+        // `.process("Resources")` aplatit `Fonts/` à la racine du bundle : c'est
+        // la disposition réellement produite, vérifiée dans `.build/debug`.
+        FileManager.default.createFile(atPath: bundle.appending(path: nom).path, contents: nil)
+
+        let trouvee = PlexFont.packagedFontURL(fileName: nom, resourceRoot: racine)
+        #expect(trouvee?.lastPathComponent == nom)
+
+        // Une racine qui ne contient pas le bundle ne doit rien rendre, plutôt
+        // qu'une URL vers un fichier absent.
+        #expect(PlexFont.packagedFontURL(fileName: nom, resourceRoot: URL.temporaryDirectory) == nil)
+        #expect(PlexFont.packagedFontURL(fileName: nom, resourceRoot: nil) == nil)
+    }
+
     @Test("Une fonte inexistante retombe sur la fonte système sans lever")
     func unknownNameFallsBack() {
         #expect(PlexFont.isInstalled("IBMPlexSans-Fantome") == false)

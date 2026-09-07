@@ -8,7 +8,9 @@ struct ManageParticipantsSheet: View {
     let settings: AppSettings
     let availableCollaborators: [Collaborator]
     let collaboratorsCount: Int
-    @Binding var newAdhocName: String
+    /// L'état d'écran de la réunion. Porte le nom ad hoc en cours de saisie,
+    /// qui n'a pas à traverser cette modale en `@Binding`.
+    let screen: MeetingScreenModel
     let addParticipant: (Collaborator) -> Void
     let removeParticipant: (Collaborator) -> Void
     let removeAllParticipants: () -> Void
@@ -176,13 +178,15 @@ struct ManageParticipantsSheet: View {
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
-                    TextField("Ajouter un participant ad-hoc (nom)…", text: $newAdhocName)
+                    TextField("Ajouter un participant ad-hoc (nom)…",
+                              text: Binding(get: { screen.newAdhocName },
+                                            set: { screen.newAdhocName = $0 }))
                         .textFieldStyle(.plain).onSubmit { addAdhoc() }
                 }
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 10).stroke(MeetingTheme.hairline))
                 Button("Ajouter") { addAdhoc() }
-                    .disabled(newAdhocName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(screen.newAdhocName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
             HStack {

@@ -41,8 +41,10 @@ struct MeetingTopChromeBar: View {
     /// ouverte seule : il n'y a alors rien derrière, et un chevron mentirait.
     var onBack: (() -> Void)?
 
-    /// Thèmes proposés par l'IA, en attente d'acceptation (éphémères).
-    @Binding var suggestedTagNames: [String]
+    /// L'état d'écran de la réunion. Porte les thèmes proposés par l'IA, en
+    /// attente d'acceptation (éphémères) : ils traversaient cette vue en
+    /// `@Binding` sans qu'elle les lise, pour atteindre `MeetingTagEditor`.
+    let screen: MeetingScreenModel
     /// Une suggestion de thèmes est en cours.
     let isSuggestingTags: Bool
     /// Relance manuellement la suggestion de thèmes.
@@ -82,7 +84,8 @@ struct MeetingTopChromeBar: View {
             // la largeur pour passer à la ligne (FlowLayout).
             MeetingTagEditor(
                 meeting: meeting,
-                suggestions: $suggestedTagNames,
+                suggestions: Binding(get: { screen.suggestedTagNames },
+                                     set: { screen.suggestedTagNames = $0 }),
                 isSuggesting: isSuggestingTags,
                 onRequestSuggestions: onRequestTagSuggestions
             )

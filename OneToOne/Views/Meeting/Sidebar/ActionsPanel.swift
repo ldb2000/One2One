@@ -33,14 +33,10 @@ struct ActionsPanel: View {
     let settings: AppSettings
     let allCollaborators: [Collaborator]
 
-    @Binding var newTaskTitle: String
-    @Binding var selectedCollaborator: Collaborator?
-    @Binding var showNewTaskDueDate: Bool
-    @Binding var newTaskDueDate: Date?
-    @Binding var newTaskAudience: ActionAudience
-    @Binding var newTaskUrgent: Bool
-    @Binding var newTaskImportant: Bool
-    @Binding var newTaskPomodoros: Int
+    /// Le brouillon d'action vit dans l'état d'écran de la réunion, pas dans
+    /// huit `@Binding` traversant `OverviewDashboard` (cf.
+    /// `MeetingScreenModel`).
+    let screen: MeetingScreenModel
 
     let onAddTask: () -> Void
     let onDeleteTask: (ActionTask) -> Void
@@ -317,22 +313,28 @@ struct ActionsPanel: View {
     private var formSection: some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
-                EditableTextField(placeholder: "Nouvelle action…", text: $newTaskTitle)
+                EditableTextField(placeholder: "Nouvelle action…",
+                                  text: Binding(get: { screen.newTaskTitle },
+                                                set: { screen.newTaskTitle = $0 }))
                     .frame(height: 24)
                 Button(action: onAddTask) {
                     Image(systemName: "plus.circle.fill")
                         .font(.title2)
-                        .foregroundColor(newTaskTitle.isEmpty ? .secondary : MeetingTheme.accentOrange)
+                        .foregroundColor(screen.newTaskTitle.isEmpty ? .secondary : MeetingTheme.accentOrange)
                 }
                 .buttonStyle(.plain)
-                .disabled(newTaskTitle.isEmpty)
+                .disabled(screen.newTaskTitle.isEmpty)
                 .help("Ajouter l'action")
             }
             HStack(spacing: 8) {
                 destinataireMenu
-                if newTaskAudience == .collaborateur { assigneeMenu }
-                iconToggle("Urgent", systemImage: "exclamationmark", isOn: $newTaskUrgent, color: .blue)
-                iconToggle("Important", systemImage: "star.fill", isOn: $newTaskImportant, color: .orange)
+                if screen.newTaskAudience == .collaborateur { assigneeMenu }
+                iconToggle("Urgent", systemImage: "exclamationmark",
+                           isOn: Binding(get: { screen.newTaskUrgent },
+                                         set: { screen.newTaskUrgent = $0 }), color: .blue)
+                iconToggle("Important", systemImage: "star.fill",
+                           isOn: Binding(get: { screen.newTaskImportant },
+                                         set: { screen.newTaskImportant = $0 }), color: .orange)
                 dueDateChip
                 chargeChip
                 Spacer(minLength: 0)
@@ -344,7 +346,7 @@ struct ActionsPanel: View {
             AddCollaboratorSheet(
                 allCollaborators: allCollaborators,
                 onPick: { collab in
-                    selectedCollaborator = collab
+                    screen.selectedCollaborator = collab
                     showingAddCollaboratorSheet = false
                 },
                 onCreate: { name in
@@ -353,7 +355,7 @@ struct ActionsPanel: View {
                     let c = Collaborator(name: trimmed)
                     context.insert(c)
                     try? context.save()
-                    selectedCollaborator = c
+                    screen.selectedCollaborator = c
                     showingAddCollaboratorSheet = false
                 }
             )
@@ -366,15 +368,15 @@ struct ActionsPanel: View {
         Menu {
             ForEach(ActionAudience.allCases, id: \.self) { a in
                 Button {
-                    newTaskAudience = a
-                    if a != .collaborateur { selectedCollaborator = nil }
+                    screen.newTaskAudience = a
+                    if a != .collaborateur { screen.selectedCollaborator = nil }
                 } label: {
-                    if newTaskAudience == a { Label(a.label, systemImage: "checkmark") }
+                    if screen.newTaskAudience == a { Label(a.label, systemImage: "checkmark") }
                     else { Label(a.label, systemImage: a.systemImage) }
                 }
             }
         } label: {
-            Label(newTaskAudience.label, systemImage: newTaskAudience.systemImage)
+            Label(screen.newTaskAudience.label, systemImage: screen.newTaskAudience.systemImage)
                 .font(.caption).labelStyle(.titleAndIcon)
         }
         .menuStyle(.borderlessButton).fixedSize()
@@ -396,22 +398,22 @@ struct ActionsPanel: View {
 
     private var dueDateChip: some View {
         Menu {
-            Button("Aucune") { newTaskDueDate = nil; showNewTaskDueDate = false }
-            Button("Aujourd'hui") { newTaskDueDate = Date(); showNewTaskDueDate = true }
+            Button("Aucune") { screen.newTaskDueDate = nil; screen.showNewTaskDueDate = false }
+            Button("Aujourd'hui") { screen.newTaskDueDate = Date(); screen.showNewTaskDueDate = true }
             Button("Demain") {
-                newTaskDueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())
-                showNewTaskDueDate = true
+                screen.newTaskDueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())
+                screen.showNewTaskDueDate = true
             }
             Button("Dans 1 semaine") {
-                newTaskDueDate = Calendar.current.date(byAdding: .day, value: 7, to: Date())
-                showNewTaskDueDate = true
+                screen.newTaskDueDate = Calendar.current.date(byAdding: .day, value: 7, to: Date())
+                screen.showNewTaskDueDate = true
             }
         } label: {
             Image(systemName: "calendar")
                 .font(.caption)
-                .foregroundColor(showNewTaskDueDate ? .white : .secondary)
+                .foregroundColor(screen.showNewTaskDueDate ? .white : .secondary)
                 .frame(width: 24, height: 24)
-                .background(Circle().fill(showNewTaskDueDate ? MeetingTheme.accentOrange : Color.secondary.opacity(0.12)))
+                .background(Circle().fill(screen.showNewTaskDueDate ? MeetingTheme.accentOrange : Color.secondary.opacity(0.12)))
         }
         .menuStyle(.borderlessButton).fixedSize()
         .help("Échéance")
@@ -420,16 +422,16 @@ struct ActionsPanel: View {
     private var chargeChip: some View {
         Menu {
             ForEach([0, 1, 2, 3, 4, 6, 8], id: \.self) { n in
-                Button(n == 0 ? "Aucune" : chargeLabel(n)) { newTaskPomodoros = n }
+                Button(n == 0 ? "Aucune" : chargeLabel(n)) { screen.newTaskPomodoros = n }
             }
         } label: {
             HStack(spacing: 2) {
                 Image(systemName: "timer").font(.caption)
-                if newTaskPomodoros > 0 { Text("\(newTaskPomodoros)").font(.caption2) }
+                if screen.newTaskPomodoros > 0 { Text("\(screen.newTaskPomodoros)").font(.caption2) }
             }
-            .foregroundColor(newTaskPomodoros > 0 ? .white : .secondary)
+            .foregroundColor(screen.newTaskPomodoros > 0 ? .white : .secondary)
             .frame(height: 24).padding(.horizontal, 7)
-            .background(Capsule().fill(newTaskPomodoros > 0 ? MeetingTheme.accentOrange : Color.secondary.opacity(0.12)))
+            .background(Capsule().fill(screen.newTaskPomodoros > 0 ? MeetingTheme.accentOrange : Color.secondary.opacity(0.12)))
         }
         .menuStyle(.borderlessButton).fixedSize()
         .help("Charge (pomodoros)")
@@ -450,16 +452,16 @@ struct ActionsPanel: View {
     }
 
     private var assigneeLabel: String {
-        selectedCollaborator?.name ?? "Non assigné"
+        screen.selectedCollaborator?.name ?? "Non assigné"
     }
 
     @ViewBuilder
     private var assigneeMenu: some View {
         Menu {
             Button {
-                selectedCollaborator = nil
+                screen.selectedCollaborator = nil
             } label: {
-                if selectedCollaborator == nil {
+                if screen.selectedCollaborator == nil {
                     Label("Non assigné", systemImage: "checkmark")
                 } else {
                     Text("Non assigné")
@@ -471,9 +473,9 @@ struct ActionsPanel: View {
                 Section("Participants") {
                     ForEach(participantCandidates) { c in
                         Button {
-                            selectedCollaborator = c
+                            screen.selectedCollaborator = c
                         } label: {
-                            if selectedCollaborator?.persistentModelID == c.persistentModelID {
+                            if screen.selectedCollaborator?.persistentModelID == c.persistentModelID {
                                 Label(c.name, systemImage: "checkmark")
                             } else {
                                 Text(c.name)
@@ -488,9 +490,9 @@ struct ActionsPanel: View {
                 Section("Favoris") {
                     ForEach(favoriteCandidates) { c in
                         Button {
-                            selectedCollaborator = c
+                            screen.selectedCollaborator = c
                         } label: {
-                            if selectedCollaborator?.persistentModelID == c.persistentModelID {
+                            if screen.selectedCollaborator?.persistentModelID == c.persistentModelID {
                                 Label(c.name, systemImage: "checkmark")
                             } else {
                                 Text(c.name)
