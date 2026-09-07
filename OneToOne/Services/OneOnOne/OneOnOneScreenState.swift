@@ -74,4 +74,16 @@ final class OneOnOneScreenState {
     /// Non persisté, comme le panneau de fiche projet du lot 9 : une carte
     /// dépliée est un geste, pas un réglage.
     var prepHistoryExpanded = false
+
+    // MARK: - Lot 13 : écran de séance du 1:1 subi (5a)
+
+    /// La **ligne courante** de la colonne de notes, celle sur laquelle
+    /// `Partager la ligne` agit.
+    ///
+    /// Un état d'écran et non une colonne : « quelle ligne je regarde » n'est
+    /// pas un fait de l'entretien, et le persister ferait apparaître dans un
+    /// backup la trace d'un clic. `nil` = aucune ligne désignée, et la pilule
+    /// de partage est alors inerte : partager « la » ligne quand il n'y en a
+    /// pas serait partager la dernière au hasard.
+    var collabSelectedNoteID: PersistentIdentifier?
 }
