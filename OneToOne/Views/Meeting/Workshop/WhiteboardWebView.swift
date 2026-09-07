@@ -212,16 +212,12 @@ final class WhiteboardWebBridge: NSObject, WhiteboardBridge {
                        arguments: ["nature": kind?.rawValue ?? ""])
     }
 
-    func insertImage(dataURL: String,
-                     fileID: String,
-                     width: Double,
-                     height: Double) async throws {
+    func insertImage(dataURL: String, fileID: String, elementJSON: String) async throws {
         try await call(
-            "return await window.oneToOneBoard.insertImage(donnee, identifiant, largeur, hauteur);",
+            "return await window.oneToOneBoard.insertImage(donnee, identifiant, element);",
             arguments: ["donnee": dataURL,
                         "identifiant": fileID,
-                        "largeur": width,
-                        "hauteur": height])
+                        "element": elementJSON])
     }
 
     func setPressure(_ value: Double?) async throws {

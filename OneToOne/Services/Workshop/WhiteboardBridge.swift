@@ -175,12 +175,14 @@ protocol WhiteboardBridge: AnyObject {
     /// l'annotation.
     func setSelectionKind(_ kind: BoardAnnotation.Kind?) async throws
 
-    /// Insère une image **verrouillée** depuis une donnée locale (`data:` URL).
-    /// Jamais une référence au fichier d'origine (spec §8).
-    func insertImage(dataURL: String,
-                     fileID: String,
-                     width: Double,
-                     height: Double) async throws
+    /// Insère une image depuis une donnée locale (`data:` URL) — jamais une
+    /// référence au fichier d'origine (spec §8).
+    ///
+    /// L'élément lui-même est **fabriqué en Swift**
+    /// (`BoardImageInsertion.elementJSON`) : c'est là que vit `locked: true`,
+    /// et c'est là qu'un test le vérifie. La page ne fait que le repositionner
+    /// dans la vue courante avant de l'ajouter.
+    func insertImage(dataURL: String, fileID: String, elementJSON: String) async throws
 
     /// La pression courante du stylet, poussée dans la page pour qu'elle la
     /// pose sur le tracé (`simulatePressure = false`). `nil` = épaisseur fixe.
@@ -222,7 +224,7 @@ final class WhiteboardBridgeDouble: WhiteboardBridge {
         case select([String])
         case moveElements([String: BoardAlignment.Move])
         case setSelectionKind(BoardAnnotation.Kind?)
-        case insertImage(fileID: String, width: Double, height: Double)
+        case insertImage(fileID: String)
         case setPressure(Double?)
     }
 
@@ -364,15 +366,14 @@ final class WhiteboardBridgeDouble: WhiteboardBridge {
         calls.append(.setSelectionKind(kind))
     }
 
-    func insertImage(dataURL: String,
-                     fileID: String,
-                     width: Double,
-                     height: Double) async throws {
+    func insertImage(dataURL: String, fileID: String, elementJSON: String) async throws {
         try check()
-        // La donnée elle-même n'entre pas dans `Call` : une image de 2 048 px
-        // en base64 rendrait l'échec d'un test illisible.
-        calls.append(.insertImage(fileID: fileID, width: width, height: height))
+        // Ni la donnée ni l'élément n'entrent dans `Call` : une image de
+        // 2 048 px en base64 rendrait l'échec d'un test illisible. Ils sont
+        // gardés à côté, pour qui veut les inspecter.
+        calls.append(.insertImage(fileID: fileID))
         lastInsertedDataURL = dataURL
+        lastInsertedElementJSON = elementJSON
     }
 
     func setPressure(_ value: Double?) async throws {
@@ -383,4 +384,7 @@ final class WhiteboardBridgeDouble: WhiteboardBridge {
     /// La dernière `data:` URL reçue, pour qu'un test vérifie que l'image est
     /// bien **copiée** dans la planche et non référencée.
     private(set) var lastInsertedDataURL: String?
+
+    /// Le dernier élément d'image reçu, pour vérifier son verrouillage.
+    private(set) var lastInsertedElementJSON: String?
 }

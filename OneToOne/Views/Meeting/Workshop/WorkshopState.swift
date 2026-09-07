@@ -526,10 +526,12 @@ final class WorkshopState {
             let copie = try BoardImageInsertion.copy(source: url,
                                                      meetingStableID: reunion,
                                                      store: store)
+            let element = BoardImageInsertion.elementJSON(fileID: copie.fileID,
+                                                          size: copie.size,
+                                                          at: Self.dropOrigin)
             try await bridge(for: reunion).insertImage(dataURL: copie.dataURL,
                                                        fileID: copie.fileID,
-                                                       width: copie.size.width,
-                                                       height: copie.size.height)
+                                                       elementJSON: element)
             insertedFileNames.insert(url.lastPathComponent)
             return copie.relativePath
         } catch {
