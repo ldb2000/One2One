@@ -6,6 +6,10 @@ enum ReportTemplateKind: String, CaseIterable, Identifiable {
     case copil, cosui, codir
     case preparation, restitution
     case workshop
+    /// Note d'escalade vers les RH / le N+1 (décision D9). La seule catégorie
+    /// dont l'audience est `.hr`, et donc la seule sortie qui emporte les
+    /// lignes `escalated`.
+    case escalade
     case metier, initiative, custom
 
     var id: String { rawValue }
@@ -21,6 +25,7 @@ enum ReportTemplateKind: String, CaseIterable, Identifiable {
         case .preparation: return "Préparation"
         case .restitution: return "Restitution / Démo"
         case .workshop:   return "Séance de travail / Workshop"
+        case .escalade:   return "Escalade"
         case .metier:     return "Métier"
         case .initiative: return "Initiative"
         case .custom:     return "Personnalisé"
@@ -38,10 +43,47 @@ enum ReportTemplateKind: String, CaseIterable, Identifiable {
         case .preparation: return "checklist"
         case .restitution: return "play.rectangle"
         case .workshop:   return "person.3.sequence"
+        case .escalade:   return "exclamationmark.shield"
         case .metier:     return "briefcase"
         case .initiative: return "lightbulb"
         case .custom:     return "slider.horizontal.3"
         }
+    }
+}
+
+extension ReportTemplateKind {
+
+    /// À qui le rapport de cette catégorie s'adresse (spec §8, « filtre de
+    /// confidentialité unique »).
+    ///
+    /// L'audience n'est **pas** la règle de sortie — celle-là vit dans
+    /// `ConfidentialityFilter.isExportable`, écrite une seule fois — c'est son
+    /// paramètre. Et c'est le gabarit choisi qui la détermine, pas le type de
+    /// réunion : le même 1:1 produit un compte-rendu pour le collaborateur ou
+    /// une note d'escalade pour les RH selon le gabarit, et les deux ne
+    /// laissent pas sortir les mêmes lignes.
+    ///
+    /// Table exhaustive et sans `default` : une catégorie ajoutée doit obliger
+    /// à trancher, jamais retomber sur l'audience la plus large.
+    var audience: Audience {
+        switch self {
+        case .oneToOne: return .collaborator
+        case .manager:  return .manager
+        case .escalade: return .hr
+        case .general, .copil, .cosui, .codir, .preparation,
+             .restitution, .workshop, .metier, .initiative, .custom:
+            return .projectTeam
+        }
+    }
+}
+
+/// L'audience effective d'une génération de rapport : celle du gabarit choisi,
+/// ou celle du type de réunion quand aucun gabarit ne l'est (`Auto` dans le
+/// sélecteur du chrome).
+enum ReportAudience {
+
+    static func forTemplate(_ template: ReportTemplate?, meeting: Meeting) -> Audience {
+        template?.kind.audience ?? ConfidentialityFilter.audience(for: meeting.kind)
     }
 }
 
