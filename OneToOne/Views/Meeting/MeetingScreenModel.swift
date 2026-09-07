@@ -362,4 +362,10 @@ final class MeetingScreenModel {
     /// le reste là-bas : le tiroir est une surface superposée, il n'a pas à
     /// faire grossir ce modèle.
     var resources = ResourcesState()
+
+    // MARK: - Lot 10 : domaine 1:1
+
+    /// L'état d'écran du 1:1 (filtre d'engagements, confirmation d'escalade).
+    /// Tout le reste du domaine vit dans `Services/OneOnOne/`.
+    var oneOnOne = OneOnOneScreenState()
 }
