@@ -39,6 +39,8 @@ enum RecetteScreen: String, CaseIterable, Sendable {
     case captureSelecteur = "4a"
     /// `6a-atelier-planche.png` — la réunion d'atelier et sa planche.
     case atelierPlanche = "6a"
+    /// `6b-atelier-planche-de-seance.png` — le même atelier en mode Relire.
+    case atelierPlancheDeSeance = "6b"
 
     /// La réunion que l'écran demande. Trois seulement : le jeu de
     /// démonstration en porte trois, pas neuf.
@@ -62,7 +64,7 @@ enum RecetteScreen: String, CaseIterable, Sendable {
             return .entretienMene
         case .collaboratorSession, .collaboratorPreparation:
             return .entretienSubi
-        case .atelierPlanche:
+        case .atelierPlanche, .atelierPlancheDeSeance:
             return .atelier
         }
     }
@@ -73,7 +75,9 @@ enum RecetteScreen: String, CaseIterable, Sendable {
     /// `MeetingScreenModel.attach` relit `UserDefaults`.
     var mode: MeetingScreenModel.Mode {
         switch self {
-        case .posteDePilotage:      return .review
+        case .posteDePilotage,
+             .atelierPlancheDeSeance:
+            return .review
         case .oneOnOnePreparation,
              .collaboratorPreparation:
             return .prepare

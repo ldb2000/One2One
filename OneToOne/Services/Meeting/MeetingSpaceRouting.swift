@@ -104,6 +104,23 @@ enum MeetingSpaceRouting {
         kind == .manager && mode == .prepare
     }
 
+    // MARK: - Lot 18 : le mode Relire de l'atelier
+
+    /// Vrai quand le mode Relire doit monter la **planche de séance** de
+    /// l'atelier (capture `6b-atelier-planche-de-seance.png`, lot 18) au lieu
+    /// du poste de pilotage.
+    ///
+    /// Un atelier n'a pas de tableau d'actions dense à relire : il a une
+    /// production à passer en revue — planches, captures et pièces dans
+    /// l'ordre du temps, prêtes à partir dans le rapport (spec §7.3).
+    /// Exclusive des quatre prédicats de 1:1, qui exigent `.oneToOne` ou
+    /// `.manager` — et du mode Relire standard, dont elle est l'exception
+    /// pour ce seul type.
+    static func usesWorkshopReview(kind: MeetingKind,
+                                   mode: MeetingScreenModel.Mode) -> Bool {
+        kind == .workshop && mode == .review
+    }
+
     /// Le mode d'ouverture d'une réunion **jamais ouverte**, quand rien n'est
     /// mémorisé pour elle.
     ///

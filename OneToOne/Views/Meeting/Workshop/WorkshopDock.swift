@@ -157,6 +157,15 @@ struct WorkshopDock: View {
                     Text(sousTitre(planche))
                         .font(.plexMono(10))
                         .foregroundStyle(One2OneToken.ink4)
+                    // Lot 18, spec §7.2 : la légende de la planche, sur **une**
+                    // ligne — le dock fait 314 px, pas un paragraphe.
+                    if !planche.caption.isEmpty {
+                        Text(planche.caption)
+                            .font(.plexSans(10.5))
+                            .foregroundStyle(One2OneToken.ink3)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 Spacer(minLength: 0)
             }
