@@ -17,6 +17,13 @@ import SwiftData
 @MainActor
 enum CommitmentsRailModel {
 
+    // MARK: - Intitulés du rail
+
+    static let commitmentsTitle = "ENGAGEMENTS DE CETTE SÉANCE"
+    static let ledgerTitle = "TENUS DEPUIS LE DERNIER 1:1"
+    static let closingTitle = "CLÔTURER"
+    static let commitmentComposerPlaceholder = "＋ Ajouter un engagement…"
+
     // MARK: - Groupes
 
     /// Un groupe titré du rail : `Moi · 2`, `Laurent · 2`.
@@ -211,6 +218,19 @@ enum CommitmentsRailModel {
     /// La mention du pied de `CLÔTURER`, affichée **sans condition** : c'est
     /// une promesse faite à la personne interrogée, pas un état de la séance.
     static let privacyFootnote = "Les notes privées ne sont jamais incluses"
+
+    /// `1 ligne privée sera exclue.` — le compte, quand il y a quelque chose à
+    /// compter (spec §3.2 : « le bouton de clôture affiche systématiquement le
+    /// compte des lignes exclues »).
+    ///
+    /// `nil` quand rien n'est exclu : la mention permanente suffit, et « 0
+    /// ligne privée » attirerait l'œil pour dire qu'il n'y a rien à dire.
+    static func excludedLinesLabel(for meeting: Meeting, in thread: OneOnOneThread) -> String? {
+        let audience = OneOnOneConfidentiality.recapAudience(for: thread.myRole)
+        let compte = OneOnOneRecapBuilder.excludedLinesCount(for: meeting, thread: thread,
+                                                             audience: audience)
+        return OneOnOneConfidentiality.excludedLinesLabel(compte)
+    }
 
     // MARK: - Outils
 
