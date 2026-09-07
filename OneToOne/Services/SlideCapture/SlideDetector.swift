@@ -50,6 +50,30 @@ struct SlideDetector: Sendable {
         recorded.append(contentsOf: known)
     }
 
+    /// Enregistre une empreinte comme **déjà capturée**, sans passer par la
+    /// détection. Appelé après une capture manuelle (`⌘⇧S`, pastille) ou
+    /// périodique.
+    ///
+    /// Sans lui, le contenu qu'on vient d'écrire ne serait pas dans
+    /// `recorded` : le détecteur, encore armé, verrait au tick suivant une
+    /// image stable et inconnue, et écrirait une seconde fois le même slide.
+    ///
+    /// Pose aussi `previous`, pour le cas d'une capture manuelle survenue
+    /// **avant** le premier tick : sans cela le tick suivant repartirait de
+    /// `.settling` et perdrait une occasion de stabilisation.
+    ///
+    /// Port du delta `CaptureCore/SlideDetector.acknowledge` de Teams-Capture
+    /// (programme §2.5).
+    mutating func acknowledge(_ fingerprint: SlideFingerprint) {
+        if !recorded.contains(where: { $0.distance(to: fingerprint) < identityThreshold }) {
+            recorded.append(fingerprint)
+        }
+        acknowledged = fingerprint
+        previous = fingerprint
+        armed = false
+        stableTicks = 0
+    }
+
     mutating func consume(_ fingerprint: SlideFingerprint) -> Decision {
         defer { previous = fingerprint }
 
