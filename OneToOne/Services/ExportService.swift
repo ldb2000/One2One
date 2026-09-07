@@ -151,16 +151,32 @@ class ExportService {
             attachmentPaths.append(pdfURL.path)
         }
 
-        // Tous les participants (présents + absents) avec une adresse mail
-        // valide. Pas de doublon, comparaison case-insensitive.
-        let recipients = meeting.participants
-            .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { isLikelyEmail($0) }
-            .reduce(into: [String]()) { acc, email in
-                if !acc.contains(where: { $0.lowercased() == email.lowercased() }) {
-                    acc.append(email)
+        // Les trois cases du pied `À L'ENVOI DU RAPPORT` (spec §4.1) : pièces
+        // épinglées et captures cochées en annexe, participants présents en
+        // destinataires, versement dans les documents du projet. C'est ici et
+        // nulle part ailleurs qu'elles agissent — pas à la génération, qu'on
+        // relance plusieurs fois pour ajuster un gabarit.
+        let plan = ReportSendPreparation.prepare(meeting)
+        for chemin in plan.attachmentPaths where !attachmentPaths.contains(chemin) {
+            attachmentPaths.append(chemin)
+        }
+        var recipients = plan.recipients
+
+        // Case « accès aux participants » décochée : le message part sans
+        // destinataire, l'utilisateur l'adresse lui-même. Le comportement
+        // historique — tous les participants, présents et absents — ne
+        // s'applique plus qu'aux réunions dont le pied n'a jamais été touché,
+        // via les défauts d'`AttachmentReportOptions` (deux cases cochées).
+        if recipients.isEmpty, meeting.reportAttachmentOptions.grantAccessToParticipants {
+            recipients = meeting.participants
+                .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { isLikelyEmail($0) }
+                .reduce(into: [String]()) { acc, email in
+                    if !acc.contains(where: { $0.lowercased() == email.lowercased() }) {
+                        acc.append(email)
+                    }
                 }
-            }
+        }
 
         switch client {
         case .outlook:
