@@ -26,6 +26,8 @@ enum RecetteScreen: String, CaseIterable, Sendable {
     case oneOnOneSession = "2a"
     /// `2b-1to1-manager-preparation.png` — le même entretien, en préparation.
     case oneOnOnePreparation = "2b"
+    /// `5a-1to1-collaborateur-seance.png` — l'entretien **subi**, en séance.
+    case collaboratorSession = "5a"
     /// `3a-tiroir-ressources.png` — la réunion de démonstration, tiroir ouvert.
     case tiroirRessources = "3a"
     /// `3b-fiche-projet.png` — la même réunion, fiche projet en panneau.
@@ -42,6 +44,8 @@ enum RecetteScreen: String, CaseIterable, Sendable {
         case demonstration
         /// La dernière séance du fil 1:1 **mené** (Laurent NOMINÉ).
         case entretienMene
+        /// La dernière séance du fil 1:1 **subi** (Yann PENVEN me manage).
+        case entretienSubi
         /// La réunion d'atelier de `6a-atelier-planche.png`.
         case atelier
     }
@@ -53,6 +57,8 @@ enum RecetteScreen: String, CaseIterable, Sendable {
             return .demonstration
         case .oneOnOneSession, .oneOnOnePreparation:
             return .entretienMene
+        case .collaboratorSession:
+            return .entretienSubi
         case .atelierPlanche:
             return .atelier
         }
@@ -66,7 +72,7 @@ enum RecetteScreen: String, CaseIterable, Sendable {
         switch self {
         case .posteDePilotage:      return .review
         case .oneOnOnePreparation:  return .prepare
-        case .cockpit, .espaces, .oneOnOneSession,
+        case .cockpit, .espaces, .oneOnOneSession, .collaboratorSession,
              .tiroirRessources, .ficheProjet, .captureSelecteur, .atelierPlanche:
             return .live
         }

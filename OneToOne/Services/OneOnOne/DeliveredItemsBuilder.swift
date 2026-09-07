@@ -16,8 +16,16 @@ import SwiftData
 /// de fiche d'annuaire, donc `Collaborator.assignedTasks` ne le désigne jamais.
 /// La seule désignation qui existe est `ActionAudience.moi` — le défaut du
 /// modèle `ActionTask`, et la valeur que pose le composeur d'actions quand on
-/// ne délègue pas. C'est donc `destinataire == .moi` qui définit « mes
-/// actions », et rien d'autre.
+/// ne délègue pas.
+///
+/// D'où la règle : `destinataire == .moi` **et** `collaborator == nil`. Les
+/// deux conditions, parce que `destinataireRaw` a `moi` pour valeur par défaut
+/// et qu'une action peut porter un responsable sans que cette colonne ait été
+/// touchée — c'est ce que fait l'extraction LLM, et c'est ce que fait le jeu de
+/// démonstration. Une action rattachée à une personne est **la sienne**, quelle
+/// que soit la valeur d'une colonne qu'on a laissée à son défaut ; la compter
+/// comme mienne mettrait le travail d'un collaborateur dans mes preuves, ce qui
+/// est le pire résultat possible pour cette carte.
 ///
 /// ## Les trois sources
 ///
@@ -84,8 +92,8 @@ enum DeliveredItemsBuilder {
     /// Les lignes de la carte, dans l'ordre d'affichage.
     ///
     /// - Parameters:
-    ///   - actions: toutes les actions connues. Le filtre `destinataire == .moi`
-    ///     est fait ici, pour qu'un appelant ne puisse pas l'oublier.
+    ///   - actions: toutes les actions connues. Le filtre « les miennes » est
+    ///     fait ici, pour qu'un appelant ne puisse pas l'oublier.
     ///   - meetings: toutes les réunions connues, tête-à-tête compris — ils
     ///     sont écartés ici, pour la même raison.
     ///   - since: date du 1:1 précédent. `nil` à la première séance du fil :
@@ -95,7 +103,7 @@ enum DeliveredItemsBuilder {
                       meetings: [Meeting],
                       since: Date?,
                       now: Date) -> [Item] {
-        let miennes = actions.filter { $0.destinataire == .moi }
+        let miennes = actions.filter { $0.destinataire == .moi && $0.collaborator == nil }
         let lignes = closedActionItems(miennes, since: since, now: now)
             + activeMeetingItems(meetings, since: since, now: now)
             + blockedActionItems(miennes, now: now)

@@ -112,6 +112,24 @@ struct DeliveredItemsBuilderTests {
                                             now: Self.seance).isEmpty)
     }
 
+    @Test("Une action portée par une personne n'est pas mienne, même laissée sur `moi`")
+    func actionPorteeParUnePersonne() throws {
+        let context = try makeContext()
+        let laurent = Collaborator(name: "Laurent NOMINÉ", role: "Ingénieur CI/CD")
+        context.insert(laurent)
+        let action = actionClose("la reprise du périmètre Nexus",
+                                 le: Self.jours(-6), in: context)
+        // `destinataireRaw` vaut `moi` par défaut, et l'extraction LLM — comme
+        // le jeu de démonstration — n'y touche pas quand elle affecte un
+        // responsable. C'est `collaborator` qui tranche.
+        action.collaborator = laurent
+        try context.save()
+
+        #expect(DeliveredItemsBuilder.build(actions: [action], meetings: [],
+                                            since: Self.precedente,
+                                            now: Self.seance).isEmpty)
+    }
+
     @Test("Sans 1:1 précédent, tout ce qui est clos jusqu'à la séance remonte")
     func premiereSeanceDuFil() throws {
         let context = try makeContext()
