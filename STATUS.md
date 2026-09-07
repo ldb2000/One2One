@@ -4,11 +4,12 @@ Dernière mise à jour : 2026-09-08 CEST
 
 ## Refonte de l'écran de réunion — lot 14 : 1:1 collaborateur, préparation en 2 minutes (5b) (2026-09-08)
 
-Branche `feat/refonte-lot-14-1to1-collab-prepa`, sur `feat/refonte-lot-13-1to1-collab-seance`
-(sommet de la pile). Plan du lot dans
+Branche `feat/refonte-lot-14-1to1-collab-prepa`, **rebasée sur
+`feat/refonte-lot-13-1to1-collab-seance`** (sommet de la pile après le rebase du lot 13 sur le
+lot 8). Plan du lot dans
 `docs/superpowers/plans/2026-09-08-refonte-lot-14-1to1-collab-prepa.md`.
 
-**État : livré, `swift build` propre, `swift test` vert (1 767 Swift Testing + 1 041 XCTest, un
+**État : livré, `swift build` propre, `swift test` vert (1 823 Swift Testing + 1 041 XCTest, un
 seul échec, préexistant et horaire — cf. plus bas), PR ouverte, non mergée.**
 **Recette visuelle différée à la passe de recette dédiée** ; le crochet est prêt
 (`ONETOONE_SEED_DEMO_SCREEN=5b`).
@@ -166,8 +167,8 @@ d'ouverture), `MeetingNotificationCategoriesTests` (dixième catégorie).
 ### Un échec de test préexistant, horaire
 
 `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` (XCTest) échoue **entre 0 h et 2 h du
-matin**, indépendamment de tout lot : la suite a été passée à **01:07 CEST le 8 septembre**, et
-c'est le **seul** échec. Non corrigé — il n'appartient pas à ce lot.
+matin**, indépendamment de tout lot : la suite a été passée à **01:10 CEST le 8 septembre**,
+après le rebase sur le lot 13 rebasé, et c'est le **seul** échec. Non corrigé — il n'appartient pas à ce lot.
 
 ### Pour la passe de recette
 
