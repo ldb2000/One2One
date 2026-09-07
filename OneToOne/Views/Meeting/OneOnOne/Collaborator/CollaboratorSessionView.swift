@@ -114,9 +114,10 @@ struct CollaboratorSessionView: View {
                 meeting: meeting,
                 historique: historique,
                 isOpen: $isAssistantOpen,
-                contexte: MeetingAssistantDock.Contexte(
+                threadContext: MeetingAssistantDock.ThreadContext(
                     placeholder: CollaboratorSessionModel.assistantSuggestion(fil,
                                                                               for: meeting),
+                    threadName: OneOnOneThreadStore.firstName(of: fil),
                     threadID: fil.ensuredStableID))
         }
         .padding(.horizontal, 12)

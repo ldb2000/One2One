@@ -162,19 +162,23 @@ struct RefonteVague5IntegrationTests {
                 let atelier = kind == .workshop && mode == .live
                 let seance = MeetingSpaceRouting.usesOneOnOneManagerSession(kind: kind, mode: mode)
                 let preparation = MeetingSpaceRouting.usesOneOnOnePreparation(kind: kind, mode: mode)
+                // Lot 13 : la quatrième branche 1:1, celle de l'entretien subi.
+                let subie = MeetingSpaceRouting.usesOneOnOneCollaboratorSession(kind: kind,
+                                                                                mode: mode)
                 let relire = mode == .review
-                let vraies = [atelier, seance, preparation, relire].filter { $0 }.count
+                let vraies = [atelier, seance, preparation, subie, relire].filter { $0 }.count
                 #expect(vraies <= 1,
                         "\(kind) / \(mode) : \(vraies) branches de routage revendiquent l'écran")
             }
         }
     }
 
-    // MARK: - Le crochet de recette : un seul, et neuf codes
+    // MARK: - Le crochet de recette : un seul, et dix codes
 
-    @Test("Les neuf codes d'écran désignent une réunion et un mode")
+    @Test("Les dix codes d'écran désignent une réunion et un mode")
     func codesDeRecette() {
-        #expect(RecetteScreen.allCases.count == 9)
+        // Dix depuis le lot 13, qui ajoute `5a` (l'entretien subi).
+        #expect(RecetteScreen.allCases.count == 10)
         #expect(RecetteScreen.from(environment: nil) == nil)
         #expect(RecetteScreen.from(environment: "") == nil)
         #expect(RecetteScreen.from(environment: "1to1") == nil)
@@ -189,6 +193,7 @@ struct RefonteVague5IntegrationTests {
             ("3a", .demonstration, .live),
             ("3b", .demonstration, .live),
             ("4a", .demonstration, .live),
+            ("5a", .entretienSubi, .live),
             ("6a", .atelier, .live)
         ]
         #expect(attendu.count == RecetteScreen.allCases.count)
