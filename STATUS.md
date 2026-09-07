@@ -2,6 +2,186 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 2 : notes ↔ transcription, frise audio, action depuis une phrase (2026-09-07)
+
+Branche `feat/refonte-lot-2-notes-transcription`, **empilée** sur
+`feat/refonte-lot-1b-espaces-kpi-assistant` (`a8f8f32`) — elle contient donc 0A, 0B, 1a et 1b
+(PR #19–#22, non fusionnées). Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-2-notes-transcription.md` (14 tâches, à la
+limite du seuil de coupe fixé par le programme §7 : pas de découpe en 2a/2b).
+
+**État : livré, `swift build` propre, `swift test` complet vert, PR ouverte, non mergée.**
+
+### Ce qui est en place
+
+**La carte « Notes & transcription » n'est plus provisoire** (spec §2.4) — `MeetingLiveSpace`
+monte lui-même ses composants ; `MeetingView` ne lui injecte plus rien. En-tête du lot 1
+inchangé (titre, « synchronisées sur l'audio », `Speakers ON/OFF`, `Résumer`), corps
+`1fr 1px 1fr`, **frise audio de 22 px en pied**.
+
+**Colonne MES NOTES** (`Notes/TimedNotesColumn.swift`) — lignes `timecode | texte` depuis
+`MeetingNote` (D1), timecode `accent/action` cliquable → `playhead.seek` (chargement paresseux
+du WAV), timecode `--:--` quand la réunion n'a aucun axe temps, barre gauche 2 px
+`accent/report` (décision) / `accent/warn` (risque), préfixe de nature en gras, édition inline
+au double-clic (`EditableTextField`), menu de ligne (nature, visibilité, supprimer) et bandeau
+de filtre `kind:décision` avec « tout afficher ». Vider une ligne ne la supprime pas : le menu
+le fait.
+
+**Composeur** (`Notes/NoteComposer.swift`) — cadre pointillé, **quatre pilules toujours
+visibles** (`/action /décision /risque /citer`) cliquables (elles insèrent la commande et
+gardent le clavier), note au **timecode courant** du playhead, `Retour` **et** `⌘⏎` valident
+et vident **sans perdre le focus** (champ AppKit `CommandReturnTextField` : `insertNewline`
+par le délégué, `⌘⏎` intercepté dans `performKeyEquivalent` avant le menu principal, qui porte
+le même raccourci pour « Générer le rapport »), `⌘⇧N` rend le clavier au champ depuis l'écran.
+Le texte en cours reste dans `MeetingScreenModel.pendingNoteText` (critère n° 4 du lot 1).
+
+**`NoteCommandParser`** (pur, 13 tests) — `/action /décision /risque /citer /privé /feedback
+/promesse /demande /preuve`, insensible à la casse **et aux accents**, commande en début de
+ligne seulement, **une commande inconnue n'est pas mangée** (`/décison X` reste du texte).
+`/privé` impose la visibilité, `/action` pose l'intention plutôt qu'une note.
+
+**Colonne TRANSCRIPTION** (`Transcript/TranscriptColumn.swift`) — moteur annoncé
+(`Cohere MLX` / `Voxtral` / `Qwen3-ASR` selon `AppSettings.transcriptionEngine`), compteur de
+segments, **transcription live dans la même colonne** pendant l'enregistrement, segments
+`timecode | Locuteur — texte` sur `surface/alt`, survol → fond `accent/action bg` + rangée
+`＋ Action` (plein) · `Décision` · `Citer dans la note`, `⌘⇧A` sur le segment survolé (à
+défaut le dernier survolé), menu contextuel complet, suppression de passage, **défilement
+lié** (`Suivre` / `Reprendre le suivi` ; cliquer un segment le coupe). La transcription sans
+segments garde le surlignage du CR manager (`MeetingHighlightableTextView`), seul chemin qui
+l'offre sur la transcription.
+
+**`ActionFromPhrase`** (pur + deux fabriques, 13 tests) — nettoyage : hésitations de tête
+(`euh`, `donc`, `bah`…), guillemets encadrants, amorce d'obligation → infinitif
+(« il faut remettre ça en route » → « Remettre ça en route »), ponctuation finale, majuscule,
+coupe au mot à 120 caractères. **Trois garde-fous** : une amorce suivie de `que` n'est pas
+retirée (« il faut que le partenaire finalise » reste tel quel), un mot qui n'est pas un
+infinitif ne l'est pas non plus (« il faut deux semaines »), et une liste courte de faux amis
+(`notre`, `autre`, `ordre`…) évite « Notre accord ». `createAction` conserve
+`sourceRef {transcript, stableID, t}`, reprend le locuteur résolu et naît **en tête** du rail
+(`sortOrder` minimal − 1) ; `createDecision` produit une `MeetingNote(kind: .decision)` au
+timecode du segment, **sans** mise à l'infinitif (une décision se lit comme elle a été
+prononcée) ; `quotation` rend `« texte » — Locuteur, mm:ss`.
+
+**Frise audio 22 px** (`Spaces/AudioTimelineStrip.swift`) — onde décimée
+(`AudioWaveform` + **`AudioWaveformCache`**, clé fichier × résolution), tête de lecture 2 px
+`accent/action`, marqueurs ronds (note), ronds ambre (risque), losanges (décision), carrés
+`captureMarker` (capture, dès qu'un `SlideCapture.t` existe), clic **et** glisser
+(`DragGesture(minimumDistance: 0)`) → `playhead.seek`. **Sans WAV, la frise reste affichée** :
+piste plate, marqueurs et invite « Aucun audio » — c'est l'axe temps de la réunion, pas celui
+d'un fichier.
+
+**Services purs du lot** : `TranscriptFollow` (machine à états ; ni la tête de lecture ni les
+segments live ne **réactivent** le suivi), `AudioTimelineGeometry` (`t ↔ x` bornés, jamais de
+`NaN` dans un `Canvas`, nombre de pics borné), `MeetingTimelineMarkers` (notes + captures
+triées ; une capture sans `t` est **ignorée** plutôt que dessinée à `00:00`),
+`MeetingNoteStore.timecodeLabel` / `.append` / `.nextOrderIndex`.
+
+**Jeu de démonstration** — `RefonteDemoSeed` sème les **quatre notes horodatées** de la
+capture (`04:12`, `07:48`, `11:03` en décision, `15:20`) et pose `notesMigrated` : la reprise
+de `liveNotes` n'ajoute pas une cinquième ligne à `t = 0`, alors que le markdown reste rempli
+pour l'éditeur historique et les gabarits de rapport.
+
+### Créés
+
+`OneToOne/Services/Meeting/` : `NoteCommandParser`, `ActionFromPhrase`, `TranscriptFollow`,
+`AudioTimelineGeometry`, `MeetingTimelineMarkers`. `OneToOne/Services/AudioWaveformCache.swift`.
+`OneToOne/Views/Meeting/Spaces/Notes/` : `TimedNotesColumn`, `NoteComposer`.
+`OneToOne/Views/Meeting/Spaces/Transcript/` : `TranscriptColumn`, `TranscriptSpeakerTools`.
+`OneToOne/Views/Meeting/Spaces/AudioTimelineStrip.swift`.
+
+### `MeetingView.swift`
+
+**2 553 → 2 073 lignes (−480)**, aucun ajout. Sont sortis : `SpeakerMeta`, `isLiveActive`,
+`liveTranscriptSection`, `transcriptView`, `transcriptToolbar`, `transcriptSegmentsView`,
+`segmentRow`, `playSegmentAudio`, `segmentActionsMenu`, `speakerBadge`, `firstCandidate`,
+`acceptSuggestion`, `rejectSuggestion`, `speakerRenamePopover`, `speakerPickerRow`,
+`assignSpeaker`, `speakerColor`, et cinq `@State` (`renamingSpeakerID`, `speakerPickerSearch`,
+`segmentToDelete`, `segmentDeleteError`, `lastDiarizationEmbeddings`). Y restent
+`runDiarization`, `reidentifySpeakers`, `applySpeakerTurns` et `transcriptionPhaseBanner`,
+exposées par closures (`onDiarize`, `onReidentify`, `onAddToManagerReport`). Le cache
+d'embeddings de diarisation a rejoint `MeetingScreenModel` : il fait le lien entre la
+diarisation, restée dans `MeetingView`, et la mise à jour EMA du voiceprint, partie avec le
+badge. `MeetingSpaceView` perd ses paramètres génériques `Notes`/`Transcript` et garde
+`Actions` (le rail du lot 3 le remplacera). Le KPI Décisions filtre enfin la colonne de notes
+(`screen.toggleNoteFilter(.decision)`) au lieu de basculer en mode Relire.
+
+### Tests
+
+`swift build` propre, aucun avertissement nouveau (le seul restant est l'ancien
+`PyannoteDiarizer.swift:92`). `swift test` complet **vert** : **1 039 XCTest (1 ignoré,
+0 échec) + 835 Swift Testing en 122 suites (0 échec)**, soit **1 874 tests** contre 1 801
+après le lot 1 (**+73, +7 suites**), aucune régression.
+
+Nouvelles suites : `NoteCommandParserTests` (13), `ActionFromPhraseTests` (13),
+`ActionFromTranscriptCriterionTests` (6), `TranscriptFollowTests` (9),
+`AudioTimelineGeometryTests` (8), `MeetingTimelineMarkersTests` (6),
+`AudioWaveformCacheTests` (3). Ajouts : 5 tests dans `MeetingScreenModelTests`, 4 dans
+`MeetingNoteStoreTests`, 4 dans `RefonteDemoSeedTests`. `MeetingTextualContentTests`,
+`NoteFactoryTests`, `PendingEditorTextTests` et `ConfidentialityFilterTests` (lot 0B) restent
+verts : les notes privées ne sortent par aucun des cinq flux.
+
+Critères d'acceptation couverts :
+
+- **Chantier 1 n° 2 (une action depuis une phrase)** :
+  `ActionFromTranscriptCriterionTests` fait le trajet complet **sans vue** — un seul appel de
+  service crée l'action (c'est le clic), `sourceRef` porte `kind = transcript`, le `stableID`
+  du segment et son `t`, `MeetingPlayhead.seek` replace la lecture **à ± 1 s** (`04:12`),
+  l'action naît en tête du rail, et une source hors de la durée connue (fichier tronqué par
+  l'édition audio) ne sort pas de la frise.
+- **Défilement lié** : machine à états pure, avec le cas qui compte — `playheadMoved` et
+  `segmentsAppended` ne réarment **pas** le suivi.
+- **Marqueurs de la frise** : positions calculées depuis `t / duration`, bornées, aller-retour
+  stable à 0,01 s ; `duration == 0` rend `0` et non `NaN`.
+
+### Écarts assumés
+
+1. **Recette visuelle non faite : la session graphique est verrouillée** —
+   `ioreg -n Root -d1 -r | grep CGSSession` rend `"CGSSessionScreenIsLocked" = Yes`, comme au
+   lot 1. Aucune capture n'a été déposée dans
+   `docs/superpowers/specs/refonte-2026-09/recette/` : une image noire ne prouverait rien.
+   Ce qui a été vérifié : `swift build -c release` réussit.
+   **À refaire en une commande, écran déverrouillé** : `swift build -c release`, empaqueter un
+   `.app` hors du dépôt (binaire + `Info.plist` + `PkgInfo` + `OneToOne_OneToOne.bundle` +
+   `default.metallib` repris de `Mickey.app` + signature ad hoc, **HOME temporaire
+   obligatoire** pour ne pas toucher au store de production), lancer, menu **Réunion → Charger
+   le jeu de démonstration (refonte)**, redimensionner à 1 280 puis 1 920 px,
+   `screencapture -x` vers
+   `docs/superpowers/specs/refonte-2026-09/recette/lot-2-{1280,1920}.png`, comparer à
+   `ecrans/1a-cockpit.png`. **Rien n'a été écrit dans le store de production** : le semis
+   n'est déclenché que par un clic de menu.
+2. **Les pilules `/…` sont alignées à droite du composeur**, alors que la capture les montre
+   accolées au mot « Tape ». Le champ de saisie doit occuper la largeur restante ; le mettre
+   après les pilules le réduirait à rien dès qu'on tape. Les commandes restent **toujours
+   visibles**, ce qu'exige la spec.
+3. **`/action` dans le composeur de notes ne conserve pas encore `sourceRef` sur l'action
+   créée** : il pose l'intention (`pendingActionDraft`, source comprise) et préremplit le
+   composeur existant du rail, dont la création passe par `MeetingView.addTask()`. C'est le
+   rail du lot 3 qui consommera l'intention complète. Le chemin du critère n° 2 — `＋ Action`
+   sur un segment — crée l'action **immédiatement**, source comprise.
+4. **`⌘⇧A` et `⌘⇧N` sont des boutons d'opacité nulle dans les colonnes**, pas des items de
+   `MeetingCommands` : le programme §2.4 interdit d'ajouter quoi que ce soit à
+   `MeetingView.swift`, et un item de menu y aurait exigé deux closures de plus. Conséquence
+   assumée : ils n'agissent que lorsque l'espace Réunion est à l'écran — c'est-à-dire
+   exactement là où ils ont un sens. **Non vérifiés à l'exécution** (même cause qu'au n° 1) ;
+   `⌘⏎` est le plus exposé, l'item de menu « Générer le rapport » portant le même raccourci —
+   d'où l'interception dans `performKeyEquivalent` **et** la validation par `Retour`.
+5. **Le risque prend un rond ambre sur la frise**, pas une quatrième forme : la spec ne nomme
+   que trois formes (rond, carré, losange) et une quatrième serait illisible à 22 px.
+6. **La colonne de transcription affiche les segments même quand `Speakers` est éteint**
+   (sans les badges), là où l'ancien écran retombait sur un bloc de texte à plat. Le texte à
+   plat reste le rendu des transcriptions **sans** segments, avec son surlignage de CR manager.
+7. **Les noms des locuteurs du jeu de démonstration ne sont pas ceux de la capture**
+   (`Yann`, `Patrice`, `Sylvain` y désignent des participants nommés autrement dans
+   `RefonteDemoSeed`, hérité du lot 1). Écart connu, non traité ici pour ne pas toucher aux
+   chiffres que la recette des lots précédents vérifie.
+
+### Prochaine action
+
+**Lot 4** (mode séance plein écran 1b : palette `dark/*`, colonne temps verticale, file
+d'assignation) et **lot 5** (poste de pilotage = mode Relire 1c : nav latérale 190 px, tableau
+d'actions éditable en place, frise pleine largeur). Le lot 3 (rail d'actions 330 px) tourne en
+parallèle ; il consommera `MeetingScreenModel.pendingActionDraft` posé ici.
+
 ## Refonte de l'écran de réunion — lot 1 : barre du haut, trois espaces, modes, bandeau KPI (2026-09-07)
 
 Deux branches **empilées**, parties de l'intégration de 0A + 0B sur `origin/master`
