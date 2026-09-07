@@ -115,6 +115,8 @@ struct MeetingCommands: Commands {
                 // les deux ne duplique donc rien.
                 let reunion = RefonteDemoSeed.seedLot5(in: demoContext)
                 _ = RefonteDemoSeed.seedLot6(in: demoContext)
+                // Lot 7 : les trois captures de `4a-capture-selecteur.png`.
+                _ = RefonteDemoSeed.seedLot7(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false

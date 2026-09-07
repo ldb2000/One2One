@@ -13,6 +13,10 @@ enum CaptureStripModel {
     /// Les captures dans l'ordre du temps : par `t` quand il existe, par index
     /// sinon. L'ordre d'une relation SwiftData n'est pas garanti, et deux vues
     /// qui trient chacune de leur côté finissent par trier différemment.
+    ///
+    /// Une capture **sans** `t` (prise hors enregistrement) va en fin de
+    /// bande : elle n'a pas de place sur l'axe, et l'insérer entre deux
+    /// captures horodatées mentirait sur l'ordre des événements.
     static func sorted(_ captures: [SlideCapture]) -> [SlideCapture] {
         captures.sorted { gauche, droite in
             switch (gauche.t, droite.t) {

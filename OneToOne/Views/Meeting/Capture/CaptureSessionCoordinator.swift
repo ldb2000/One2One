@@ -31,6 +31,10 @@ struct CaptureSessionCoordinator {
     /// Reconstruit les lignes du sélecteur. Traduit le refus d'autorisation en
     /// état affichable : aucune boîte de dialogue en séance (spec §5.2).
     func refreshOptions() async {
+        // Les bascules doivent montrer les défauts du type **avant** toute
+        // session : un sélecteur qui annonce « à chaque changement de partage »
+        // sur un 1:1, où rien n'écrit tout seul, mentirait.
+        state.applyDefaultsIfNeeded(for: meeting.kind)
         state.isLoadingOptions = true
         defer { state.isLoadingOptions = false }
         do {
@@ -100,6 +104,12 @@ struct CaptureSessionCoordinator {
     /// session est déjà ouverte.
     func startSession(on option: CaptureSourceOption) {
         guard !service.hasOpenSession else { return }
+        // Les défauts du type, s'ils n'ont pas déjà été appliqués : un 1:1
+        // n'attend aucun slide, un atelier en attend en continu. Appliqués ici
+        // et pas à la construction du modèle d'écran, parce que c'est ici
+        // qu'on en a besoin — et une seule fois, pour ne pas écraser une
+        // bascule que l'utilisateur vient de toucher.
+        state.applyDefaultsIfNeeded(for: meeting.kind)
         let profil = meeting.kind.captureProfile
         let configuration = ScreenCaptureService.SessionConfiguration(
             windowID: option.windowID,
