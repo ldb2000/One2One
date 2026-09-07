@@ -151,6 +151,61 @@ final class TranscriptChunk {
 
 // MARK: - Meeting attachment (documents, slides)
 
+/// Portée d'une pièce jointe (spec §1.3 `Attachment.scope`) : rattachée à la
+/// séance ou au dossier du projet.
+enum AttachmentScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    case meeting = "meeting"
+    case project = "project"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .meeting: return "Cette séance"
+        case .project: return "Le projet"
+        }
+    }
+}
+
+/// Provenance d'une capture (spec §1.3 `Capture.source`).
+enum CaptureSource: String, Codable, CaseIterable, Identifiable, Sendable {
+    case teams  = "teams"
+    case zoom   = "zoom"
+    case screen = "screen"
+    case region = "region"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .teams:  return "Teams"
+        case .zoom:   return "Zoom"
+        case .screen: return "Écran entier"
+        case .region: return "Zone"
+        }
+    }
+}
+
+/// Ce qui a déclenché une capture (spec §1.3 `Capture.trigger`).
+enum CaptureTrigger: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Geste explicite (bouton, `⌘⇧S`, pastille).
+    case manual      = "manual"
+    /// Changement de partage détecté à l'image.
+    case shareChange = "share_change"
+    /// Capture périodique (« toutes les 2 minutes »).
+    case interval    = "interval"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .manual:      return "⌘⇧S"
+        case .shareChange: return "auto"
+        case .interval:    return "2 min"
+        }
+    }
+}
+
 @Model
 final class SlideCapture: Identifiable {
     var id: UUID = UUID()
@@ -159,6 +214,25 @@ final class SlideCapture: Identifiable {
     var imagePath: String
     var ocrText: String = ""
     var perceptualHash: String = ""
+
+    /// Instant sur l'axe temps de la réunion, en secondes. **L'axe de référence
+    /// est l'audio** (`MeetingPlayhead`), pas l'horloge de la session de
+    /// capture : `capturedAt` reste la date murale, `t` la position dans la
+    /// séance. `nil` pour une capture faite hors enregistrement.
+    var t: Double? = nil
+
+    var sourceRaw: String = CaptureSource.screen.rawValue
+    var source: CaptureSource {
+        get { CaptureSource(rawValue: sourceRaw) ?? .screen }
+        set { sourceRaw = newValue.rawValue }
+    }
+
+    var triggerRaw: String = CaptureTrigger.manual.rawValue
+    var trigger: CaptureTrigger {
+        get { CaptureTrigger(rawValue: triggerRaw) ?? .manual }
+        set { triggerRaw = newValue.rawValue }
+    }
+
     var attachment: MeetingAttachment?
 
     init(index: Int, capturedAt: Date, imagePath: String) {
@@ -176,6 +250,29 @@ final class MeetingAttachment {
     var kind: String = "document"   // pdf | pptx | docx | image | markdown | slides | other
     var extractedText: String = ""  // parsé au import
     var importedAt: Date = Date()
+
+    // MARK: - Modèle cible (spec §1.3 `Attachment`)
+
+    var scopeRaw: String = AttachmentScope.meeting.rawValue
+    var scope: AttachmentScope {
+        get { AttachmentScope(rawValue: scopeRaw) ?? .meeting }
+        set { scopeRaw = newValue.rawValue }
+    }
+
+    /// Type MIME, quand il est connu à l'import. Vide sinon — `kind` reste la
+    /// classification utilisée par les vues.
+    var mimeType: String = ""
+    /// Taille du fichier copié, en octets. `0` = inconnue (lignes antérieures
+    /// à la politique « copie, jamais référence », D5).
+    var byteCount: Int = 0
+    /// Qui a déposé la pièce, en clair (app mono-utilisateur).
+    var addedByName: String = ""
+    /// Timecode auquel la pièce a été épinglée dans la séance. `nil` = non
+    /// épinglée.
+    var pinnedAtT: Double? = nil
+    /// Nombre de citations de la pièce dans les notes et le rapport.
+    var citationCount: Int = 0
+
     var meeting: Meeting?
 
     @Relationship(deleteRule: .cascade, inverse: \TranscriptChunk.attachment)

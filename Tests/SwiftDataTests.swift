@@ -7,7 +7,13 @@ import Foundation
 struct SwiftDataTests {
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([Project.self, Collaborator.self, ActionTask.self, AppSettings.self, Entity.self, Meeting.self])
+        // Liste explicite : les modèles reliés à ceux-ci doivent y figurer,
+        // sinon SwiftData refuse de construire le conteneur (relations
+        // `MeetingNote`/`Board` ajoutées à `Meeting`, `ProjectMilestone`/
+        // `ProjectContact` à `Project` au lot 0B).
+        let schema = Schema([Project.self, Collaborator.self, ActionTask.self, AppSettings.self,
+                             Entity.self, Meeting.self, MeetingNote.self, Board.self,
+                             ProjectMilestone.self, ProjectContact.self])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
     }

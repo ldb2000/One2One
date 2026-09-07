@@ -93,6 +93,27 @@ final class Project {
     var standingPrepNotes: String = ""
     var standingPrepUpdatedAt: Date?
 
+    // MARK: - Fiche projet (spec §1.3 `ProjectCard`)
+
+    /// Périmètre et contexte, en texte libre — le paragraphe « PÉRIMÈTRE &
+    /// CONTEXTE » de la fiche projet (lot 9).
+    var scopeText: String = ""
+
+    /// Thèmes libres du projet, encodés en JSON (façade `tags`). JSON et non
+    /// relation vers `MeetingTag` : ce sont des étiquettes de fiche, sans
+    /// couleur ni partage avec les thèmes de réunion.
+    var tagsJSON: String = "[]"
+    var tags: [String] {
+        get { (try? JSONDecoder().decode([String].self, from: Data(tagsJSON.utf8))) ?? [] }
+        set { tagsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]" }
+    }
+
+    @Relationship(deleteRule: .cascade, inverse: \ProjectMilestone.project)
+    var milestones: [ProjectMilestone] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \ProjectContact.project)
+    var contacts: [ProjectContact] = []
+
     @Relationship(deleteRule: .cascade, inverse: \ActionTask.project)
     var tasks: [ActionTask] = []
 

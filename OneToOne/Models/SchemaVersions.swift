@@ -73,16 +73,47 @@ enum SchemaV2: VersionedSchema {
     }
 }
 
+/// SchemaV3 (2026-09-07, lot 0B de la refonte de l'écran de réunion) : ajout des neuf
+/// tables du modèle cible (spec §1.3) — notes horodatées, planches d'atelier, jalons et
+/// interlocuteurs de projet, et le domaine 1:1 (fil, engagements, ordre du jour, humeur,
+/// objectifs). Les modèles existants gagnent en plus des **colonnes à valeur par défaut**
+/// (`ActionTask` : priorité, statut, effort, source, reports ; `MeetingAttachment` : portée,
+/// MIME, poids, épinglage ; `SlideCapture` : `t`, source, déclencheur ; `Project` : périmètre
+/// et thèmes ; `Meeting` : `recordingStartedAt`, `notesMigrated`). Aucun champ supprimé,
+/// renommé ni rendu obligatoire → lightweight migration automatique, pas de `MigrationStage`
+/// custom (même raisonnement que V1→V2). Vérifié par `Tests/SchemaV3MigrationTests.swift`.
+enum SchemaV3: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
+
+    static var models: [any PersistentModel.Type] {
+        SchemaV2.models + [
+            MeetingNote.self,
+            Board.self,
+            ProjectMilestone.self,
+            ProjectContact.self,
+            OneOnOneThread.self,
+            Commitment.self,
+            OneOnOneAgendaItem.self,
+            MoodEntry.self,
+            OneOnOneObjective.self
+        ]
+    }
+}
+
 // MARK: - Migration plan
 
 enum OneToOneMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        // Pas de stage explicite : V1→V2 n'ajoute que deux tables, SwiftData
-        // applique une lightweight migration automatique.
+        // Pas de stage explicite : V1→V2 n'ajoute que deux tables, V2→V3 des
+        // tables et des colonnes à valeur par défaut. SwiftData applique dans
+        // les deux cas une lightweight migration automatique. Un
+        // `MigrationStage.lightweight` explicite serait redondant ; la
+        // convention du dépôt est de laisser cette liste vide et de le
+        // documenter ici.
         []
     }
 }
@@ -91,4 +122,4 @@ enum OneToOneMigrationPlan: SchemaMigrationPlan {
 
 /// Version de schéma active utilisée par le `ModelContainer` de l'app.
 /// Pointer cet alias vers la dernière `SchemaVN` lors d'une migration.
-typealias CurrentSchema = SchemaV2
+typealias CurrentSchema = SchemaV3
