@@ -113,6 +113,43 @@ struct CollaboratorSessionModelTests {
                 == ["Mobilité vers l'architecture"])
     }
 
+    @Test("Réordonner mes sujets déplace le bon, même quand une demande les précède")
+    func reordonnerMesSujets() throws {
+        let (context, fil, seance) = try makeFil()
+        // La demande porte le rang 0 : à l'écran elle est dans une **autre**
+        // carte, donc l'index d'un sujet affiché n'est pas son index dans
+        // l'ordre du jour complet. C'est exactement le piège qu'évite
+        // `moveTopics`.
+        let demande = OneOnOneAgendaItem(text: "Mobilité vers l'architecture",
+                                         addedBySide: .collaborator, order: 0,
+                                         visibility: .private, kind: .request)
+        context.insert(demande)
+        demande.thread = fil
+        demande.meeting = seance
+
+        for (rang, texte) in ["Charge", "Mobilité archi", "Formation Admin"].enumerated() {
+            let sujet = OneOnOneAgendaItem(text: texte, addedBySide: .collaborator,
+                                           order: rang + 1, visibility: .private)
+            context.insert(sujet)
+            sujet.thread = fil
+            sujet.meeting = seance
+        }
+        try context.save()
+
+        // Le troisième sujet remonte en tête.
+        CollaboratorSessionModel.moveTopics(for: seance, in: fil,
+                                            from: IndexSet(integer: 2), to: 0, in: context)
+
+        #expect(CollaboratorSessionModel.myTopics(fil, for: seance).map(\.text)
+                == ["Formation Admin", "Charge", "Mobilité archi"])
+        // Les rangs sont compactés : deux glissers de suite ne peuvent pas
+        // produire deux sujets de même rang.
+        #expect(CollaboratorSessionModel.myTopics(fil, for: seance).map(\.order) == [0, 1, 2])
+        // La demande n'a pas bougé de carte.
+        #expect(CollaboratorSessionModel.requests(fil).map(\.text)
+                == ["Mobilité vers l'architecture"])
+    }
+
     @Test("Le ton d'une demande suit son statut, et l'ancienneté prime sur `Sans réponse`")
     func tonsDesDemandes() throws {
         let (context, fil, seance) = try makeFil()
@@ -190,6 +227,14 @@ struct CollaboratorSessionModelTests {
         let arbitrage = promesses[1]
         #expect(CollaboratorSessionModel.deferralPill(arbitrage) == nil)
         #expect(!CollaboratorSessionModel.isLate(arbitrage, now: Self.seance))
+        // Promise pendant cette séance : la seule pilule verte de la carte.
+        #expect(CollaboratorSessionModel.takenTodayPill(arbitrage, now: Self.seance)
+                == "pris aujourd'hui")
+        #expect(CollaboratorSessionModel.duePill(arbitrage, now: Self.seance) == "Samedi")
+
+        let mobilite = promesses[2]
+        #expect(CollaboratorSessionModel.deferralPill(mobilite) == "3 reports")
+        #expect(CollaboratorSessionModel.takenTodayPill(mobilite, now: Self.seance) == nil)
     }
 
     @Test("Une promesse tenue quitte la carte : elle n'est plus quelque chose à obtenir")

@@ -172,6 +172,17 @@ struct MeetingSpaceView: View {
                                historique: historique,
                                isAssistantOpen: $isAssistantOpen,
                                onManageParticipants: onManageParticipants)
+        } else if MeetingSpaceRouting.usesOneOnOneCollaboratorSession(kind: meeting.kind,
+                                                                      mode: screen.mode) {
+            // Lot 13, spec §6.2 : le 1:1 **subi** monte ses trois colonnes
+            // `308 | 1fr | 356` — même absence de rail, de bandeau et de
+            // présence, mais des colonnes inversées : mon brouillon privé à
+            // gauche, ce que j'ai livré et ce qu'on m'a promis à droite.
+            CollaboratorSessionView(meeting: meeting,
+                                    screen: screen,
+                                    historique: historique,
+                                    isAssistantOpen: $isAssistantOpen,
+                                    onManageParticipants: onManageParticipants)
         } else if MeetingSpaceRouting.usesOneOnOnePreparation(kind: meeting.kind,
                                                              mode: screen.mode) {
             // Lot 12, spec §3.4 : la préparation d'un 1:1 côté manager prend

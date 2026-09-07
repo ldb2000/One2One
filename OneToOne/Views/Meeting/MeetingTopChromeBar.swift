@@ -254,6 +254,8 @@ struct MeetingTopChromeBar: View {
     @State private var showReportTypePicker = false
     /// Saisie de timecode en cours dans la pilule audio ; `nil` = affichage.
     @State private var timecodeDraft: String?
+    /// L'aperçu `Mon récap` d'un 1:1 subi est ouvert (lot 13).
+    @State private var showsMyRecap = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -273,6 +275,10 @@ struct MeetingTopChromeBar: View {
                         .help("Cet entretien n'est visible que de vous deux — les lignes privées ne sortent pas même de là")
                 }
                 audioPill
+                // Lot 13 : côté subi, la barre porte `Mon récap` — l'aperçu de
+                // ce qui partira vers mon manager. C'est la contrepartie du
+                // défaut `private` : pouvoir vérifier avant d'envoyer.
+                if meeting.kind == .manager { myRecapButton }
                 sharePill
                 captureButton
                     .popover(isPresented: capturePopoverBinding,
@@ -355,6 +361,40 @@ struct MeetingTopChromeBar: View {
             .overlay(Capsule(style: .continuous)
                 .strokeBorder(One2OneToken.strongBorder, lineWidth: 1))
             .help("Les planches, la scène et les vignettes restent dans le dossier de la réunion")
+        }
+    }
+
+    // MARK: - Mon récap (lot 13)
+
+    /// `Mon récap` — l'aperçu du récap filtré `.manager`.
+    ///
+    /// Autonome à dessein : la barre a déjà `meeting` et le contexte, donc elle
+    /// n'a besoin d'aucun paramètre de plus. Un `onShowMyRecap` traversant
+    /// obligerait `MeetingView` à porter une closure supplémentaire, ce que le
+    /// programme §8 refuse — et `MeetingView` n'est pas touché par ce lot.
+    private var myRecapButton: some View {
+        Button {
+            showsMyRecap = true
+        } label: {
+            Text("Mon récap")
+                .font(.plexSans(11, .medium))
+                .foregroundStyle(One2OneToken.oneOnOneInk)
+                .padding(.horizontal, 9)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                        .fill(One2OneToken.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                        .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Voir ce qui partira vers votre manager — vos lignes privées n'y sont pas")
+        .sheet(isPresented: $showsMyRecap) {
+            MyRecapPreview(meeting: meeting)
         }
     }
 

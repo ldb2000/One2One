@@ -2,7 +2,9 @@ import Foundation
 import SwiftData
 
 /// Le modèle de vue de l'écran de séance du 1:1 **subi** (capture 5a,
-/// spec §6.2) — **pur** : intitulés, tons, listes, comptages. Aucune écriture.
+/// spec §6.2) — **pur** : intitulés, tons, listes, comptages. Une seule
+/// exception, `moveTopics`, qui matérialise le glisser-réordonner et a donc
+/// besoin du contexte (même exception que `ManagerAgendaModel.move`).
 ///
 /// Même parti que `CommitmentsRailModel` au lot 11 : ce que l'écran ajoute aux
 /// services du lot 10 (les titres, les pilules, les invites de vide, la
@@ -95,6 +97,31 @@ enum CollaboratorSessionModel {
         AgendaCarryover.requests(of: thread)
     }
 
+    /// Réordonne **mes sujets** et compacte leurs rangs.
+    ///
+    /// La seule écriture de ce type, et elle ne pouvait pas être reprise de
+    /// `ManagerAgendaModel.move` : celui-là indexe `AgendaCarryover.items`, qui
+    /// contient aussi les **demandes**. La carte de gauche n'affiche que les
+    /// sujets, donc l'index d'une ligne à l'écran n'est pas son index dans la
+    /// liste complète, et réutiliser le modèle du lot 11 déplacerait le mauvais
+    /// item dès qu'une demande précède un sujet.
+    ///
+    /// Les rangs sont compactés **entre sujets seulement** ; une collision de
+    /// rang avec une demande est sans effet, les deux listes étant filtrées
+    /// séparément.
+    static func moveTopics(for meeting: Meeting,
+                           in thread: OneOnOneThread,
+                           from source: IndexSet,
+                           to destination: Int,
+                           in context: ModelContext) {
+        var sujets = myTopics(thread, for: meeting)
+        sujets.move(fromOffsets: source, toOffset: destination)
+        for (rang, sujet) in sujets.enumerated() {
+            sujet.order = rang
+        }
+        try? context.save()
+    }
+
     /// Le ton d'une demande (spec §6.2). Traduit le niveau du lot 10 en ton de
     /// pilule : la règle des 60 jours vit dans `AgendaCarryover`, pas ici.
     static func requestTone(_ item: OneOnOneAgendaItem, now: Date) -> ChipTon {
@@ -178,6 +205,19 @@ enum CollaboratorSessionModel {
         return commitment.deferralCount == 1
             ? "1 report"
             : "\(commitment.deferralCount) reports"
+    }
+
+    /// `pris aujourd'hui` — la promesse a été faite **dans cette séance**
+    /// (capture 5a).
+    ///
+    /// En `ok`, et c'est le seul vert de la carte : une parole donnée à
+    /// l'instant est une bonne nouvelle, et la distinguer des promesses
+    /// anciennes est tout l'intérêt de la colonne. `nil` sinon.
+    static func takenTodayPill(_ commitment: Commitment, now: Date) -> String? {
+        var calendrier = Calendar(identifier: .gregorian)
+        calendrier.locale = Locale(identifier: "fr_FR")
+        guard calendrier.isDate(commitment.promisedAt, inSameDayAs: now) else { return nil }
+        return "pris aujourd'hui"
     }
 
     /// L'échéance, quand elle existe : `Vendredi` dans la semaine de la
