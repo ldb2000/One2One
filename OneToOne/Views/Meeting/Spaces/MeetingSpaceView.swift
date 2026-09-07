@@ -125,6 +125,17 @@ struct MeetingSpaceView: View {
                               isAssistantOpen: $isAssistantOpen)
         } else if screen.mode == .review {
             posteDePilotage
+        } else if MeetingSpaceRouting.usesOneOnOneManagerSession(kind: meeting.kind,
+                                                                 mode: screen.mode) {
+            // Lot 11, spec §3.1 et §3.3 : l'écran de séance du 1:1 mené monte
+            // ses **trois** colonnes et rien d'autre — ni bandeau
+            // d'indicateurs, ni rail d'actions, ni présence. Il porte sa propre
+            // barre d'assistant, en pied de colonne gauche.
+            ManagerSessionView(meeting: meeting,
+                               screen: screen,
+                               historique: historique,
+                               isAssistantOpen: $isAssistantOpen,
+                               onManageParticipants: onManageParticipants)
         } else {
             GeometryReader { geo in
                 let colonnes = MeetingSpaceLayout.columns(totalWidth: geo.size.width,

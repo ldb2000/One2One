@@ -65,6 +65,57 @@ struct MeetingTopChromeBar: View {
         kind == .manager ? "Je suis le collaborateur" : nil
     }
 
+    // MARK: - Écran de séance 1:1 (lot 11, capture 2a)
+
+    /// Le segment `Mon équipe` du fil d'Ariane d'un 1:1 **mené**.
+    ///
+    /// `nil` pour un 1:1 subi : la personne d'en face n'est pas dans mon
+    /// équipe, c'est moi qui suis dans la sienne. Son fil d'Ariane appartient à
+    /// la capture 5a (lot 13).
+    static func teamSegmentLabel(for kind: MeetingKind) -> String? {
+        kind == .oneToOne ? "Mon équipe" : nil
+    }
+
+    /// La pilule `● Privé — vous deux` (spec §3.2, niveau `shared` : « visible
+    /// par les deux personnes du fil »).
+    ///
+    /// `nil` côté collaborateur : la pilule de rôle y est **obligatoire** (D4),
+    /// et deux pilules violettes côte à côte diraient deux fois la même chose.
+    static func privacyPillLabel(for kind: MeetingKind) -> String? {
+        kind == .oneToOne ? "● Privé — vous deux" : nil
+    }
+
+    /// `Rapport 1:1` en entretien, `Rapport` partout ailleurs : le rapport d'un
+    /// 1:1 suit un gabarit différent (`d2_oneToOne`), et son bouton doit le
+    /// dire avant qu'on l'ait pressé.
+    static func reportBaseLabel(for kind: MeetingKind) -> String {
+        switch kind {
+        case .oneToOne, .manager: return "Rapport 1:1"
+        case .global, .project, .work, .note, .workshop: return "Rapport"
+        }
+    }
+
+    /// `Laurent NOMINÉ — entretien du 4 septembre` (capture 2a).
+    ///
+    /// Dérivé de la personne et de la date, jamais stocké : c'est l'identité
+    /// d'une séance de fil. Sert de **placeholder** du titre, pas de
+    /// remplacement — renommer un entretien doit rester possible, et la barre
+    /// est le seul endroit de l'application qui le permet.
+    static func oneOnOneSessionHeading(person: String, date: Date) -> String {
+        let jour = OneOnOneDateFormat.dayFullMonth(date)
+        let nom = person.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nom.isEmpty else { return "Entretien du \(jour)" }
+        return "\(nom) — entretien du \(jour)"
+    }
+
+    /// Le placeholder du champ de titre : l'en-tête d'entretien pour un 1:1
+    /// mené, le placeholder générique ailleurs.
+    static func titlePlaceholder(for meeting: Meeting) -> String {
+        guard meeting.kind == .oneToOne else { return "Titre de la réunion…" }
+        return oneOnOneSessionHeading(person: meeting.participants.first?.name ?? "",
+                                      date: meeting.date)
+    }
+
     /// Lecture d'un timecode tapé à la main dans la pilule audio (spec §2.1 :
     /// « Clic sur le temps = saisie directe d'un timecode »).
     ///
@@ -182,6 +233,10 @@ struct MeetingTopChromeBar: View {
             // contrôles disparaissent entièrement (même règle que
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
             if meeting.kind != .note {
+                if let confidentialite = Self.privacyPillLabel(for: meeting.kind) {
+                    Pill(confidentialite, ton: .oneOnOne, bordee: true)
+                        .help("Cet entretien n'est visible que de vous deux — les lignes privées ne sortent pas même de là")
+                }
                 audioPill
                 sharePill
                 captureButton
@@ -321,6 +376,15 @@ struct MeetingTopChromeBar: View {
                 .help(Self.projectSegmentHelp)
                 chevron
             }
+            // Lot 11 : un 1:1 mené se range sous « Mon équipe » — le segment
+            // que la capture 2a montre à la place du projet. Non cliquable :
+            // l'annuaire n'est pas une destination de cet écran.
+            if let equipe = Self.teamSegmentLabel(for: meeting.kind) {
+                Text(equipe)
+                    .font(.plexSans(11))
+                    .foregroundStyle(One2OneToken.ink4)
+                chevron
+            }
             // Signalétique 1:1 (lot 10) : le badge de type, puis la pilule de
             // rôle quand l'entretien est subi.
             if let badge = Self.typeBadge(for: meeting.kind) {
@@ -345,7 +409,7 @@ struct MeetingTopChromeBar: View {
     /// Titre de la réunion : `flex:1; min-width:0` de la spec, donc
     /// `maxWidth: .infinity` + une ligne. Éditable en place.
     private var titleField: some View {
-        EditableTextField(placeholder: "Titre de la réunion…", text: $meeting.title)
+        EditableTextField(placeholder: Self.titlePlaceholder(for: meeting), text: $meeting.title)
             .font(.plexSans(13, .semibold))
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
@@ -784,12 +848,15 @@ struct MeetingTopChromeBar: View {
     /// `Rapport ✓ (m:ss)` : la coche dit « généré », la durée est le temps de
     /// génération (spec §2.1).
     private var reportLabel: String {
-        if meeting.rawTranscript.isEmpty { return "Transcrire + Rapport" }
-        if meeting.summary.isEmpty { return "Rapport" }
+        // `Rapport 1:1` en entretien (lot 11) : le gabarit et l'audience du
+        // rapport diffèrent, et le bouton le dit avant d'être pressé.
+        let base = Self.reportBaseLabel(for: meeting.kind)
+        if meeting.rawTranscript.isEmpty { return "Transcrire + \(base)" }
+        if meeting.summary.isEmpty { return base }
         if meeting.reportGenerationDurationSeconds > 0 {
-            return "Rapport ✓ \(formatElapsed(Int(meeting.reportGenerationDurationSeconds.rounded())))"
+            return "\(base) ✓ \(formatElapsed(Int(meeting.reportGenerationDurationSeconds.rounded())))"
         }
-        return "Rapport ✓"
+        return "\(base) ✓"
     }
 
     /// Popover de choix du type de rapport, affiché au clic sur « Rapport ».
