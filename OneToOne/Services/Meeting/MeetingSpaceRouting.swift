@@ -52,6 +52,19 @@ enum MeetingSpaceRouting {
         )
     }
 
+    /// Vrai quand l'espace `Réunion` doit monter l'écran de séance du **1:1
+    /// mené** (capture `2a-1to1-manager-seance.png`, lot 11) au lieu du
+    /// cockpit multi-participants.
+    ///
+    /// Réservé à `.oneToOne` : le 1:1 **subi** (`.manager`) est la capture 5a,
+    /// dont la grille, les colonnes et les commandes diffèrent (lot 13). Et
+    /// réservé au mode En séance : la préparation est la capture 2b (lot 12),
+    /// la relecture reste le poste de pilotage.
+    static func usesOneOnOneManagerSession(kind: MeetingKind,
+                                           mode: MeetingScreenModel.Mode) -> Bool {
+        kind == .oneToOne && mode == .live
+    }
+
     /// Libellé de l'espace `Réunion` dans la barre d'espaces. « Réunion » n'a
     /// pas de sens sur une note : c'est la même exception que portait
     /// `MeetingSection.liveNotes.label(for:)`.
