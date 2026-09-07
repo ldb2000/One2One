@@ -74,6 +74,24 @@ struct ReviewStateTests {
         }
     }
 
+    @Test("Notes et Transcription ramènent en séance : la transcription est à un clic")
+    func sectionsThatSwitchMode() {
+        #expect(ReviewState.Section.notes.changeDeMode == .live)
+        #expect(ReviewState.Section.transcription.changeDeMode == .live)
+        for section in [ReviewState.Section.synthese, .actions, .rapport,
+                        .documents, .assistant] {
+            #expect(section.changeDeMode == nil)
+        }
+    }
+
+    @Test("Aucune entrée ne change à la fois d'espace et de mode")
+    func noAmbiguousEntry() {
+        for section in ReviewState.Section.allCases {
+            #expect(!(section.changeDEspace != nil && section.changeDeMode != nil),
+                    "\(section.rawValue) mène à deux endroits à la fois")
+        }
+    }
+
     @Test("Chaque section porte un libellé et un symbole")
     func labelsAreComplete() {
         for section in ReviewState.Section.allCases {

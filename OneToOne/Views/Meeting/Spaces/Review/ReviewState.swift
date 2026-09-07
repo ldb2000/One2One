@@ -53,14 +53,29 @@ final class ReviewState {
             }
         }
 
-        /// Vrai quand l'entrée **change d'espace** au lieu de déplacer le
-        /// défilement (`Rapport` et `Documents` mènent aux espaces Rapport et
-        /// Ressources, spec §2.7 et périmètre du lot 5).
+        /// L'espace vers lequel l'entrée mène, `nil` quand elle reste dans le
+        /// poste de pilotage (`Rapport` et `Documents` mènent aux espaces
+        /// Rapport et Ressources, spec §2.7 et périmètre du lot 5).
         var changeDEspace: MeetingScreenModel.Space? {
             switch self {
             case .rapport:   return .report
             case .documents: return .resources
             case .synthese, .notes, .transcription, .actions, .assistant: return nil
+            }
+        }
+
+        /// Le mode vers lequel l'entrée mène, `nil` quand elle reste en Relire.
+        ///
+        /// `Notes` et `Transcription` ramènent en **En séance**, et c'est là
+        /// tout le sens de « transcription repliée » (spec §2.2) : elle n'est
+        /// pas absente du poste de pilotage, elle est **à un clic**. Le mode
+        /// Relire n'a pas de carte de notes — la synthèse et les décisions
+        /// *sont* leur lecture —, donc une entrée qui ne ferait que déplacer un
+        /// défilement ne mènerait nulle part, et son compteur mentirait.
+        var changeDeMode: MeetingScreenModel.Mode? {
+            switch self {
+            case .notes, .transcription: return .live
+            case .synthese, .actions, .rapport, .documents, .assistant: return nil
             }
         }
     }

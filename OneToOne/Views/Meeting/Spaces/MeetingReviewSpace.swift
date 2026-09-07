@@ -108,10 +108,10 @@ struct MeetingReviewSpace: View {
                 .padding(.bottom, 12)
             }
             .onChange(of: screen.review.section) { _, section in
-                // `Notes` et `Transcription` n'ont pas de carte dans ce mode :
-                // la synthèse et les décisions **sont** la lecture des notes, et
-                // la transcription est repliée (spec §2.2). Elles ramènent donc
-                // en haut de colonne plutôt que nulle part.
+                // Deux ancres seulement : `Notes` et `Transcription` ne
+                // défilent pas, elles ramènent en mode En séance
+                // (`Section.changeDeMode`), et les autres entrées changent
+                // d'espace ou ouvrent le dock.
                 let cible: ReviewState.Section = (section == .actions) ? .actions : .synthese
                 withAnimation(.easeInOut(duration: 0.2)) {
                     defilement.scrollTo(cible, anchor: .top)

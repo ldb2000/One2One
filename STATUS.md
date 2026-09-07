@@ -2,6 +2,281 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 5 : poste de pilotage (mode Relire) (2026-09-07)
+
+Branche `feat/refonte-lot-5-poste-pilotage`, **empilée** sur
+`feat/refonte-lot-3-rail-actions` : la PR contient donc les lots 0A, 0B, 1a, 1b, 2 et 3
+(PR #19–#24, non fusionnées). Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-5-poste-pilotage.md` (11 tâches).
+
+**État : livré, `swift build` propre, `swift test` complet vert.**
+
+### Ce qui est en place
+
+**Le mode Relire est le poste de pilotage de `1c-poste-de-pilotage.png`** (décision D0 :
+« 1c est la disposition du mode Relire »). `MeetingSpaceView` le route **hors** de sa colonne
+fluide : il prend toute la surface, sans bandeau d'indicateurs, sans rail de 330 px et sans
+dock injecté — il monte les siens. `MeetingSpacesBar.estMasquee(space:mode:)` lui rend la
+barre d'espaces, et **seulement à lui** : en mode Relire, les espaces Rapport et Ressources
+n'ont pas de nav latérale, et sans barre on s'y retrouverait sans rien pour en sortir.
+
+**Nav latérale de 190 px** (`Review/ReviewSidebarNav.swift`) — badge `1:1 One2One`, libellé
+`SÉANCE`, sept entrées dont **chacune porte un compteur ou un état** : `Synthèse généré/—`,
+`Notes n` (les `MeetingNote`), `Transcription mm′`, `Actions n` (compteur en `accent/report`
+dès qu'une action n'a pas de porteur), `Rapport ✓/—`, `Documents n/＋`, `Assistant ⌘K`.
+L'entrée active est une **carte blanche à ombre de 1 px** (spec §2.7) — pas un soulignement,
+qui reste la marque de la barre d'espaces. `Rapport` et `Documents` **changent d'espace**
+(Rapport, Ressources), `Notes` et `Transcription` ramènent en mode **En séance** — c'est le
+sens de « transcription repliée » (spec §2.2) : elle est à un clic —, `Assistant` ouvre le
+dock, et `Synthèse` et `Actions` déplacent le défilement de la colonne principale. En pied,
+le bloc `PROJET` (nom + trois dernières réunions antérieures du
+projet, cliquables) et le bloc `ALERTES · n` dont la lecture de sévérité et la teinte sont
+celles du rail (`ActionsRailRisks.teinte`) — deux définitions finiraient par peindre le même
+risque de deux couleurs.
+
+**En-tête** (`Review/ReviewHeader.swift`) — titre sans son préfixe de référence, ligne
+`P25_110 · Projet · 4 sept. 2026 · 9:15 · 23 min · 6 participants` **sans point médian
+orphelin** (une réunion hors projet perd le segment, elle ne le laisse pas vide), puis
+`Capture n`, `Exporter ⌄` — les cinq destinations existantes de `MeetingMenuActions`,
+regroupées, désactivées sans rapport — et `Rapport ✓ 6:20`. Le sélecteur
+`Préparer / En séance / Relire` est ici, en haut à droite : la barre d'espaces étant masquée,
+sans lui on entrerait en relecture sans pouvoir en sortir.
+
+**Cartes** — `Review/OneSentenceCard.swift` : `EN UNE PHRASE`, badge `généré`,
+`Meeting.shortSummary` rendu **avec son gras** par `AttributedString(markdown:)` (et non
+`MarkdownText`, qui imposerait ses fontes là où le corps doit rester en Plex Sans 12,5),
+chips de `MeetingTag`, invite « Générer la synthèse » appelant `SummaryCard.generate` — la
+**même** fonction que la carte Résumé du dashboard.
+`Review/DecisionsCard.swift` : `DÉCISIONS PRISES · n` depuis les `MeetingNote(kind:
+.decision)` triées par `t` — ce sont elles qui portent le timecode, et un timecode est ce qui
+rend une décision vérifiable. Timecode `accent/report` cliquable → `playhead.seek`. Repli sur
+`Meeting.decisions` **sans** timecode pour une réunion importée (`--:--` plutôt que `00:00`,
+instant où rien ne s'est passé). `separerPorteur` détache le nom de fin de phrase, au tiret
+cadratin comme entre parenthèses, avec trois garde-fous : le segment doit être le dernier,
+commencer par une majuscule et ne porter aucune ponctuation interne — sans quoi « — reste à
+chiffrer la fin Marine » deviendrait un porteur.
+
+**Tableau d'actions dense** (`Review/ActionsTable.swift`) — sept colonnes aux largeurs de la
+spec (`20 | 1fr | 108 | 92 | 62 | 76 | 30`, fixées par un test), lignes alternées
+`surface` / `surface/alt`, sélection en `accent/action bg2`. **Édition inline par cellule** :
+un clic déplie le sélecteur **sous** la ligne (responsable via `OwnerPickerMenu`, échéance
+via raccourcis + `DatePicker` compact, charge), `Tab` avance de champ, `Esc` referme, et
+aucune modale (gardé par lecture des sources). Le titre s'édite au double-clic
+(`EditableTextField`) ; un intitulé vidé ne supprime pas l'action — c'est le menu `⋯` qui le
+fait. Clavier : `↑↓` navigue (borné, jamais cyclique), `Espace` coche, `⌥↑↓` réordonne via
+`ActionsTableCommands`, qui **normalise `sortOrder` en 0…n−1** — réécrire seulement les deux
+lignes échangées laisserait des égalités que `ActionsRailGrouping.triees` tranche par
+échéance, et la ligne déplacée reviendrait à sa place. Sélecteur
+`Tableau · Eisenhower · Calendrier` (les deux planches du lot 3 en `compact: true`),
+`＋ Action` bleu, badge `n sans responsable`, pied `ActionComposer` **réemployé tel quel** +
+`n autres · tout afficher` (repli à 5 lignes).
+
+La colonne `ÉCHÉANCE` porte les quatre états de la capture, dans cet ordre : une date réelle,
+puis `Reporté ×n` (`deferralCount`), puis `Urgent` en `accent/report`, puis l'invite
+`＋ date`. La colonne `SOURCE` mène au timecode (`04:12 ↗`) ou, à défaut, à la **date de la
+réunion d'origine** (`1 sept.` de la capture) : une action reportée a une provenance, pas un
+instant.
+
+**Frise audio pleine largeur** (`Review/ReviewAudioTimeline.swift`) — ce n'est pas une
+seconde frise : c'est `AudioTimelineStrip` du lot 2 avec `labelled: true`, un nouveau mode
+dont le **défaut ne change pas d'un pixel** le rendu de 22 px du mode En séance. Autour,
+seulement ce que la capture montre : le bouton `▶` (qui charge le WAV dans le lecteur **de la
+tête de lecture**, pas un second — deux lecteurs, ce sont deux positions) et `✂ Éditer`, qui
+passe par `MeetingMenuActions.editAudio` : la feuille d'édition audio est présentée par
+`MeetingView`, et une seconde présentation ici en ferait deux.
+
+**Étiquettes sans chevauchement** (`Services/Meeting/TimelineLabelLayout.swift`) — deux
+passes : les **décisions d'abord**, les notes ensuite dans ce qui reste. À l'étroit, perdre
+`DÉCISION` pour garder un timecode nu serait le mauvais échange. Une étiquette qui n'entre
+pas est **abandonnée**, jamais décalée : décalée, elle ne désignerait plus son marqueur. Les
+captures et les planches n'ont pas d'étiquette — leur carré se lit déjà.
+
+**Passage automatique en Relire après le rapport** — `ReviewState.apresGenerationDuRapport`
+remplace le `screen.space = .report` du lot 1 dans le chemin post-génération de
+`MeetingView.generateReport` : espace `Réunion`, mode `Relire`, section `Synthèse`, et une
+demande de focus sur le champ d'assignation de la première action sans responsable (spec
+§2.2). Les demandes sont **jetonnées** — deux générations de suite doivent toutes deux
+replacer le curseur, or la seconde écriture d'une valeur identique ne notifie personne.
+`ActionsTable` la sert et déplie le tableau si la ligne visée est au-delà des cinq premières :
+un curseur sur une ligne qu'on ne voit pas n'est pas un focus.
+
+### Créés
+
+`OneToOne/Services/Meeting/` : `ActionsTableCommands.swift`, `TimelineLabelLayout.swift`.
+`OneToOne/Views/Meeting/Spaces/Review/` : `ReviewState`, `ReviewSidebarNav`, `ReviewHeader`,
+`OneSentenceCard` (+ `ReviewCard`), `DecisionsCard`, `ActionsTable`, `ReviewAudioTimeline`.
+`OneToOne/Services/Debug/Seed/RefonteDemoSeed+Lot5.swift`.
+
+### Modifiés
+
+`MeetingReviewSpace.swift` (recomposé, non générique — le contenu provisoire du lot 1
+disparaît), `MeetingSpaceView.swift` (routage du mode Relire, deux paramètres ajoutés),
+`MeetingSpacesBar.swift` (`estMasquee` + garde de corps), `AudioTimelineStrip.swift`
+(`labelled`, `hauteur(labelled:)`, `candidats(_:)`), `MeetingScreenModel.swift` (**une
+ligne** : `var review = ReviewState()`), `MeetingView.swift` (ligne post-génération + deux
+paramètres au call-site), `MeetingCommands.swift` (le menu de démonstration appelle
+`seedLot5`).
+
+### Tests
+
+`swift build` propre (avertissements préexistants seuls : `PyannoteDiarizer`,
+`MLXEmbeddingEngine`, `AudioCompressionService`). `swift test` complet **vert** :
+**1 039 XCTest (1 ignoré, 0 échec) + 966 Swift Testing en 136 suites = 2 005 tests**, contre
+1 931 après l'intégration des lots 2 + 3 (**+74, +6 suites**), aucune régression.
+
+Nouvelles suites : `ActionsTableCommandsTests` (14), `TimelineLabelLayoutTests` (10),
+`ReviewStateTests` (10), `ReviewSidebarNavTests` (15), `ReviewCardsInviteTests` (15),
+`RefonteDemoSeedLot5Tests` (9).
+
+Critères du lot :
+
+- **Navigation clavier complète du tableau** — `ActionsTableCommandsTests` : `↑↓` borné aux
+  deux extrémités, sélection périmée ramenée dans le tableau, `⌥↑↓` refusé aux bords, et la
+  preuve qui compte — après `appliquerOrdre`, `ActionsRailGrouping.triees` rend **exactement**
+  le nouvel ordre, le lecteur réel étant celui-là.
+- **Étiquettes sans chevauchement** — `TimelineLabelLayoutTests` : la propriété est vérifiée
+  par paires successives (`début ≥ fin précédente + espacement`), aux deux bords, sur une
+  durée nulle (aucun `NaN`) et sur des candidats non triés ; plus la règle de priorité (à
+  l'étroit, `DÉCISION` l'emporte).
+- **Compteurs de la nav, exhaustivité** — `ReviewSidebarNavTests` : une entrée par
+  `ReviewState.Section`, **aucune** sans complément — sur une réunion vide comme sur une
+  réunion pleine. Une entrée ajoutée demain fait échouer la suite tant qu'elle n'a pas dit ce
+  qu'elle contient.
+- **Passage en Relire après rapport et focus posé** — `ReviewStateTests` : la transition, le
+  jeton de focus qui avance à chaque demande, la consommation qui l'empêche de se rejouer, et
+  une lecture de `MeetingView.swift` qui refuse le retour du `screen.space = .report`.
+- **Aucune zone vide sans invite** — `ReviewCardsInviteTests` lit les sources du dossier
+  `Review/` : chaque surface porte une invite (`MeetingEmptyInvite`, `InvitePill` ou le `＋`
+  de la nav) **ou** se déclare dans une liste fermée avec sa raison. La suite refuse aussi
+  toute couleur nommée hors `One2OneToken` et toute modale, et un premier test vérifie que le
+  dossier lu est bien celui du mode Relire — sans quoi les autres ne prouveraient rien en
+  passant.
+
+### Jeu de démonstration
+
+`RefonteDemoSeed+Lot5.seedLot5` complète le semis du lot 3 **sans modifier son fichier** (les
+lots 4, 6 et 10 travaillent sur la même base, et c'est le fichier qu'ils touchent tous) :
+trois décisions horodatées `11:03` / `13:40` / `20:15`, la première nommant son porteur ; les
+quatre thèmes `Migration AP · Facturation · GitLab / CI-CD · Ressources` ; le résumé de la
+capture avec son gras ; et deux réunions de plus dans le fil du projet (`31 août —
+Gouvernance`, `26 août — Situation AP`), qui complètent le `1 sept. — COSUI hebdo` du lot 3.
+L'idempotence des décisions se joue sur le **timecode** et non sur le texte : la formulation
+de 1c n'est pas celle de 1a, et une comparaison sur la chaîne aurait créé une seconde
+décision au même instant.
+
+### Recette visuelle — non faite : le poste est occupé
+
+L'écran **n'est pas verrouillé** cette fois (`ioreg -n Root -d1 -r | grep
+CGSSessionScreenIsLocked` ne rend aucune clé, contrairement aux lots 1 à 3), mais une
+**réunion Teams réelle est en cours d'enregistrement sur ce poste** : lancer une application
+graphique, prendre le contrôle du clavier par `osascript` ou déclencher `screencapture`
+aurait interrompu la séance ou capturé son contenu. Aucune de ces commandes n'a été lancée,
+et rien n'a été déposé dans `docs/superpowers/specs/refonte-2026-09/recette/`.
+
+Ce qui a été vérifié : `swift build -c release` réussit (310 s, aucune erreur).
+
+**À refaire, poste libre, en cinq étapes** — les scripts sont dans le scratchpad de session
+(`lot5-package.sh`, `lot5-run.sh`) et n'attendent que d'être exécutés :
+
+1. `swift build -c release` depuis le worktree.
+2. `lot5-package.sh` — empaquette `Lot5.app` **hors du dépôt** (binaire, `Info.plist`,
+   `PkgInfo`, `OneToOne_OneToOne.bundle`, `default.metallib` repris de `Mickey.app`,
+   signature ad hoc). Ne pas passer par `Scripts/bump-and-build.sh`, qui incrémente le numéro
+   de build et installe dans `~/Applications`.
+3. `lot5-run.sh --reset` — lance avec `HOME` **et `CFFIXED_USER_HOME`** jetables. Les deux :
+   `NSHomeDirectory()` ignore `HOME` pour une application en bundle, et une recette lancée le
+   7 septembre avec le seul `HOME` a semé le jeu de démonstration dans le store de
+   production. Le script tue le processus si le store n'apparaît pas dans le home jetable.
+4. Menu **Réunion → Charger le jeu de démonstration (refonte)** (il appelle désormais
+   `seedLot5`), puis sélecteur de mode → **Relire**.
+5. Redimensionner à 1 280 puis 1 920 px, `screencapture -x` vers
+   `docs/superpowers/specs/refonte-2026-09/recette/lot-5-{1280,1920}.png`, comparer à
+   `ecrans/1c-poste-de-pilotage.png` et consigner les écarts ici.
+
+⚠️ Un **crash préexistant à l'ouverture de la fenêtre dédiée `1to1-meeting` en bundle
+release** est en cours de correction par ailleurs : la recette de ce lot devra attendre ce
+correctif, ou ouvrir la réunion depuis la fenêtre principale.
+
+**Rien n'a été écrit dans le store de production** : le semis ne se déclenche que par un clic
+de menu, et aucune application n'a été lancée.
+
+### Écarts assumés
+
+1. **`Notes 5` de la capture est arithmétiquement impossible.** `1a-cockpit.png` montre
+   quatre notes (`04:12`, `07:48`, `11:03`, `15:20`) et `1c` en annonce cinq — tout en
+   listant trois décisions à `11:03`, `13:40` et `20:15`, dont deux n'existent pas dans 1a.
+   Quatre notes plus deux décisions font **six**, pas cinq. Le semis tient les données
+   (six `MeetingNote`, dont trois décisions) et la nav affiche `Notes 6` : c'est la même
+   nature d'incohérence de maquette que celle relevée au lot 3 pour `À ASSIGNER — 9`.
+2. **`Synthèse` et `Assistant` portent un complément que la capture ne montre pas** (`généré`
+   / `—` et `⌘K`). Le critère du lot exige « jamais d'entrée sans compteur ou état, test
+   d'exhaustivité » : deux entrées nues seraient précisément les « onglets vides » que le
+   titre de la capture bannit. Le complément est en `plexMono(10)` `ink/4`, discret.
+3. **Le sélecteur `Préparer / En séance / Relire` s'ajoute en haut à droite de la colonne
+   principale**, alors que la capture n'en montre aucun. C'est la consigne du lot (« garde-le
+   visible, comme sur 1a ») et c'est nécessaire : la barre d'espaces est masquée dans ce mode,
+   et sans ce sélecteur on entrerait en relecture sans pouvoir en sortir.
+4. **`Notes` et `Transcription` ramènent en mode En séance** au lieu de défiler dans la
+   colonne. Le poste de pilotage n'a ni carte de notes ni carte de transcription (la capture
+   n'en montre aucune, et la synthèse et les décisions *sont* la lecture des notes) : une
+   entrée qui ne ferait que déplacer un défilement ne mènerait nulle part, et son compteur
+   mentirait. C'est ce que veut dire « transcription repliée » (spec §2.2) : elle est à un
+   clic. La carte `TRANSCRIPTION` provisoire du lot 1, avec son bouton « Déplier en séance »,
+   disparaît donc — son rôle est passé à la nav.
+5. **`＋ Action` ne prend pas le clavier.** Le bouton crée la ligne si le composeur porte déjà
+   un texte (même chemin que `⌘⏎`) et, sinon, déplie le tableau pour amener le composeur sous
+   les yeux. Il ne peut pas focaliser le champ : `ActionComposer` (lot 3) possède son
+   `@FocusState` et n'expose aucun jeton, et `Views/Meeting/Spaces/Rail/**` n'est pas
+   modifiable depuis ce lot. À reprendre au lot 19, en ajoutant au composeur un jeton de focus
+   comme celui du composeur de notes.
+6. **Les cinq titres du bloc `ALERTES` ne sont pas ceux de la capture 1c** (« Corruption base
+   de données », « Confusion source de code », …) : le semis du lot 3 a choisi les risques de
+   `1a-cockpit.png` (« Comptes GitLab désactivés », « Chiffrage du reste à faire non
+   validé », …), et `RefonteDemoSeed.swift` est gelé pour ce lot. Le **nombre** (`ALERTES · 5`)
+   et la répartition des teintes (deux critiques, un élevé, deux moindres) tombent juste.
+7. **Le nom de projet du semis est `S/D — Modernisation CI/CD`**, la capture écrit
+   `S/D — Modernisation Chaîne CI/CD`. Même cause : le nom vient du lot 3.
+8. **Le focus d'assignation se pose sur la cellule, pas dans un champ de texte.** La spec §2.2
+   dit « champ d'assignation » ; le poste de pilotage n'a pas de champ de saisie de
+   responsable — c'est un sélecteur (`OwnerPickerMenu`), et la spec §2.5 interdit la modale.
+   Le focus sélectionne donc la ligne et **déplie son sélecteur de responsable**, dépliant le
+   tableau si la ligne est au-delà des cinq premières.
+9. **Les vues Eisenhower et Calendrier n'ont pas de sélection clavier.** Elles réemploient
+   `EisenhowerBoard` et `CalendarBoard` en `compact: true` (décision D10) ; `↑↓`, `Espace` et
+   `⌥↑↓` n'ont de sens que dans un tableau ordonné, et la spec §2.7 ne les demande que là.
+10. **Deux cartes côte à côte s'empilent sous ~900 px** (`ViewThatFits`) : `EN UNE PHRASE` et
+    `DÉCISIONS PRISES` à 420 et 340 px de minimum ne tiennent pas dans la colonne fluide de
+    520 px que garantit le critère n° 5 du chantier 1.
+
+### Fichiers partagés touchés malgré les conventions anti-conflit
+
+- `MeetingSpacesBar.swift` — la consigne demandait de masquer la barre depuis
+  `MeetingSpaceView`, ce qui est impossible : la barre est montée par `MeetingView.mainPanel`,
+  au-dessus. Comme `MeetingView.swift` ne devait recevoir que la ligne post-génération, le
+  masquage est une fonction pure du fichier de la barre (`estMasquee(space:mode:)`) plus une
+  garde de corps — un seul point de touche, et testé.
+- `MeetingView.swift` — **deux** points au lieu d'un : la ligne post-génération, et le
+  call-site de `MeetingSpaceView`, qui reçoit `menuActions` et `onShowCaptures`. L'en-tête du
+  poste de pilotage a besoin des menus d'export existants et du bouton Rapport, la frise du
+  `✂ Éditer` ; tous vivent dans `MeetingMenuActions`, que seule `MeetingView` sait
+  construire. `@FocusedValue(\\.meetingMenu)` aurait évité le paramètre, mais rend `nil`
+  quand la fenêtre n'a pas le focus — des boutons principaux qui s'éteignent au changement de
+  fenêtre.
+- `MeetingCommands.swift` — une ligne : le menu de démonstration appelle `seedLot5` au lieu de
+  `seed`. `RefonteDemoSeed.swift` étant gelé, il n'y avait pas d'autre moyen de brancher le
+  complément de semis.
+
+### Prochaine action
+
+1. **Faire la recette visuelle du lot 5** (procédure ci-dessus), poste libre et une fois le
+   crash `1to1-meeting` corrigé, puis consigner les écarts avec
+   `1c-poste-de-pilotage.png`.
+2. Faire relire et fusionner dans l'ordre `#19 → #20 → #21 → #22 → #23 → #24 → lot 5`.
+3. Lots suivants : **6** (ressources en séance, tiroir 396 px) et **7** (captures Teams /
+   Zoom). Le lot 5 leur laisse deux points d'ancrage : l'entrée `Documents n/＋` de la nav
+   latérale, qui ouvre l'espace Ressources, et le bouton `Capture n` de l'en-tête, qui ouvre
+   la galerie de captures.
+
 ## Refonte de l'écran de réunion — lot 4 : mode séance plein écran (2026-09-07)
 
 Branche `feat/refonte-lot-4-mode-seance`, sur `feat/refonte-lot-3-rail-actions` : la PR

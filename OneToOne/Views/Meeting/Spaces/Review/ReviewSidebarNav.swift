@@ -14,8 +14,10 @@ import SwiftData
 ///
 /// Dans ce mode, ce rail **remplace** la barre d'espaces (plan §1, décision
 /// D0) : `Rapport` et `Documents` mènent aux espaces Rapport et Ressources,
-/// `Assistant` ouvre le dock, les autres déplacent le défilement de la colonne
-/// principale.
+/// `Notes` et `Transcription` ramènent en mode En séance — c'est le sens de
+/// « transcription repliée » (spec §2.2), elle est à un clic —, `Assistant`
+/// ouvre le dock, et `Synthèse` et `Actions` déplacent le défilement de la
+/// colonne principale.
 struct ReviewSidebarNav: View {
 
     /// Une entrée du rail, avec son complément **obligatoire**.
@@ -302,16 +304,22 @@ struct ReviewSidebarNav: View {
 
     private func aide(_ entree: Entree) -> String {
         switch entree.section {
-        case .rapport:   return "Ouvrir l'espace Rapport"
-        case .documents: return "Ouvrir l'espace Ressources"
-        case .assistant: return "Interroger l'assistant (⌘K)"
-        default:         return "Aller à \(entree.libelle)"
+        case .rapport:       return "Ouvrir l'espace Rapport"
+        case .documents:     return "Ouvrir l'espace Ressources"
+        case .assistant:     return "Interroger l'assistant (⌘K)"
+        case .notes:         return "Déplier les notes de la séance"
+        case .transcription: return "Déplier la transcription"
+        default:             return "Aller à \(entree.libelle)"
         }
     }
 
     private func selectionner(_ section: ReviewState.Section) {
         if let espace = section.changeDEspace {
             screen.space = espace
+            return
+        }
+        if let mode = section.changeDeMode {
+            screen.mode = mode
             return
         }
         if section == .assistant {
