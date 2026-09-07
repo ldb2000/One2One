@@ -7,13 +7,14 @@ import SwiftUI
 /// la table §1.2 reste la seule à nommer une couleur. C'est ici que la
 /// correspondance se fait, une fois, et nulle part ailleurs.
 enum OneOnOneTone: Equatable, Sendable {
-    case warn, oneOnOne, ok
+    case warn, oneOnOne, ok, report
 
     var color: Color {
         switch self {
         case .warn:     return One2OneToken.warn
         case .oneOnOne: return One2OneToken.oneOnOne
         case .ok:       return One2OneToken.ok
+        case .report:   return One2OneToken.report
         }
     }
 
@@ -22,6 +23,7 @@ enum OneOnOneTone: Equatable, Sendable {
         case .warn:     return One2OneToken.warnBg
         case .oneOnOne: return One2OneToken.oneOnOneBg
         case .ok:       return One2OneToken.okBg
+        case .report:   return One2OneToken.reportBg
         }
     }
 
@@ -32,6 +34,7 @@ enum OneOnOneTone: Equatable, Sendable {
         case .warn:     return One2OneToken.warnInk
         case .oneOnOne: return One2OneToken.oneOnOneInk
         case .ok:       return One2OneToken.okDeep
+        case .report:   return One2OneToken.reportInk
         }
     }
 }
