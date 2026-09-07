@@ -8,9 +8,11 @@ import SwiftUI
 /// (note), carrés (capture), losanges (décision). Clic = déplacement, glisser =
 /// balayage. »
 ///
-/// Sans fichier audio, la frise **reste affichée** : une piste plate, les
-/// marqueurs des notes déjà prises et l'invite « Aucun audio ». C'est l'axe
-/// temps de la réunion, pas seulement celui d'un enregistrement.
+/// Sans fichier audio, la frise **reste affichée** : une piste plate et les
+/// marqueurs des notes déjà prises. C'est l'axe temps de la réunion, pas
+/// seulement celui d'un enregistrement. L'invite « Aucun audio » n'apparaît
+/// que si la frise est vide de marqueurs, faute de quoi elle se superposerait
+/// à eux.
 struct AudioTimelineStrip: View {
 
     let meeting: Meeting
@@ -70,12 +72,12 @@ struct AudioTimelineStrip: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(TimecodeLabel.format(0))
-                .font(.plexMono(9.5, .medium))
+                .font(.plexMono(10, .medium))
                 .monospacedDigit()
                 .foregroundStyle(One2OneToken.ink4)
             piste
             Text(TimecodeLabel.format(duration))
-                .font(.plexMono(9.5, .medium))
+                .font(.plexMono(10, .medium))
                 .monospacedDigit()
                 .foregroundStyle(One2OneToken.ink4)
             // Spec §5.2 (lot 7) : la légende du carré, seulement quand la
@@ -140,10 +142,16 @@ struct AudioTimelineStrip: View {
         Group {
             ZStack(alignment: .leading) {
                 Canvas { ctx, size in dessiner(ctx: ctx, size: size) }
-                if !hasAudio {
+                // L'invite ne s'affiche que si la frise est **vraiment** vide.
+                // Dès qu'un marqueur est posé, l'axe se lit tout seul et le
+                // texte se superposait aux ronds et aux losanges — illisible,
+                // relevé par la recette visuelle de la vague 1–4 sur les cinq
+                // écrans. `ink/4` et non `ink/muted` : sous 12 px la spec §1.2
+                // exige 4,5:1.
+                if !hasAudio && playhead.markers.isEmpty {
                     Text("Aucun audio")
                         .font(.plexSans(10))
-                        .foregroundStyle(One2OneToken.inkMuted)
+                        .foregroundStyle(One2OneToken.ink4)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
