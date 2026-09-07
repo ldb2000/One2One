@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Menus natifs macOS pour la réunion ayant le focus. Lit `MeetingMenuActions`
 /// via `FocusedValue` : tout est grisé si aucune réunion n'a le focus
@@ -6,6 +7,13 @@ import SwiftUI
 /// dans un nouveau menu « Réunion ».
 struct MeetingCommands: Commands {
     @FocusedValue(\.meetingMenu) private var menu
+    /// Contexte partagé, pour la commande de recette qui sème le jeu de
+    /// démonstration. `Commands` n'a pas d'`@Environment(\.modelContext)` :
+    /// c'est le conteneur de l'application qui le fournit.
+    private var demoContext: ModelContext? {
+        guard let container = OneToOneApp.sharedContainer else { return nil }
+        return ModelContext(container)
+    }
 
     var body: some Commands {
         // Export → menu « Fichier », emplacement conventionnel.
@@ -72,6 +80,21 @@ struct MeetingCommands: Commands {
             Button("Supprimer la réunion…", role: .destructive) { menu?.deleteMeeting() }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(!isEnabled(.delete))
+
+            Divider()
+            // Recette de la refonte : sème la réunion de la capture
+            // `1a-cockpit.png` (6 participants, 12 actions dont 9 non
+            // assignées, 3 décisions, 5 risques). Idempotent — cliquer deux
+            // fois ne duplique rien.
+            Button("Charger le jeu de démonstration (refonte)") {
+                guard let demoContext else { return }
+                let reunion = RefonteDemoSeed.seed(in: demoContext)
+                QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
+                    meetingID: reunion.ensuredStableID,
+                    autoStartRecording: false
+                )
+            }
+            .disabled(demoContext == nil)
         }
     }
 

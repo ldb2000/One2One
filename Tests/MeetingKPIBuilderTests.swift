@@ -54,7 +54,11 @@ struct MeetingKPIBuilderTests {
         #expect(presence.total == 6)
         #expect(presence.present == 6)
         #expect(presence.percent == 100)
-        #expect(presence.initials == ["PY", "NL", "CP", "LS", "CA", "LD"])
+        // Ordre par nom : Camille Aubert, Cédric Payet, Laurent Deberti,
+        // Lucas Sylvain, Nathalie Lefèvre, Pierre-Yves Nallet. La capture ne
+        // fixe pas d'ordre significatif ; SwiftData n'en garantit aucun pour
+        // une relation « à plusieurs », d'où ce tri stable.
+        #expect(presence.initials == ["CA", "CP", "LD", "LS", "NL", "PY"])
     }
 
     @Test("Un refus fait tomber le pourcentage sans changer le total")

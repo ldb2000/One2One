@@ -11,7 +11,11 @@ struct MeetingKPI: Equatable, Sendable {
         var present: Int = 0
         var total: Int = 0
         var percent: Int = 0
-        /// Initiales des participants, dans l'ordre d'ajout, pour `AvatarStack`.
+        /// Noms complets des participants, **triés**, pour l'infobulle des
+        /// pastilles.
+        var names: [String] = []
+        /// Initiales des participants, dans le même ordre que `names`, pour
+        /// `AvatarStack`.
         var initials: [String] = []
     }
 
@@ -87,13 +91,21 @@ enum MeetingKPIBuilder {
 
     @MainActor
     private static func presence(meeting: Meeting) -> MeetingKPI.Presence {
-        let statuts = meeting.participants.map { meeting.participantStatus(for: $0) }
+        // Ordre **par nom**, et non l'ordre du tableau de relation : SwiftData
+        // ne garantit pas l'ordre d'une relation « à plusieurs », et une pile
+        // d'avatars qui se réordonne d'un rendu à l'autre est un défaut visible
+        // — la capture, elle, ne fixe pas d'ordre significatif.
+        let ordonnes = meeting.participants.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        let statuts = ordonnes.map { meeting.participantStatus(for: $0) }
         let stats = PresenceStats.compute(statuses: statuts)
         return MeetingKPI.Presence(
             present: stats.present,
             total: stats.total,
             percent: stats.percent,
-            initials: meeting.participants.map { initials($0.name) }
+            names: ordonnes.map(\.name),
+            initials: ordonnes.map { initials($0.name) }
         )
     }
 

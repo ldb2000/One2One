@@ -24,8 +24,6 @@ struct MeetingKPIBand: View {
     static let riskDot: CGFloat = 7
 
     let kpi: MeetingKPI
-    /// Noms complets des participants, pour l'infobulle des pastilles.
-    let participantNames: [String]
     /// Clic sur la carte Présence → gestion des participants (spec §2.3).
     let onManageParticipants: () -> Void
     /// Clic sur la carte Décisions → filtre les notes sur `kind:'decision'`.
@@ -54,7 +52,10 @@ struct MeetingKPIBand: View {
             if kpi.presence.total == 0 {
                 invite(.presence)
             } else {
-                AvatarStack(noms: participantNames,
+                // Les noms viennent du calcul, pas de la relation : c'est lui
+                // qui fixe l'ordre, et les infobulles doivent suivre les
+                // pastilles.
+                AvatarStack(noms: kpi.presence.names,
                             initiales: MeetingKPIBuilder.initials)
             }
         }
@@ -210,7 +211,9 @@ struct MeetingKPIBand: View {
     MeetingKPIBand(
         kpi: MeetingKPI(
             presence: .init(present: 6, total: 6, percent: 100,
-                            initials: ["PY", "NL", "CP", "LS", "CA", "LD"]),
+                            names: ["Camille Aubert", "Cédric Payet", "Laurent Deberti",
+                                    "Lucas Sylvain", "Nathalie Lefèvre", "Pierre-Yves Nallet"],
+                            initials: ["CA", "CP", "LD", "LS", "NL", "PY"]),
             actions: .init(total: 12, unassigned: 9, done: 3, doneFraction: 0.25),
             decisions: .init(count: 3, budgetCount: 1,
                              first: "Migration finalisée par le partenaire"),
@@ -218,8 +221,6 @@ struct MeetingKPIBand: View {
                          levels: [.critique, .critique, .eleve, .modere, .faible],
                          overflow: 0)
         ),
-        participantNames: ["Pierre-Yves Nallet", "Nathalie Lefèvre", "Cédric Payet",
-                           "Lucas Sylvain", "Camille Aubert", "Laurent Deberti"],
         onManageParticipants: {}, onFilterDecisions: {}, onOpenRisks: {}
     )
     .padding(14)
@@ -228,7 +229,7 @@ struct MeetingKPIBand: View {
 }
 
 #Preview("Bandeau KPI — tout à zéro") {
-    MeetingKPIBand(kpi: MeetingKPI(), participantNames: [],
+    MeetingKPIBand(kpi: MeetingKPI(),
                    onManageParticipants: {}, onFilterDecisions: {}, onOpenRisks: {})
         .padding(14)
         .frame(width: 1080)

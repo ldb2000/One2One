@@ -42,7 +42,6 @@ struct MeetingSpaceView<Notes: View, Transcript: View, Actions: View>: View {
             if screen.mode != .prepare {
                 MeetingKPIBand(
                     kpi: kpi,
-                    participantNames: meeting.participants.map(\.name),
                     onManageParticipants: onManageParticipants,
                     onFilterDecisions: onFilterDecisions,
                     onOpenRisks: onOpenRisks
