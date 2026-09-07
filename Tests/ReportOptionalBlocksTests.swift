@@ -273,4 +273,40 @@ struct ReportOptionalBlocksTests {
         ProjectCardSuggestions.recordAcceptance(maj, in: reunion)
         #expect(reunion.acceptedProjectUpdates.count == 1)
     }
+
+    // MARK: - Invites de l'espace Rapport
+
+    @Test("Un bloc vide devient une invite, pas une section vide")
+    func invitesPlutotQueSectionsVides() throws {
+        let ctx = try contexte()
+        let reunion = Meeting(title: "Revue", date: Date())
+        reunion.summary = "Contenu."
+        ctx.insert(reunion)
+        try ctx.save()
+
+        let invites = MeetingReportSpaceInvites.forMeeting(reunion)
+        #expect(invites.contains(ReportOptionalBlocks.pinnedEmptyInvite))
+        #expect(invites.contains(ReportOptionalBlocks.capturesEmptyInvite))
+
+        let piece = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/Chiffrage.xlsx"))
+        piece.pinnedAtT = 252
+        piece.meeting = reunion
+        ctx.insert(piece)
+        try ctx.save()
+        #expect(!MeetingReportSpaceInvites.forMeeting(reunion)
+            .contains(ReportOptionalBlocks.pinnedEmptyInvite))
+    }
+
+    @Test("Case décochée, on n'invite pas à épingler")
+    func pasDInviteQuandLaCaseEstDecochee() throws {
+        let ctx = try contexte()
+        let reunion = Meeting(title: "Revue", date: Date())
+        var options = reunion.reportAttachmentOptions
+        options.attachPinned = false
+        reunion.reportAttachmentOptions = options
+        ctx.insert(reunion)
+        try ctx.save()
+        #expect(!MeetingReportSpaceInvites.forMeeting(reunion)
+            .contains(ReportOptionalBlocks.pinnedEmptyInvite))
+    }
 }

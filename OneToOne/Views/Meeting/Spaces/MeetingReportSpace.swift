@@ -1,6 +1,29 @@
 import SwiftUI
 import SwiftData
 
+/// Les invites des blocs optionnels vides (plan §5, lot 15 n° 6 : « afficher
+/// une invite plutôt qu'une section vide »).
+///
+/// Séparées de la vue pour être vérifiables sans monter SwiftUI, et parce que
+/// la règle est du métier : ce n'est pas au rendu de décider quand un manque
+/// mérite d'être signalé. Une case décochée n'invite à rien — l'utilisateur a
+/// déjà répondu à la question.
+@MainActor
+enum MeetingReportSpaceInvites {
+
+    static func forMeeting(_ meeting: Meeting) -> [String] {
+        var invites: [String] = []
+        let options = meeting.reportAttachmentOptions
+        if options.attachPinned, ReportOptionalBlocks.pinnedPieces(of: meeting).isEmpty {
+            invites.append(ReportOptionalBlocks.pinnedEmptyInvite)
+        }
+        if ReportOptionalBlocks.captures(of: meeting).isEmpty {
+            invites.append(ReportOptionalBlocks.capturesEmptyInvite)
+        }
+        return invites
+    }
+}
+
 /// L'espace `Rapport` (spec §1.1). Extrait tel quel de `MeetingView` : aperçu
 /// HTML, éditeur markdown, éditeur de décisions, en-tête du rapport et renvoi
 /// vers le panneau d'actions.
@@ -52,6 +75,7 @@ struct MeetingReportSpace<Toolbar: View>: View {
                 toolbar
                     .padding(.horizontal, 8).padding(.top, 4)
                 Rectangle().fill(One2OneToken.hair).frame(height: 1)
+                invitesBlocsVides
                 if editMode {
                     editeur
                 } else {
@@ -65,6 +89,24 @@ struct MeetingReportSpace<Toolbar: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+        }
+    }
+
+    /// Les blocs optionnels que le rapport ne peut pas remplir, dits une fois
+    /// en tête plutôt qu'en sections vides dans le document.
+    @ViewBuilder
+    private var invitesBlocsVides: some View {
+        let invites = MeetingReportSpaceInvites.forMeeting(meeting)
+        if !invites.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(invites, id: \.self) { invite in
+                    Text(invite)
+                        .font(.plexSans(11.5))
+                        .foregroundStyle(One2OneToken.inkMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).padding(.vertical, 6)
         }
     }
 
