@@ -20,7 +20,11 @@ struct AudioWaveformEditor: View {
     @Binding var markerSeconds: Double
     let mode: AudioWaveformEditorMode
 
-    @StateObject private var player = AudioPlayerService()
+    /// Lecteur **de la réunion**, fourni par sa tête de lecture (lot 0B).
+    /// La frise avait auparavant son propre `AudioPlayerService` : deux
+    /// positions indépendantes pour un même fichier, dont aucune ne pouvait
+    /// suivre un clic sur un timecode de note.
+    @ObservedObject var player: AudioPlayerService
     @State private var peaks: [Float] = []
     @State private var isLoadingPeaks = true
     @State private var totalDuration: Double = 0

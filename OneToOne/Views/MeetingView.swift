@@ -80,7 +80,13 @@ struct MeetingView: View {
     @StateObject private var recorder = AudioRecorderService.shared
     @ObservedObject private var liveService = LiveTranscriptionService.shared
     @StateObject private var stt = TranscriptionService.shared
-    @StateObject private var player = AudioPlayerService()
+    /// Tête de lecture **partagée** de la réunion (lot 0B) : c'est elle qui
+    /// possède l'unique `AudioPlayerService`, désormais commun à la barre du
+    /// haut, à la barre d'enregistrement et à la frise de l'éditeur audio.
+    /// Résolue par le registre à chaque lecture : il retient l'instance, la
+    /// vue n'a rien à retenir.
+    private var playhead: MeetingPlayhead { MeetingPlayhead.for(meeting: meeting) }
+    private var player: AudioPlayerService { playhead.player }
     @StateObject private var captureService = ScreenCaptureService()
 
     // MARK: - Local state
@@ -616,6 +622,7 @@ struct MeetingView: View {
                 return
             }
         }
+        playhead.beginPlayback()
         player.toggle()
     }
 
@@ -1559,6 +1566,15 @@ struct MeetingView: View {
                 // et dans l'onglet « Transcription » — pas de bascule d'onglet.
             }
             meeting.wavFilePath = url.path
+            // Origine de l'axe temps partagé (notes horodatées, captures,
+            // frise). Posée une seule fois : un enregistrement complémentaire
+            // ne doit pas décaler les notes déjà prises.
+            if meeting.recordingStartedAt == nil {
+                meeting.recordingStartedAt = Date()
+            }
+            if let startedAt = meeting.recordingStartedAt {
+                playhead.beginRecording(startedAt: startedAt)
+            }
             saveContext()
         } catch {
             recorder.lastError = error.localizedDescription
@@ -2493,7 +2509,8 @@ struct MeetingView: View {
         }
         let wasPlaying = player.isPlaying
         if wasPlaying { player.pause() }
-        player.seek(to: seg.startSeconds)
+        playhead.beginPlayback()
+        playhead.seek(to: seg.startSeconds)
         player.play()
         print("[MeetingView] play segment from \(seg.startSeconds)s (was playing: \(wasPlaying))")
     }
