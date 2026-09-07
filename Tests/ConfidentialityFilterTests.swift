@@ -253,4 +253,47 @@ struct NotePriveeHorsDesCinqFluxTests {
         #expect(prompt.contains(Self.textePartage))
         #expect(!prompt.contains(Self.textePrive))
     }
+
+    /// **Sixième flux, ajouté au lot 10** : le récap 1:1. C'est la seule sortie
+    /// de texte nouvelle depuis le lot 0B, et elle doit obéir à la même règle.
+    @Test("6. Le récap 1:1, pour les trois audiences de sortie")
+    func fluxRecap1a1() throws {
+        let (reunion, context) = try makeReunion()
+        let escaladee = MeetingNote(t: 400, text: "A remonter aux RH", visibility: .escalated)
+        escaladee.meeting = reunion
+        context.insert(escaladee)
+
+        let personne = Collaborator(name: "Awa Diallo")
+        context.insert(personne)
+        reunion.participants.append(personne)
+        try context.save()
+        let fil = try #require(OneOnOneThreadStore.thread(for: reunion, in: context))
+        let maintenant = reunion.date
+
+        // Mon propre récap : tout, y compris ce que j'ai gardé pour moi.
+        let mien = OneOnOneRecapBuilder.markdown(for: reunion, thread: fil,
+                                                  audience: .me, now: maintenant)
+        #expect(mien.contains(Self.textePrive))
+
+        // Les trois audiences de sortie : la ligne privée ne sort jamais.
+        for audience in [Audience.collaborator, .manager, .hr] {
+            let recap = OneOnOneRecapBuilder.markdown(for: reunion, thread: fil,
+                                                       audience: audience, now: maintenant)
+            #expect(!recap.contains(Self.textePrive),
+                    "une note privée ne doit pas sortir vers \(audience.rawValue)")
+        }
+
+        // D9 : la ligne escaladée est hors du récap collaborateur, et dans
+        // l'export « Escalade » — qui, lui, ne porte pas les lignes partagées.
+        let versCollab = OneOnOneRecapBuilder.markdown(for: reunion, thread: fil,
+                                                        audience: .collaborator, now: maintenant)
+        #expect(!versCollab.contains("A remonter aux RH"))
+        #expect(versCollab.contains(Self.textePartage))
+
+        let versRH = OneOnOneRecapBuilder.markdown(for: reunion, thread: fil,
+                                                    audience: OneOnOneConfidentiality.escalationAudience,
+                                                    now: maintenant)
+        #expect(versRH.contains("A remonter aux RH"))
+        #expect(!versRH.contains(Self.textePartage))
+    }
 }
