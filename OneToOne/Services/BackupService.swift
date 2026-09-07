@@ -13,6 +13,20 @@ import AppKit
 /// qu'aucune propriété ne réclame, elles restent donc lisibles. Ces tableaux
 /// étaient vides dans toutes les bases connues.
 final class BackupService {
+
+    /// Le magasin des planches d'atelier — injectable pour que les tests
+    /// n'écrivent pas dans le `recordings/` de production. Optionnel plutôt
+    /// que défaut `.shared`, dont l'évaluation chez l'appelant n'est pas isolée
+    /// sur l'acteur principal.
+    private let boardStoreOverride: BoardStore?
+
+    init(boardStore: BoardStore? = nil) {
+        self.boardStoreOverride = boardStore
+    }
+
+    @MainActor
+    private var boardStore: BoardStore { boardStoreOverride ?? .shared }
+
     struct BackupPayload: Codable {
         var exportedAt: Date
         var settings: SettingsDTO
@@ -175,6 +189,22 @@ final class BackupService {
         var createdAt: Date
     }
 
+    /// Une planche d'atelier. Scène et vignette voyagent **en base64** dans le
+    /// JSON, comme `SlideCaptureDTO` : un backup doit rester un seul fichier
+    /// auto-contenu, et les chemins d'origine ne survivent pas à une
+    /// restauration sur une autre machine.
+    struct BoardDTO: Codable {
+        var stableID: UUID
+        var index: Int
+        var title: String
+        var modeRaw: String
+        var t: Double
+        var authorNames: String
+        var updatedAt: Date
+        var sceneJSON: String?
+        var thumbData: Data?
+    }
+
     struct MeetingDTO: Codable {
         var stableID: UUID
         var title: String
@@ -202,6 +232,8 @@ final class BackupService {
         var participantNames: [String]
         var attachments: [MeetingAttachmentDTO]
         var transcriptChunks: [TranscriptChunkDTO]
+        /// Optionnel pour rester lisible par les backups antérieurs au lot 16.
+        var boards: [BoardDTO]?
     }
 
 
@@ -412,7 +444,24 @@ final class BackupService {
                                 sourceType: chunk.sourceType,
                                 createdAt: chunk.createdAt
                             )
-                        }
+                        },
+                    boards: meeting.boards.map { board in
+                        let identifiant = board.ensuredStableID
+                        let reunion = meeting.ensuredStableID
+                        return BoardDTO(
+                            stableID: identifiant,
+                            index: board.index,
+                            title: board.title,
+                            modeRaw: board.modeRaw,
+                            t: board.t,
+                            authorNames: board.authorNames,
+                            updatedAt: board.updatedAt,
+                            sceneJSON: boardStore.loadScene(board: board,
+                                                                   meetingStableID: reunion),
+                            thumbData: boardStore.thumbnailData(board: board,
+                                                                       meetingStableID: reunion)
+                        )
+                    }
                 )
             },
             managerReportItems: managerReportItems.map { item in
@@ -730,6 +779,28 @@ final class BackupService {
                 chunk.createdAt = chunkDTO.createdAt
                 chunk.meeting = meeting
                 context.insert(chunk)
+            }
+
+            // Les planches : la ligne d'abord, puis la scène et la vignette
+            // réécrites dans `recordings/<uuid>/boards/` de la réunion
+            // restaurée — et non à leur chemin d'origine, qui n'existe plus.
+            for boardDTO in meetingDTO.boards ?? [] {
+                let board = Board(index: boardDTO.index,
+                                  title: boardDTO.title,
+                                  mode: BoardMode(rawValue: boardDTO.modeRaw) ?? .sketch,
+                                  t: boardDTO.t,
+                                  authorNames: boardDTO.authorNames,
+                                  updatedAt: boardDTO.updatedAt)
+                board.stableID = boardDTO.stableID
+                context.insert(board)
+                board.meeting = meeting
+                if let scene = boardDTO.sceneJSON {
+                    _ = try? boardStore.save(scene: scene, board: board, meeting: meeting)
+                    board.updatedAt = boardDTO.updatedAt
+                }
+                if let vignette = boardDTO.thumbData {
+                    try? boardStore.saveThumbnail(vignette, board: board, meeting: meeting)
+                }
             }
         }
 

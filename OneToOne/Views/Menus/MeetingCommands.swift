@@ -116,6 +116,18 @@ struct MeetingCommands: Commands {
                 )
             }
             .disabled(demoContext == nil)
+
+            // Lot 16 : la réunion d'atelier de `6a-atelier-planche.png`
+            // (4 participants, 4 planches). Même idempotence.
+            Button("Charger le jeu de démonstration (atelier)") {
+                guard let demoContext else { return }
+                let reunion = RefonteDemoSeed.seedWorkshop(in: demoContext)
+                QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
+                    meetingID: reunion.ensuredStableID,
+                    autoStartRecording: false
+                )
+            }
+            .disabled(demoContext == nil)
         }
     }
 

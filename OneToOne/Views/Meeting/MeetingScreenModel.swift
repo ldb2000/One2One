@@ -381,4 +381,11 @@ final class MeetingScreenModel {
     /// rouvrant la réunion masquerait la colonne principale sans que personne
     /// ne l'ait demandé.
     var showProjectCard = false
+
+    // MARK: - Lot 16 : atelier
+
+    /// État de l'écran d'atelier : planche active, palette, et **l'unique
+    /// `WKWebView` de la réunion**. Une propriété, pas un `@State` de vue : la
+    /// page ne doit pas être rechargée à chaque redémontage.
+    var workshop = WorkshopState()
 }

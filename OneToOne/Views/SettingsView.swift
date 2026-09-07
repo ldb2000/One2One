@@ -513,8 +513,22 @@ struct SettingsView: View {
                 }
 
                 GroupBox("Capture d'écran") {
-                    captureBlacklistSection
-                        .padding(8)
+                    VStack(alignment: .leading, spacing: 10) {
+                        // Lot 16 — le type Atelier est expérimental : le moteur
+                        // de planches embarque 3,5 Mo dans un `WKWebView` et les
+                        // modes Schéma et Manuscrit ne sont complets qu'au lot 17.
+                        Toggle("Type Atelier (planches locales, expérimental)", isOn: Binding(
+                            get: { settings.workshopEnabled },
+                            set: { settings.workshopEnabled = $0; try? context.save() }
+                        ))
+                        Text("Ajoute le type de réunion « Atelier » : la séance produit des planches (croquis, schéma, manuscrit) stockées dans le dossier de la réunion, sans aucun service externe.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Divider()
+                        captureBlacklistSection
+                    }
+                    .padding(8)
                 }
 
                 GroupBox("Maintenance") {
