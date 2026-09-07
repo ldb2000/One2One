@@ -19,6 +19,9 @@ enum MeetingKind: String, CaseIterable, Identifiable {
     case manager  = "manager"    // 1:1 avec le manager direct
     /// Note libre — une réunion avec soi-même : ni audio, ni transcription, ni rapport.
     case note     = "note"
+    /// Atelier : la séance produit des planches (croquis, schéma, manuscrit)
+    /// plutôt qu'un ordre du jour. Cf. spec §7.
+    case workshop = "workshop"
 
     var id: String { rawValue }
 
@@ -30,6 +33,7 @@ enum MeetingKind: String, CaseIterable, Identifiable {
         case .work:     return "Architecture"
         case .manager:  return "1:1 Manager"
         case .note:     return "Note"
+        case .workshop: return "Atelier"
         }
     }
 
@@ -41,6 +45,7 @@ enum MeetingKind: String, CaseIterable, Identifiable {
         case .work:     return "briefcase.fill"
         case .manager:  return "person.crop.square.filled.and.at.rectangle"
         case .note:     return "note.text"
+        case .workshop: return "rectangle.3.group.bubble"
         }
     }
 }

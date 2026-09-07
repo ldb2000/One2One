@@ -422,7 +422,7 @@ enum HistoryContextBuilder {
             }
         case .manager:
             return all.filter { $0.kind == .manager }
-        case .global, .work, .note:
+        case .global, .work, .note, .workshop:
             return sameTitleMeetings(as: meeting, among: all)
         }
     }

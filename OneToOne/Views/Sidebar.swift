@@ -1013,6 +1013,8 @@ struct DashboardView: View {
             return ("Globale", MeetingKind.global.sfSymbol)
         case .note:
             return ("Note", MeetingKind.note.sfSymbol)
+        case .workshop:
+            return ("Atelier", MeetingKind.workshop.sfSymbol)
         }
     }
 

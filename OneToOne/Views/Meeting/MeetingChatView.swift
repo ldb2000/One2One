@@ -250,7 +250,7 @@ struct MeetingChatView: View {
         case .oneToOne, .manager:
             scope.collaboratorPID = meeting.participants.first?.persistentModelID
             guard scope.collaboratorPID != nil else { return "" }
-        case .global, .work, .note:
+        case .global, .work, .note, .workshop:
             return ""
         }
 
