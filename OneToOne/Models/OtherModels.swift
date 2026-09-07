@@ -70,6 +70,16 @@ final class Collaborator {
     @Relationship(inverse: \Project.technicalArchitect)
     var projectsAsArchitect: [Project] = []
 
+    /// Date d'arrivée dans l'équipe, pour l'ancienneté de la carte personne du
+    /// 1:1 (`dans l'équipe depuis 3 ans`, capture 2a — lot 11).
+    ///
+    /// **Optionnelle, et le reste** : les fiches existantes ne la portent pas,
+    /// aucun import ne la remplit, et `OneOnOneSeniority.label` n'affiche rien
+    /// sans elle. Une valeur par défaut (la date de création de la fiche)
+    /// afficherait sur chaque carte une ancienneté qui n'est pas celle de la
+    /// personne mais celle de la base.
+    var joinedAt: Date?
+
     init(name: String, role: String = "Architecte", isArchived: Bool = false) {
         self.stableID = UUID()
         self.name = name
