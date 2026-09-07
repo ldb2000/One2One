@@ -169,5 +169,16 @@ enum ReportThemeCSS {
       font-family: "SF Mono", "Menlo", monospace;
       font-size: 12px;
     }
+    /* Timecode cliquable (chaîne de citation, spec §8). Souligné pointillé
+       plutôt que plein : dans une liste de notes horodatées, un soulignement
+       franc sur chaque ligne ferait une grille. */
+    a.tc {
+      font-family: "SF Mono", "Menlo", monospace;
+      font-size: 11px;
+      color: #1b4dad;
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(27, 77, 173, .4);
+      white-space: nowrap;
+    }
     """
 }
