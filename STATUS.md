@@ -2,6 +2,137 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 9 : fiche projet en panneau (3b) (2026-09-07)
+
+Branche `feat/refonte-lot-9-fiche-projet`, **empilée** sur
+`feat/refonte-lot-1b-espaces-kpi-assistant` (PR #22), elle-même sur `…-lot-1a-chrome` (#21),
+sur 0B (#20) et 0A (#19). La PR **contient donc les lots 0A, 0B, 1a et 1b** tant que #19–#22
+ne sont pas fusionnées. Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-9-fiche-projet.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert (1 880 tests), recette
+visuelle faite, PR ouverte, non mergée.**
+
+### Ce qui est en place
+
+**La fiche projet s'ouvre en panneau de 430 px** (spec §4.3, capture `3b-fiche-projet.png`) —
+`ProjectCardPanel` glisse depuis la droite, ombre `-8px 0 24px rgba(0,0,0,.07)`, la colonne
+principale passe à **55 % d'opacité et reste consultable** (aucun `allowsHitTesting(false)` :
+la spec insiste). `Esc` — via `onExitCommand`, pour que la touche marche depuis un champ — et
+`✕` ferment, avec confirmation si le brouillon porte des modifications. Contenu : en-tête
+(`FICHE PROJET`, nom, `P25_110 · 9 réunions · dernière mise à jour aujourd'hui par vous`,
+bascule `Édition`, `✕`), cartes `STATUT` (menu à trois valeurs, point coloré) et
+`BUDGET CONSOMMÉ` (barre teintée par ratio), `JALONS` avec ligne d'ajout pointillée
+`Nouveau jalon… date · statut`, `PÉRIMÈTRE & CONTEXTE` avec chips de thèmes et chip `＋`,
+`RISQUES · n` et `INTERLOCUTEURS` sur deux colonnes, encart de l'assistant, pied
+`Visible par toute l'équipe projet…` + `Annuler` / `Enregistrer`.
+
+**`ProjectDetailView` n'est pas remplacée** : elle reste l'écran projet complet (portfolio,
+mails, pièces jointes). Le panneau est un point d'édition contextuel, ouvert en réunion.
+
+**Trois règles pures, testées avant toute vue** (programme §7) —
+`ProjectCardBuilder` (mapping `Green/Yellow/Red/Unknown` ↔ `ok/watch/risk`, budget
+`budgetCons / (budgetRev ?? budgetInit)`, teinte par ratio, tri des jalons, jalon en retard
+rendu « bloqué », risques `ProjectAlert` du plus grave au plus faible) ;
+`ProjectCardDraft` (instantané éditable détaché du modèle, réconciliation par identité) ;
+`ProjectCardSuggestions` (prompt, JSON strict, acceptation ligne à ligne).
+
+**Critère d'acceptation n° 4 du chantier 3 tenu structurellement.** « Aucune modification de
+la fiche projet n'est écrite sans validation humaine explicite » : le panneau édite une
+`struct`, et `Project` ne bouge qu'à l'appel de `ProjectCardDraft.apply(to:in:)`. Deux tests
+le prouvent — `draftEditsNeverReachTheModel` modifie le brouillon de bout en bout et vérifie
+que le modèle n'a rien vu ; `suggestingAndAcceptingNeverWriteToTheModel` fait la même chose
+côté assistant, avec un `AIClientProtocol` factice.
+
+**L'assistant propose, il n'écrit jamais.** Trois garde-fous : rien n'est **demandé** sans
+endpoint IA configuré ni sans matière (pas d'encart, pas d'erreur, pas d'appel — deux tests
+comptent les appels du client factice) ; rien n'est **levé** (JSON malformé, champ inconnu,
+réponse bavarde, client en échec → liste vide) ; rien n'est **deviné** (un jalon inconnu ou un
+montant illisible fait rendre `false` à `accept`, et la feuille garde la ligne avec la mention
+« Proposition inapplicable en l'état »). La feuille `ProjectCardSuggestionsSheet` montre le
+diff `ENREGISTRÉ → PROPOSÉ` avec la citation, `Accepter` / `Ignorer` par ligne.
+
+**Enregistrement optimiste** — `UndoBanner` est une primitive du système de conception, pas un
+bout de la fiche : les lots 6, 10 et 15 en auront besoin, et une seconde bannière écrite
+ailleurs finirait par ne plus durer cinq secondes. `task` plutôt qu'un `Timer`, pour que
+l'expiration ne survienne jamais après la fermeture de la vue.
+
+**Reprise en préparation** — le pied du panneau promet « reprise automatiquement en
+préparation de la prochaine réunion » : le mode Préparer tient la promesse avec une section
+`FICHE PROJET` (statut, budget, jalons proches, risques élevés) et un lien `Ouvrir la fiche`.
+`MeetingPrepareBuilder` gagne trois sorties pures ; la fenêtre est de **trente jours**, et
+**tous** les jalons bloqués remontent, datés ou non — un jalon bloqué sans date est
+précisément celui qu'on oublie.
+
+**Déclencheur** — le segment projet du fil d'Ariane gagne le chevron `⌄` de la capture et
+ouvre la fiche au lieu de la feuille « Détails », qui reste dans le menu `⋯`.
+`MeetingScreenModel.showProjectCard` est ajouté **en fin de type**, **non mémorisé** : un
+panneau ouvert est un geste, pas un réglage.
+
+**Outillage de recette** — `Scripts/recette-app.sh` empaquette un `.app` depuis
+`.build/<config>` du dossier courant sans incrémenter le numéro de build ni installer quoi que
+ce soit ; `Scripts/recette-run.sh` le lance avec un `HOME` jetable, `--seed` posant
+`ONETOONE_SEED_DEMO=1` que `ContentView` lit au démarrage pour semer et ouvrir la réunion de
+démonstration sans clic de menu. Documenté au §7 étape 6 du plan directeur — qui rejoint le
+suivi git au passage, il en était encore absent alors que tous les lots s'y réfèrent.
+
+### Créés
+
+`OneToOne/Services/Project/` : `ProjectCardBuilder`, `ProjectCardDraft`,
+`ProjectCardSuggestions`. `OneToOne/Views/Project/` : `ProjectCardPanel`,
+`ProjectCardSuggestionsSheet`. `OneToOne/Views/DesignSystem/Components/Refonte/UndoBanner`.
+`Scripts/recette-app.sh`, `Scripts/recette-run.sh`.
+`Tests/` : `ProjectCardBuilderTests`, `ProjectCardDraftTests`, `ProjectCardSuggestionsTests`,
+`ProjectCardPanelTests`, `UndoBannerTests`.
+
+### Modifiés
+
+`One2OneTokens` (+4 jetons : ombre de panneau ×3, dépoli 55 %), `MeetingScreenModel`
+(`showProjectCard`, en fin de type), `MeetingTopChromeBar` (segment projet seulement),
+`MeetingView` (`onOpenProject` + overlay en fin de `mainPanel`), `MeetingSpaceView` (une ligne :
+le rappel d'ouverture), `MeetingPrepareSpace` (section `FICHE PROJET`),
+`MeetingPrepareBuilder`, `RefonteDemoSeed` (budget 40 000 / 61 000, périmètre, 4 thèmes,
+3 jalons, 3 interlocuteurs), `OneToOneApp` (lecture de `ONETOONE_SEED_DEMO`).
+**Aucune nouvelle version de schéma, aucune colonne ajoutée, aucune dépendance nouvelle.**
+
+### Tests
+
+`swift build` propre. `swift test` complet **vert** : **1 039 XCTest (1 ignoré, 0 échec) +
+841 Swift Testing en 120 suites (0 échec)**, soit **1 880 tests** contre 1 801 après le lot 1
+(**+79, +5 suites**), aucune régression.
+
+Nouvelles suites : `ProjectCardBuilderTests` (19), `ProjectCardSuggestionsTests` (23),
+`ProjectCardDraftTests` (10), `ProjectCardPanelTests` (9), `UndoBannerTests` (5). Ajouts :
+3 dans `MeetingScreenModelTests`, 4 dans `MeetingPrepareBuilderTests`, 3 dans
+`RefonteDemoSeedTests`, 2 dans `One2OneTokensTests`, 1 dans `MeetingTopChromeBarTests`.
+Aucun test ne touche MLX, le réseau ni une session graphique.
+
+### Écarts assumés
+
+1. **La barre de budget de la capture est orange, la règle chiffrée dit vert.**
+   40 000 / 61 000 = 65,6 %, et la spec écrit deux fois « < 70 % ok ». C'est la **règle** qui
+   est implémentée, pas la teinte de la maquette : elle est chiffrée, l'autre non. Le test
+   `budgetOfCapture` fige ce choix et le commente. À trancher si la maquette fait foi ici.
+2. **L'overlay du panneau vit dans `MeetingView.mainPanel`, pas dans `MeetingSpaceView`.**
+   Le périmètre du lot désignait `MeetingSpaceView` ; mais celle-ci ne connaît que l'espace
+   Réunion, et la spec §4.3 veut que le panneau se superpose à **n'importe quel** espace. Le
+   diff dans `MeetingView` est de six lignes, hors des zones des lots 2 et 3
+   (`transcriptView`, `ActionsPanel`).
+3. **Budget éditable en champs inline, là où la maquette montre du texte statique** malgré la
+   bascule `Édition` active. Le périmètre du lot demandait explicitement « en édition, champs
+   inline » ; les champs sont stylés à plat pour rester proches de la capture.
+4. **Réordonner les jalons passe par deux chevrons, pas par un glisser-déposer.** Le panneau
+   n'est pas une `List` : un `onMove` maison sur une `VStack` réclamerait un suivi de geste
+   dont le comportement dériverait du reste de l'application.
+5. **Un avertissement de compilation nouveau, de classe préexistante** :
+   `ProjectCardSuggestions.swift:239` capture `AppSettings` (non `Sendable`) dans la closure
+   `@Sendable` du timeout. C'est **exactement** le motif de `MeetingTagSuggester`, qui porte le
+   même avertissement depuis son écriture ; le supprimer demanderait de changer la signature de
+   `AIClientProtocol`, partagée par quatre services — hors périmètre d'un lot.
+6. **Le `＋` des thèmes n'a pas de disposition en flot** : `LazyVGrid` adaptatif au lieu d'un
+   `FlowLayout`. Les thèmes d'une fiche tiennent sur une à deux lignes ; un layout maison
+   serait à écrire pour tout le programme, pas pour ce lot.
+
 ## Refonte de l'écran de réunion — lot 10 : socle 1:1 (2026-09-07)
 
 Deux branches empilées sur le lot 3, plan du lot dans
