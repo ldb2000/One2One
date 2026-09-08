@@ -16,3 +16,4 @@
 | Planche | tableau blanc d'un atelier, stocké sur disque | `Board` |
 | Fiche projet | jalons, interlocuteurs, budget, périmètre d'un projet | `Project`, `ProjectMilestone`, `ProjectContact` |
 | Espace / mode | Réunion, Rapport, Ressources × Préparer, En séance, Relire | `MeetingScreenModel` |
+| Séance | le mode « En séance » d'une réunion : prise de notes et capture pendant qu'elle a lieu | `MeetingScreenModel.Mode.live` |

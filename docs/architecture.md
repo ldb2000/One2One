@@ -729,6 +729,7 @@ d'une déclaration de raccourci (`MeetingShortcutsTests`, `Tests/RefonteFinition
   `ReviewStateTests`, `MeetingShortcutsTests` (table §1.4),
   `Tests/RefonteFinitionsTests.swift`, `MeetingMenuActionsTests`, `SessionNoChromeTests`,
   `ActionsRailGroupingTests`, `CaptureStripModelTests`, `BoardStoreTests`,
+  `ManagerPrepRoutingTests` (routage espace × mode × type, `MeetingSpaceRouting`),
   `OneOnOneBackupTests`, `SchemaV3MigrationTests`, `RefonteVague5IntegrationTests`.
 - **Documentation** : `Tests/DocumentationTests.swift` — vérifie contre `docs/documentation.yml`
   que tout chemin, symbole ou ADR cité dans un document tenu existe dans les sources.
@@ -778,20 +779,16 @@ bloquants**) :
   table, l'ancien mécanisme reste **lu** en Historique. `ReportOptionalBlocks.escape`
   duplique `ReportHTMLBuilder.escape`.
 - **Atteignable mais orphelin** — `ActionsViewMode.kanban` / `.sticky` (encore servis par
-  `ActionsListView`, hors écran de réunion), `CaptureSource.region` (dans le modèle, jamais
-  écrit). Le popover MeetingSlidesPopover qu'évoquait cette liste a depuis été retiré.
+  `ActionsListView`, hors écran de réunion), `CaptureSource.region` (présent dans le modèle,
+  jamais écrit).
 - **`Commitment.linkedAction` n'est pas sauvegardée** — `ActionTask` n'expose pas d'identité
   stable et relier par titre créerait de faux liens entre deux actions homonymes.
 - **Recette visuelle** — les douze écrans restent à recapturer avec le binaire de la pile
-  complète (lot 19b) ; les décisions produit en attente sont listées dans `STATUS.md`.
+  complète (lot 19b) ; les décisions produit en attente sont recensées par
+  [`docs/adr/2026-09-08-refonte-ecran-reunion-bilan.md`](./adr/2026-09-08-refonte-ecran-reunion-bilan.md).
 
 > Ces observations servent de feuille de route ; le détail du code mort retiré et des
 > simplifications appliquées/différées est consigné dans [`cleanup-report.md`](./cleanup-report.md).
 > Le bilan de la refonte, décision par décision, est dans
 > [`adr/2026-09-08-refonte-ecran-reunion-bilan.md`](./adr/2026-09-08-refonte-ecran-reunion-bilan.md).
 
----
-
-*Dernière mise à jour : 2026-09-08 (lot 19c : §5, §8, §9, §12 et §13 remis en accord avec le
-code — le document annonçait encore `SchemaV1`, le modèle « Interview », sept onglets de réunion
-et 42 fichiers de tests).*
