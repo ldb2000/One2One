@@ -117,6 +117,10 @@ final class BackupService {
         var ditLink: String?
         var entityName: String?
         var attachments: [ProjectAttachmentDTO]
+        /// Optionnels pour rester lisibles par les sauvegardes antérieures au
+        /// lot 19c (fiche projet du lot 9).
+        var milestones: [ProjectMilestoneDTO]?
+        var contacts: [ProjectContactDTO]?
     }
 
     struct CollaboratorDTO: Codable {
@@ -126,6 +130,9 @@ final class BackupService {
         var photoPath: String
         var photoBookmarkData: Data?
         var photoData: Data?
+        /// Les fils 1:1 de ce collaborateur (lot 10, décision D3). Optionnel
+        /// pour rester lisible par les sauvegardes antérieures au lot 19c.
+        var threads: [OneOnOneThreadDTO]?
     }
 
 
@@ -205,6 +212,118 @@ final class BackupService {
         var thumbData: Data?
     }
 
+    // MARK: - Les tables du lot 0B (SchemaV3)
+    //
+    // Neuf tables ont été ajoutées au lot 0B ; seule `Board` était exportée
+    // (lot 16, avec son dossier `boards/`). Les huit autres sortaient d'une
+    // sauvegarde silencieusement vides. Toutes les clés porteuses
+    // (`timedNotes`, `milestones`, `contacts`, `threads`) sont **optionnelles**
+    // pour qu'une sauvegarde antérieure se relise, comme `boards` l'a fait.
+
+    /// Note horodatée (spec §1.3, décision D1). Les trois colonnes de la
+    /// chaîne de citation sont plates, comme dans le modèle.
+    struct MeetingNoteDTO: Codable {
+        var stableID: UUID?
+        var t: Double
+        var text: String
+        var kindRaw: String
+        /// Le niveau de confidentialité **doit** faire l'aller-retour : le
+        /// perdre republierait une note privée dans le prochain récap.
+        var visibilityRaw: String
+        var authorSideRaw: String
+        var sourceKindRaw: String?
+        var sourceStableID: UUID?
+        var sourceT: Double?
+        var orderIndex: Int
+        var createdAt: Date
+    }
+
+    struct ProjectMilestoneDTO: Codable {
+        var stableID: UUID?
+        var label: String
+        var dueAt: Date?
+        var stateRaw: String
+        var order: Int
+        var createdAt: Date
+    }
+
+    struct ProjectContactDTO: Codable {
+        var stableID: UUID?
+        var name: String
+        var role: String
+        var order: Int
+        var createdAt: Date
+    }
+
+    /// Engagement d'un fil 1:1. `promisedInMeetingID` est le `stableID` de la
+    /// réunion où il a été pris : une référence, recousue après la
+    /// restauration des réunions.
+    ///
+    /// `linkedAction` n'est **pas** portée : `ActionTask` n'expose pas
+    /// d'identité stable, et relier par titre créerait de faux liens entre
+    /// deux actions homonymes. Le lien se reconstruit à l'usage ; la dette est
+    /// notée dans l'ADR de bilan.
+    struct CommitmentDTO: Codable {
+        var stableID: UUID?
+        var text: String
+        var ownerSideRaw: String
+        var dueAt: Date?
+        var stateRaw: String
+        var promisedAt: Date
+        var settledAt: Date?
+        var deferralCount: Int
+        var visibilityRaw: String
+        var blocksOther: Bool
+        var linkedDecisionIndex: Int?
+        var promisedInMeetingID: UUID?
+    }
+
+    struct OneOnOneAgendaItemDTO: Codable {
+        var stableID: UUID?
+        var text: String
+        var addedBySideRaw: String
+        var order: Int
+        var stateRaw: String
+        var visibilityRaw: String
+        var kindRaw: String
+        var requestStatusRaw: String
+        var requestedAt: Date?
+        var remindedCount: Int
+        var createdAt: Date
+        var meetingID: UUID?
+        var deferredToMeetingID: UUID?
+    }
+
+    struct MoodEntryDTO: Codable {
+        var stableID: UUID?
+        var value: Int
+        var recordedAt: Date
+        var meetingID: UUID?
+    }
+
+    struct OneOnOneObjectiveDTO: Codable {
+        var stableID: UUID?
+        var label: String
+        var progress: Int
+        var reviewAt: Date?
+        var order: Int
+        var createdAt: Date
+    }
+
+    /// Le fil d'un collaborateur, avec ses quatre tables filles. Elles sont
+    /// nichées et non listées à plat : le fil les possède en cascade, et un
+    /// engagement sans son fil n'a pas de sens.
+    struct OneOnOneThreadDTO: Codable {
+        var stableID: UUID?
+        var myRoleRaw: String
+        var cadenceDays: Int
+        var createdAt: Date
+        var commitments: [CommitmentDTO]
+        var agendaItems: [OneOnOneAgendaItemDTO]
+        var moodEntries: [MoodEntryDTO]
+        var objectives: [OneOnOneObjectiveDTO]
+    }
+
     struct MeetingDTO: Codable {
         var stableID: UUID
         var title: String
@@ -234,6 +353,9 @@ final class BackupService {
         var transcriptChunks: [TranscriptChunkDTO]
         /// Optionnel pour rester lisible par les backups antérieurs au lot 16.
         var boards: [BoardDTO]?
+        /// Les notes horodatées de la réunion (lot 0B, D1). Optionnel pour la
+        /// même raison, à partir du lot 19c.
+        var timedNotes: [MeetingNoteDTO]?
     }
 
 
@@ -293,6 +415,15 @@ final class BackupService {
         managerMeetingReports: [ManagerMeetingReport] = [],
         managerActions: [ActionTask] = []
     ) throws -> Data {
+        // Les fils 1:1 ne sont pas une relation de `Collaborator` (le lot 10
+        // les a voulus interrogeables, pas possédés) : aucun appelant ne peut
+        // donc les passer. On les lit dans le contexte des collaborateurs
+        // exportés — un fetch, pas un par collaborateur.
+        let tousLesFils: [OneOnOneThread] = {
+            guard let contexte = collaborators.compactMap(\.modelContext).first else { return [] }
+            return (try? contexte.fetch(FetchDescriptor<OneOnOneThread>())) ?? []
+        }()
+
         let payload = BackupPayload(
             exportedAt: Date(),
             settings: SettingsDTO(
@@ -365,17 +496,41 @@ final class BackupService {
                             comment: $0.comment,
                             importedAt: $0.importedAt
                         )
-                    }
+                    },
+                    milestones: project.milestones
+                        .sorted { $0.order < $1.order }
+                        .map { jalon in
+                            ProjectMilestoneDTO(
+                                stableID: jalon.ensuredStableID,
+                                label: jalon.label,
+                                dueAt: jalon.dueAt,
+                                stateRaw: jalon.stateRaw,
+                                order: jalon.order,
+                                createdAt: jalon.createdAt
+                            )
+                        },
+                    contacts: project.contacts
+                        .sorted { $0.order < $1.order }
+                        .map { contact in
+                            ProjectContactDTO(
+                                stableID: contact.ensuredStableID,
+                                name: contact.name,
+                                role: contact.role,
+                                order: contact.order,
+                                createdAt: contact.createdAt
+                            )
+                        }
                 )
             },
-            collaborators: collaborators.map {
+            collaborators: collaborators.map { collaborateur in
                 CollaboratorDTO(
-                    name: $0.name,
-                    role: $0.role,
-                    isArchived: $0.isArchived,
-                    photoPath: $0.photoPath,
-                    photoBookmarkData: $0.photoBookmarkData,
-                    photoData: fileData(fromPath: $0.photoPath)
+                    name: collaborateur.name,
+                    role: collaborateur.role,
+                    isArchived: collaborateur.isArchived,
+                    photoPath: collaborateur.photoPath,
+                    photoBookmarkData: collaborateur.photoBookmarkData,
+                    photoData: fileData(fromPath: collaborateur.photoPath),
+                    threads: Self.threadDTOs(for: collaborateur, among: tousLesFils)
                 )
             },
             meetings: meetings.map { meeting in
@@ -461,7 +616,24 @@ final class BackupService {
                             thumbData: boardStore.thumbnailData(board: board,
                                                                        meetingStableID: reunion)
                         )
-                    }
+                    },
+                    timedNotes: meeting.timedNotes
+                        .sorted { ($0.t, $0.orderIndex) < ($1.t, $1.orderIndex) }
+                        .map { note in
+                            MeetingNoteDTO(
+                                stableID: note.ensuredStableID,
+                                t: note.t,
+                                text: note.text,
+                                kindRaw: note.kindRaw,
+                                visibilityRaw: note.visibilityRaw,
+                                authorSideRaw: note.authorSideRaw,
+                                sourceKindRaw: note.sourceKindRaw,
+                                sourceStableID: note.sourceStableID,
+                                sourceT: note.sourceT,
+                                orderIndex: note.orderIndex,
+                                createdAt: note.createdAt
+                            )
+                        }
                 )
             },
             managerReportItems: managerReportItems.map { item in
@@ -521,6 +693,87 @@ final class BackupService {
     /// Restaure un backup JSON dans le `ModelContext` : supprime d'abord toutes
     /// les données existantes, puis reconstruit le graphe d'objets et réécrit les
     /// fichiers embarqués sur disque. Opération destructive (remplace tout).
+    ///
+    /// (La fabrique des DTO de fil vit juste au-dessus de `restore`.)
+
+    /// Les fils d'un collaborateur, parmi ceux du contexte.
+    ///
+    /// Comparaison par `persistentModelID` : deux objets SwiftData du même
+    /// contexte partagent leur identité, et `===` sur des classes `@Model`
+    /// proxifiées n'est pas fiable.
+    private static func threadDTOs(for collaborateur: Collaborator,
+                                   among fils: [OneOnOneThread]) -> [OneOnOneThreadDTO]? {
+        let siens = fils.filter {
+            $0.collaborator?.persistentModelID == collaborateur.persistentModelID
+        }
+        guard !siens.isEmpty else { return nil }
+        return siens.map { fil in
+            OneOnOneThreadDTO(
+                stableID: fil.ensuredStableID,
+                myRoleRaw: fil.myRoleRaw,
+                cadenceDays: fil.cadenceDays,
+                createdAt: fil.createdAt,
+                commitments: fil.commitments.map { engagement in
+                    CommitmentDTO(
+                        stableID: engagement.ensuredStableID,
+                        text: engagement.text,
+                        ownerSideRaw: engagement.ownerSideRaw,
+                        dueAt: engagement.dueAt,
+                        stateRaw: engagement.stateRaw,
+                        promisedAt: engagement.promisedAt,
+                        settledAt: engagement.settledAt,
+                        deferralCount: engagement.deferralCount,
+                        visibilityRaw: engagement.visibilityRaw,
+                        blocksOther: engagement.blocksOther,
+                        linkedDecisionIndex: engagement.linkedDecisionIndex,
+                        promisedInMeetingID: engagement.promisedInMeeting?.ensuredStableID
+                    )
+                },
+                agendaItems: fil.agendaItems
+                    .sorted { $0.order < $1.order }
+                    .map { sujet in
+                        OneOnOneAgendaItemDTO(
+                            stableID: sujet.ensuredStableID,
+                            text: sujet.text,
+                            addedBySideRaw: sujet.addedBySideRaw,
+                            order: sujet.order,
+                            stateRaw: sujet.stateRaw,
+                            visibilityRaw: sujet.visibilityRaw,
+                            kindRaw: sujet.kindRaw,
+                            requestStatusRaw: sujet.requestStatusRaw,
+                            requestedAt: sujet.requestedAt,
+                            remindedCount: sujet.remindedCount,
+                            createdAt: sujet.createdAt,
+                            meetingID: sujet.meeting?.ensuredStableID,
+                            deferredToMeetingID: sujet.deferredToMeeting?.ensuredStableID
+                        )
+                    },
+                moodEntries: fil.moodEntries
+                    .sorted { $0.recordedAt < $1.recordedAt }
+                    .map { humeur in
+                        MoodEntryDTO(
+                            stableID: humeur.ensuredStableID,
+                            value: humeur.value,
+                            recordedAt: humeur.recordedAt,
+                            meetingID: humeur.meeting?.ensuredStableID
+                        )
+                    },
+                objectives: fil.objectives
+                    .sorted { $0.order < $1.order }
+                    .map { objectif in
+                        OneOnOneObjectiveDTO(
+                            stableID: objectif.ensuredStableID,
+                            label: objectif.label,
+                            progress: objectif.progress,
+                            reviewAt: objectif.reviewAt,
+                            order: objectif.order,
+                            createdAt: objectif.createdAt
+                        )
+                    }
+            )
+        }
+    }
+
     @MainActor
     func restore(from data: Data, into context: ModelContext) throws {
         let decoder = JSONDecoder()
@@ -659,6 +912,27 @@ final class BackupService {
                 attachment.bookmarkData = attachmentDTO.bookmarkData
                 attachment.project = project
                 context.insert(attachment)
+            }
+
+            // Fiche projet (lot 9) : jalons et interlocuteurs.
+            for jalonDTO in projectDTO.milestones ?? [] {
+                let jalon = ProjectMilestone(label: jalonDTO.label,
+                                             dueAt: jalonDTO.dueAt,
+                                             order: jalonDTO.order)
+                jalon.stableID = jalonDTO.stableID
+                jalon.stateRaw = jalonDTO.stateRaw
+                jalon.createdAt = jalonDTO.createdAt
+                context.insert(jalon)
+                jalon.project = project
+            }
+            for contactDTO in projectDTO.contacts ?? [] {
+                let contact = ProjectContact(name: contactDTO.name,
+                                             role: contactDTO.role,
+                                             order: contactDTO.order)
+                contact.stableID = contactDTO.stableID
+                contact.createdAt = contactDTO.createdAt
+                context.insert(contact)
+                contact.project = project
             }
 
             projectMap[project.code] = project
@@ -802,6 +1076,25 @@ final class BackupService {
                     try? boardStore.saveThumbnail(vignette, board: board, meeting: meeting)
                 }
             }
+
+            // Les notes horodatées (lot 0B, D1). `visibilityRaw` est réécrit
+            // tel quel : une note privée doit rester privée après un
+            // aller-retour, c'est la raison d'être de la table.
+            for noteDTO in meetingDTO.timedNotes ?? [] {
+                let note = MeetingNote(t: noteDTO.t,
+                                       text: noteDTO.text,
+                                       orderIndex: noteDTO.orderIndex,
+                                       createdAt: noteDTO.createdAt)
+                note.stableID = noteDTO.stableID
+                note.kindRaw = noteDTO.kindRaw
+                note.visibilityRaw = noteDTO.visibilityRaw
+                note.authorSideRaw = noteDTO.authorSideRaw
+                note.sourceKindRaw = noteDTO.sourceKindRaw
+                note.sourceStableID = noteDTO.sourceStableID
+                note.sourceT = noteDTO.sourceT
+                context.insert(note)
+                note.meeting = meeting
+            }
         }
 
         // Build a stableID → Meeting map so we can rebind manager item relations.
@@ -811,6 +1104,82 @@ final class BackupService {
                 meeting.stableID.map { ($0, meeting) }
             }
         )
+
+        // ------------------------------------------------------------------
+        // Les fils 1:1 (lot 10, D3). Restaurés ici et non dans la boucle des
+        // collaborateurs : leurs engagements, sujets et humeurs référencent des
+        // **réunions**, et `meetingByStableID` n'existe qu'une fois toutes les
+        // réunions insérées.
+        // ------------------------------------------------------------------
+        for collaboratorDTO in payload.collaborators {
+            guard let fils = collaboratorDTO.threads, !fils.isEmpty,
+                  let collaborateur = collaboratorMap[collaboratorDTO.name] else { continue }
+            for filDTO in fils {
+                let fil = OneOnOneThread(collaborator: collaborateur,
+                                         cadenceDays: filDTO.cadenceDays,
+                                         createdAt: filDTO.createdAt)
+                fil.stableID = filDTO.stableID
+                fil.myRoleRaw = filDTO.myRoleRaw
+                context.insert(fil)
+                fil.collaborator = collaborateur
+
+                for engagementDTO in filDTO.commitments {
+                    let engagement = Commitment(text: engagementDTO.text)
+                    engagement.stableID = engagementDTO.stableID
+                    engagement.ownerSideRaw = engagementDTO.ownerSideRaw
+                    engagement.dueAt = engagementDTO.dueAt
+                    engagement.stateRaw = engagementDTO.stateRaw
+                    engagement.promisedAt = engagementDTO.promisedAt
+                    engagement.settledAt = engagementDTO.settledAt
+                    engagement.deferralCount = engagementDTO.deferralCount
+                    engagement.visibilityRaw = engagementDTO.visibilityRaw
+                    engagement.blocksOther = engagementDTO.blocksOther
+                    engagement.linkedDecisionIndex = engagementDTO.linkedDecisionIndex
+                    engagement.promisedInMeeting = engagementDTO.promisedInMeetingID
+                        .flatMap { meetingByStableID[$0] }
+                    context.insert(engagement)
+                    engagement.thread = fil
+                }
+
+                for sujetDTO in filDTO.agendaItems {
+                    let sujet = OneOnOneAgendaItem(text: sujetDTO.text, order: sujetDTO.order)
+                    sujet.stableID = sujetDTO.stableID
+                    sujet.addedBySideRaw = sujetDTO.addedBySideRaw
+                    sujet.stateRaw = sujetDTO.stateRaw
+                    sujet.visibilityRaw = sujetDTO.visibilityRaw
+                    sujet.kindRaw = sujetDTO.kindRaw
+                    sujet.requestStatusRaw = sujetDTO.requestStatusRaw
+                    sujet.requestedAt = sujetDTO.requestedAt
+                    sujet.remindedCount = sujetDTO.remindedCount
+                    sujet.createdAt = sujetDTO.createdAt
+                    sujet.meeting = sujetDTO.meetingID.flatMap { meetingByStableID[$0] }
+                    sujet.deferredToMeeting = sujetDTO.deferredToMeetingID
+                        .flatMap { meetingByStableID[$0] }
+                    context.insert(sujet)
+                    sujet.thread = fil
+                }
+
+                for humeurDTO in filDTO.moodEntries {
+                    let humeur = MoodEntry(value: humeurDTO.value,
+                                           recordedAt: humeurDTO.recordedAt)
+                    humeur.stableID = humeurDTO.stableID
+                    humeur.meeting = humeurDTO.meetingID.flatMap { meetingByStableID[$0] }
+                    context.insert(humeur)
+                    humeur.thread = fil
+                }
+
+                for objectifDTO in filDTO.objectives {
+                    let objectif = OneOnOneObjective(label: objectifDTO.label,
+                                                     progress: objectifDTO.progress,
+                                                     order: objectifDTO.order)
+                    objectif.stableID = objectifDTO.stableID
+                    objectif.reviewAt = objectifDTO.reviewAt
+                    objectif.createdAt = objectifDTO.createdAt
+                    context.insert(objectif)
+                    objectif.thread = fil
+                }
+            }
+        }
 
         for itemDTO in payload.managerReportItems ?? [] {
             let item = ManagerReportItem(
