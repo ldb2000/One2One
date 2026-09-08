@@ -99,14 +99,14 @@ struct MeetingScreenModelTests {
         model.attach(meetingID: UUID())
         model.newTaskTitle = "Chiffrer la fin de migration Marine"
         model.newTaskUrgent = true
-        model.newTaskPomodoros = 2
+        model.newTaskEffortMinutes = 45
 
         model.mode = .review
         model.space = .report
 
         #expect(model.newTaskTitle == "Chiffrer la fin de migration Marine")
         #expect(model.newTaskUrgent)
-        #expect(model.newTaskPomodoros == 2)
+        #expect(model.newTaskEffortMinutes == 45)
     }
 
     @Test("Le brouillon d'action n'est pas mémorisé d'une ouverture à l'autre")
@@ -134,7 +134,6 @@ struct MeetingScreenModelTests {
         model.showNewTaskDueDate = true
         model.newTaskUrgent = true
         model.newTaskImportant = true
-        model.newTaskPomodoros = 4
         model.newTaskAudience = .collaborateur
 
         model.resetActionDraft()
@@ -144,7 +143,6 @@ struct MeetingScreenModelTests {
         #expect(model.showNewTaskDueDate == false)
         #expect(model.newTaskUrgent == false)
         #expect(model.newTaskImportant == false)
-        #expect(model.newTaskPomodoros == 0)
         #expect(model.newTaskAudience == .collaborateur)
     }
 
@@ -214,14 +212,14 @@ struct MeetingScreenModelTests {
         model.attach(meetingID: UUID())
         model.newTaskTitle = "Chiffrer la fin de migration"
         model.newTaskUrgent = true
-        model.newTaskPomodoros = 2
+        model.newTaskEffortMinutes = 45
         model.pendingNoteText = "40k déjà payés, rien de finalisé"
 
         for mode in [MeetingScreenModel.Mode.prepare, .live, .review, .prepare] {
             model.mode = mode
             #expect(model.newTaskTitle == "Chiffrer la fin de migration")
             #expect(model.newTaskUrgent)
-            #expect(model.newTaskPomodoros == 2)
+            #expect(model.newTaskEffortMinutes == 45)
             #expect(model.pendingNoteText == "40k déjà payés, rien de finalisé")
         }
         // Même exigence en changeant d'espace : le composeur de note reste
