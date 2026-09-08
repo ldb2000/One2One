@@ -78,7 +78,8 @@ final class PyannoteDiarizer {
         onProgress?(0.0, "Préparation de l'audio")
         guard let pipeline else {
             throw NSError(domain: "PyannoteDiarizer", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "pipeline unavailable"])
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "Le moteur de diarisation n'a pas pu être chargé. Vérifiez que les modèles pyannote sont installés."])
         }
 
         // Run AVAudio load + MLX compute OFF the main actor — they're CPU-heavy
@@ -169,16 +170,24 @@ final class PyannoteDiarizer {
             sampleRate: 16000,
             channels: 1,
             interleaved: false
-        ) else { throw NSError(domain: "PyannoteDiarizer", code: 2) }
+        ) else {
+            throw NSError(domain: "PyannoteDiarizer", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Format audio 16 kHz mono impossible à décrire — la diarisation ne peut pas démarrer."
+            ])
+        }
 
         guard let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
-            throw NSError(domain: "PyannoteDiarizer", code: 4)
+            throw NSError(domain: "PyannoteDiarizer", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "Conversion audio impossible depuis ce format — la diarisation ne peut pas démarrer."
+            ])
         }
         let frameCapacity = AVAudioFrameCount(file.length)
         guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: frameCapacity),
               let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat,
                                             frameCapacity: AVAudioFrameCount(Double(frameCapacity) * 16000.0 / inFormat.sampleRate) + 1024) else {
-            throw NSError(domain: "PyannoteDiarizer", code: 3)
+            throw NSError(domain: "PyannoteDiarizer", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Allocation du tampon audio impossible : le fichier est trop long pour la mémoire disponible."
+            ])
         }
         try file.read(into: inBuf)
 

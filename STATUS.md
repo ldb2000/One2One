@@ -2,6 +2,61 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## « Transcrire + Rapport 1:1 » échouait sur un audio importé (2026-09-08)
+
+Branche `fix/refonte-transcrire-import-mp4`, sur `fix/refonte-retours-usage-1`.
+`swift build` propre ; `swift test` complet vert : **2 036 Swift Testing / 256 suites +
+1 057 XCTest (1 ignoré) = 3 093**, exit 0. La base a été mesurée sur la même machine plutôt que
+reprise de la section précédente : `origin/fix/refonte-retours-usage-1` rend **3 073**
+(2 026 / 254 + 1 047), et non les 3 069 annoncés — soit **+20 tests, +2 suites**, aucun retiré.
+
+**Le symptôme.** Sur la 1:1 « Marc JACQUIER » du 8 septembre, l'alerte « The operation could
+not be completed », et en base un WAV de 3 062 526 octets avec `durationSeconds = 0`.
+
+**La cause racine, et elle n'est pas où on la cherchait.** `AVAudioFile(forWriting:)` inscrit
+les tailles de chunk RIFF **à sa fermeture** (son `deinit`). Le WAV de cette réunion n'a jamais
+été fermé : l'en-tête annonce `RIFF = 4 088` et `data = 0` alors que 3 Mo d'échantillons sont
+sur le disque (`afinfo` : « estimated duration: 0.000000 sec, audio bytes: 0 »). Un tel fichier
+s'ouvre **sans erreur** par `AVAudioFile(forReading:)` — avec `length == 0`. D'où les deux faits :
+
+1. la durée persistée valait `Int((0 / 16 000).rounded())`, donc zéro ;
+2. `AudioImportService.prepareForPipeline` voyait un `.wav` non lisible, le prenait pour un
+   conteneur exotique et l'envoyait à `AVAssetExportSession`, qui échoue en
+   **`AVFoundationErrorDomain −11800`** — dont la description localisée *est*
+   « The operation could not be completed ». Reproduit à l'identique en test avant correctif.
+
+**Le correctif, à la racine.** `AudioImportService` **répare** l'en-tête au lieu d'échouer :
+`wavLayout(header:)` lit la table des chunks (fonction pure, testée octet par octet),
+`repairedWavCopy(of:in:)` recopie le fichier avec les tailles recalculées depuis la taille réelle
+(source jamais modifiée en place, trame partielle finale exclue). Sur le WAV réel de
+l'utilisateur : **95,58 s récupérées**. `pipelineDurationSeconds(of:)` lève désormais un message
+français plutôt que de rendre zéro — le couple « chemin audio valide + durée nulle » est ce qui
+renvoyait `Transcrire + Rapport` dans l'export AVFoundation, et il privait aussi la frise de son
+échelle (les vues savaient déjà relire `meeting.durationSeconds`, il fallait juste qu'elle soit
+juste).
+
+**Les messages.** Toute erreur d'AVFoundation est réenveloppée en français avec le nom du fichier
+(`undecodableError`). Les quatre `NSError(domain: "PyannoteDiarizer", code:)` **sans `userInfo`**
+produisaient exactement le même libellé opaque sur la première jambe du bouton : ils sont rédigés.
+Les deux `return` muets de `startReportFlow` / `generateReport` posent un message au lieu de rien.
+`Tests/RefonteErreursLisiblesTests.swift` refuse par lecture des sources un `enum … : Error` sans
+`LocalizedError` et un `NSError(domain:code:)` sans description sous `Services/{Meeting,Live,
+Capture,OneOnOne,Workshop,Report}` — garde-fou vérifié en y injectant les deux fautes.
+
+**Ce que l'enquête a écarté.** Le flux rapport lui-même n'était pas en cause : sur une 1:1 sans
+fil `OneOnOneThread`, sans participant et sans collaborateur, tout le chemin est gardé
+(`ReportOptionalBlocks.commitments` → `[]`, `OneOnOneThreadStore.thread(for:)` → `nil`, aucune
+création en base pendant une génération). C'est désormais couvert par
+`Tests/RapportUnAUnSansFilTests.swift`.
+
+### Prochaine action
+
+L'origine du fichier non fermé reste ouverte : aucun rapport de plantage le 8 septembre, et le
+journal montre une instance **hors bundle** (« Pas de bundle .app ») à 08:11 — donc sans
+`default.metallib`. Un enregistrement laissé ouvert par une instance arrêtée sans `stop()` produit
+le même fichier. À trancher : faut-il finaliser le WAV du recorder sur
+`applicationWillTerminate` ? La réparation rend le cas non destructif, elle ne l'empêche pas.
+
 ## Retours d'usage sur la refonte — fenêtre principale, rail, menus stylés (2026-09-08)
 
 Branche `fix/refonte-retours-usage-1`, sur `fix/refonte-recette-finale`. Trois défauts relevés

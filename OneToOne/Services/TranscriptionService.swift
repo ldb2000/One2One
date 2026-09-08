@@ -124,8 +124,11 @@ final class TranscriptionService: ObservableObject {
             sttLog.warning("audio non-WAV (\(audioURL.lastPathComponent, privacy: .public)) — transcodé en \(prepared.lastPathComponent, privacy: .public)")
             if meeting.wavFilePath == audioURL.path {
                 meeting.wavFilePath = prepared.path
-                if let f = try? AVAudioFile(forReading: prepared) {
-                    meeting.durationSeconds = Int((Double(f.length) / f.processingFormat.sampleRate).rounded())
+                // Répare aussi une durée nulle héritée d'un en-tête WAV jamais
+                // finalisé : `prepareForPipeline` vient d'en rendre une copie
+                // relisible (cf. `AudioImportService.repairedWavCopy`).
+                if let secondes = try? AudioImportService.pipelineDurationSeconds(of: prepared) {
+                    meeting.durationSeconds = secondes
                 }
                 try? context.save()
             }
