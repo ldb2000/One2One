@@ -13,11 +13,25 @@ struct AvatarStack: View {
 
     let noms: [String]
     let maxVisibles: Int
+    /// Comment abréger un nom en pastille. Par défaut `Avatar.initiales(de:)`,
+    /// qui prend la première lettre du premier mot et celle du dernier
+    /// (« Pierre-Yves Nallet » → `PN`).
+    ///
+    /// Le bandeau d'indicateurs passe `MeetingKPIBuilder.initials`, qui traite
+    /// le tiret comme un séparateur de mots (« Pierre-Yves Nallet » → `PY`) :
+    /// c'est ce que montre la capture `1a-cockpit.png`, et une pastille d'une
+    /// seule lettre y est illisible. Les deux règles coexistent plutôt que
+    /// l'une n'écrase l'autre, parce que les écrans non refondus emploient
+    /// `Avatar` partout ailleurs.
+    let initiales: (String) -> String
     @Environment(\.one2OneTheme) private var theme
 
-    init(noms: [String], maxVisibles: Int = 6) {
+    init(noms: [String],
+         maxVisibles: Int = 6,
+         initiales: @escaping (String) -> String = Avatar.initiales(de:)) {
         self.noms = noms
         self.maxVisibles = maxVisibles
+        self.initiales = initiales
     }
 
     /// Répartition entre pastilles affichées et surplus compté.
@@ -34,7 +48,7 @@ struct AvatarStack: View {
         let mise = Self.layout(noms: noms, maxVisibles: maxVisibles)
         HStack(spacing: Self.chevauchement) {
             ForEach(Array(mise.visibles.enumerated()), id: \.offset) { _, nom in
-                pastille(Avatar.initiales(de: nom), aide: nom)
+                pastille(initiales(nom), aide: nom)
             }
             if mise.surplus > 0 {
                 pastille("+\(mise.surplus)", aide: "\(mise.surplus) participants de plus")

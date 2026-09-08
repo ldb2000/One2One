@@ -142,6 +142,34 @@ enum ManagerReportService {
         return try context.fetch(descriptor)
     }
 
+    /// Le texte du champ source désigné par `field`.
+    ///
+    /// Les cinq noms de champ (`mergedTranscript`, `transcript`, `summary`,
+    /// `notes`, `liveNotes`) sont persistés dans `ManagerReportItem.sourceField`
+    /// depuis toujours : ils ne se renomment pas, et cette table est la seule
+    /// qui les traduise en texte. Vivait dans `MeetingView` ; elle appartient
+    /// ici, à côté de `itemsHighlightingSource` qui prend le même `field`.
+    static func sourceText(field: String, in meeting: Meeting) -> String {
+        switch field {
+        case "mergedTranscript": return meeting.mergedTranscript
+        case "transcript":       return meeting.rawTranscript
+        case "summary":          return meeting.summary
+        case "notes":            return meeting.notes
+        case "liveNotes":        return meeting.liveNotes
+        default:                 return ""
+        }
+    }
+
+    /// Les plages à surligner dans un champ source : celles des extraits déjà
+    /// versés au rapport manager.
+    static func highlightedRanges(meeting: Meeting,
+                                  field: String,
+                                  in context: ModelContext) -> [NSRange] {
+        itemsHighlightingSource(meeting: meeting, field: field, in: context).map {
+            NSRange(location: $0.sourceRangeStart, length: $0.sourceRangeLength)
+        }
+    }
+
     static func itemsHighlightingSource(meeting: Meeting, field: String, in context: ModelContext) -> [ManagerReportItem] {
         let target = meeting.persistentModelID
         let descriptor = FetchDescriptor<ManagerReportItem>(

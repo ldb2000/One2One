@@ -80,6 +80,20 @@ final class MeetingScreenModel {
     /// (cf. `MeetingView.applyActionDraftDefaultsIfNeeded`).
     var didApplyActionDefaults = false
 
+    // MARK: - Brouillon de note
+
+    /// Le texte en cours dans le composeur de note, pas encore validé.
+    ///
+    /// Vit ici et non dans la vue parce que le critère d'acceptation n° 4 du
+    /// chantier 1 l'exige : « le passage Préparer → En séance → Relire ne perd
+    /// aucune saisie en cours ». Un `@State` de la colonne de notes serait
+    /// détruit avec elle au changement de mode ; le brouillon d'action, lui,
+    /// avait déjà déménagé pour la même raison.
+    ///
+    /// Non persisté : une note à moitié écrite est une intention du moment,
+    /// pas une donnée. Le composeur qui la consomme arrive au lot 2.
+    var pendingNoteText = ""
+
     // MARK: - Bascules d'affichage
 
     /// Affiche les locuteurs dans la transcription.

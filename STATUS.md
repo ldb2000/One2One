@@ -2,6 +2,173 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 1 : barre du haut, trois espaces, modes, bandeau KPI (2026-09-07)
+
+Deux branches **empilées**, parties de l'intégration de 0A + 0B sur `origin/master`
+(`a3c44f2`) : `feat/refonte-lot-1a-chrome` (PR #21) puis
+`feat/refonte-lot-1b-espaces-kpi-assistant` (PR #22), basée sur la première. Le plan du lot
+comptait 15 tâches, au-delà du seuil de 14 fixé par le programme §7 — d'où la coupe, prévue
+par le programme lui-même. Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-1-espaces.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert, deux PR ouvertes, non
+mergées.** Les PR **incluent 0A et 0B** tant que #19 et #20 ne sont pas fusionnées.
+
+### Ce qui est en place
+
+**Barre du haut sur une ligne de 38 px** (spec §2.1) — `MeetingTopChromeBar` réécrit : fond
+`bg/app`, **teinté `accent/oneonone bg` (`#f4f1f6`) pour les deux types 1:1**, bordure basse
+`border/card`, padding horizontal 14. Fil d'Ariane dont le segment projet est bordé
+`accent/action` et cliquable (il ouvrira la fiche au lot 9 ; il ouvre la feuille Détails d'ici
+là), titre `flex:1` en ellipsis éditable, **pilule audio `ink/1` de rayon 16** (`▶ mm:ss /
+mm:ss`, marqueur, `✂`, et **saisie directe de timecode** au clic sur le temps —
+`TimecodeInput.parse` refuse plutôt que de deviner), état de capture, menu de type portant
+le `+` de création, menu de template, bouton `Rapport ✓ (m:ss)` en `accent/report`, `⋯` de
+28 px. La **deuxième ligne disparaît** : `MeetingTagEditor` est dans la feuille Détails.
+
+**Barre d'espaces de 34 px** (spec §2.2) — `MeetingSpacesBar` remplace `MeetingTabsUnderline`
+(**supprimé**, 93 l.) : `Réunion · Rapport ✓ · Ressources n doc`, soulignement 2 px
+`accent/report`, `SegmentedMode` des trois modes, date `4 sept. 2026 · 9:15`.
+
+**Bandeau des quatre indicateurs** (spec §2.3) — `MeetingKPIBuilder` (pur, 11 tests) calcule
+présence, actions, décisions et risques ; `MeetingKPIBand` rend quatre cartes 10 × 12 avec
+`gap 10`, libellé mono, valeur 20/600 et micro-visualisation (`AvatarStack`, `ProgressBar`,
+première décision en ellipsis, points de risque teintés par niveau + `+n`). **Un compteur à
+zéro remplace la micro-visualisation par une invite**, jamais une carte vide.
+
+**Trois espaces × trois modes** — `MeetingSpaceRouting` remplace
+`MeetingView.visibleSections(for:)` ; `MeetingSpaceView` aiguille sur le mode : En séance =
+carte notes ↔ transcription à parts égales (`1fr 1px 1fr`), Relire = résumé + décisions +
+actions avec transcription repliée (**D0** : c'est le poste de pilotage 1c), Préparer =
+actions reportées + derniers points du projet + alertes + rail réduit de 330 px + composeur
+de sujet (`MeetingPrepTab` réutilisé). `OverviewDashboard` et `MeetingChatView` **ne sont
+plus instanciés** (D8 ; leur code n'est retiré qu'au lot 19).
+
+**Assistant comme surface** (spec §1.1) — `MeetingAssistantDock` en pied de l'espace Réunion :
+`✳` + placeholder de la capture + deux suggestions (la seconde datée de la réunion précédente
+du même projet) + `⌘K`. `MeetingAssistantPanel` héberge `MeetingChatView` **telle quelle**.
+
+**La tête de lecture appartient au modèle d'écran** — reprend l'**écart n° 1 du lot 0B** : le
+registre statique LRU de `MeetingPlayhead` disparaît, un `MeetingScreenModel` possède la tête
+de lecture de sa réunion, `AudioEditorSheet` la reçoit en paramètre.
+
+**`⌘K` et `⌘M`** (spec §1.4) — deux items dans `MeetingMenuActions` / `MeetingCommands`.
+`⌘K` est **toujours** actif (c'est une surface, pas un onglet) ; `⌘M` exige un axe temps,
+donc jamais sur une note.
+
+**Jeu de démonstration** — `RefonteDemoSeed` sème la réunion de `1a-cockpit.png` (projet
+`S/D — Modernisation CI/CD`, 6 participants, 12 actions dont 9 non assignées, 3 décisions dont
+une de budget, 5 risques dont 2 critiques, notes et transcription, 23:24), idempotent et
+réutilisant un homonyme existant. Commande « Charger le jeu de démonstration (refonte) » dans
+le menu **Réunion**.
+
+### Créés
+
+`OneToOne/Views/Meeting/Spaces/` : `MeetingSpacesBar`, `MeetingKPIBand`, `MeetingSpaceView`,
+`MeetingLiveSpace`, `MeetingReviewSpace`, `MeetingPrepareSpace`, `MeetingResourcesSpace`,
+`MeetingReportSpace`, `MeetingAssistantDock` (+ `MeetingAssistantPanel`), `MeetingEmptyInvite`,
+`MeetingSlidesPopover`, `MeetingPrepBadge`.
+`OneToOne/Services/Meeting/` : `MeetingKPIBuilder`, `MeetingSpaceLayout`, `MeetingSpaceRouting`,
+`MeetingPrepareBuilder`, `MeetingCalendarSync`. `OneToOne/Services/Debug/RefonteDemoSeed.swift`.
+
+### `MeetingView.swift`
+
+**2 948 → 2 553 lignes (−395)**. Sont sortis : `MeetingSection` et `visibleSections(for:)`,
+`sectionContent`, `documentsView`, `attachmentRow`, `icon(for:)`, `reportView` +
+`decisionsEditor` + `metaHeaderEditor` + `actionsNotice`, `slidesPopover`, le badge de
+préparation, l'import et la resynchronisation calendrier, et les deux accesseurs du rapport
+manager (`fieldText`, `managerHighlightedRanges`, désormais
+`ManagerReportService.sourceText` / `.highlightedRanges`). Les fonctions de transcription et
+de locuteurs y restent, comme prévu pour ce lot.
+
+### Tests
+
+`swift build` propre, aucun avertissement nouveau. `swift test` complet **vert** :
+**1 039 XCTest (1 ignoré, 0 échec) + 762 Swift Testing en 115 suites (0 échec)**, soit
+**1 801 tests** contre 1 701 après 0A + 0B (**+100, +13 suites**), aucune régression.
+
+Nouvelles suites : `MeetingSpaceLayoutTests` (7), `MeetingSpacesBarTests` (5),
+`MeetingTopChromeBarTests` (5), `MeetingEmptyInviteTests` (4), `MeetingKPIBuilderTests` (11),
+`MeetingAssistantDockTests` (4), `MeetingPrepareBuilderTests` (5), `RefonteDemoSeedTests` (4).
+Ajouts : 5 tests dans `MeetingScreenModelTests`, 2 dans `MeetingMenuActionsTests`, 2 dans
+`MeetingPlayheadTests` (les 2 du registre statique remplacés).
+`MeetingVisibleSectionsTests` est **adapté** au nouveau routage, pas supprimé.
+
+Critères d'acceptation du chantier 1 :
+
+- **n° 1 (aucune zone vide sans invite)** : `MeetingEmptyInvite.Catalogue` est une table
+  **exhaustive** des neuf couples espace × mode ; un espace ou un mode ajouté plus tard fait
+  échouer la suite tant qu'il n'a pas son invite. Un test refuse en plus les invites qui se
+  contentent de nier (longueur minimale) — c'était le défaut de `ContentUnavailableView`.
+- **n° 4 (changement de mode sans perte de saisie)** : `pendingNoteText` rejoint le brouillon
+  d'action dans `MeetingScreenModel` ; le test traverse les trois modes **et** les trois
+  espaces, et vérifie que rien n'est mémorisé d'une ouverture à l'autre.
+- **n° 5 (1 280 px, colonne fluide ≥ 520 px)** : `MeetingSpaceLayout.columns` **retire** une
+  colonne fixe (la nav latérale d'abord, le rail ensuite) plutôt que de rogner la fluide — une
+  soustraction non bornée produit en SwiftUI une largeur négative, donc un chevauchement
+  silencieux. 7 tests, dont l'ajustement exact à 1 040 px.
+- n° 2 et n° 3 relèvent des lots 2 et 3, hors périmètre.
+
+### Écarts assumés
+
+1. **Recette visuelle non faite : la session graphique est verrouillée.**
+   `ioreg -n Root -d1 -r | grep CGSSession` rend `"CGSSessionScreenIsLocked" = Yes` ;
+   `screencapture -x` ne produit qu'une image entièrement noire, et `osascript` sur
+   `System Events` est refusé (`-25211`, accès d'assistance non autorisé) — impossible donc de
+   redimensionner la fenêtre à 1 280 puis 1 920 px ni de capturer. Aucun fichier n'a été
+   déposé dans `docs/superpowers/specs/refonte-2026-09/recette/` : une capture noire ne
+   prouverait rien.
+   Ce qui a été fait et vérifié : `swift build -c release` **réussit** (226 s) et le binaire
+   `.build/release/OneToOne` **démarre**. Lancé nu, il n'ouvre **aucune fenêtre** — un
+   exécutable SwiftPM sans bundle `.app` reste un processus accessoire ; c'est exactement ce
+   que `Scripts/bump-and-build.sh` répare en empaquetant. Un `.app` de recette a donc été
+   empaqueté **hors du dépôt** (scratchpad), sans passer par le script (qui incrémente le
+   numéro de build et installe dans `~/Applications`) : binaire + `Info.plist` + `PkgInfo` +
+   `OneToOne_OneToOne.bundle` + `default.metallib` repris de `Mickey.app` + signature ad hoc.
+   Il démarre, mais l'écran verrouillé empêche toute capture.
+   **À refaire en une commande, écran déverrouillé** : `swift build -c release`, puis
+   empaqueter comme ci-dessus, lancer le binaire du bundle, menu **Réunion → Charger le jeu de
+   démonstration (refonte)**, redimensionner à 1 280 puis 1 920 px, `screencapture -x` vers
+   `docs/superpowers/specs/refonte-2026-09/recette/lot-1-{1280,1920}.png`, comparer à
+   `ecrans/1a-cockpit.png`. **Rien n'a été écrit dans le store de production** : le semis n'a
+   jamais été déclenché (il l'est par un clic de menu).
+2. **La pile d'avatars est triée par nom**, et non dans l'ordre de la relation : SwiftData ne
+   garantit pas l'ordre d'une relation « à plusieurs », et une pile qui se réordonne d'un
+   rendu à l'autre est un défaut visible. La capture ne fixe pas d'ordre significatif ; l'ordre
+   rendu est donc `CA CP LD LS NL PY` et non `PY NL CP LS CA LD`. **Écart connu avec la
+   capture, à trancher.**
+3. **`AvatarStack` reçoit une règle d'initiales optionnelle** (primitive du lot 0A étendue) :
+   la capture montre `PY` pour « Pierre-Yves Nallet », là où `Avatar.initiales(de:)` — employé
+   par tous les écrans non refondus — donne `PN`. Les deux règles coexistent plutôt que l'une
+   n'écrase l'autre ; le défaut du paramètre reste `Avatar.initiales`.
+4. **Le bandeau KPI n'est pas affiché en mode Préparer** : la spec §2.2 ne le mentionne que
+   pour En séance (« KPI condensés en bandeau ») et, par son contenu, pour Relire. En
+   préparation, rien n'a encore été dit.
+5. **Un bouton de capture reste dans la barre du haut**, absent du tableau de la spec §2.1 :
+   sans lui, la configuration de la capture d'écran deviendrait injoignable. La spec §5.2
+   (lot 7) y place précisément une pilule `● Capture · Teams n ⌄` — c'est donc son emplacement
+   définitif, en version courte d'ici là.
+6. **`SummaryCard.generate` et `.transcriptSource` deviennent statiques** pour que le mode
+   Relire emploie **la même** définition du texte de la réunion et le même prompt. Le
+   comportement de la carte est inchangé, sans repli sur les notes live.
+7. **Le routage minimal des trois espaces est dans la branche 1a**, alors que le programme le
+   classe en tâche 4 (donc en 1b) : les sept onglets et les trois espaces ne peuvent pas
+   coexister, et 1a livrerait sinon un écran incohérent.
+8. **Les cinq chemins d'écran laissés à vérifier de visu par le lot 0A** (composeur d'action
+   du rail, bascule « Afficher speakers », dépliage de la barre de lecture, ajout d'un
+   participant ad hoc, thèmes proposés) **n'ont pas pu être vérifiés** : même cause qu'au n° 1.
+   Le composeur d'action et la bascule des speakers sont désormais tous deux montés par
+   l'espace Réunion, donc couverts par la même recette.
+
+### Prochaine action
+
+**Lot 2** — notes ↔ transcription synchronisées sur l'audio : `TimedNotesColumn`,
+`NoteComposer` avec les commandes `/` toujours visibles, `TranscriptColumn` et sa rangée
+d'actions au survol, `ActionFromPhrase`, `AudioTimelineStrip` (programme §5, lot 2). Il
+remplace le contenu provisoire du mode En séance. Puis **lot 3** (rail d'actions 330 px
+permanent) et **lot 9** (fiche projet en panneau, déclenchée par le segment projet du fil
+d'Ariane livré ici).
+
 ## Refonte de l'écran de réunion — lot 0A : socle visuel et état d'écran (2026-09-07)
 
 Branche `feat/refonte-lot-0a-socle-visuel`, partie de `origin/master` (`a3c44f2`). Premier lot
