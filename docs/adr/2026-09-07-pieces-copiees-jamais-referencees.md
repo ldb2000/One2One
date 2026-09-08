@@ -1,6 +1,7 @@
 # Pièces jointes de réunion : copiées, jamais référencées
 
-**Statut :** validée le 2026-09-07 (décision **D5** du programme de refonte, acceptée par Laurent le 2026-09-07)
+**Statut :** validée le 2026-09-07 (décision **D5** du programme de refonte, acceptée par
+Laurent le 2026-09-07)
 **Portée :** `MeetingAttachment`, `AttachmentImporter`, `MeetingAttachmentService`,
 `StorageStatsService`, `OrphanCleanupService`, `BackupService`
 **Références :** `docs/superpowers/specs/refonte-2026-09/specs-one2one.md` §8 ·

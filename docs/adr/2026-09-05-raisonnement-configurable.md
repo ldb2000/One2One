@@ -1,6 +1,7 @@
 # Niveau de raisonnement par profil et limite de sortie relevée
 
-Statut : accepté le 2026-09-05, après investigation d’un rapport LM Studio resté en raisonnement plus de dix minutes, puis discussion avec l’utilisateur. Complète
+Statut : accepté le 2026-09-05, après investigation d’un rapport LM Studio resté en
+raisonnement plus de dix minutes, puis discussion avec l’utilisateur. Complète
 `2026-09-05-endpoints-ia-configurables.md`.
 
 ## Constat
