@@ -91,13 +91,21 @@ struct MeetingKPIBuilderTests {
         let a = ActionTask(title: "Vérifier l'état des comptes GitLab")
         let b = ActionTask(title: "Clarifier la situation de facturation")
         let c = ActionTask(title: "Chiffrer la fin de migration")
+        let d = ActionTask(title: "Reprendre le cadrage réseau")
         c.collaborator = porteur
         b.isCompleted = true
-        for t in [a, b, c] { context.insert(t); t.meeting = reunion }
+        d.status = .dropped
+        for t in [a, b, c, d] { context.insert(t); t.meeting = reunion }
 
         let k = MeetingKPIBuilder.build(meeting: reunion).actions
+        // `d` est abandonnée : elle a quitté le tableau, le rail et le
+        // portefeuille (cf. `MeetingActionCounts`).
         #expect(k.total == 3)
-        #expect(k.unassigned == 2)               // seule `c` a un responsable
+        // Seule `a` est **ouverte** sans responsable. `b` est faite : une
+        // action close ne porte plus de dette d'assignation, et l'annoncer en
+        // rouge au-dessus d'un tableau qui ne la montre plus est le défaut du
+        // 8 septembre 2026.
+        #expect(k.unassigned == 1)
         #expect(k.done == 1)
         #expect(abs(k.doneFraction - 1.0 / 3.0) < 0.0001)
     }
