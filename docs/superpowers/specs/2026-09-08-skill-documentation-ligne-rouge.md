@@ -5,7 +5,7 @@ Scénario : PR #51, `Services/Meeting/` et `Views/Meeting/Spaces/` modifiés.
 | # | Faute observée (verbatim ou extrait du diff) | Catégorie |
 | --- | --- | --- |
 | 1 | Un **service** (`Services/Meeting/MeetingActionCounts.swift`) documenté dans la section **« Couche Views »** (§8) au lieu de « Couche Services » (§6) : la section a été choisie par proximité du sujet, pas par la structure du document | mauvaise section |
-| 2 | Documentation écrite comme un **journal des modifications** : « Avant cette unification (2026-09-08)… », « …qui a remplacé les deux définitions divergentes… » | narration |
+| 2 | Documentation écrite comme un **journal des modifications** : « Avant cette unification (2026-09-08)… », « …qui a remplacé les deux définitions divergentes… », sous-section « Retiré après coup — … (PR #51) » — le lecteur d'`architecture.md` veut l'état, pas l'histoire | narration |
 | 3 | **Ligne de « mise à jour » en pied de fichier** ajoutée sous une ligne du même type : le document accumule un changelog qui ne dit rien de l'architecture | narration / duplication avec le journal |
 | 4 | Renvoi « **Voir `STATUS.md`** » depuis la documentation : renvoie vers un compte rendu de session, qui sera réécrit | périmètre |
 | 5 | **Même explication écrite deux fois** (§8 d'`architecture.md` et §8 de `cleanup-report.md`) | duplication |
@@ -24,8 +24,8 @@ Scénario : PR #51, `Services/Meeting/` et `Views/Meeting/Spaces/` modifiés.
 
 ## Rationalisations exprimées par l'agent (verbatim)
 
-- « `STATUS.md` was already updated by PR #51 itself and is outside `/docs`, so left untouched. »
-- « its "écarts assumés" entries concern unrelated counters »
+- « `STATUS.md` was already updated by PR #51 itself and is outside `/docs`, so left untouched. » (juste)
+- « its "écarts assumés" entries concern unrelated counters » (juste)
 
 ## Conclusion
 
