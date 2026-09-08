@@ -1,6 +1,29 @@
 import SwiftUI
 import SwiftData
 
+/// Les invites des blocs optionnels vides (plan §5, lot 15 n° 6 : « afficher
+/// une invite plutôt qu'une section vide »).
+///
+/// Séparées de la vue pour être vérifiables sans monter SwiftUI, et parce que
+/// la règle est du métier : ce n'est pas au rendu de décider quand un manque
+/// mérite d'être signalé. Une case décochée n'invite à rien — l'utilisateur a
+/// déjà répondu à la question.
+@MainActor
+enum MeetingReportSpaceInvites {
+
+    static func forMeeting(_ meeting: Meeting) -> [String] {
+        var invites: [String] = []
+        let options = meeting.reportAttachmentOptions
+        if options.attachPinned, ReportOptionalBlocks.pinnedPieces(of: meeting).isEmpty {
+            invites.append(ReportOptionalBlocks.pinnedEmptyInvite)
+        }
+        if ReportOptionalBlocks.captures(of: meeting).isEmpty {
+            invites.append(ReportOptionalBlocks.capturesEmptyInvite)
+        }
+        return invites
+    }
+}
+
 /// L'espace `Rapport` (spec §1.1). Extrait tel quel de `MeetingView` : aperçu
 /// HTML, éditeur markdown, éditeur de décisions, en-tête du rapport et renvoi
 /// vers le panneau d'actions.
@@ -18,6 +41,14 @@ import SwiftData
 struct MeetingReportSpace<Toolbar: View>: View {
     @Bindable var meeting: Meeting
     let settings: AppSettings
+    /// La tête de lecture de l'écran, pour les citations du rapport (lot 15).
+    ///
+    /// **Injectée** et non retrouvée : une `MeetingPlayhead` appartient à
+    /// l'état d'un écran monté et aucun registre ne l'expose — c'est la raison
+    /// que `QuickLaunchURLHandler.handle` donne pour la recevoir en paramètre.
+    /// Sans ce câblage, le clic sur `04:12` dans l'aperçu était intercepté
+    /// puis perdu : le lien restait inerte.
+    let playhead: MeetingPlayhead
     /// Mode édition markdown du rapport.
     @Binding var editMode: Bool
     /// Sauvegarde différée (l'éditeur écrit à chaque frappe).
@@ -29,6 +60,10 @@ struct MeetingReportSpace<Toolbar: View>: View {
     /// La barre « Template · Aperçu/Éditer · Générer », restée dans
     /// `MeetingView` : elle lit l'état de génération, qui y vit.
     @ViewBuilder let toolbar: Toolbar
+
+    /// Le contexte sert au repli de `handle` : une citation vers une **autre**
+    /// réunion ouvre sa fenêtre au lieu de déplacer cette tête de lecture.
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,19 +87,45 @@ struct MeetingReportSpace<Toolbar: View>: View {
                 toolbar
                     .padding(.horizontal, 8).padding(.top, 4)
                 Rectangle().fill(One2OneToken.hair).frame(height: 1)
+                invitesBlocsVides
                 if editMode {
                     editeur
                 } else {
-                    MeetingReportPreview(html: ReportHTMLBuilder.build(
-                        meeting: meeting,
-                        template: meeting.reportTemplate,
-                        includeTranscript: false,
-                        managerName: settings.ownerName,
-                        managerRole: settings.ownerRole
-                    ))
+                    MeetingReportPreview(
+                        html: ReportHTMLBuilder.build(
+                            meeting: meeting,
+                            template: meeting.reportTemplate,
+                            includeTranscript: false,
+                            managerName: settings.ownerName,
+                            managerRole: settings.ownerRole
+                        ),
+                        onCitation: { url in
+                            QuickLaunchURLHandler.handle(url: url,
+                                                         router: QuickLaunchRouter.shared,
+                                                         context: modelContext,
+                                                         playhead: playhead)
+                        })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+        }
+    }
+
+    /// Les blocs optionnels que le rapport ne peut pas remplir, dits une fois
+    /// en tête plutôt qu'en sections vides dans le document.
+    @ViewBuilder
+    private var invitesBlocsVides: some View {
+        let invites = MeetingReportSpaceInvites.forMeeting(meeting)
+        if !invites.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(invites, id: \.self) { invite in
+                    Text(invite)
+                        .font(.plexSans(11.5))
+                        .foregroundStyle(One2OneToken.inkMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).padding(.vertical, 6)
         }
     }
 

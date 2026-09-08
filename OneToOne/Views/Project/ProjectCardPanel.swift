@@ -156,7 +156,8 @@ struct ProjectCardPanel: View {
         .sheet(isPresented: $showSuggestions) {
             ProjectCardSuggestionsSheet(updates: suggestions,
                                         draft: $draft,
-                                        onClose: { showSuggestions = false })
+                                        onClose: { showSuggestions = false },
+                                        meeting: meeting)
         }
         .confirmationDialog("Abandonner les modifications ?",
                             isPresented: $showDiscardConfirm) {

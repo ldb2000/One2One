@@ -1031,11 +1031,20 @@ struct MeetingTopChromeBar: View {
             .work: .general
         ]
         let preferred = mapping[meeting.kind] ?? .general
+        // Escalade vient juste après le gabarit du type, et **seulement** sur
+        // les deux types de tête-à-tête (décision D9) : c'est là qu'une ligne
+        // escaladée peut exister.
+        let secondaire: ReportTemplateKind? =
+            (meeting.kind == .oneToOne || meeting.kind == .manager) ? .escalade : nil
+        func rang(_ t: ReportTemplate) -> Int {
+            if t.kind == preferred { return 0 }
+            if let secondaire, t.kind == secondaire { return 1 }
+            return 2
+        }
         return allTemplates
             .filter { !$0.isArchived }
             .sorted { lhs, rhs in
-                let li = lhs.kind == preferred ? 0 : 1
-                let ri = rhs.kind == preferred ? 0 : 1
+                let li = rang(lhs), ri = rang(rhs)
                 if li != ri { return li < ri }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }

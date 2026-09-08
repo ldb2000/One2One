@@ -26,6 +26,61 @@ final class TemplateVariableResolverTests: XCTestCase {
         XCTAssertTrue(resolved.contains("K:One-to-One") || resolved.contains("K:1:1 Collaborateur"))
     }
 
+    // MARK: - Lot 15 — blocs optionnels
+
+    func test_lot15_variablesResolvent_lesBlocsOptionnels() throws {
+        let m = Meeting(title: "Revue", date: Date())
+        context.insert(m)
+        let piece = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/Chiffrage.xlsx"))
+        piece.pinnedAtT = 252
+        piece.meeting = m
+        context.insert(piece)
+        let planche = Board(index: 0, title: "Zones", mode: .diagram, t: 120)
+        planche.meeting = m
+        context.insert(planche)
+        try context.save()
+
+        let resolved = TemplateVariableResolver.resolve(
+            prompt: "P:{{pieces_epinglees}} C:{{captures_jointes}} B:{{planches}} "
+                  + "E:{{engagements}} F:{{fiche_projet.maj}}",
+            for: m, in: context
+        )
+        XCTAssertTrue(resolved.contains("04:12"))
+        XCTAssertTrue(resolved.contains("Chiffrage.xlsx"))
+        XCTAssertTrue(resolved.contains("02:00"))
+        XCTAssertTrue(resolved.contains("Zones"))
+        // Une variable inconnue reste littérale ; celles du lot 15 ne doivent
+        // plus l'être, même quand elles rendent vide.
+        XCTAssertFalse(resolved.contains("{{captures_jointes}}"))
+        XCTAssertFalse(resolved.contains("{{engagements}}"))
+        XCTAssertFalse(resolved.contains("{{fiche_projet.maj}}"))
+    }
+
+    func test_lot15_piecesEpinglees_respecteLaCaseDuTiroir() throws {
+        let m = Meeting(title: "Revue", date: Date())
+        var options = m.reportAttachmentOptions
+        options.attachPinned = false
+        m.reportAttachmentOptions = options
+        context.insert(m)
+        let piece = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/Chiffrage.xlsx"))
+        piece.pinnedAtT = 252
+        piece.meeting = m
+        context.insert(piece)
+        try context.save()
+
+        let resolved = TemplateVariableResolver.resolve(
+            prompt: "P:{{pieces_epinglees}}", for: m, in: context
+        )
+        XCTAssertEqual(resolved, "P:")
+    }
+
+    func test_lot15_paletteExposeLesCinqVariables() {
+        for nom in ["pieces_epinglees", "captures_jointes", "planches",
+                    "engagements", "fiche_projet.maj"] {
+            XCTAssertTrue(RefonteReportVariables.names.contains(nom), nom)
+        }
+    }
+
     func test_unknownVariable_isLeftLiteral() {
         let m = Meeting(title: "X", date: Date())
         context.insert(m)

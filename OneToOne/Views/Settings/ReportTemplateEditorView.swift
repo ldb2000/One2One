@@ -135,7 +135,12 @@ struct ReportTemplateEditorView: View {
             ("Projet", ["project.name","project.code","project.entity","project.phase","project.status","project.planning","project.actions_ouvertes","project.dernier_rapport","project.historique_n"]),
             ("Collab", ["collab.name","collab.role","collab.email","collab.actions_ouvertes","collab.dernier_1to1","collab.notes"]),
             ("Manager", ["manager.items_actuels","manager.dernier_cr"]),
-            ("Global", ["actions_overdue","actions_du_jour","historique_n","contexte_general","date_now","semaine","mois"])
+            ("Global", ["actions_overdue","actions_du_jour","historique_n","contexte_general","date_now","semaine","mois"]),
+            // Blocs optionnels de séance (lot 15). Ce que ces variables
+            // rendent dépend des cases du pied du tiroir Ressources et de
+            // `Joindre au rapport` : une variable posée dans un gabarit peut
+            // légitimement rendre vide.
+            ("Blocs de séance", RefonteReportVariables.names)
         ]
         return ScrollView {
             VStack(alignment: .leading, spacing: 8) {

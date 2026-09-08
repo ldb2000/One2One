@@ -23,6 +23,22 @@ enum ReportHTMLBuilder {
                       managerName: String = "",
                       managerRole: String = "",
                       mode: RenderMode = .preview) -> String {
+        // L'audience vient du **gabarit** (lot 15) : le même 1:1 produit un
+        // compte-rendu pour le collaborateur ou une note d'escalade pour les
+        // RH, et les deux ne laissent pas sortir les mêmes lignes. La règle de
+        // sortie reste celle de `ConfidentialityFilter`, jamais réécrite ici.
+        let audience = ReportAudience.forTemplate(template, meeting: meeting)
+        // Les timecodes ne sont cliquables que dans l'aperçu de l'app : le
+        // schéma `onetoone://` n'est pas enregistré auprès de macOS et n'a
+        // aucun sens dans un PDF ou un mail (spec §8).
+        let citation: CitationLinker.Mode = mode == .preview
+            ? .internalLinks(meetingStableID: meeting.ensuredStableID)
+            : .plainText
+        /// Passe de citation appliquée aux **seuls** fragments écrits par
+        /// l'app. Jamais à `bodyHTML`, qui vient du modèle.
+        func cite(_ fragment: String) -> String {
+            CitationLinker.link(fragment, mode: citation)
+        }
         let eyebrow = makeEyebrow(meeting: meeting, template: template)
         let title = escape(meeting.title.isEmpty ? "Réunion" : meeting.title)
         let subtitle = makeSubtitle(meeting: meeting, template: template)
@@ -37,15 +53,40 @@ enum ReportHTMLBuilder {
             decisions: meeting.decisions,
             tasks: meeting.tasks,
             alerts: meeting.meetingAlerts,
-            meeting: meeting
+            meeting: meeting,
+            cite: cite
         )
 
-        // Notes prises en séance, **filtrées par l'audience du type de réunion**
+        // Notes prises en séance, **filtrées par l'audience du gabarit**
         // (spec §3.2, §8). Une ligne privée n'atteint jamais le HTML — d'où
         // l'aperçu, le PDF et le mail. La règle vient de
         // `ConfidentialityFilter`, jamais réécrite ici.
-        let notesHTML = renderNotesBlock(meeting: meeting)
-        if !notesHTML.isEmpty { assembled += notesHTML }
+        let notesHTML = renderNotesBlock(meeting: meeting, audience: audience)
+        if !notesHTML.isEmpty { assembled += cite(notesHTML) }
+
+        // Annexes du lot 15 : **déterministes**, écrites sans le modèle.
+        // Les cases du pied du tiroir (spec §4.1) et `Joindre au rapport`
+        // (spec §5.3) décident de ce qui entre ; l'ordre suit celui de la
+        // spec §8. Un bloc vide ne rend rien — pas de titre suivi du vide, qui
+        // laisserait croire que la séance n'a rien produit (l'invite, elle,
+        // vit dans l'espace Rapport : `MeetingReportSpaceInvites`).
+        let options = meeting.reportAttachmentOptions
+        if options.attachPinned {
+            assembled += cite(ReportOptionalBlocks.pinnedHTML(
+                ReportOptionalBlocks.pinnedPieces(of: meeting)))
+        }
+        assembled += cite(ReportOptionalBlocks.capturesHTML(
+            ReportOptionalBlocks.captures(of: meeting),
+            embedImages: mode == .preview))
+        assembled += cite(ReportOptionalBlocks.boardsHTML(
+            ReportOptionalBlocks.boards(of: meeting)))
+        if let context = meeting.modelContext {
+            assembled += cite(ReportOptionalBlocks.commitmentsHTML(
+                ReportOptionalBlocks.commitments(of: meeting, in: context,
+                                                 audience: audience)))
+        }
+        assembled += ReportOptionalBlocks.cardUpdatesHTML(
+            ReportOptionalBlocks.cardUpdates(of: meeting))
 
         if includeTranscript {
             let tx = meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -393,14 +434,17 @@ enum ReportHTMLBuilder {
         "vigilance"
     ]
 
+    /// - Parameter cite: la passe de citation, appliquée aux blocs **de
+    ///   l'app** seulement — jamais à `bodyHTML`, qui vient du modèle.
     private static func dedupeAndInject(bodyHTML: String,
                                         decisions: [String],
                                         tasks: [ActionTask],
                                         alerts: [ProjectAlert] = [],
-                                        meeting: Meeting) -> String {
+                                        meeting: Meeting,
+                                        cite: (String) -> String = { $0 }) -> String {
         var html = bodyHTML
         let decisionsBlock = decisions.isEmpty ? nil : renderDecisionsBlock(decisions)
-        let actionsBlock = tasks.isEmpty ? nil : renderActionsBlock(tasks, meeting: meeting)
+        let actionsBlock = tasks.isEmpty ? nil : cite(renderActionsBlock(tasks, meeting: meeting))
         let alertsBlock = alerts.isEmpty ? nil : renderAlertsBlock(alerts)
 
         if let block = decisionsBlock {
@@ -420,14 +464,16 @@ enum ReportHTMLBuilder {
     /// Bloc « Notes de séance » : une ligne par note exportable, avec son
     /// timecode. Chaîne vide quand rien ne sort — un titre suivi d'une liste
     /// vide donnerait à croire que la séance n'a rien produit.
-    private static func renderNotesBlock(meeting: Meeting) -> String {
-        let audience = ConfidentialityFilter.audience(for: meeting.kind)
+    private static func renderNotesBlock(meeting: Meeting, audience: Audience) -> String {
         let notes = MeetingNoteStore.exportable(meeting.timedNotes, for: audience)
         guard !notes.isEmpty else { return "" }
         var html = "<h2>Notes de séance</h2>\n<ul>\n"
         for note in notes {
             let nature = note.kind == .note ? "" : " <em>(\(escape(note.kind.label)))</em>"
-            html += "<li><code>\(MeetingPlayhead.mmss(note.t))</code>\(nature) \(escape(note.text))</li>\n"
+            // `data-note` : la citation mène à **cette** ligne, pas seulement à
+            // l'instant. `CitationLinker` le relit pour bâtir l'URL.
+            html += "<li><code data-note=\"\(note.ensuredStableID.uuidString)\">"
+                + "\(MeetingPlayhead.mmss(note.t))</code>\(nature) \(escape(note.text))</li>\n"
         }
         html += "</ul>\n"
         return html
@@ -466,11 +512,19 @@ enum ReportHTMLBuilder {
         for (idx, t) in sorted.enumerated() {
             let porteur = t.collaborator?.name ?? t.unresolvedAssigneeName ?? "—"
             let dueRaw = t.dueDate.map(fmt.string(from:)) ?? "—"
+            // Chaîne de citation (spec §8) : une action née d'une phrase de la
+            // séance porte son `sourceRef.t`. Le timecode en `<code>` le rend
+            // cliquable dans l'aperçu, et reste du texte à l'export.
+            var titre = ""
+            if let refT = t.sourceRef?.t {
+                titre += "<code>\(MeetingPlayhead.mmss(refT))</code> "
+            }
+            titre += escape(t.title)
             if includeProjectColumn {
                 let proj = t.project?.code ?? "—"
-                rows += "<tr><td>A\(idx + 1)</td><td>\(escape(t.title))</td><td>\(escape(proj))</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
+                rows += "<tr><td>A\(idx + 1)</td><td>\(titre)</td><td>\(escape(proj))</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
             } else {
-                rows += "<tr><td>A\(idx + 1)</td><td>\(escape(t.title))</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
+                rows += "<tr><td>A\(idx + 1)</td><td>\(titre)</td><td>\(escape(porteur))</td><td>\(escape(dueRaw))</td></tr>\n"
             }
         }
         let header = includeProjectColumn

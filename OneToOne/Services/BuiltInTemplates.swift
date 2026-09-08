@@ -34,8 +34,36 @@ enum BuiltInTemplates {
         d7_preparation,
         d8_restitution,
         d9_workshop,
-        d10_archTeam
+        d10_archTeam,
+        d11_escalade
     ]
+
+    /// Révision de chaque seed livré. Bumper la valeur pousse le seed **une
+    /// fois** dans les lignes existantes, sans écraser l'édition que
+    /// l'utilisateur ferait ensuite.
+    ///
+    /// Généralise le marqueur `d2OneToOneRevision` du 2026-05-23 : trois lots
+    /// ont révisé des gabarits depuis, et un quatrième aurait fait quatre blocs
+    /// `if` presque identiques. Un seed absent de la table n'est jamais poussé
+    /// aux lignes existantes — c'est le cas de `d10_archTeam` et de
+    /// `d11_escalade`, qui n'ont jamais été révisés.
+    static let revisions: [String: Int] = [
+        d1_global.name: 1,
+        // 4 = ajout de `{{engagements}}` et de la mention « les notes privées
+        // ne sont jamais incluses » (lot 15). 3 était la dernière valeur de
+        // l'ancien marqueur `d2OneToOneRevision`.
+        d2_oneToOne.name: 4,
+        d3_manager.name: 1,
+        d4_copil.name: 1,
+        d5_cosui.name: 1,
+        d9_workshop.name: 1
+    ]
+
+    /// La clé `UserDefaults` du marqueur de révision d'un seed. Le nom du seed
+    /// et non un identifiant : c'est déjà la clé de recherche de `seedIfNeeded`.
+    static func revisionKey(for name: String) -> String {
+        "BuiltInTemplates.revision.\(name)"
+    }
 
     /// Idempotent seeding. Inserts only missing built-in templates by name.
     /// Never overwrites existing rows (preserves user edits — see spec §8.1).
@@ -71,22 +99,28 @@ enum BuiltInTemplates {
             }
         }
 
-        // Backfill ciblé : d2_oneToOne révision 2026-05-23
-        // Écrase preamble/promptBody/sections une fois. UserDefaults marker
-        // évite la ré-application à chaque lancement. Pour pousser un nouveau
-        // backfill plus tard : bumper `d2OneToOneRevisionTarget`.
-        let d2Key = "BuiltInTemplates.d2OneToOneRevision"
-        let d2Target = 3
-        if UserDefaults.standard.integer(forKey: d2Key) < d2Target {
-            if let row = existingBuiltIns.first(where: { $0.kindRaw == ReportTemplateKind.oneToOne.rawValue }) {
-                row.preamble = d2_oneToOne.preamble
-                row.promptBody = d2_oneToOne.promptBody
-                row.sections = d2_oneToOne.sections
-                row.historyMode = d2_oneToOne.historyMode
-                row.historyN = d2_oneToOne.historyN
+        // Révisions versionnées (lot 15, généralise le marqueur ciblé
+        // `d2OneToOneRevision` du 2026-05-23). Une ligne est réalignée sur son
+        // seed **une fois par révision** ; passé ce point, l'édition de
+        // l'utilisateur reste intacte — c'est la règle que garde
+        // `test_seedIfNeeded_doesNotOverwriteEditedBuiltIn`.
+        //
+        // Le marqueur est posé même quand la ligne vient d'être insérée : elle
+        // porte alors déjà la révision, et la repousser au lancement suivant
+        // écraserait une édition faite entre-temps.
+        for seed in all {
+            guard let cible = revisions[seed.name] else { continue }
+            let clef = revisionKey(for: seed.name)
+            guard UserDefaults.standard.integer(forKey: clef) < cible else { continue }
+            if let row = existingBuiltIns.first(where: { $0.name == seed.name }) {
+                row.preamble = seed.preamble
+                row.promptBody = seed.promptBody
+                row.sections = seed.sections
+                row.historyMode = seed.historyMode
+                row.historyN = seed.historyN
                 row.updatedAt = Date()
             }
-            UserDefaults.standard.set(d2Target, forKey: d2Key)
+            UserDefaults.standard.set(cible, forKey: clef)
         }
 
         try? context.save()
@@ -117,6 +151,15 @@ enum BuiltInTemplates {
         {{contexte_general}}
 
         {{custom_prompt}}
+
+        Pièces épinglées pendant la séance :
+        {{pieces_epinglees}}
+
+        Captures jointes au rapport :
+        {{captures_jointes}}
+
+        Mises à jour de fiche projet acceptées en séance :
+        {{fiche_projet.maj}}
 
         Transcription brute (sortie STT + notes live):
         {{transcript}}
@@ -162,6 +205,8 @@ enum BuiltInTemplates {
         - La transcription audio (STT) peut contenir des homophones et des
           coquilles. Corrige silencieusement les évidences (noms propres,
           acronymes connus) mais ne reformule pas le sens.
+        - Les notes privées ne sont jamais incluses. Elles ne t'ont pas été
+          transmises : ne suppose donc pas qu'un sujet manque.
         """,
         sections: [
             .init(title: "Suivi du précédent",
@@ -188,6 +233,10 @@ enum BuiltInTemplates {
 
         Projets dont {{collab.name}} est architecte ou chef de projet :
         {{collab.projects_context}}
+
+        Engagements pris de part et d'autre dans cette séance (les lignes
+        privées en sont absentes) :
+        {{engagements}}
 
         Derniers 1:1 (pour suivi des actions précédentes) :
         {{historique_n}}
@@ -227,6 +276,10 @@ enum BuiltInTemplates {
         Dernier CR manager:
         {{manager.dernier_cr}}
 
+        Ce qu'il m'a promis / ce que je me suis engagé à faire dans cette
+        séance (les lignes privées en sont absentes) :
+        {{engagements}}
+
         Historique:
         {{historique_n}}
 
@@ -265,6 +318,15 @@ enum BuiltInTemplates {
         Actions ouvertes:
         {{project.actions_ouvertes}}
 
+        Pièces épinglées pendant la séance :
+        {{pieces_epinglees}}
+
+        Captures jointes au rapport :
+        {{captures_jointes}}
+
+        Mises à jour de fiche projet acceptées en séance :
+        {{fiche_projet.maj}}
+
         Dernier COPIL:
         {{historique_n}}
 
@@ -298,6 +360,15 @@ enum BuiltInTemplates {
 
         Actions ouvertes:
         {{project.actions_ouvertes}}
+
+        Pièces épinglées pendant la séance :
+        {{pieces_epinglees}}
+
+        Captures jointes au rapport :
+        {{captures_jointes}}
+
+        Mises à jour de fiche projet acceptées en séance :
+        {{fiche_projet.maj}}
 
         Historique des 2 derniers COSUI:
         {{historique_n}}
@@ -440,6 +511,12 @@ enum BuiltInTemplates {
         rapport, n'utiliser que pour comprendre les références) :
         {{contexte_general}}
 
+        Planches produites en séance, dans l'ordre du temps :
+        {{planches}}
+
+        Captures jointes au rapport :
+        {{captures_jointes}}
+
         Séances précédentes du projet :
         {{historique_n}}
 
@@ -522,6 +599,60 @@ enum BuiltInTemplates {
         {{transcript}}
 
         Notes prises en live (sources fiables) :
+        {{notes}}
+        """
+    )
+
+    // MARK: - D11 Escalade (décision D9)
+    //
+    // L'**unique** sortie qui emporte les lignes `escalated` : son audience est
+    // `.hr` (cf. `ReportTemplateKind.audience`), et une ligne seulement
+    // `shared` n'y entre pas. Choisir ce gabarit est donc un geste, pas un
+    // réglage de mise en forme.
+
+    static let d11_escalade = Seed(
+        name: "Escalade",
+        kind: .escalade,
+        preamble: """
+        Tu rédiges une note d'escalade destinée aux ressources humaines et au
+        N+1. Ton neutre, factuel, sans interprétation psychologique.
+
+        Règles strictes :
+        - N'INVENTE RIEN. Chaque fait doit venir des lignes fournies.
+        - Ne qualifie pas la personne : décris des faits, des dates, des
+          engagements tenus ou manqués.
+        - N'inclus aucun ressenti, aucun cran de moral, aucune appréciation de
+          motivation : ce que quelqu'un dit de son propre état à son manager ne
+          remonte pas à la hiérarchie au détour d'une escalade.
+        - Si une section n'a aucune matière, omets-la entièrement.
+        """,
+        sections: [
+            .init(title: "Objet",
+                  hint: "Une phrase : ce qui est porté à connaissance et pourquoi maintenant."),
+            .init(title: "Faits",
+                  hint: "Chronologie datée des faits escaladés, un par puce. Aucun jugement."),
+            .init(title: "Engagements",
+                  hint: "Engagements pris de part et d'autre, tenus ou manqués, avec leurs dates et le nombre de reports."),
+            .init(title: "Demande",
+                  hint: "Ce qui est attendu du destinataire. Omets la section si rien n'est demandé.")
+        ],
+        historyMode: .lastN,
+        historyN: 3,
+        historyK: 0,
+        promptBody: """
+        Note d'escalade · {{date}}
+        Personne concernée : {{collab.name}} ({{collab.role}})
+
+        Engagements du fil :
+        {{engagements}}
+
+        Historique des entretiens :
+        {{historique_n}}
+
+        {{custom_prompt}}
+
+        Lignes retenues pour l'escalade (seules les lignes escaladées et les
+        engagements correspondants sont fournis) :
         {{notes}}
         """
     )

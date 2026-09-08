@@ -442,6 +442,18 @@ final class Meeting {
     /// cases d'une même intention, aucune n'est requêtable seule.
     var reportAttachmentOptionsJSON: String = ""
 
+    /// Les mises à jour de fiche projet **acceptées** pendant la séance
+    /// (spec §8, dernier tiret ; variable `{{fiche_projet.maj}}` du lot 15).
+    ///
+    /// En JSON et non en table : c'est une trace d'audit attachée à la séance,
+    /// jamais requêtée seule. Le lot 9 n'en persiste aucune — accepter une
+    /// proposition mute un `ProjectCardDraft`, et le brouillon ne dit pas d'où
+    /// vient une valeur ; après `Enregistrer`, plus rien ne distingue une
+    /// valeur validée d'une valeur saisie à la main. Vide = aucune
+    /// acceptation ; façade typée `acceptedProjectUpdates`, dans
+    /// `Services/Project/ProjectCardSuggestions+Log.swift`.
+    var acceptedProjectUpdatesJSON: String = ""
+
     /// JSON: {clusterID(String): "collabStableID|null"}.
     /// Source de vérité du mapping cluster → Collaborator décidé par
     /// SpeakerMatcher (auto ou manuel). Bulk-re-assign sur correction user.

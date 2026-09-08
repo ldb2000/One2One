@@ -13,10 +13,16 @@ enum TemplateVariableResolver {
         try! NSRegularExpression(pattern: #"\{\{([a-z0-9_.]+)\}\}"#)
     }()
 
+    /// - Parameter audience: l'audience du gabarit (lot 15). Elle ne concerne
+    ///   que les variables dont la sortie dépend d'un niveau de
+    ///   confidentialité — `{{engagements}}` aujourd'hui. `nil` retombe sur
+    ///   l'audience du type de réunion, ce qui garde les appelants historiques
+    ///   inchangés sans jamais élargir ce qui sort.
     @MainActor
     static func resolve(prompt: String,
                         for meeting: Meeting,
                         in context: ModelContext,
+                        audience: Audience? = nil,
                         now: Date = Date()) -> String {
         var unresolved: Set<String> = []
         let range = NSRange(prompt.startIndex..., in: prompt)
@@ -29,7 +35,8 @@ enum TemplateVariableResolver {
                   let nameRange = Range(match.range(at: 1), in: output),
                   let fullRange = Range(match.range(at: 0), in: output) else { continue }
             let name = String(output[nameRange])
-            if let value = resolveOne(name: name, meeting: meeting, context: context, now: now) {
+            if let value = resolveOne(name: name, meeting: meeting, context: context,
+                                      audience: audience, now: now) {
                 output.replaceSubrange(fullRange, with: value)
             } else {
                 unresolved.insert(name)
@@ -51,6 +58,7 @@ enum TemplateVariableResolver {
     private static func resolveOne(name: String,
                                    meeting: Meeting,
                                    context: ModelContext,
+                                   audience: Audience?,
                                    now: Date) -> String? {
         switch name {
 
@@ -102,7 +110,13 @@ enum TemplateVariableResolver {
         case "semaine":           return Self.formatWeek(now)
         case "mois":              return Self.formatMonth(now)
 
-        default:                  return nil
+        // --- Blocs optionnels de séance (lot 15)
+        default:
+            return RefonteReportVariables.resolve(
+                name: name,
+                meeting: meeting,
+                context: context,
+                audience: audience ?? ConfidentialityFilter.audience(for: meeting.kind))
         }
     }
 

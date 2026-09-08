@@ -19,6 +19,11 @@ struct ProjectCardSuggestionsSheet: View {
     let updates: [ProjectCardUpdate]
     @Binding var draft: ProjectCardDraft
     let onClose: () -> Void
+    /// La séance d'où viennent les propositions. Chaque acceptation y est
+    /// tracée pour que le rapport du lot 15 (`{{fiche_projet.maj}}`) sache ce
+    /// que l'utilisateur a validé — le brouillon, lui, ne garde pas l'origine
+    /// de ses valeurs. `nil` hors séance : rien n'est alors tracé.
+    var meeting: Meeting? = nil
 
     /// Identifiants des lignes déjà traitées, acceptées ou ignorées.
     @State private var handled: Set<String> = []
@@ -162,6 +167,7 @@ struct ProjectCardSuggestionsSheet: View {
         if ProjectCardSuggestions.accept(proposition, in: &draft) {
             refused.remove(proposition.id)
             handled.insert(proposition.id)
+            ProjectCardSuggestions.recordAcceptance(proposition, in: meeting)
         } else {
             refused.insert(proposition.id)
         }

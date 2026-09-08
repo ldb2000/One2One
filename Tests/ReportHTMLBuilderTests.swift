@@ -226,4 +226,123 @@ final class ReportHTMLBuilderTests: XCTestCase {
         XCTAssertTrue(html.contains("<th>Projet</th>"),
                       ".work + multi-projets → colonne Projet présente")
     }
+
+    // MARK: - Lot 15 — annexes et chaîne de citation
+
+    /// Critère d'acceptation n° 3 du chantier 3, moitié rapport : la pièce
+    /// épinglée est citée avec son timecode, **sans aucune intervention du
+    /// modèle** — ici, `summary` ne la mentionne pas.
+    @MainActor
+    func test_lot15_pieceEpingleeCiteeAvecSonTimecode() throws {
+        let ctx = try makeContext()
+        let meeting = Meeting(title: "Revue Marine", date: Date())
+        meeting.summary = "## Contexte\n\nLa séance a passé le chiffrage en revue."
+        ctx.insert(meeting)
+        let piece = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/Chiffrage_Marine_v3.xlsx"))
+        piece.pinnedAtT = 252
+        piece.meeting = meeting
+        ctx.insert(piece)
+        try ctx.save()
+
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil,
+                                           includeTranscript: false)
+        XCTAssertTrue(html.contains(ReportOptionalBlocks.pinnedTitle))
+        XCTAssertTrue(html.contains("Chiffrage_Marine_v3.xlsx"))
+        XCTAssertTrue(html.contains("04:12"))
+        XCTAssertTrue(html.contains(
+            "onetoone://meeting/\(meeting.ensuredStableID.uuidString)?t=252"))
+    }
+
+    @MainActor
+    func test_lot15_caseDecochee_pasDeBlocDePieces() throws {
+        let ctx = try makeContext()
+        let meeting = Meeting(title: "Revue", date: Date())
+        meeting.summary = "Contenu."
+        var options = meeting.reportAttachmentOptions
+        options.attachPinned = false
+        meeting.reportAttachmentOptions = options
+        ctx.insert(meeting)
+        let piece = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/Chiffrage.xlsx"))
+        piece.pinnedAtT = 252
+        piece.meeting = meeting
+        ctx.insert(piece)
+        try ctx.save()
+
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil,
+                                           includeTranscript: false)
+        XCTAssertFalse(html.contains(ReportOptionalBlocks.pinnedTitle))
+        XCTAssertFalse(html.contains("Chiffrage.xlsx"))
+    }
+
+    @MainActor
+    func test_lot15_exportOutlookGardeLeTimecodeEnTexte() throws {
+        let ctx = try makeContext()
+        let meeting = Meeting(title: "Revue", date: Date())
+        meeting.summary = "Contenu."
+        ctx.insert(meeting)
+        let piece = MeetingAttachment(url: URL(fileURLWithPath: "/tmp/Annexe.pdf"))
+        piece.pinnedAtT = 252
+        piece.meeting = meeting
+        ctx.insert(piece)
+        try ctx.save()
+
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil,
+                                           includeTranscript: false, mode: .outlook)
+        XCTAssertFalse(html.contains("onetoone://"))
+        XCTAssertTrue(html.contains("04:12"))
+    }
+
+    /// Faux positif : un horaire écrit par le modèle dans le corps du rapport
+    /// n'est pas une position sur l'axe temps.
+    @MainActor
+    func test_lot15_horaireDansLeCorpsResteDuTexte() throws {
+        let ctx = try makeContext()
+        let meeting = Meeting(title: "Revue", date: Date())
+        meeting.summary = "Le point est reporté à 14:30, après la démo."
+        ctx.insert(meeting)
+        try ctx.save()
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil,
+                                           includeTranscript: false)
+        XCTAssertTrue(html.contains("14:30"))
+        XCTAssertFalse(html.contains("onetoone://"))
+    }
+
+    /// Critère d'acceptation n° 5 du chantier 6, côté rapport.
+    @MainActor
+    func test_lot15_planchesDansLOrdreDuTemps() throws {
+        let ctx = try makeContext()
+        let meeting = Meeting(title: "Atelier", date: Date())
+        meeting.summary = "Contenu."
+        ctx.insert(meeting)
+        for (index, couple) in [("Première", 120.0), ("Deuxième", 450.0),
+                                ("Troisième", 900.0)].enumerated().reversed() {
+            let planche = Board(index: index, title: couple.0, mode: .sketch, t: couple.1)
+            planche.meeting = meeting
+            ctx.insert(planche)
+        }
+        try ctx.save()
+
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil,
+                                           includeTranscript: false)
+        let positions = ["Première", "Deuxième", "Troisième"]
+            .compactMap { html.range(of: $0)?.lowerBound }
+        XCTAssertEqual(positions.count, 3)
+        XCTAssertEqual(positions, positions.sorted())
+    }
+
+    @MainActor
+    func test_lot15_noteHorodateeEstUnLienVersElleMeme() throws {
+        let ctx = try makeContext()
+        let meeting = Meeting(title: "Revue", date: Date())
+        meeting.summary = "Contenu."
+        ctx.insert(meeting)
+        let note = MeetingNote(t: 120, text: "Le chiffrage dérape", visibility: .shared)
+        note.meeting = meeting
+        ctx.insert(note)
+        try ctx.save()
+
+        let html = ReportHTMLBuilder.build(meeting: meeting, template: nil,
+                                           includeTranscript: false)
+        XCTAssertTrue(html.contains("?t=120&note=\(note.ensuredStableID.uuidString)"))
+    }
 }
