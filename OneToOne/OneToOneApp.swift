@@ -76,6 +76,10 @@ struct OneToOneApp: App {
             ContentView()
                 .preferredColorScheme(.light)
                 .environmentObject(router)
+                // Spec §2.6 : le mode séance remplace **tout** le contenu de
+                // la fenêtre, barre du haut comprise. La racine est donc le
+                // seul endroit qui puisse le monter (cf. `sessionFullscreenHost`).
+                .sessionFullscreenHost()
         }
         .modelContainer(container)
         .commands { MeetingCommands() }
@@ -84,6 +88,7 @@ struct OneToOneApp: App {
             OneToOneMeetingWindowContent(token: token)
                 .preferredColorScheme(.light)
                 .environmentObject(router)
+                .sessionFullscreenHost()
         }
         .modelContainer(container)
 

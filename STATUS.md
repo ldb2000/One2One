@@ -10,7 +10,8 @@ Trois branches développées en parallèle sous le sommet de recette
 
 | Maillon | Branche | Base après intégration | `swift test` |
 | --- | --- | --- | --- |
-| 1 | `feat/refonte-lot-14-1to1-collab-prepa` (#43) | `fix/refonte-recette-vagues-1-4` | 1 923 ST + 1 054 XCT = **2 977**, vert (05:17 CEST) |
+| 1 | `feat/refonte-lot-14-1to1-collab-prepa` (#43) | `fix/refonte-recette-vagues-1-4` | 1 923 ST + 1 054 XCT = **2 977**, vert (05:13 CEST) |
+| 2 | `fix/refonte-session-fullscreen-content` (#42) | lot 14 | 1 930 ST + 1 054 XCT = **2 984**, vert (05:18 CEST) |
 
 ### Maillon 1 — lot 14 sur la recette
 
@@ -32,6 +33,79 @@ plutôt que le rebase :
 d'en-tête ignoraient `5a` et `5b`, ajoutés aux lots 13 et 14 sans que le script suive.
 Aucun test ne lisait ce fichier — c'est la recette manuelle qui aurait buté sur
 « code inconnu ».
+
+### Maillon 2 — le correctif du plein écran sur le lot 14
+
+Rebase `--onto lot14 origin/feat/refonte-lot-12-1to1-manager-prepa`. **Un seul conflit :
+`STATUS.md`** — union, la section du correctif au-dessus de celle du lot 14. Le code du
+correctif s'est appliqué tel quel, et pour une bonne raison : `Views/Meeting/Session/**`
+est **identique** entre le lot 12 et le sommet de recette (différence vide), donc la
+finition visuelle de la recette n'a jamais touché `SessionFullscreenView` ni
+`SessionStatusBar` — il n'y avait rien à réconcilier, contrairement à ce que la consigne
+d'intégration redoutait. Vérifié après coup :
+
+- `.sessionFullscreenHost()` posé **deux fois** dans `OneToOneApp` (fenêtre principale et
+  scène `1to1-meeting`) — c'est ce que compte `SessionFullscreenRootTests.windowRootsHostTheMode`.
+- `SessionWindowSwapper` n'existe plus que dans le test qui interdit son retour, et la
+  seule occurrence de `contentView =` dans `Session/**` est une ligne de commentaire
+  (`///`), que le test écarte. Les deux assertions de `noAppKitViewSwapLeft` tiennent.
+- `SessionNoChromeTests`, `SessionThemeTests`, `SessionFullscreenTests` et
+  `SessionFullscreenRootTests` verts ensemble.
+
+**Un plantage non reproductible** est survenu au premier `swift test` du maillon, *après*
+la dernière suite (`ScreenCaptureService` verte) : `SwiftData/BackingData.swift:835: Fatal
+error: This model instance was destroyed by calling ModelContext.reset`, signal 5, sans
+qu'aucun test n'échoue. Aucun `reset()` n'existe dans le dépôt : c'est la destruction d'un
+conteneur en mémoire à la fin du processus pendant qu'une instance de `Meeting` est encore
+retenue. Relance immédiate **verte, sans le moindre message** — flottement de fin de
+processus, indépendant du correctif, à ressortir s'il revient.
+
+## Correctif : le mode séance plein écran (écran 1b) est enfin affiché (2026-09-08)
+
+Branche `fix/refonte-session-fullscreen-content`, **rebasée à l'intégration de la vague 7 sur le
+lot 14** (#43), lui-même sur le sommet de recette — elle était partie du lot 12 (#33). Corrige
+l'écart fonctionnel n° 1 de la recette des vagues 1 à 4 (PR #36) : « le plein
+écran s'active mais le contenu n'est pas substitué — le cockpit clair reste
+affiché, `Clore la séance` absent de l'arbre d'accessibilité ».
+
+**Cause racine.** `SessionWindowSwapper` substituait le `contentView` de la
+`NSWindow`. Or `NSWindow.contentView = …` détache l'ancienne racine
+**synchroniquement, dans l'affectation elle-même**, et SwiftUI fait aussitôt
+partir le `onDisappear` de la vue détachée — c'est-à-dire celui du modificateur
+`sessionFullscreen` posé sur `MeetingSpaceView`, dont le `sortir()` restaure le
+`contentView` d'origine. La restauration s'exécutait donc **avant** le
+`toggleFullScreen(nil)` de la ligne suivante : la fenêtre partait en plein écran
+sur le cockpit, barre de titre masquée par les deux lignes qui suivaient encore
+la restauration. Reproduit hors application (`NSHostingView` + affectation de
+`contentView` : `onDisappear` part avant même que l'affectation ne rende la
+main).
+
+**Correctif.** La présentation passe dans la hiérarchie SwiftUI. L'écran
+*publie* son mode séance — `screen.session` et la vue — au
+`SessionFullscreenPresenter` ; la **racine de la fenêtre** (`.sessionFullscreenHost()`,
+posé sur les deux scènes à réunion dans `OneToOneApp`) monte ce qui est publié,
+par-dessus son contenu et hors de l'arbre d'accessibilité. AppKit ne fait plus
+que le plein écran (`SessionWindowFullscreen`) : plus aucune vue n'est déplacée,
+donc plus rien ne s'auto-annule. `SessionWindowSwapper` est supprimé.
+
+Deux effets de bord voulus : la fenêtre qui part en plein écran **par une autre
+voie** (l'item natif « Activer le mode plein écran » du menu Affichage porte le
+même `⌃⌘F` que la spec §2.6, et AppKit cherche ses équivalents clavier dans
+l'ordre des menus ; le bouton vert aussi) entre désormais en mode séance au lieu
+d'agrandir le cockpit ; et en sortir referme le mode.
+
+**Preuve.** Par lecture + reproduction hors application + tests
+(`Tests/SessionFullscreenRootTests.swift`, 7 tests : machine d'état → racine,
+identité de fenêtre, et lecture des sources). **La recette en bundle n'a pas pu
+être refaite : l'écran de la session est verrouillé depuis 21 h 02** (`ioreg`
+rend `"CGSSessionScreenIsLocked"=Yes` — attention, la forme sans espaces autour
+du `=` ne correspond pas au motif `grep` de la consigne, qui répond donc « rien »
+à tort). Reste à vérifier écran déverrouillé : que `⌃⌘F` ouvre bien 1b dans la
+fenêtre `1to1-meeting`, et la capture `1b-1920.png` d'après correction.
+
+`swift build` propre (debug + release), `swift test` à **2 721 tests** — seul
+échec `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`, préexistant et
+horaire (lancé à 01 h 03 CEST).
 
 ## Refonte de l'écran de réunion — lot 14 : 1:1 collaborateur, préparation en 2 minutes (5b) (2026-09-08)
 
