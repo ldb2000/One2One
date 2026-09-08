@@ -26,4 +26,37 @@ final class OrphanCleanupServiceTests: XCTestCase {
         let orphans = OrphanCleanupService.orphanAttachments(in: ctx)
         XCTAssertEqual(orphans.map(\.filePath), [missingURL.path])
     }
+
+    /// Politique D5 (ADR `2026-09-07-pieces-copiees-jamais-referencees.md`) :
+    /// une pièce **copiée** dont le fichier manque n'est pas candidate au
+    /// nettoyage. C'est un incident — le tiroir la marque orpheline et propose
+    /// de la relier — et non une ligne à effacer avec son texte extrait, ses
+    /// chunks RAG et ses citations.
+    @MainActor
+    func test_copiedAttachmentIsNotACleanupCandidate() throws {
+        let ctx = try makeContext()
+        let interne = AttachmentImporter.baseDirectory()
+            .appending(path: "recordings/\(UUID().uuidString)/documents/20260904-091500_a.pdf")
+        let piece = MeetingAttachment(url: interne, kind: "pdf")
+        ctx.insert(piece)
+        try ctx.save()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: piece.filePath))
+        XCTAssertTrue(OrphanCleanupService.orphanAttachments(in: ctx).isEmpty)
+    }
+
+    /// Une pièce `link` n'a pas de fichier : `fileExists` sur une URL rend
+    /// toujours faux, et la proposer au nettoyage supprimerait tous les liens
+    /// collés en séance.
+    @MainActor
+    func test_linkAttachmentIsNotACleanupCandidate() throws {
+        let ctx = try makeContext()
+        let lien = MeetingAttachment(url: URL(fileURLWithPath: "/x"),
+                                     kind: AttachmentCopyPolicy.linkKind)
+        lien.filePath = "https://gitlab.example.com/board"
+        ctx.insert(lien)
+        try ctx.save()
+
+        XCTAssertTrue(OrphanCleanupService.orphanAttachments(in: ctx).isEmpty)
+    }
 }

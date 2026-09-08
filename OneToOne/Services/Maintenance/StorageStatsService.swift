@@ -49,8 +49,11 @@ final class StorageStatsService {
 
     /// Scanne le disque et la base pour produire un `Stats`.
     /// - WAV : découverts via `Meeting.wavFilePath`.
-    /// - Pièces jointes : `MeetingAttachment`, en excluant le kind "slides"
-    ///   (chemin virtuel, comptabilisé via le scan du dossier recordings).
+    /// - Pièces jointes : le scan de `recordings/<meetingUUID>/documents/`
+    ///   (pièces copiées, politique D5) **plus** les lignes
+    ///   `MeetingAttachment` encore référencées hors de l'application. Le kind
+    ///   "slides" est exclu (chemin virtuel) et les lignes déjà couvertes par
+    ///   le scan ne sont pas recomptées.
     /// - Slides : fichiers sous `recordings/<meetingUUID>/slides/`.
     /// - Base : `OneToOne.store` + ses fichiers `-wal` / `-shm`.
     private func compute(in context: ModelContext) -> Stats {
@@ -67,13 +70,26 @@ final class StorageStatsService {
             }
         }
 
-        // Attached documents (pdf, pptx, etc.) — excludes slides kind
+        let supportDir = applicationSupportDir()
+        let recordingsDir = supportDir.appendingPathComponent("recordings")
+
+        // Pièces copiées (D5) : le scan du dossier fait foi, y compris pour un
+        // fichier qu'aucune ligne ne réclame plus — c'est justement celui-là
+        // qu'on veut voir dans la répartition du disque.
+        let (documentsBytes, documentsCount) = Self.documentsUsage(inRecordings: recordingsDir)
+        stats.attachmentBytes += documentsBytes
+        stats.attachmentCount += documentsCount
+
+        // Pièces encore **référencées** hors de l'application : les lignes
+        // antérieures à D5 que la migration paresseuse n'a pas encore vues.
+        // Une ligne déjà couverte par le scan ci-dessus n'est pas recomptée.
         let attDescriptor = FetchDescriptor<MeetingAttachment>()
         let attachments = (try? context.fetch(attDescriptor)) ?? []
         for a in attachments {
             // "slides" kind entries use a virtual path, their actual disk usage
             // is captured below via the recordings directory scan.
-            guard a.kind != "slides" else { continue }
+            guard a.kind != "slides", a.kind != AttachmentCopyPolicy.linkKind else { continue }
+            guard !AttachmentCopyPolicy.isCopied(path: a.filePath, base: supportDir) else { continue }
             if let size = fileSize(atPath: a.filePath) {
                 stats.attachmentBytes += size
                 stats.attachmentCount += 1
@@ -84,8 +100,6 @@ final class StorageStatsService {
         // organised as <meetingUUID>/slides/<file>.png
         // Only count files within slides/ subdirs; recordings/ also contains wav files
         // which are already counted separately via Meeting.wavFilePath.
-        let supportDir = applicationSupportDir()
-        let recordingsDir = supportDir.appendingPathComponent("recordings")
         var slidesBytes: Int64 = 0
         var slidesCount = 0
         if let meetingDirs = try? FileManager.default.contentsOfDirectory(
@@ -114,6 +128,34 @@ final class StorageStatsService {
         stats.databaseBytes = dbBytes
 
         return stats
+    }
+
+    /// Octets et nombre de fichiers sous `recordings/*/documents/` — le dossier
+    /// des pièces copiées (D5). `nonisolated static` : c'est une lecture de
+    /// dossier, elle se teste sans base, sans acteur principal et sans
+    /// `Application Support` réel.
+    nonisolated static func documentsUsage(inRecordings recordings: URL) -> (Int64, Int) {
+        var total: Int64 = 0
+        var count = 0
+        guard let meetingDirs = try? FileManager.default.contentsOfDirectory(
+            at: recordings, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return (0, 0) }
+        for dir in meetingDirs {
+            guard (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                continue
+            }
+            let documents = dir.appendingPathComponent("documents")
+            guard let enumerator = FileManager.default.enumerator(
+                at: documents, includingPropertiesForKeys: [.fileSizeKey]
+            ) else { continue }
+            for case let fichier as URL in enumerator {
+                if let taille = try? fichier.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    total += Int64(taille)
+                    count += 1
+                }
+            }
+        }
+        return (total, count)
     }
 
     private func fileSize(atPath path: String) -> Int64? {

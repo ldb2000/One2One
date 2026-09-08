@@ -12,18 +12,28 @@ private let attachmentLog = Logger(subsystem: "com.onetoone.app", category: "att
 ///   ~/Library/Application Support/OneToOne/projects/<code>/<timestamp>_<filename>
 enum AttachmentImporter {
 
-    /// Destination namespace under Application Support. Un seul cas
-    /// aujourd'hui : le bucket par projet. Le cas « par note » a disparu avec
-    /// `NoteEditorSheet` — une note est désormais un `Meeting`, et les pièces
-    /// jointes d'une réunion passent par `MeetingAttachmentService`, qui
-    /// référence le fichier d'origine sans le recopier ici.
+    /// Destination namespace under Application Support. Deux cas :
+    ///
+    /// - `project` : les pièces d'une fiche projet, copiées de longue date.
+    /// - `meetingDocuments` : les pièces d'une séance, copiées depuis la
+    ///   décision **D5** (ADR `2026-09-07-pieces-copiees-jamais-referencees.md`).
+    ///   Avant elle, `MeetingAttachmentService` référençait le fichier d'origine
+    ///   avec un signet : une pièce déposée en séance disparaissait au premier
+    ///   rangement du disque, et ni le partage à l'écran, ni l'épinglage, ni la
+    ///   sauvegarde n'avaient d'ancre fiable.
+    ///
+    /// Le dossier `documents/` voisine `slides/` de la même réunion : tout ce
+    /// qui appartient à une séance vit sous `recordings/<uuid>/`.
     enum Bucket {
         case project(code: String)
+        case meetingDocuments(meetingStableID: UUID)
 
         var subpath: String {
             switch self {
             case .project(let code):
                 return "projects/\(sanitize(code))"
+            case .meetingDocuments(let id):
+                return AttachmentCopyPolicy.documentsSubpath(meetingStableID: id)
             }
         }
     }
@@ -46,8 +56,15 @@ enum AttachmentImporter {
     /// Resolves the destination URL inside Application Support and copies the
     /// source file there. Filename is prefixed with a yyyyMMdd-HHmmss timestamp
     /// to avoid collisions when the same file is imported twice.
+    ///
+    /// - Parameter base: racine du stockage, `Application Support/OneToOne` en
+    ///   production. Paramétrée pour que les tests écrivent dans un dossier
+    ///   temporaire au lieu du dossier réel de l'utilisateur — la politique de
+    ///   copie (D5) n'est vérifiable qu'en observant le disque.
     @discardableResult
-    static func copyIntoAppSupport(source: URL, bucket: Bucket) throws -> URL {
+    static func copyIntoAppSupport(source: URL,
+                                   bucket: Bucket,
+                                   base: URL = baseDirectory()) throws -> URL {
         let fm = FileManager.default
 
         // Security-scoped resource access if the source comes from a fileImporter.
@@ -58,16 +75,17 @@ enum AttachmentImporter {
             throw ImporterError.sourceUnreadable(source.path)
         }
 
-        let destDir = baseDirectory().appending(path: bucket.subpath, directoryHint: .isDirectory)
+        let destDir = base.appending(path: bucket.subpath, directoryHint: .isDirectory)
         do {
             try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
         } catch {
             throw ImporterError.createDirFailed(error.localizedDescription)
         }
 
-        let stamp = Self.timestamp()
-        let safeName = sanitize(source.lastPathComponent)
-        let destURL = destDir.appending(path: "\(stamp)_\(safeName)")
+        // Le nommage est décidé par `AttachmentCopyPolicy` : les deux buckets
+        // produisent la même forme, et elle est testée sans disque.
+        let destURL = destDir.appending(
+            path: AttachmentCopyPolicy.destinationFileName(for: source.lastPathComponent))
 
         // If a previous import created the same name in the same second, append
         // a counter rather than overwriting silently.
@@ -110,21 +128,10 @@ enum AttachmentImporter {
         URL.applicationSupportDirectory.appending(path: "OneToOne", directoryHint: .isDirectory)
     }
 
-    private static let timestampFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = .current
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        return f
-    }()
-
-    private static func timestamp() -> String {
-        timestampFormatter.string(from: Date())
-    }
-
+    /// Horodatage et assainissement vivent dans `AttachmentCopyPolicy` : une
+    /// seule table de caractères interdits, testable sans disque.
     private static func sanitize(_ s: String) -> String {
-        let illegal = CharacterSet(charactersIn: "/\\:*?\"<>|")
-        return s.components(separatedBy: illegal).joined(separator: "_")
+        AttachmentCopyPolicy.sanitize(s)
     }
 
     private static func uniqueURL(in dir: URL, base: URL) -> URL {

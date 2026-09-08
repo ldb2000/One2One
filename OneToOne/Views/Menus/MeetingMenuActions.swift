@@ -10,7 +10,11 @@ enum MeetingMenuItem {
          /// `⌘M` — un marqueur sur l'axe temps (spec §1.4).
          marker,
          /// `⌃⌘F` — le mode séance plein écran (spec §2.6, lot 4).
-         sessionFullscreen
+         sessionFullscreen,
+         /// `⌘⇧V` — coller un lien ou une image dans les ressources (spec §1.4).
+         pasteResource,
+         /// Ouvre le tiroir Ressources (spec §4.1).
+         resources
 }
 
 /// Source de vérité unique des actions « secondaires » d'une réunion, partagée
@@ -84,6 +88,13 @@ struct MeetingMenuActions {
         MainActor.assumeIsolated { SessionFullscreenPresenter.shared.demanderBascule() }
     }
 
+    // Actions — ressources (lot 6, spec §4.1 et §1.4)
+    /// `⌘⇧V` : colle un lien ou une image du presse-papiers dans les
+    /// ressources de la séance.
+    var pasteResource: () -> Void
+    /// Déplie le tiroir Ressources.
+    var openResources: () -> Void
+
     /// Occupé par une opération longue (enreg./transcription/rapport).
     var busy: Bool { isRecording || isTranscribing || isGeneratingReport }
 
@@ -139,6 +150,11 @@ struct MeetingMenuActions {
         // aucun écran n'est en mesure de présenter — un item grisé selon
         // l'état d'un singleton ne serait pas vérifiable ici.
         case .sessionFullscreen:  return true
+        // Le tiroir Ressources existe pour **tous** les types, note comprise :
+        // `MeetingSpaceRouting.spaces(for:)` donne l'espace `Ressources` à la
+        // note comme aux autres. Coller un lien dans une note est même l'usage
+        // le plus courant du raccourci.
+        case .pasteResource, .resources: return true
         }
     }
 }

@@ -58,6 +58,12 @@ struct MeetingCommands: Commands {
             Button("Mode séance plein écran") { menu?.toggleSessionFullscreen() }
                 .keyboardShortcut("f", modifiers: [.control, .command])
                 .disabled(!isEnabled(.sessionFullscreen))
+            // Spec §1.4 : ⌘⇧V colle un lien ou une image dans les ressources.
+            Button("Coller dans les ressources") { menu?.pasteResource() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(!isEnabled(.pasteResource))
+            Button("Ressources…") { menu?.openResources() }
+                .disabled(!isEnabled(.resources))
 
             Divider()
             Button("Générer le rapport") { menu?.generateReport() }
@@ -95,7 +101,15 @@ struct MeetingCommands: Commands {
             // ne duplique rien.
             Button("Charger le jeu de démonstration (refonte)") {
                 guard let demoContext else { return }
+                // Un seul item de menu, mais **tous** les semis de la vague :
+                // chaque `seedLotN` commence par `seed(in:)`, qui est
+                // idempotent, puis complète sa part — `seedLot5` les décisions
+                // horodatées, les thèmes et le fil du projet, `seedLot6` les
+                // ressources de `3a-tiroir-ressources.png` (4 pièces de
+                // séance, 17 du projet, 2 épinglées, 1 lien). Les appeler tous
+                // les deux ne duplique donc rien.
                 let reunion = RefonteDemoSeed.seedLot5(in: demoContext)
+                _ = RefonteDemoSeed.seedLot6(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false

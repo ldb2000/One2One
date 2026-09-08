@@ -6,11 +6,28 @@ import SwiftData
 @MainActor
 enum OrphanCleanupService {
 
-    /// Pièces jointes dont le fichier pointé par `filePath` n'existe plus sur le disque.
+    /// Pièces jointes dont le fichier pointé par `filePath` n'existe plus sur
+    /// le disque **et** qui sont des références externes.
+    ///
+    /// Deux familles sont exclues depuis la décision D5 (ADR
+    /// `2026-09-07-pieces-copiees-jamais-referencees.md`) :
+    ///
+    /// - **les pièces copiées** dans le dossier de l'application. Un fichier
+    ///   interne manquant est un incident à signaler — le tiroir la marque
+    ///   orpheline et propose de la relier — pas une ligne à nettoyer. La
+    ///   proposer ici reviendrait à effacer le texte extrait, les chunks RAG et
+    ///   les citations de la seule pièce qu'on ne peut plus retrouver ailleurs.
+    /// - **les pièces `link`**, dont le `filePath` porte une URL : aucun
+    ///   fichier local ne peut leur manquer, et `fileExists` sur une URL rend
+    ///   toujours faux.
     static func orphanAttachments(in context: ModelContext) -> [MeetingAttachment] {
         let descriptor = FetchDescriptor<MeetingAttachment>()
         let all = (try? context.fetch(descriptor)) ?? []
-        return all.filter { !FileManager.default.fileExists(atPath: $0.filePath) }
+        return all.filter {
+            guard $0.kind != AttachmentCopyPolicy.linkKind else { return false }
+            guard !AttachmentCopyPolicy.isCopied(path: $0.filePath) else { return false }
+            return !FileManager.default.fileExists(atPath: $0.filePath)
+        }
     }
 
     /// Fichiers `*.tmp.wav` de `directory` modifiés il y a plus de `minutes` minutes

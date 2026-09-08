@@ -354,4 +354,12 @@ final class MeetingScreenModel {
 
     /// L'état d'écran du mode Relire (`ReviewState`, spec §2.7).
     var review = ReviewState()
+
+    // MARK: - Lot 6 : ressources en séance
+
+    /// Le tiroir Ressources, la pièce à l'écran et l'état d'import
+    /// (`Views/Meeting/Resources/ResourcesState.swift`). Une ligne ici, tout
+    /// le reste là-bas : le tiroir est une surface superposée, il n'a pas à
+    /// faire grossir ce modèle.
+    var resources = ResourcesState()
 }
