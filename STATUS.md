@@ -2,6 +2,259 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Intégration des lots 2 + 3 : la pile redevient linéaire (2026-09-07)
+
+Les lots 2 et 3 ont été développés **en parallèle** depuis
+`feat/refonte-lot-1b-espaces-kpi-assistant` (`a8f8f32`). Le lot 3 a été **rebasé sur le
+lot 2** : la pile est de nouveau linéaire — `1b → 2 → 3` — et l'ordre de fusion est
+`#19 → #20 → #21 → #22 → #23 → #24`. La branche du lot 3 porte donc ses 11 commits rebasés
+plus un commit d'intégration.
+
+**Six fichiers en conflit, six résolutions :**
+
+- `MeetingScreenModel.swift` — les deux lots ajoutaient « en fin de type ». Toutes les
+  propriétés des deux sont gardées (`noteFilter`, `noteComposerFocusToken`,
+  `lastDiarizationEmbeddings`, `railTab`, `railViewMode`, `newTaskEffortMinutes`), et
+  `pendingActionDraft`, déclaré deux fois, n'existe plus qu'une : de type `ActionDraft`
+  (lot 3). Le brouillon du lot 2 (`ActionFromPhrase.Draft`, qui portait un *nom* de
+  locuteur) **disparaît** au profit d'`ActionDraft`, qui porte un `Collaborator` — le
+  composeur doit pouvoir l'affecter, pas seulement l'afficher.
+- `MeetingSpaceView.swift` — plus **aucun générique** : le lot 2 avait retiré
+  `Notes`/`Transcript`, le lot 3 `Actions`. La vue compose `MeetingLiveSpace` à gauche et
+  `ActionsRail` à droite via `MeetingSpaceLayout` ; le placeholder de rail du lot 1 est
+  retiré, l'overlay et le dock assistant du lot 1 conservés.
+- `MeetingView.swift` — les deux retraits, **aucun ajout** : les ~480 lignes d'UI de
+  transcription (lot 2, `runDiarization`/`reidentifySpeakers` restant exposées par
+  closures) **et** `actions:` + `addTask` (lot 3). **2 045 lignes**, contre 2 525 pour le
+  lot 3 seul.
+- `RefonteDemoSeed.swift` — les apports des deux : 4 notes horodatées + `notesMigrated`
+  (lot 2), les 12 actions dont 9 non assignées et 3 reportées, et l'année **2026**
+  (lot 3). Les chiffres de `1a-cockpit.png` tombent toujours juste : PRÉSENCE 6/6,
+  ACTIONS 12 · 9 non assignées, DÉCISIONS 3, RISQUES 5 · 2 critiques.
+- `Tests/MeetingScreenModelTests.swift` — union des deux, **un seul** test de
+  non-persistance du brouillon (celui du lot 2, qui couvre aussi le filtre de notes).
+- `STATUS.md` — les deux sections, lot 3 au-dessus du lot 2, cette section en tête.
+
+**La couture `/action → rail` est branchée.** Le lot 2 posait `pendingActionDraft` sans
+que personne ne le consomme et créait l'action par `MeetingView.addTask()`, qui perdait
+`sourceRef` ; le lot 3 consommait un brouillon que personne ne posait. Après rebase :
+
+1. `/action <texte>` dans le composeur de notes pose l'intention avec une source de nature
+   **`note`** (et non `transcript` : `OwnerSuggestion` ne cherche un locuteur que dans les
+   sources `transcript`) horodatée à la tête de lecture. La ligne n'écrit **aucune** note.
+2. `＋ Action` sur une phrase de transcription pose l'intention avec la source du segment
+   et le locuteur en responsable suggéré. **Il ne crée plus rien** : il créait *et* laissait
+   le composeur créer — deux actions pour un clic. `ActionFromPhrase.createAction` est
+   supprimée, `ActionComposerService.creer` est le **seul** point de création.
+3. `requestAction` préremplit le titre **et** les pilules du responsable
+   (`newTaskAudience` + `selectedCollaborator`) : une suggestion qu'on ne voit pas ne se
+   refuse pas.
+4. `⌘⏎` crée l'`ActionTask` avec `sourceRef` intact, vide le champ sans toucher au focus,
+   et l'action paraît en tête d'`À ASSIGNER` (ou du groupe de son responsable).
+
+Nouvelle suite `ActionSeamIntegrationTests` (4 tests, sans aucune vue) : les deux chemins de
+bout en bout, la reformulation du titre qui ne coupe pas le lien vers la phrase, et une
+lecture des sources amont qui refuse toute autre fabrique d'`ActionTask` ou tout reliquat
+d'`addTask`.
+
+**`swift build` propre** (avertissements préexistants seuls : `PyannoteDiarizer`,
+`MLXEmbeddingEngine`, `AudioCompressionService`). **`swift test` complet vert : 1 039 XCTest
+(1 ignoré, 0 échec) + 892 Swift Testing en 130 suites = 1 931 tests**, contre 1 874 pour le
+lot 2 seul et 1 855 pour le lot 3 seul (+3 sur l'union attendue : les 4 tests de la nouvelle
+suite moins le test de `pendingActionDraft` dédoublonné).
+
+### Prochaine action
+
+Faire relire et fusionner dans l'ordre `#19 → #20 → #21 → #22 → #23 → #24`, puis attaquer
+le **lot 4** (mode séance plein écran) et le **lot 5** (poste de pilotage).
+
+## Refonte de l'écran de réunion — lot 3 : rail d'actions 330 px permanent (2026-09-07)
+
+Branche `feat/refonte-lot-3-rail-actions`, **rebasée sur**
+`feat/refonte-lot-2-notes-transcription` (elle-même sur
+`feat/refonte-lot-1b-espaces-kpi-assistant`) : la PR **empile** les lots 0A, 0B, 1a, 1b et 2
+(PR #19–#23, non fusionnées). Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-3-rail-actions.md` (11 tâches).
+
+**État : livré, `swift build` propre, `swift test` complet vert, PR ouverte, non mergée.**
+
+### Ce qui est en place
+
+**Le rail est monté une seule fois, par `MeetingSpaceView`** (spec §2.5) : `HStack` sur
+`MeetingSpaceLayout.columns(totalWidth:rail:sideNav:)`, colonne fluide à gauche
+(indicateurs + contenu du mode + dock assistant), filet, rail de 330 px à droite. Le lot 1
+l'avait esquissé dans `MeetingPrepareSpace` — ce placeholder est **retiré**, deux montages
+produisant deux rails. **Pas de rail en mode Relire** : la capture
+`1c-poste-de-pilotage.png` met les actions en tableau dans sa colonne principale, et c'est
+la même `ActionsRailList` qui y sert d'ici au lot 5. En mode Préparer, le rail est
+« réduit » (spec §2.2) : le sélecteur de vue disparaît, on ne prépare pas une séance en
+matrice d'Eisenhower.
+
+**Trois onglets et trois vues** — `ActionsRail` : `Actions n / Risques n / Historique`,
+l'onglet actif sur fond `bg/app` arrondi (le soulignement `accent/report` reste réservé à la
+barre d'espaces, deux soulignements sur le même écran ne se hiérarchisent plus) ; sous
+`Actions`, `SegmentedMode` sur `ActionsViewMode.railCases` = `Liste · Calendrier ·
+Eisenhower`. `ActionsViewMode` a quitté `ActionsPanel.swift` pour `Models/` ; **Kanban et
+Post-it restent dans `ActionsListView`** et ne sont pas atteignables depuis le rail (une
+valeur mémorisée `kanban` retombe sur `Liste`).
+
+**Groupes ordonnés, purs et testés** — `ActionsRailGrouping` : `À ASSIGNER` (libellé mono
+`accent/report`, barre gauche 2 px) → `MES ACTIONS` → `DÉLÉGUÉES` → `REPORTÉES DU <date>`
+(rendu en lignes compactes à puce ronde, groupées par date de la réunion d'origine, du plus
+récent au plus ancien). Le **report l'emporte** sur « à assigner » : une action n'apparaît
+jamais deux fois. Les actions `done`/`dropped` quittent l'onglet Actions pour l'Historique.
+Le tri interne passe `sortOrder` **avant** l'échéance — contrairement à l'ancien
+`ActionsPanel` — parce que c'est ce qui permet au composeur de mettre une action neuve en
+tête sans lui inventer une échéance, et c'est ce qui reproduit l'ordre de la capture.
+`dateOrdinale` porte l'ordinal du premier du mois (« 1er sept. »), que `Date.FormatStyle` ne
+donne pas en français.
+
+**Cartes à édition inline** — `ActionCard` : titre `plexSans(11.5)` sur 2 lignes, puis les
+pilules `InvitePill` — responsable (`＋ assigner`, `＋ Yann` quand une suggestion existe,
+vert `accent/ok` quand renseigné, neutre pour un `unresolvedAssigneeName`), échéance,
+charge (`30min` / `1h30` / `2h` / `1j`, la journée comptée à 8 h), `!` urgent, et la pilule
+de source (`◫ mm:ss` pour une capture, `mm:ss ↗` pour une phrase ou une note → `playhead.seek`).
+Un clic **déplie un sélecteur sous le titre**, jamais une modale : `OwnerPickerMenu`
+réutilisé, `DatePicker` compact + raccourcis `Demain / Vendredi / +1 sem.`, liste de charges.
+`Tab` avance de champ, `Esc` referme. Une invite qui **porte une suggestion assigne en un
+clic** ; la pilule devenue verte se reclique pour choisir quelqu'un d'autre.
+`ActionCardEditing` (pur) porte toutes ces règles.
+
+**Suggestion de responsable** — `OwnerSuggestion` (pur) applique les trois règles de la spec
+dans l'ordre : locuteur du segment source → dernier porteur d'une action de même préfixe de
+titre (trois mots normalisés, diacritiques repliés) dans le projet → participant **unique**
+n'ayant encore rien à porter. Aucune conclusion rend `nil` : une suggestion fausse coûte plus
+cher qu'une absence, puisqu'un seul clic l'accepte.
+
+**Composeur en pied, toujours visible** — `ActionComposer` : champ `Nouvelle action…`,
+indice `⌘⏎`, bascules `Moi · Demain · ! · 30min`. La création est un service
+(`ActionComposerService.creer`) : c'est ce qui rend vérifiable le « sans perdre le focus »,
+un service sans accès au focus ne pouvant pas le prendre. Il consomme
+`MeetingScreenModel.pendingActionDraft` (le titre saisi l'emporte sur celui du brouillon,
+mais la chaîne de citation survit à la reformulation) et le remet à `nil`. `⌘⏎` est vérifié à
+la main (`onKeyPress(keys: [.return])` + `press.modifiers`) plutôt que par un
+`keyboardShortcut`, qui serait actif champ non focalisé. Après création, seuls le titre et
+l'urgence retombent : un `!` oublié rendrait urgente toute la série suivante. L'insertion
+s'anime en **150 ms** (`.animation(.easeOut(duration: 0.15), value: meeting.tasks.count)`).
+
+**Onglets Risques et Historique** — `ActionsRailRisks` : les `ProjectAlert` de la réunion
+puis celles du projet non déjà listées, point coloré par sévérité, `＋ Ajouter un risque` qui
+déplie un champ **inline** (gravité en pilules, le champ reste ouvert après création : un
+risque en amène souvent un second). La lecture de sévérité et la teinte sont celles du
+bandeau (`MeetingKPIBuilder.level(fromSeverity:)`, `MeetingKPIBand.teinte(_:)`) — deux
+définitions finiraient par peindre le même risque de deux couleurs. `ActionsRailHistory` :
+les actions closes, abandonnées et reportées, une ligne datée par entrée.
+
+**`ActionsPanel` est hors de tout chemin actif de l'espace Réunion** (point 8 du périmètre) :
+il n'est plus instancié que par `OverviewDashboard`, que le lot 1 ne monte plus (D8) et que
+le lot 19 supprimera. `MeetingView` perd sa closure `actions:` **et** sa fonction `addTask`
+(−28 lignes ; 2 073 → **2 045** après rebase sur le lot 2, qui en avait déjà retiré 480) ; la
+carte RISQUES du bandeau ouvre désormais l'onglet Risques du rail au lieu du rapport.
+
+**`compact: Bool` sur `CalendarBoard` et `EisenhowerBoard`** (décision D10) : ajout dont le
+défaut reproduit les métriques d'avant, extraites en fonctions statiques
+(`dayCellMinHeight`, `maxChipsPerDay`, `boxMinHeight`) pour être vérifiables — une cellule
+rognée sur l'écran Actions plein ne se voit dans aucun test de rendu.
+
+### Créés
+
+`OneToOne/Models/` : `ActionsViewMode.swift`, `ActionDraft.swift`.
+`OneToOne/Services/OwnerSuggestion.swift`.
+`OneToOne/Views/Meeting/Spaces/Rail/` : `ActionsRailGrouping`, `ActionCard`
+(+ `ActionCardEditing`, `ActionCompactRow`), `ActionComposer` (+ `ActionComposerService`),
+`ActionsRailList`, `ActionsRailRisks`, `ActionsRailHistory`, `ActionsRail`.
+
+### Tests
+
+`swift build` propre (seul avertissement : celui, préexistant, de `PyannoteDiarizer`).
+`swift test` complet **vert** : **1 039 XCTest (1 ignoré, 0 échec) + 816 Swift Testing en
+122 suites (0 échec)**, soit **1 855 tests** contre 1 801 après le lot 1 (**+54, +7 suites**),
+aucune régression. `EngagementLedgerTests`, `PrepCarryoverServiceTests`,
+`MeetingMenuActionsTests` et les suites `ActionsListView` sont vertes.
+
+Nouvelles suites : `ActionsViewModeTests` (4), `ActionsRailGroupingTests` (8),
+`OwnerSuggestionTests` (8), `ActionCardEditingTests` (9), `ActionComposerServiceTests` (9),
+`ActionsBoardsCompactTests` (5), `ActionsRailNoModalTests` (4). Ajouts : 4 tests dans
+`MeetingScreenModelTests`, 3 dans `RefonteDemoSeedTests`.
+
+Critère d'acceptation du chantier 1 **n° 3** (« assigner responsable + échéance sans quitter
+le rail ni ouvrir de modale ») : un critère de cette forme ne se vérifie pas par l'état d'un
+modèle — une `sheet` ajoutée demain par distraction passerait toutes les autres suites.
+`ActionsRailNoModalTests` **lit les sources** du dossier `Rail/` (chemin dérivé de
+`#filePath`) et refuse `.sheet(`, `.popover(`, `.alert(`, `.confirmationDialog(`,
+`.fullScreenCover(`, toute couleur nommée hors `One2OneToken`, et toute remise à `false` du
+`@FocusState` du composeur. Un premier test vérifie que le dossier lu est bien celui du rail,
+sans quoi les autres ne prouveraient rien en passant.
+
+### Jeu de démonstration
+
+`RefonteDemoSeed` reproduit maintenant les groupes du rail. L'arithmétique de la maquette
+était incohérente (`12 · 9 non assignées` + `À ASSIGNER — 9` + `REPORTÉES — 3` n'admet aucune
+solution où une carte assignée figure sous `À ASSIGNER`) : les **trois actions reportées sont
+celles qui portent un responsable**, et comme le rendu compact d'un groupe reporté n'affiche
+pas de porteur, rien ne le contredit à l'écran — les trois nombres de la capture tombent
+juste d'un coup. Échéances, charges (`2h`, `1j`) et chaîne de citation (`04:12 ↗`) complètent
+les trois premières cartes. Une réunion « COSUI hebdo » du 1er septembre porte le report et
+alimente « DERNIERS POINTS » du mode Préparer, jusque-là vide.
+
+**Défaut du lot 1 corrigé** : le semis datait la réunion du 4 septembre **2025**
+(`1 756 970 100`), pas 2026 — la barre d'espaces affichait donc la mauvaise année, le vendredi
+de la capture devenait un jeudi, et tout raccourci d'échéance avec lui. Un test fixe désormais
+jour, mois et année.
+
+### Écarts assumés
+
+1. **Recette visuelle non faite : la session graphique est verrouillée**, comme au lot 1.
+   `ioreg -n Root -d1 -r | grep CGSSessionScreenIsLocked` rend `Yes` ; `screencapture -x` ne
+   produit qu'une image noire et `osascript` sur `System Events` est refusé (`-25211`). Rien
+   n'a été déposé dans `docs/superpowers/specs/refonte-2026-09/recette/` : une capture noire
+   ne prouverait rien. **À refaire écran déverrouillé** : `swift build -c release`, empaqueter
+   un `.app` hors du dépôt (binaire + `Info.plist` + `PkgInfo` + `OneToOne_OneToOne.bundle` +
+   `default.metallib` repris de `Mickey.app` + signature ad hoc, HOME temporaire), lancer,
+   menu **Réunion → Charger le jeu de démonstration (refonte)**, redimensionner à 1 280 puis
+   1 920 px, `screencapture -x` vers `recette/lot-3-{1280,1920}.png`, comparer à
+   `ecrans/1a-cockpit.png`. **Rien n'a été écrit dans le store de production** : le semis se
+   déclenche par un clic de menu.
+2. **Un quatrième groupe, `DÉLÉGUÉES`**, s'ajoute aux trois de la spec. Sans lui, une action
+   assignée à quelqu'un d'autre et non reportée n'apparaîtrait dans **aucun** groupe : elle
+   disparaîtrait du rail sans disparaître de la base, ce qui est la pire des deux options. Le
+   discriminant de `MES ACTIONS` étant `destinataire == .moi` (comme le demande le périmètre),
+   `À ASSIGNER` doit exclure ce cas, sinon il avalerait toutes mes actions —
+   `destinataire == .moi` implique `collaborator == nil` dans le modèle existant.
+3. **La capture montre une carte assignée (« Sylvain » en vert) sous `À ASSIGNER`.** C'est
+   une incohérence de la maquette, contredite par sa propre carte ACTIONS (`9 non assignées`
+   sur 12). Le rail respecte ses règles : une action assignée sort du groupe. La pilule verte
+   se voit dès qu'on assigne, elle n'est simplement pas dans l'état semé.
+4. **`REPORTÉES DU <date>` n'est pas cliquable vers la réunion d'origine.** La spec ne le
+   demande pas et le lot 9 livrera la navigation projet ; la ligne compacte porte le titre et
+   le compteur de reports, pas de lien.
+5. **Une échéance de la semaine se nomme par son jour** (« Demain », « Vendredi »), la date
+   reprenant la main au-delà de six jours **et pour toute échéance passée** (« Mardi » pour un
+   mardi révolu serait un piège). C'est ce que montre la capture, mais le libellé est relatif
+   à *aujourd'hui* : aucune valeur semée ne peut fixer le mot affiché. Le jeu reproduit la
+   forme — une échéance proche et une lointaine côte à côte.
+6. **`OwnerPickerMenu` conserve sa feuille « Ajouter un collaborateur… »**, hors du dossier
+   `Rail/` et donc hors du périmètre de la garde anti-modale. Assigner un participant ou un
+   favori ne passe par aucune modale, ce qu'exige le critère ; *créer* un collaborateur qui
+   n'existe pas encore en ouvre une, et c'est une autre intention.
+7. **Le composeur ne propose que « Moi » ou « À assigner »**, pas les trois `ActionAudience`.
+   Dans 330 px, un menu de trois entrées pour un réglage qu'on change à chaque ligne coûte
+   plus qu'il ne rend ; le sélecteur complet est sur la carte.
+8. **`newTaskEffortMinutes` s'ajoute au brouillon** à côté de `newTaskPomodoros`, que
+   `ActionsPanel` et les vues existantes continuent d'employer. `effortMinutes` est le champ du
+   modèle cible (programme §3) ; fusionner les deux aurait touché des écrans hors périmètre.
+9. **Le rail n'apparaît pas sous 850 px de largeur** : `MeetingSpaceLayout` retire la colonne
+   fixe plutôt que de rogner la fluide sous 520 px (critère n° 5, comportement du lot 1
+   inchangé). Le composeur d'action devient alors injoignable dans l'espace Réunion — à
+   trancher au lot 19 avec la recette 1 280 px.
+
+### Prochaine action
+
+**Lot 4** — mode séance plein écran (1b) : palette `dark/*`, grille `78 | 1fr | 400`, colonne
+temps, bandeau « EN ATTENTE — n actions sans responsable » et sa file d'assignation en trois
+clics (elle consomme `ActionsRailGrouping.groupes` et `OwnerSuggestion` livrés ici). Puis
+**lot 5** — poste de pilotage = mode Relire : nav latérale de 190 px, tableau d'actions dense
+à sept colonnes qui remplacera `ActionsRailList` dans ce mode, frise audio pleine largeur.
 ## Refonte de l'écran de réunion — lot 2 : notes ↔ transcription, frise audio, action depuis une phrase (2026-09-07)
 
 Branche `feat/refonte-lot-2-notes-transcription`, **empilée** sur
@@ -153,11 +406,12 @@ Critères d'acceptation couverts :
    accolées au mot « Tape ». Le champ de saisie doit occuper la largeur restante ; le mettre
    après les pilules le réduirait à rien dès qu'on tape. Les commandes restent **toujours
    visibles**, ce qu'exige la spec.
-3. **`/action` dans le composeur de notes ne conserve pas encore `sourceRef` sur l'action
-   créée** : il pose l'intention (`pendingActionDraft`, source comprise) et préremplit le
-   composeur existant du rail, dont la création passe par `MeetingView.addTask()`. C'est le
-   rail du lot 3 qui consommera l'intention complète. Le chemin du critère n° 2 — `＋ Action`
-   sur un segment — crée l'action **immédiatement**, source comprise.
+3. ~~**`/action` dans le composeur de notes ne conserve pas encore `sourceRef` sur l'action
+   créée**~~ — **levé à l'intégration des lots 2 + 3** (section en tête) : `/action` pose
+   l'intention avec une source de nature `note`, le composeur du rail la consomme et
+   `ActionComposerService.creer` conserve `sourceRef`. `＋ Action` sur un segment suit
+   désormais le même chemin et ne crée plus l'action directement — il en créait une
+   deuxième.
 4. **`⌘⇧A` et `⌘⇧N` sont des boutons d'opacité nulle dans les colonnes**, pas des items de
    `MeetingCommands` : le programme §2.4 interdit d'ajouter quoi que ce soit à
    `MeetingView.swift`, et un item de menu y aurait exigé deux closures de plus. Conséquence
@@ -179,8 +433,9 @@ Critères d'acceptation couverts :
 
 **Lot 4** (mode séance plein écran 1b : palette `dark/*`, colonne temps verticale, file
 d'assignation) et **lot 5** (poste de pilotage = mode Relire 1c : nav latérale 190 px, tableau
-d'actions éditable en place, frise pleine largeur). Le lot 3 (rail d'actions 330 px) tourne en
-parallèle ; il consommera `MeetingScreenModel.pendingActionDraft` posé ici.
+d'actions éditable en place, frise pleine largeur). Le lot 3 (rail d'actions 330 px) tournait
+en parallèle ; il est depuis **rebasé sur ce lot** et consomme bien
+`MeetingScreenModel.pendingActionDraft` posé ici (cf. la section d'intégration en tête).
 
 ## Refonte de l'écran de réunion — lot 1 : barre du haut, trois espaces, modes, bandeau KPI (2026-09-07)
 

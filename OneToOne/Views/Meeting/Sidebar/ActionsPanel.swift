@@ -1,29 +1,6 @@
 import SwiftUI
 import SwiftData
 
-/// Mode d'affichage de la carte Actions (sélecteur de vue).
-enum ActionsViewMode: String, CaseIterable {
-    case liste, kanban, calendar, eisenhower, sticky
-    var label: String {
-        switch self {
-        case .liste: return "Liste"
-        case .kanban: return "Kanban"
-        case .calendar: return "Calendrier"
-        case .eisenhower: return "Eisenhower"
-        case .sticky: return "Post-it"
-        }
-    }
-    var systemImage: String {
-        switch self {
-        case .liste: return "list.bullet"
-        case .kanban: return "rectangle.split.3x1"
-        case .calendar: return "calendar"
-        case .eisenhower: return "square.grid.2x2"
-        case .sticky: return "note.text"
-        }
-    }
-}
-
 /// Panneau Actions de la sidebar configurable. Wrap le tasksList + formSection
 /// (création + édition des ActionTask de la réunion). Logique identique à
 /// l'ancien MeetingActionsSidebar — refactor pur.

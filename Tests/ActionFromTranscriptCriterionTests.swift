@@ -8,10 +8,13 @@ import Foundation
 /// prend un clic et conserve `sourceRef` ; le lien `mm:ss ↗` replace la lecture
 /// au bon endroit à ±1 s. »
 ///
-/// Le test est volontairement écrit **sans vue** : le clic est un seul appel de
-/// service, et c'est exactement ce que la colonne de transcription fait. S'il
-/// fallait deux appels pour obtenir une action correcte, le critère serait
-/// violé quelle que soit l'interface posée par-dessus.
+/// Le test est volontairement écrit **sans vue** : le clic pose un brouillon
+/// (`ActionFromPhrase.draft`), `⌘⏎` le crée (`ActionComposerService.creer`), et
+/// c'est exactement ce que la colonne de transcription et le composeur du rail
+/// font. Depuis l'intégration du lot 3, la création n'a plus qu'un seul
+/// point d'entrée : le composeur. Le critère porte donc sur la chaîne
+/// complète — le titre, le responsable et la source doivent survivre au
+/// passage par le brouillon.
 @Suite("Critère n° 2 — une action en un clic depuis une phrase")
 @MainActor
 struct ActionFromTranscriptCriterionTests {
@@ -49,13 +52,25 @@ struct ActionFromTranscriptCriterionTests {
         return (reunion, segment, locuteur)
     }
 
-    @Test("Un seul appel crée l'action, avec son titre, son responsable et sa source")
+    /// Le geste complet : `＋ Action` sur la phrase, puis `⌘⏎` dans le
+    /// composeur du rail. Rend l'action créée.
+    private func creerDepuis(_ segment: TranscriptSegment,
+                             in reunion: Meeting,
+                             context: ModelContext) throws -> ActionTask {
+        let suite = "ActionFromTranscriptCriterionTests.\(UUID().uuidString)"
+        let screen = MeetingScreenModel(defaults: UserDefaults(suiteName: suite)!)
+        screen.requestAction(from: ActionFromPhrase.draft(from: segment))
+        return try #require(ActionComposerService.creer(from: screen,
+                                                        meeting: reunion,
+                                                        in: context))
+    }
+
+    @Test("Un clic puis ⌘⏎ créent l'action, avec son titre, son responsable et sa source")
     func unClic() throws {
         let context = try makeContext()
         let f = fixture(in: context)
 
-        let action = ActionFromPhrase.createAction(from: f.segment, in: f.meeting,
-                                                   context: context)
+        let action = try creerDepuis(f.segment, in: f.meeting, context: context)
 
         #expect(action.title == "Remettre ça en route et vérifier les droits")
         #expect(action.collaborator === f.speaker)
@@ -77,8 +92,7 @@ struct ActionFromTranscriptCriterionTests {
         context.insert(existante)
         existante.meeting = f.meeting
 
-        let nouvelle = ActionFromPhrase.createAction(from: f.segment, in: f.meeting,
-                                                     context: context)
+        let nouvelle = try creerDepuis(f.segment, in: f.meeting, context: context)
         #expect(nouvelle.sortOrder < existante.sortOrder)
     }
 
@@ -86,8 +100,7 @@ struct ActionFromTranscriptCriterionTests {
     func lienDeTimecode() throws {
         let context = try makeContext()
         let f = fixture(in: context)
-        let action = ActionFromPhrase.createAction(from: f.segment, in: f.meeting,
-                                                   context: context)
+        let action = try creerDepuis(f.segment, in: f.meeting, context: context)
 
         let playhead = MeetingPlayhead(meetingStableID: f.meeting.ensuredStableID)
         playhead.duration = Double(f.meeting.durationSeconds)
@@ -134,8 +147,8 @@ struct ActionFromTranscriptCriterionTests {
         let brouillon = ActionFromPhrase.draft(from: f.segment)
         screen.requestAction(from: brouillon)
 
-        #expect(screen.pendingActionDraft?.sourceRef.stableID == f.segment.ensuredStableID)
+        #expect(screen.pendingActionDraft?.sourceRef?.stableID == f.segment.ensuredStableID)
         #expect(screen.newTaskTitle == "Remettre ça en route et vérifier les droits")
-        #expect(brouillon.ownerName == "Laurent Deberti")
+        #expect(brouillon.suggestedOwner === f.speaker)
     }
 }

@@ -14,16 +14,6 @@ import SwiftData
 /// fonctionner hors ligne.
 enum ActionFromPhrase {
 
-    /// Brouillon d'action tiré d'une phrase.
-    struct Draft: Equatable, Sendable {
-        var title: String
-        var sourceRef: SourceRef
-        /// Nom du locuteur quand le cluster est résolu vers un participant.
-        /// `nil` sinon : la spec dit « owner = locuteur du segment si connu,
-        /// sinon `null` » — on ne devine pas un responsable.
-        var ownerName: String?
-    }
-
     /// Longueur maximale d'un titre. Au-delà, coupe sur une frontière de mot et
     /// ajoute `…` : la carte du rail affiche deux lignes de 11,5 px, et un
     /// titre de trois cents caractères y devient illisible.
@@ -62,47 +52,47 @@ enum ActionFromPhrase {
         return "« \(texte) » — \(timecode)"
     }
 
-    /// Brouillon depuis les valeurs brutes d'un segment — la forme testable,
-    /// sans SwiftData.
+    /// Brouillon depuis les valeurs brutes d'une phrase — la forme testable,
+    /// sans avoir à monter une vue.
+    ///
+    /// Rend l'`ActionDraft` du lot 3 : le contrat vers le composeur du rail est
+    /// unique, et `suggestedOwner` porte un `Collaborator` plutôt qu'un nom —
+    /// le composeur doit pouvoir l'affecter, pas seulement l'afficher.
+    @MainActor
     static func draft(phrase: String,
-                      segmentID: UUID,
+                      kind: SourceRef.Kind = .transcript,
+                      stableID: UUID,
                       t: Double,
-                      speakerName: String?) -> Draft {
-        Draft(title: title(from: phrase),
-              sourceRef: SourceRef(kind: .transcript, stableID: segmentID, t: t),
-              ownerName: speakerName)
+                      speaker: Collaborator? = nil) -> ActionDraft {
+        ActionDraft(title: title(from: phrase),
+                    sourceRef: SourceRef(kind: kind, stableID: stableID, t: t),
+                    suggestedOwner: speaker)
     }
 
     // MARK: - Fabriques
 
+    /// Brouillon depuis un segment de transcription : la source est le segment,
+    /// le responsable suggéré son locuteur (règle 1 d'`OwnerSuggestion`).
+    ///
+    /// Le titre de secours s'applique ici : une phrase que le nettoyage vide
+    /// entièrement (« euh, donc… ») donnerait un brouillon sans titre, et le
+    /// composeur refuse de créer sans titre — le clic ne ferait alors rien.
     @MainActor
-    static func draft(from segment: TranscriptSegment) -> Draft {
-        draft(phrase: segment.text,
-              segmentID: segment.ensuredStableID,
-              t: segment.startSeconds,
-              speakerName: segment.speaker?.name)
+    static func draft(from segment: TranscriptSegment) -> ActionDraft {
+        var brouillon = draft(phrase: segment.text,
+                              kind: .transcript,
+                              stableID: segment.ensuredStableID,
+                              t: segment.startSeconds,
+                              speaker: segment.speaker)
+        if brouillon.title.isEmpty { brouillon.title = fallbackTitle }
+        return brouillon
     }
 
-    /// Crée l'action et la rattache à la réunion. **Un seul appel** : c'est le
-    /// clic du bouton `＋ Action` de la colonne de transcription.
-    ///
-    /// L'action naît en **tête** du rail (`sortOrder` minimal − 1), comme la
-    /// spec §2.4 l'exige (« l'action apparaît immédiatement en tête du rail »).
-    @MainActor
-    @discardableResult
-    static func createAction(from segment: TranscriptSegment,
-                             in meeting: Meeting,
-                             context: ModelContext) -> ActionTask {
-        let brouillon = draft(from: segment)
-        let action = ActionTask(title: brouillon.title.isEmpty ? fallbackTitle : brouillon.title)
-        action.sourceRef = brouillon.sourceRef
-        action.collaborator = segment.speaker
-        action.sortOrder = (meeting.tasks.map(\.sortOrder).min() ?? 0) - 1
-        context.insert(action)
-        action.meeting = meeting
-        try? context.save()
-        return action
-    }
+    // La création d'action a quitté ce service : elle vit **uniquement** dans
+    // `ActionComposerService.creer`, qui consomme le brouillon posé ici. Deux
+    // fabriques d'`ActionTask` sur le même geste, c'était deux actions pour un
+    // clic — et une seule des deux plaçait la charge et l'échéance du
+    // composeur.
 
     /// Crée la note de décision au timecode du segment, avec la même source.
     @MainActor

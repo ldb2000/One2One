@@ -2,13 +2,37 @@ import SwiftUI
 
 /// Vue calendrier mensuel réutilisable : les actions sont placées sur leur jour
 /// d'échéance. Navigation mois ‹ › + « Aujourd'hui ». Clic sur une puce = bascule
-/// la complétion. `fillsAvailableSpace` agrandit les cellules (écran plein).
+/// la complétion. `fillsAvailableSpace` agrandit les cellules (écran plein),
+/// `compact` les resserre pour le rail d'actions de 330 px (décision D10 du
+/// programme de refonte : la vue Calendrier **reste** dans le rail).
 struct CalendarBoard: View {
     let tasks: [ActionTask]
     var onToggle: (ActionTask) -> Void
     var fillsAvailableSpace: Bool = false
+    /// Rendu resserré du rail de 330 px. Défaut `false` : le rendu des
+    /// appelants existants ne change pas d'un pixel.
+    var compact: Bool = false
 
     @State private var monthAnchor: Date = Date()
+
+    // MARK: - Métriques
+
+    /// Hauteur minimale d'une cellule de jour.
+    ///
+    /// Extraites en fonctions statiques pour être vérifiables : une cellule
+    /// rognée d'un tiers sur l'écran Actions plein ne se voit pas dans une
+    /// suite de tests qui ne mesure rien. `fillsAvailableSpace` l'emporte sur
+    /// `compact` — les deux ne se cumulent pas.
+    static func dayCellMinHeight(fillsAvailableSpace: Bool, compact: Bool) -> CGFloat {
+        if fillsAvailableSpace { return 84 }
+        return compact ? 32 : 46
+    }
+
+    /// Nombre de puces d'actions affichées dans une cellule avant le `+n`.
+    static func maxChipsPerDay(fillsAvailableSpace: Bool, compact: Bool) -> Int {
+        if fillsAvailableSpace { return 6 }
+        return compact ? 1 : 2
+    }
 
     private var calendar: Calendar {
         var c = Calendar(identifier: .gregorian)
@@ -55,8 +79,12 @@ struct CalendarBoard: View {
             Button { shiftMonth(1) } label: { Image(systemName: "chevron.right") }
                 .buttonStyle(.plain)
             Spacer()
-            Button("Aujourd'hui") { monthAnchor = Date() }
-                .buttonStyle(.link).font(.caption)
+            // Dans 330 px, le mois et les deux chevrons suffisent : « revenir
+            // au mois courant » se fait par les chevrons, à un clic près.
+            if !compact {
+                Button("Aujourd'hui") { monthAnchor = Date() }
+                    .buttonStyle(.link).font(.caption)
+            }
         }
     }
 
@@ -104,12 +132,12 @@ struct CalendarBoard: View {
 
     @ViewBuilder
     private func dayCell(_ date: Date?) -> some View {
-        let minH: CGFloat = fillsAvailableSpace ? 84 : 46
+        let minH = Self.dayCellMinHeight(fillsAvailableSpace: fillsAvailableSpace, compact: compact)
         if let date {
             let items = (tasksByDay[calendar.startOfDay(for: date)] ?? [])
                 .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             let isToday = calendar.isDateInToday(date)
-            let maxShown = fillsAvailableSpace ? 6 : 2
+            let maxShown = Self.maxChipsPerDay(fillsAvailableSpace: fillsAvailableSpace, compact: compact)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(calendar.component(.day, from: date))")
                     .font(.caption2)

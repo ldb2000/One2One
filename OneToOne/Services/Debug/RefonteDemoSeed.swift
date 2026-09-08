@@ -49,21 +49,45 @@ enum RefonteDemoSeed {
         ("Disponibilité d'Alexis pour l'estimation", "Faible")
     ]
 
-    /// Les douze actions : trois assignées (indices 9, 10, 11), neuf sans
-    /// responsable — le « 12 · 9 non assignées » de la capture.
-    static let actions: [(titre: String, porteur: String?)] = [
-        ("Vérifier l'état des comptes GitLab", nil),
-        ("Clarifier la situation de facturation (40k)", nil),
-        ("Chiffrer la fin de migration Marine", nil),
-        ("Préparer gitlab.rb et valider les flux", nil),
-        ("Planification de la formation Admin", nil),
-        ("Relancer Alexis/Jeff pour l'estimation", nil),
-        ("Refaire le tour des prérequis de synchronisation", nil),
-        ("Isoler la partie data de la migration", nil),
-        ("Obtenir la photo globale de la migration", nil),
-        ("Synchroniser les pipelines entre la source et le GitLab", "Pierre-Yves Nallet"),
-        ("Reprendre l'état des lieux (3 jours-hommes)", "Cédric Payet"),
-        ("Confirmer la reprise par le partenaire", "Lucas Sylvain")
+    /// La réunion d'origine des trois actions reportées : « REPORTÉES DU
+    /// 1ER SEPT. — 3 » dans le rail de la capture, et « 1 sept. — COSUI
+    /// hebdo » dans la nav latérale de `1c-poste-de-pilotage.png`.
+    static let carriedMeetingTitle = "COSUI hebdo"
+
+    /// Les douze actions du rail (capture 1a).
+    ///
+    /// L'arithmétique de la capture est tenue **exactement** : trois actions
+    /// portent un responsable et sont **celles qui sont reportées** du 1er
+    /// septembre (le rendu compact d'un groupe reporté n'affiche pas de
+    /// porteur, donc rien ne le contredit à l'écran) ; les neuf autres n'ont
+    /// pas de responsable. Cela donne les trois nombres de la capture d'un
+    /// coup : `12 · 9 non assignées` au bandeau, `À ASSIGNER — 9` et
+    /// `REPORTÉES DU 1ER SEPT. — 3` au rail.
+    ///
+    /// - `echeance` : jours à partir de la date de la réunion, `nil` = aucune.
+    /// - `charge` : `effortMinutes`, `nil` = non estimée.
+    /// - `reportee` : reportée du 1er septembre.
+    /// - `sourceSegment` : indice dans `transcript`, pour la chaîne de
+    ///   citation et la suggestion de responsable.
+    static let actions: [(titre: String, porteur: String?, echeance: Int?,
+                          charge: Int?, reportee: Bool, sourceSegment: Int?)] = [
+        // La capture montre « Vendredi » puis « 11 sept. » : une échéance de la
+        // semaine se nomme par son jour, une plus lointaine par sa date. Le
+        // libellé étant relatif à **aujourd'hui**, aucune valeur semée ne peut
+        // fixer le mot affiché — ce que le jeu reproduit, c'est la forme : une
+        // échéance proche et une lointaine côte à côte.
+        ("Vérifier l'état des comptes GitLab", nil, 3, 120, false, 1),
+        ("Clarifier la situation de facturation (40k)", nil, nil, nil, false, nil),
+        ("Chiffrer la fin de migration Marine", nil, 7, 480, false, nil),
+        ("Préparer gitlab.rb et valider les flux", "Pierre-Yves Nallet", nil, nil, true, nil),
+        ("Planification de la formation Admin", "Cédric Payet", 14, 240, true, nil),
+        ("Relancer Alexis/Jeff pour l'estimation", "Lucas Sylvain", nil, nil, true, nil),
+        ("Refaire le tour des prérequis de synchronisation", nil, nil, nil, false, 0),
+        ("Isoler la partie data de la migration", nil, nil, nil, false, nil),
+        ("Obtenir la photo globale de la migration", nil, nil, nil, false, nil),
+        ("Synchroniser les pipelines entre la source et le GitLab", nil, nil, 60, false, 0),
+        ("Reprendre l'état des lieux (3 jours-hommes)", nil, nil, 480, false, 2),
+        ("Confirmer la reprise par le partenaire", nil, nil, nil, false, 3)
     ]
 
     /// Les quatre notes horodatées de la colonne MES NOTES de la capture, avec
@@ -124,7 +148,12 @@ enum RefonteDemoSeed {
         let collaborateurs = seedCollaborators(in: context)
 
         let reunion = Meeting(title: meetingTitle,
-                              date: Date(timeIntervalSince1970: 1_756_970_100),  // 4 sept. 2026, 9:15 UTC
+                              // 4 septembre 2026, 9:15 à Paris — la date que
+                              // porte la barre d'espaces de la capture. Le
+                              // lot 1 avait semé 1 756 970 100, qui tombe le
+                              // 4 septembre **2025** : le vendredi devenait un
+                              // jeudi, et tout raccourci d'échéance avec lui.
+                              date: Date(timeIntervalSince1970: 1_788_506_100),
                               notes: "")
         reunion.kind = .project
         reunion.project = projet
@@ -155,6 +184,10 @@ enum RefonteDemoSeed {
             note.meeting = reunion
         }
 
+        // Gardés dans l'ordre localement : une relation SwiftData tout juste
+        // renseignée ne garantit ni son contenu ni son ordre avant `save()`,
+        // et ce sont ces segments qui portent la chaîne de citation.
+        var segments: [TranscriptSegment] = []
         for (index, segment) in transcript.enumerated() {
             let s = TranscriptSegment(orderIndex: index,
                                       startSeconds: segment.t,
@@ -166,13 +199,36 @@ enum RefonteDemoSeed {
             if segment.locuteur < collaborateurs.count {
                 s.speaker = collaborateurs[segment.locuteur]
             }
+            segments.append(s)
         }
+
+        let origine = seedCarriedMeeting(projet: projet, in: context)
 
         for (index, action) in actions.enumerated() {
             let tache = ActionTask(title: action.titre)
             tache.sortOrder = index
             if let nom = action.porteur {
                 tache.collaborator = collaborateurs.first { $0.name == nom }
+                tache.destinataire = .collaborateur
+            } else {
+                // Sans porteur, `destinataire` doit dire « à quelqu'un » et non
+                // « pour moi », sinon le rail les rangerait dans MES ACTIONS
+                // au lieu d'À ASSIGNER (`ActionsRailGrouping`).
+                tache.destinataire = .collaborateur
+            }
+            if let jours = action.echeance {
+                tache.dueDate = Calendar.current.date(byAdding: .day, value: jours, to: reunion.date)
+            }
+            tache.effortMinutes = action.charge
+            if action.reportee {
+                tache.carriedFromMeeting = origine
+                tache.deferralCount = 1
+            }
+            if let indice = action.sourceSegment, indice < segments.count {
+                let segment = segments[indice]
+                tache.sourceRef = SourceRef(kind: .transcript,
+                                            stableID: segment.stableID ?? UUID(),
+                                            t: segment.startSeconds)
             }
             context.insert(tache)
             tache.meeting = reunion
@@ -186,6 +242,34 @@ enum RefonteDemoSeed {
         }
 
         try? context.save()
+        return reunion
+    }
+
+    /// La réunion du 1er septembre dont trois actions ont été reportées.
+    ///
+    /// Elle porte un résumé : sans lui, le mode Préparer afficherait « Pas de
+    /// résumé » dans « DERNIERS POINTS », ce qui est le cas le moins
+    /// intéressant à mettre sous les yeux d'une recette.
+    private static func seedCarriedMeeting(projet: Project,
+                                           in context: ModelContext) -> Meeting {
+        let titre = carriedMeetingTitle
+        if let existante = (try? context.fetch(
+            FetchDescriptor<Meeting>(predicate: #Predicate { $0.title == titre })
+        ))?.first {
+            return existante
+        }
+        // Trois jours avant la réunion de la capture : le 1er septembre 2026,
+        // 9:15 à Paris.
+        let reunion = Meeting(title: carriedMeetingTitle,
+                              date: Date(timeIntervalSince1970: 1_788_246_900),
+                              notes: "")
+        reunion.kind = .project
+        reunion.project = projet
+        reunion.shortSummary = """
+        Point hebdomadaire : la migration AP avance, trois actions restent \
+        ouvertes et sont reportées au prochain point.
+        """
+        context.insert(reunion)
         return reunion
     }
 

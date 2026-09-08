@@ -280,15 +280,20 @@ struct MeetingScreenModelTests {
     @Test("Une action demandée depuis une phrase préremplit le composeur du rail")
     func intentionDAction() {
         let model = MeetingScreenModel(defaults: makeDefaults())
+        let locuteur = Collaborator(name: "Laurent Deberti", role: "Manager")
         let brouillon = ActionFromPhrase.draft(phrase: "il faut vérifier les droits.",
-                                               segmentID: UUID(), t: 252,
-                                               speakerName: "Laurent Deberti")
+                                               stableID: UUID(), t: 252,
+                                               speaker: locuteur)
         model.requestAction(from: brouillon)
-        #expect(model.pendingActionDraft == brouillon)
         #expect(model.newTaskTitle == "Vérifier les droits")
-        #expect(model.pendingActionDraft?.sourceRef.t == 252)
+        #expect(model.pendingActionDraft?.title == "Vérifier les droits")
+        #expect(model.pendingActionDraft?.sourceRef?.t == 252)
+        #expect(model.pendingActionDraft?.suggestedOwner === locuteur)
     }
 
+    /// Un **seul** test de non-persistance : le filtre de notes du lot 2 et
+    /// l'intention d'action du lot 3 sont deux états d'écran, et c'est la même
+    /// règle qui les gouverne.
     @Test("Le filtre et l'intention ne sont pas mémorisés d'une ouverture à l'autre")
     func intentionNonPersistee() {
         let defaults = makeDefaults()
@@ -296,9 +301,11 @@ struct MeetingScreenModelTests {
         let premier = MeetingScreenModel(defaults: defaults)
         premier.attach(meetingID: id)
         premier.toggleNoteFilter(.decision)
-        premier.requestAction(from: ActionFromPhrase.draft(phrase: "chiffrer",
-                                                           segmentID: UUID(), t: 0,
-                                                           speakerName: nil))
+        premier.requestAction(from: ActionDraft(title: "Vérifier l'état des comptes GitLab",
+                                                sourceRef: SourceRef(kind: .transcript,
+                                                                     stableID: UUID(),
+                                                                     t: 252)))
+        #expect(premier.pendingActionDraft?.sourceRef?.t == 252)
 
         let second = MeetingScreenModel(defaults: defaults)
         second.attach(meetingID: id)
@@ -320,5 +327,52 @@ struct MeetingScreenModelTests {
     @Test("Le suivi de la transcription part actif")
     func suiviParDefaut() {
         #expect(MeetingScreenModel(defaults: makeDefaults()).follow)
+    }
+
+    // MARK: - Rail d'actions (lot 3)
+
+    @Test("Le rail s'ouvre sur l'onglet Actions en vue Liste")
+    func railDefaults() {
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        model.attach(meetingID: UUID())
+        #expect(model.railTab == .actions)
+        #expect(model.railViewMode == .liste)
+    }
+
+    @Test("L'onglet et la vue du rail sont mémorisés par réunion")
+    func railStateIsPersistedPerMeeting() {
+        let defaults = makeDefaults()
+        let premiere = UUID()
+        let seconde = UUID()
+
+        let premier = MeetingScreenModel(defaults: defaults)
+        premier.attach(meetingID: premiere)
+        premier.railTab = .risques
+        premier.railViewMode = .eisenhower
+
+        let relu = MeetingScreenModel(defaults: defaults)
+        relu.attach(meetingID: premiere)
+        #expect(relu.railTab == .risques)
+        #expect(relu.railViewMode == .eisenhower)
+
+        // Une autre réunion repart des défauts : le rail n'est pas un réglage
+        // global, c'est un état d'écran par réunion, comme l'espace et le mode.
+        let autre = MeetingScreenModel(defaults: defaults)
+        autre.attach(meetingID: seconde)
+        #expect(autre.railTab == .actions)
+        #expect(autre.railViewMode == .liste)
+    }
+
+    @Test("Une vue mémorisée hors du rail (Kanban) retombe sur Liste")
+    func railViewModeRejectsNonRailCases() {
+        let defaults = makeDefaults()
+        let id = UUID()
+        // Le cas se produit sur un poste où l'ancien `ActionsPanel` avait
+        // mémorisé « kanban » : le rail ne sait pas la rendre (spec §2.5).
+        defaults.set(ActionsViewMode.kanban.rawValue,
+                     forKey: MeetingScreenModel.railViewKey(for: id))
+        let model = MeetingScreenModel(defaults: defaults)
+        model.attach(meetingID: id)
+        #expect(model.railViewMode == .liste)
     }
 }

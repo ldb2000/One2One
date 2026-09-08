@@ -636,30 +636,14 @@ struct MeetingView: View {
                     screen.toggleNoteFilter(.decision)
                     screen.mode = .live
                 },
-                // L'onglet Risques du rail arrive au lot 3 ; les alertes de la
-                // réunion sont pour l'instant dans le rapport.
-                onOpenRisks: { screen.space = .report },
+                // L'onglet Risques du rail (lot 3) : le bandeau y renvoie.
+                onOpenRisks: { screen.railTab = .risques },
                 onOpenMeeting: { id in openMeeting(id) },
                 onToggleAction: { id in toggleTask(id) },
                 onDiarize: { runDiarization() },
                 onReidentify: { reidentifySpeakers() },
                 onAddToManagerReport: { range, extrait, champ in
                     startManagerReportFlow(range: range, snippet: extrait, field: champ)
-                },
-                actions: {
-                    ActionsPanel(
-                        meeting: meeting,
-                        settings: settings,
-                        allCollaborators: allCollaborators,
-                        screen: screen,
-                        onAddTask: addTask,
-                        onDeleteTask: { task in context.delete(task); saveContext() },
-                        onToggleTaskCompletion: { task in
-                            task.isCompleted.toggle()
-                            saveContext()
-                        },
-                        saveContext: saveContext
-                    )
                 }
             )
             .onAppear {
@@ -1712,22 +1696,10 @@ struct MeetingView: View {
 
     // MARK: - Tasks
 
-    private func addTask() {
-        let t = ActionTask(
-            title: screen.newTaskTitle,
-            dueDate: screen.showNewTaskDueDate ? (screen.newTaskDueDate ?? Date()) : nil
-        )
-        t.meeting = meeting
-        t.project = meeting.project
-        t.destinataire = screen.newTaskAudience
-        t.collaborator = screen.newTaskAudience == .collaborateur ? screen.selectedCollaborator : nil
-        t.isUrgent = screen.newTaskUrgent
-        t.isImportant = screen.newTaskImportant
-        t.pomodoros = screen.newTaskPomodoros
-        context.insert(t)
-        screen.resetActionDraft()
-        saveContext()
-    }
+    // La création d'action a quitté ce fichier : elle vit dans
+    // `ActionComposerService.creer`, appelée par le composeur du rail
+    // (spec §2.5). C'est elle qui consomme `pendingActionDraft` et qui place
+    // l'action neuve en tête de son groupe.
 
     /// Défaut malin du destinataire à la 1re apparition : en 1:1, on pré-remplit
     /// « Collaborateur » avec le partenaire ; sinon « Moi ». Une seule fois.

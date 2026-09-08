@@ -81,22 +81,24 @@ struct ActionFromPhraseTests {
     }
 
     @Test("Le brouillon conserve la source et le locuteur")
+    @MainActor
     func brouillon() {
         let id = UUID()
+        let locuteur = Collaborator(name: "Laurent Deberti", role: "Manager")
         let d = ActionFromPhrase.draft(phrase: "il faut vérifier les droits.",
-                                       segmentID: id, t: 252, speakerName: "Laurent Deberti")
+                                       stableID: id, t: 252, speaker: locuteur)
         #expect(d.title == "Vérifier les droits")
-        #expect(d.sourceRef.kind == .transcript)
-        #expect(d.sourceRef.stableID == id)
-        #expect(d.sourceRef.t == 252)
-        #expect(d.ownerName == "Laurent Deberti")
+        #expect(d.sourceRef?.kind == .transcript)
+        #expect(d.sourceRef?.stableID == id)
+        #expect(d.sourceRef?.t == 252)
+        #expect(d.suggestedOwner === locuteur)
     }
 
     @Test("Sans locuteur résolu, le responsable reste vide plutôt que devinné")
+    @MainActor
     func sansLocuteur() {
-        let d = ActionFromPhrase.draft(phrase: "chiffrer la fin", segmentID: UUID(),
-                                       t: 0, speakerName: nil)
-        #expect(d.ownerName == nil)
+        let d = ActionFromPhrase.draft(phrase: "chiffrer la fin", stableID: UUID(), t: 0)
+        #expect(d.suggestedOwner == nil)
         #expect(d.title == "Chiffrer la fin")
     }
 

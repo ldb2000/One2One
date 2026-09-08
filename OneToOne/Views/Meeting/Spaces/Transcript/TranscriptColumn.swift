@@ -409,11 +409,14 @@ struct TranscriptColumn: View {
 
     // MARK: - Gestes
 
-    /// Un clic = une action, avec sa source (critère d'acceptation n° 2).
-    /// L'intention est posée en plus pour que le rail du lot 3 puisse animer
-    /// l'insertion en tête.
+    /// `＋ Action` sur une phrase : **pose l'intention**, elle ne crée rien.
+    ///
+    /// Le composeur du rail la reçoit préremplie — titre nettoyé, locuteur
+    /// suggéré, source du segment — et `⌘⏎` crée l'action en tête de son
+    /// groupe (spec §2.4 : « ouvre le composeur d'action prérempli »). Créer
+    /// ici **et** laisser le composeur créer donnerait deux actions pour un
+    /// clic.
     private func creerAction(from segment: TranscriptSegment) {
-        ActionFromPhrase.createAction(from: segment, in: meeting, context: context)
         screen.requestAction(from: ActionFromPhrase.draft(from: segment))
     }
 
