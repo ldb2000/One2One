@@ -29,6 +29,12 @@ struct WorkshopToolbar: View {
             separateur
             epaisseurs
 
+            // Alignement et répartition : mode Schéma seulement (spec §7.1).
+            if (active?.mode ?? .sketch) == .diagram {
+                separateur
+                alignements
+            }
+
             Spacer(minLength: 12)
 
             compteur
@@ -123,6 +129,33 @@ struct WorkshopToolbar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(actif ? [.isSelected] : [])
+            }
+        }
+    }
+
+    // MARK: - Alignement (mode Schéma)
+
+    /// Les huit boutons d'alignement et de répartition. La règle est calculée
+    /// par `BoardAlignment` (fonction pure) ; ces boutons ne font que la
+    /// nommer.
+    private var alignements: some View {
+        HStack(spacing: 2) {
+            ForEach(BoardAlignment.Operation.allCases) { operation in
+                Button {
+                    Task { await state.align(operation, meeting: meeting) }
+                } label: {
+                    Image(systemName: operation.symbol)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(One2OneToken.ink3)
+                        .frame(width: 22, height: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: One2OneToken.radiusButton,
+                                             style: .continuous)
+                                .fill(Color.clear))
+                }
+                .buttonStyle(.plain)
+                .help(operation.label)
+                .accessibilityLabel(operation.label)
             }
         }
     }

@@ -51,7 +51,7 @@ final class WhiteboardWebBridge: NSObject, WhiteboardBridge {
         let configuration = WKWebViewConfiguration()
         let controller = WKUserContentController()
         configuration.userContentController = controller
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = BoardWebView(frame: .zero, configuration: configuration)
         super.init()
 
         proxy.target = self
@@ -170,6 +170,112 @@ final class WhiteboardWebBridge: NSObject, WhiteboardBridge {
     func setMode(_ mode: BoardMode) async throws {
         try await call("return window.oneToOneBoard.setMode(mode);",
                        arguments: ["mode": mode.rawValue])
+    }
+
+    // MARK: - Appels du lot 17
+
+    func setLibrary(_ libraryJSON: String) async throws {
+        try await call("return await window.oneToOneBoard.setLibrary(bibliotheque);",
+                       arguments: ["bibliotheque": libraryJSON])
+    }
+
+    func insertShape(_ elementsJSON: String) async throws {
+        try await call("return window.oneToOneBoard.insertShape(elements);",
+                       arguments: ["elements": elementsJSON])
+    }
+
+    func selection() async throws -> [String] {
+        let resultat = try await call("return window.oneToOneBoard.getSelection();")
+        // Une sélection vide remonte un tableau vide, jamais `nil` : c'est une
+        // réponse valide, pas une erreur.
+        guard let liste = resultat as? [Any] else {
+            throw WhiteboardBridgeError.unexpectedResult("getSelection")
+        }
+        return liste.compactMap { $0 as? String }
+    }
+
+    func select(elementIDs: [String]) async throws {
+        try await call("return window.oneToOneBoard.select(identifiants);",
+                       arguments: ["identifiants": elementIDs])
+    }
+
+    func moveElements(_ moves: [String: BoardAlignment.Move]) async throws {
+        guard !moves.isEmpty else { return }
+        try await call("return window.oneToOneBoard.moveElements(positions);",
+                       arguments: ["positions": BoardAlignment.json(moves)])
+    }
+
+    func setSelectionKind(_ kind: BoardAnnotation.Kind?) async throws {
+        // `callAsyncJavaScript` n'accepte pas `nil` : la chaîne vide vaut
+        // « retirer l'annotation ».
+        try await call("return window.oneToOneBoard.setSelectionKind(nature || null);",
+                       arguments: ["nature": kind?.rawValue ?? ""])
+    }
+
+    func insertImage(dataURL: String, fileID: String, elementJSON: String) async throws {
+        try await call(
+            "return await window.oneToOneBoard.insertImage(donnee, identifiant, element);",
+            arguments: ["donnee": dataURL,
+                        "identifiant": fileID,
+                        "element": elementJSON])
+    }
+
+    func setPressure(_ value: Double?) async throws {
+        // -1 vaut « aucune pression » : la page retombe alors sur l'épaisseur
+        // choisie dans la barre d'outils.
+        try await call("return window.oneToOneBoard.setPressure(valeur);",
+                       arguments: ["valeur": value ?? -1])
+    }
+}
+
+/// Le menu contextuel **natif** de la toile (spec §7.2 : marquer la sélection
+/// en question ou en risque).
+///
+/// Le catalogue est une fonction pure, séparée de la vue : ses libellés sont
+/// vérifiés par un test, et un menu WebKit par défaut (« Recharger »,
+/// « Inspecter ») n'aurait aucun sens sur une planche.
+@MainActor
+enum BoardContextMenu {
+
+    /// Une entrée du menu : son libellé et la nature qu'elle pose (`nil` =
+    /// retirer l'annotation).
+    struct Item: Equatable {
+        var title: String
+        var kind: BoardAnnotation.Kind?
+    }
+
+    /// Les entrées, dans l'ordre.
+    static let items: [Item] =
+        BoardAnnotation.Kind.allCases.map { Item(title: $0.menuLabel, kind: $0) }
+        + [Item(title: "Retirer l'annotation", kind: nil)]
+}
+
+/// Le `WKWebView` de la planche : il ne diffère du standard que par son menu
+/// contextuel, qui remplace celui de WebKit.
+@MainActor
+final class BoardWebView: WKWebView {
+
+    /// Appelé quand l'utilisateur choisit une entrée. Posé par le pont.
+    var onAnnotate: (@MainActor (BoardAnnotation.Kind?) -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        for entree in BoardContextMenu.items {
+            let element = NSMenuItem(title: entree.title,
+                                     action: #selector(annoter(_:)),
+                                     keyEquivalent: "")
+            element.target = self
+            // La nature voyage dans `representedObject` : un sélecteur par
+             // entrée demanderait autant de méthodes Objective-C.
+            element.representedObject = entree.kind?.rawValue
+            menu.addItem(element)
+        }
+        return menu
+    }
+
+    @objc private func annoter(_ sender: NSMenuItem) {
+        let brut = sender.representedObject as? String
+        onAnnotate?(brut.flatMap(BoardAnnotation.Kind.init(rawValue:)))
     }
 }
 

@@ -1,49 +1,85 @@
 import Foundation
 
-/// Un outil de la palette verticale de l'écran 6a, dans l'ordre de la capture.
+/// Un outil de palette de l'atelier. Les trois modes n'offrent pas les mêmes
+/// (spec §7.1) : `WorkshopPalette.tools(for:)` tient la table, cette énumération
+/// tient le catalogue.
+///
 /// Les valeurs brutes sont les clés attendues par `window.oneToOneBoard.setTool`
 /// (`Scripts/excalidraw-entry.jsx`) — ne pas les renommer sans régénérer le
 /// bundle.
 enum WhiteboardTool: String, CaseIterable, Identifiable, Sendable {
+
+    // Croquis (spec §7.1 : « Crayon, rectangle, ellipse, flèche, ligne, texte,
+    // post-it, image, gomme »).
     case pencil    = "pencil"
     case rectangle = "rectangle"
     case ellipse   = "ellipse"
     case arrow     = "arrow"
     case line      = "line"
     case text      = "text"
+    /// Rectangle préréglé en jaune post-it.
+    case note      = "note"
     case image     = "image"
-    case frame     = "frame"
     case eraser    = "eraser"
+
+    // Schéma.
+    case selection = "selection"
+    /// Flèche à liaison active : posée sur une forme, elle gagne
+    /// `startBinding` / `endBinding` et suit la forme qu'on déplace.
+    case connector = "connector"
+
+    // Manuscrit.
+    /// Tracé libre honorant la pression du stylet.
+    case pen         = "pen"
+    /// Tracé libre large à 40 % d'opacité.
+    case highlighter = "highlighter"
+    /// Trait contraint à l'horizontale ou à la verticale (`⇧`).
+    case ruler       = "ruler"
+    /// Sélection libre. Excalidraw 0.18.1 n'offre pas de lasso : c'est une
+    /// sélection rectangulaire (écart consigné dans `STATUS.md`).
+    case lasso       = "lasso"
 
     var id: String { rawValue }
 
     /// Symbole SF de l'icône 32 × 32 de la palette.
     var symbol: String {
         switch self {
-        case .pencil:    return "pencil"
-        case .rectangle: return "rectangle"
-        case .ellipse:   return "circle"
-        case .arrow:     return "arrow.up.right"
-        case .line:      return "minus"
-        case .text:      return "textformat"
-        case .image:     return "photo"
-        case .frame:     return "rectangle.split.2x1"
-        case .eraser:    return "eraser"
+        case .pencil:      return "pencil"
+        case .rectangle:   return "rectangle"
+        case .ellipse:     return "circle"
+        case .arrow:       return "arrow.up.right"
+        case .line:        return "minus"
+        case .text:        return "textformat"
+        case .note:        return "note.text"
+        case .image:       return "photo"
+        case .eraser:      return "eraser"
+        case .selection:   return "cursorarrow"
+        case .connector:   return "arrow.triangle.branch"
+        case .pen:         return "pencil.tip"
+        case .highlighter: return "highlighter"
+        case .ruler:       return "ruler"
+        case .lasso:       return "lasso"
         }
     }
 
     /// Info-bulle française.
     var label: String {
         switch self {
-        case .pencil:    return "Crayon"
-        case .rectangle: return "Rectangle"
-        case .ellipse:   return "Ellipse"
-        case .arrow:     return "Flèche"
-        case .line:      return "Trait"
-        case .text:      return "Texte"
-        case .image:     return "Image"
-        case .frame:     return "Colonnes"
-        case .eraser:    return "Gomme"
+        case .pencil:      return "Crayon"
+        case .rectangle:   return "Rectangle"
+        case .ellipse:     return "Ellipse"
+        case .arrow:       return "Flèche"
+        case .line:        return "Trait"
+        case .text:        return "Texte"
+        case .note:        return "Post-it"
+        case .image:       return "Image"
+        case .eraser:      return "Gomme"
+        case .selection:   return "Sélection"
+        case .connector:   return "Connecteur"
+        case .pen:         return "Stylo"
+        case .highlighter: return "Surligneur"
+        case .ruler:       return "Règle"
+        case .lasso:       return "Lasso"
         }
     }
 }
@@ -113,6 +149,44 @@ protocol WhiteboardBridge: AnyObject {
 
     /// Applique les réglages du mode (rugosité, fonte, outil par défaut).
     func setMode(_ mode: BoardMode) async throws
+
+    // MARK: - Lot 17
+
+    /// Charge la bibliothèque de formes du mode Schéma
+    /// (`BoardShapeLibrary.libraryJSON()`).
+    func setLibrary(_ libraryJSON: String) async throws
+
+    /// Ajoute à la scène courante les éléments d'une forme
+    /// (`BoardShapeLibrary.elementsJSON(for:at:)`) et les sélectionne.
+    func insertShape(_ elementsJSON: String) async throws
+
+    /// Les identifiants des objets sélectionnés, dans l'ordre de la scène.
+    func selection() async throws -> [String]
+
+    /// Sélectionne des objets par identifiant : cliquer une ligne de la section
+    /// `SUR CETTE PLANCHE` doit désigner l'objet sur la toile.
+    func select(elementIDs: [String]) async throws
+
+    /// Repositionne des objets — c'est ainsi que l'alignement et la
+    /// répartition s'appliquent, `BoardAlignment` ayant calculé les positions.
+    func moveElements(_ moves: [String: BoardAlignment.Move]) async throws
+
+    /// Annote la sélection (`customData.one2oneKind`). `nil` retire
+    /// l'annotation.
+    func setSelectionKind(_ kind: BoardAnnotation.Kind?) async throws
+
+    /// Insère une image depuis une donnée locale (`data:` URL) — jamais une
+    /// référence au fichier d'origine (spec §8).
+    ///
+    /// L'élément lui-même est **fabriqué en Swift**
+    /// (`BoardImageInsertion.elementJSON`) : c'est là que vit `locked: true`,
+    /// et c'est là qu'un test le vérifie. La page ne fait que le repositionner
+    /// dans la vue courante avant de l'ajouter.
+    func insertImage(dataURL: String, fileID: String, elementJSON: String) async throws
+
+    /// La pression courante du stylet, poussée dans la page pour qu'elle la
+    /// pose sur le tracé (`simulatePressure = false`). `nil` = épaisseur fixe.
+    func setPressure(_ value: Double?) async throws
 }
 
 extension WhiteboardBridge {
@@ -144,9 +218,21 @@ final class WhiteboardBridgeDouble: WhiteboardBridge {
         case zoom(Int)
         case fitToScreen
         case setMode(BoardMode)
+        case setLibrary(String)
+        case insertShape(String)
+        case selection
+        case select([String])
+        case moveElements([String: BoardAlignment.Move])
+        case setSelectionKind(BoardAnnotation.Kind?)
+        case insertImage(fileID: String)
+        case setPressure(Double?)
     }
 
     private(set) var calls: [Call] = []
+
+    /// Sélection rendue par `selection()`. Les tests l'écrivent pour simuler un
+    /// clic sur des objets.
+    var selectionIDs: [String] = []
 
     var isReady: Bool = true
     var onReady: (@MainActor () -> Void)?
@@ -246,4 +332,59 @@ final class WhiteboardBridgeDouble: WhiteboardBridge {
         try check()
         calls.append(.setMode(mode))
     }
+
+    // MARK: Lot 17
+
+    func setLibrary(_ libraryJSON: String) async throws {
+        try check()
+        calls.append(.setLibrary(libraryJSON))
+    }
+
+    func insertShape(_ elementsJSON: String) async throws {
+        try check()
+        calls.append(.insertShape(elementsJSON))
+    }
+
+    func selection() async throws -> [String] {
+        try check()
+        calls.append(.selection)
+        return selectionIDs
+    }
+
+    func select(elementIDs: [String]) async throws {
+        try check()
+        calls.append(.select(elementIDs))
+    }
+
+    func moveElements(_ moves: [String: BoardAlignment.Move]) async throws {
+        try check()
+        calls.append(.moveElements(moves))
+    }
+
+    func setSelectionKind(_ kind: BoardAnnotation.Kind?) async throws {
+        try check()
+        calls.append(.setSelectionKind(kind))
+    }
+
+    func insertImage(dataURL: String, fileID: String, elementJSON: String) async throws {
+        try check()
+        // Ni la donnée ni l'élément n'entrent dans `Call` : une image de
+        // 2 048 px en base64 rendrait l'échec d'un test illisible. Ils sont
+        // gardés à côté, pour qui veut les inspecter.
+        calls.append(.insertImage(fileID: fileID))
+        lastInsertedDataURL = dataURL
+        lastInsertedElementJSON = elementJSON
+    }
+
+    func setPressure(_ value: Double?) async throws {
+        try check()
+        calls.append(.setPressure(value))
+    }
+
+    /// La dernière `data:` URL reçue, pour qu'un test vérifie que l'image est
+    /// bien **copiée** dans la planche et non référencée.
+    private(set) var lastInsertedDataURL: String?
+
+    /// Le dernier élément d'image reçu, pour vérifier son verrouillage.
+    private(set) var lastInsertedElementJSON: String?
 }

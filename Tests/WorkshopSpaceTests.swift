@@ -350,11 +350,14 @@ struct WorkshopPaletteTests {
         #expect(WorkshopPalette.entry(forHex: "#123456") == nil)
     }
 
-    @Test("Neuf outils, dans l'ordre de la palette verticale")
+    @Test("Neuf outils en Croquis, dans l'ordre de la palette verticale")
     func nineTools() {
-        #expect(WhiteboardTool.allCases.map(\.rawValue) == [
+        // Le catalogue porte les outils des trois modes depuis le lot 17 ;
+        // c'est `WorkshopPalette.tools(for:)` qui décide de la palette
+        // affichée, et `WorkshopModePaletteTests` l'assène mode par mode.
+        #expect(WorkshopPalette.tools(for: .sketch).map(\.rawValue) == [
             "pencil", "rectangle", "ellipse", "arrow", "line",
-            "text", "image", "frame", "eraser",
+            "text", "note", "image", "eraser",
         ])
         // Chaque outil a un libellé français et un symbole.
         for outil in WhiteboardTool.allCases {
@@ -373,13 +376,13 @@ struct WorkshopPaletteTests {
     func dockTabsAreNeverEmpty() {
         let onglets = WorkshopState.DockTab.allCases
         #expect(onglets.map(\.label) == ["Planches", "Captures", "Pièces"])
-        // Les onglets non encore livrés portent une invite, pas un vide (règle
-        // du programme §2.1 : « pas d'onglet vide »).
+        // Un onglet sans contenu porte une invite, pas un vide (règle du
+        // programme §2.1 : « pas d'onglet vide »).
         #expect(WorkshopState.DockTab.boards.invite == nil)
         for onglet in [WorkshopState.DockTab.captures, .attachments] {
             let invite = onglet.invite ?? ""
             #expect(invite.count >= 20)
-            #expect(invite.contains("lot 17"))
+            #expect(invite.hasPrefix("Aucune"))
         }
     }
 

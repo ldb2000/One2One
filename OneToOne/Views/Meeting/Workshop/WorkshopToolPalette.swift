@@ -10,13 +10,33 @@ struct WorkshopToolPalette: View {
     let meeting: Meeting
     let state: WorkshopState
 
+    /// Le mode de la planche affichée décide de la palette (spec §7.1). Pas de
+    /// planche = Croquis, le mode d'une planche neuve.
+    private var mode: BoardMode { state.activeBoard(of: meeting)?.mode ?? .sketch }
+
     var body: some View {
         VStack(spacing: 6) {
-            ForEach(WhiteboardTool.allCases) { outil in
+            ForEach(WorkshopPalette.tools(for: mode)) { outil in
                 bouton(symbole: outil.symbol,
                        aide: outil.label,
                        actif: outil == state.tool) {
                     Task { await state.apply(tool: outil, meeting: meeting) }
+                }
+            }
+
+            // Les formes de la bibliothèque, sous un filet — mode Schéma
+            // seulement. Un clic **dépose** la forme au centre de la planche :
+            // ce n'est pas un outil qu'on arme, c'est un objet qu'on pose.
+            let formes = WorkshopPalette.shapes(for: mode)
+            if !formes.isEmpty {
+                Rectangle()
+                    .fill(One2OneToken.hair)
+                    .frame(width: Self.itemSize - 8, height: 1)
+                    .padding(.vertical, 2)
+                ForEach(formes) { forme in
+                    bouton(symbole: forme.symbol, aide: forme.label, actif: false) {
+                        Task { await state.insert(shape: forme, meeting: meeting) }
+                    }
                 }
             }
 

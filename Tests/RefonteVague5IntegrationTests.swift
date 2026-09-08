@@ -207,9 +207,23 @@ struct RefonteVague5IntegrationTests {
 
     // MARK: - Les semis de la vague cohabitent
 
-    @Test("Les cinq semis de la vague, ensemble et deux fois, ne dupliquent rien")
+    /// La liste reflète **les deux points d'entrée** — le menu
+    /// (`MeetingCommands`) et le semis de recette (`OneToOneApp`) : lot 13
+    /// depuis la vague 6, et `seedWorkshopComplete` à la place de
+    /// `seedWorkshop` depuis le lot 17. Un semis appelé en production mais
+    /// absent d'ici ne serait jamais vu cohabiter avec les autres.
+    @Test("Les semis de la vague, ensemble et deux fois, ne dupliquent rien")
     func semisEnsemble() throws {
         let context = try contexte()
+        // `seedWorkshopComplete` **écrit des fichiers** (les scènes des
+        // planches, la pièce et la capture de la section `PIÈCES & CAPTURES`) :
+        // le magasin et sa racine sont injectés dans un dossier temporaire,
+        // sinon le test salirait le `recordings/` réel — même précaution que
+        // `WorkshopSeedLot17Tests`.
+        let racine = FileManager.default.temporaryDirectory
+            .appendingPathComponent("semis-vague6-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: racine) }
+        let magasin = BoardStore(recordingsRoot: racine)
 
         func semerTout() -> Meeting {
             let demonstration = RefonteDemoSeed.seedLot5(in: context)
@@ -217,7 +231,8 @@ struct RefonteVague5IntegrationTests {
             _ = RefonteDemoSeed.seedLot7(in: context)
             _ = RefonteDemoSeed.seedLot11(in: context)
             _ = RefonteDemoSeed.seedLot12(in: context)
-            _ = RefonteDemoSeed.seedWorkshop(in: context)
+            _ = RefonteDemoSeed.seedLot13(in: context)
+            _ = RefonteDemoSeed.seedWorkshopComplete(in: context, store: magasin)
             return demonstration
         }
 

@@ -47,4 +47,41 @@ enum WorkshopPalette {
     static func entry(forHex hex: String) -> Entry? {
         entries.first { $0.hex.caseInsensitiveCompare(hex) == .orderedSame }
     }
+
+    // MARK: - Palette par mode (spec §7.1)
+
+    /// La table des trois palettes. **Fonction pure**, et c'est tout le
+    /// critère n° 2 du chantier 6 (« les trois modes sont accessibles en un
+    /// clic et conservent chacun leur palette ») : la vue ne fait que la lire,
+    /// le test l'assène colonne par colonne.
+    ///
+    /// Les trois épaisseurs de la barre d'outils (`Fin`, `Moyen`, `Épais`)
+    /// sont communes aux trois modes — le « stylo (3 épaisseurs) » de la spec
+    /// est donc **un** outil, pas trois.
+    static func tools(for mode: BoardMode) -> [WhiteboardTool] {
+        switch mode {
+        case .sketch:
+            return [.pencil, .rectangle, .ellipse, .arrow, .line, .text, .note, .image, .eraser]
+        case .diagram:
+            // Les formes viennent de la bibliothèque (`shapes(for:)`), en
+            // dessous de ces quatre outils.
+            return [.selection, .connector, .text, .eraser]
+        case .ink:
+            return [.pen, .highlighter, .eraser, .ruler, .lasso]
+        }
+    }
+
+    /// L'outil armé à l'ouverture d'une planche de ce mode : le premier de sa
+    /// palette. Un mode qui garderait l'outil du mode précédent proposerait un
+    /// crayon dans une palette qui n'en a pas.
+    static func defaultTool(for mode: BoardMode) -> WhiteboardTool {
+        tools(for: mode).first ?? .pencil
+    }
+
+    /// Les formes de la bibliothèque offertes par le mode. Seul le Schéma en a
+    /// (spec §7.1) ; les deux autres rendent une liste vide, et la vue ne
+    /// dessine alors aucune séparation.
+    static func shapes(for mode: BoardMode) -> [BoardShapeLibrary.Shape] {
+        mode == .diagram ? BoardShapeLibrary.Shape.allCases : []
+    }
 }

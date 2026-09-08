@@ -274,7 +274,13 @@ struct ContentView: View {
             cible = seanceSubie?.meeting
                 ?? OneOnOneThreadStore.allMeetings(of: fils.collaborator).last
         case .atelier:
-            cible = RefonteDemoSeed.seedWorkshop(in: context)
+            // `seedWorkshopComplete` et non `seedWorkshop` : le lot 17 a
+            // remplacé l'appel du lot 16 dans le menu (`MeetingCommands`), et
+            // les **deux** points d'entrée doivent semer la même chose — sinon
+            // la capture `6a` de recette montrerait l'atelier du lot 16, sans
+            // les objets annotés, la pièce ni la capture du lot 17. Le complet
+            // enveloppe le simple, et reste idempotent.
+            cible = RefonteDemoSeed.seedWorkshopComplete(in: context)
         }
         guard let cible else { return }
 
