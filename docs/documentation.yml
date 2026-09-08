@@ -1,6 +1,6 @@
 # Manifeste de documentation — lu par le skill documenter-application et par
 # Tests/DocumentationTests.swift. Sous-ensemble YAML : clés simples, listes de chaînes,
-# listes d'objets à clés `chemin`, `public`, `role`, `sections`.
+# listes d'objets à clés `chemin`, `public`, `role`, `sections`, `genere_par`.
 langue: fr
 branche_principale: master
 tests: swift test --filter DocumentationTests
@@ -10,6 +10,10 @@ code_documente:
   - OneToOne/Services/
   - OneToOne/Views/Meeting/
   - OneToOne/Views/Project/
+  - OneToOne/Views/DesignSystem/
+  - OneToOne/Markdown/
+  - OneToOne/OneToOneApp.swift
+  - OneToOne/AppDelegate.swift
   - Scripts/
   - Package.swift
 
