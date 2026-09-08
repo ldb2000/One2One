@@ -53,8 +53,12 @@ final class MenuBarStatsTests: XCTestCase {
 
     func test_todayStats_passedOnlyAndNoProject() {
         let cal = Calendar.current
-        let now = Date()
-        let startOfToday = cal.startOfDay(for: now)
+        // `now` est fixé à midi (et non `Date()`) pour que le test reste vert
+        // quelle que soit l'heure d'exécution : les meetings "Past"/"PastNoProject"
+        // (startOfToday + 1h/2h/3h) doivent être déjà terminés par rapport à `now`,
+        // ce qui échoue si l'exécution a lieu tôt le matin.
+        let startOfToday = cal.startOfDay(for: Date())
+        let now = cal.date(byAdding: .hour, value: 12, to: startOfToday)!
         let past = makeMeeting(title: "Past", scheduledStart: cal.date(byAdding: .hour, value: 1, to: startOfToday)!,
                                scheduledEnd: cal.date(byAdding: .hour, value: 2, to: startOfToday)!)
         let future = makeMeeting(title: "Future", scheduledStart: cal.date(byAdding: .hour, value: 1, to: now)!,
