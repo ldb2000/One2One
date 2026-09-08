@@ -12,6 +12,7 @@ Trois branches développées en parallèle sous le sommet de recette
 | --- | --- | --- | --- |
 | 1 | `feat/refonte-lot-14-1to1-collab-prepa` (#43) | `fix/refonte-recette-vagues-1-4` | 1 923 ST + 1 054 XCT = **2 977**, vert (05:13 CEST) |
 | 2 | `fix/refonte-session-fullscreen-content` (#42) | lot 14 | 1 930 ST + 1 054 XCT = **2 984**, vert (05:18 CEST) |
+| 3 | `feat/refonte-lot-18-planche-de-seance` (#44) | correctif du plein écran | 1 978 ST + 1 054 XCT = **3 032**, vert (05:26 CEST) |
 
 ### Maillon 1 — lot 14 sur la recette
 
@@ -30,9 +31,9 @@ plutôt que le rebase :
   fois : lots 5, 6, 7, 11, 12, 13 puis `seedWorkshopComplete` pour l'atelier.
 
 `Scripts/recette-run.sh` a été **corrigé au passage** : sa liste `SCREENS` et sa table
-d'en-tête ignoraient `5a` et `5b`, ajoutés aux lots 13 et 14 sans que le script suive.
-Aucun test ne lisait ce fichier — c'est la recette manuelle qui aurait buté sur
-« code inconnu ».
+d'en-tête ignoraient `5a` et `5b`, ajoutés aux lots 13 et 14 sans que le script suive
+(`6b` a suivi au maillon 3). Aucun test ne lisait ce fichier — c'est la recette manuelle
+qui aurait buté sur « code inconnu ».
 
 ### Maillon 2 — le correctif du plein écran sur le lot 14
 
@@ -59,6 +60,121 @@ qu'aucun test n'échoue. Aucun `reset()` n'existe dans le dépôt : c'est la des
 conteneur en mémoire à la fin du processus pendant qu'une instance de `Meeting` est encore
 retenue. Relance immédiate **verte, sans le moindre message** — flottement de fin de
 processus, indépendant du correctif, à ressortir s'il revient.
+
+### Maillon 3 — le lot 18 sur le correctif
+
+Rebase `--onto fix42 origin/feat/refonte-lot-17-atelier-modes`. **Quatre conflits**, tous
+sur des fichiers que le lot 14 et le lot 18 ajoutent au même endroit :
+
+| Fichier | Choix |
+| --- | --- |
+| `MeetingSpaceRouting.swift` | Union : les cinq prédicats de 1:1 **et** `usesWorkshopReview`. Le lot 18 arrivait sur une base sans `usesOneOnOneCollaboratorPreparation`. |
+| `RecetteScreen.swift` | Union du `switch mode` : `.posteDePilotage` et `.atelierPlancheDeSeance` en Relire, `.oneOnOnePreparation` et `.collaboratorPreparation` en Préparer. **Douze codes.** |
+| `MeetingSpaceView.contenu` | Union, mais **pas** dans l'ordre du lot 18 : la branche 6b remonte auprès de l'atelier en séance, pour tenir l'ordre voulu Atelier (séance, Relire) → 1:1 mené → 1:1 subi → standard. Le commentaire d'en-tête dit désormais que 6b est la seule vraie priorité du routage. |
+| `Tests/RefonteVague5IntegrationTests.swift` | Union : `5b` **et** `6b` dans la table, douze codes attendus. |
+
+Trois retouches que ni l'une ni l'autre branche ne pouvait faire seule :
+
+1. **`routageExclusif`** comptait `mode == .review` comme une branche. Avec 6b, l'atelier en
+   Relire faisait deux prétendants et le test tombait. Le poste de pilotage est désormais
+   écrit pour ce qu'il est dans la vue : `mode == .review && !usesWorkshopReview(…)` — sept
+   branches, toujours au plus une allumée.
+2. **`semisEnsemble`** appelait encore `seedWorkshopComplete` (lot 17). Il passe à
+   `seedWorkshopSession`, comme les deux points d'entrée de production ; le lot 14 n'ajoute
+   rien, il n'a pas de semis propre.
+3. **`WorkshopSessionRoutingTests.screenPredicatesStayMutuallyExclusive`** ignorait le
+   prédicat du lot 14, qui n'existait pas dans sa base. Ajouté.
+
+### Ce que l'union donne
+
+`RecetteScreen` : `1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a 6b` — douze codes, tous dans
+`Scripts/recette-run.sh`. Un seul semis par point d'entrée, les deux identiques :
+lots 5, 6, 7, 11, 12, 13 puis `seedWorkshopSession`. `MeetingView.swift` à 2 064 lignes.
+
+### L'ordre de fusion, de bout en bout
+
+Rien n'est fusionné : les vingt-quatre PR de la refonte forment une seule chaîne, à
+prendre dans cet ordre.
+
+`#19` (0b) → `#20` (0a) → `#21` (1a) → `#22` (1b) → `#23` (2) → `#24` (3) → `#27` (4) →
+`#28` (5) → `#30` (6) → `#26` (10a) → `#29` (10b) → `#25` (9) → `#31` (correctif fenêtre
+1:1) → `#32` (16) → `#34` (7) → `#35` (11) → `#33` (12) → `#38` (8) → `#39` (13) →
+`#40` (15) → `#41` (17) → `#36` (recette 1–4) → **`#43` (14) → `#42` (plein écran) →
+`#44` (18)**.
+
+Hors chaîne : `#18` (programme, docs) et `#37` (test horaire de la pastille), tous deux
+sur `master`. `#45` (lot 19a, clôture) se rebasera lui-même sur `#44`.
+
+**Prochaine action** : faire relire les trois PR de la vague, puis fusionner la chaîne
+dans l'ordre ci-dessus. La recette visuelle de `5b` et `6b` reste à faire dans la passe
+dédiée, avec `Scripts/recette-run.sh --screen 5b` puis `--screen 6b`.
+
+## Lot 18 — Atelier : planche de séance et rapport (6b) (2026-09-08)
+
+Branche `feat/refonte-lot-18-planche-de-seance`, développée sur
+`feat/refonte-lot-17-atelier-modes` et **rebasée** en cours de route sur le
+sommet `78624e9` une fois l'intégration de la vague 6 terminée — c'est ce rebase
+qui a fait entrer le lot 15 (`{{planches}}`, `ReportOptionalBlocks`) dans la
+base, donc rendu la tâche 6 possible dans le même lot. Plan :
+`docs/superpowers/plans/2026-09-08-refonte-lot-18-planche-de-seance.md`. Tout
+reste derrière `AppSettings.workshopEnabled`.
+
+### La frise est un modèle pur, pas une vue
+
+`WorkshopTimelineModel.rows(for:)` rend une ligne par élément produit — planche,
+capture, pièce épinglée — triée par timecode, avec son pied (`Type — titre ·
+auteur`) et sa mention de droite (`stylet`, `texte extrait`…). Aucun `View`
+n'entre dans le calcul : les 246 lignes de `Tests/WorkshopTimelineTests.swift`
+tournent sans WebKit et sans fenêtre. `WorkshopSessionSheetView` ne fait que
+poser la carte de 920 px, la colonne de timecodes de 40 px et l'aperçu de 92 px
+par-dessus ce modèle.
+
+### La légende est calculée, l'assistant ne fait que la reformuler
+
+`BoardCaptionBuilder.caption(mode:scene:)` lit la scène Excalidraw et compte ce
+qu'elle contient (formes, tracés, notes, connecteurs, textes) : `Manuscrit —
+3 tracés · « 3 runners → autoscale ? »`. C'est **la** légende, disponible hors
+ligne et sans modèle ; `refined(...)` la donne à l'assistant, borne sa réponse
+en durée et en longueur, et **conserve la légende calculée** si la réponse
+manque, tarde ou dépasse. Le contraire — un modèle dans le chemin nominal —
+aurait fait dépendre l'affichage de 6b d'un endpoint IA joignable, ce que
+« local d'abord » interdit.
+
+### Deux écarts assumés à la maquette
+
+1. **`.drawio` n'apparaît pas**, ni dans l'encart de clôture ni dans
+   `index.md` : hors v1 (décision D6). Un test l'interdit explicitement plutôt
+   que de l'oublier par accident.
+2. **`Décrire les planches`** est un bouton secondaire *absent* de la maquette.
+   Sans lui, le raffinement par l'assistant (spec §7.2) n'aurait aucun point
+   d'entrée ; le poser sur `Joindre au rapport` aurait fait partir une requête
+   réseau depuis une action que la spec veut locale.
+
+### Ce que le semis de recette gagne
+
+`RefonteDemoSeed.seedWorkshopSession` enveloppe celui du lot 17 et ajoute les
+trois éléments que 6b montre : les deux lignes manuscrites lisibles de `Notes de
+Patrice`, le texte extrait de la capture Teams — dont la tête devient le titre
+de sa carte — et l'épinglage de la pièce de Yann à `05:00`. Les légendes sont
+calculées au semis, donc reproductibles sans réseau. Les **deux** points
+d'entrée (raccourci `6a`/`6b` et menu Réunion) passent au même semis : les
+faire diverger rendrait une capture incomplète selon la porte empruntée.
+`RecetteScreen` compte **douze** codes après l'intégration de la vague 7, qui a
+fait entrer le `5b` du lot 14 à côté du `6b` de ce lot.
+
+### État
+
+`swift build` propre, `swift test` **vert : 1943 tests, 242 suites** (lancé à
+05:06, hors de la fenêtre 0 h–2 h qui fait échouer
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`). PR ouverte sur
+`feat/refonte-lot-17-atelier-modes`, **non fusionnée**.
+
+**Prochaine action** : faire relire la PR du lot 18. Elle est empilée depuis
+l'intégration de la vague 7 (section en tête) derrière
+`fix/refonte-session-fullscreen-content`, et non plus derrière le lot 17. Le
+raffinement de légende par l'assistant n'a pas de test d'intégration réseau —
+seuls ses replis sont couverts ; à confirmer sur un endpoint réel lors de la
+recette de 6b.
 
 ## Correctif : le mode séance plein écran (écran 1b) est enfin affiché (2026-09-08)
 

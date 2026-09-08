@@ -153,13 +153,16 @@ struct RefonteVague5IntegrationTests {
                 == OneOnOneDateFormat.dayMonth(vendredi.addingTimeInterval(7 * Self.jour)))
     }
 
-    // MARK: - Le routage : quatre branches exclusives
+    // MARK: - Le routage : sept branches exclusives
 
     @Test("Atelier, 1:1 et disposition standard ne se disputent jamais un écran")
     func routageExclusif() {
         for kind in MeetingKind.allCases {
             for mode in MeetingScreenModel.Mode.allCases {
                 let atelier = kind == .workshop && mode == .live
+                // Lot 18 : le mode Relire de l'atelier, la planche de séance.
+                let atelierRelecture = MeetingSpaceRouting.usesWorkshopReview(kind: kind,
+                                                                              mode: mode)
                 let seance = MeetingSpaceRouting.usesOneOnOneManagerSession(kind: kind, mode: mode)
                 let preparation = MeetingSpaceRouting.usesOneOnOnePreparation(kind: kind, mode: mode)
                 // Lot 13 : la quatrième branche 1:1, celle de l'entretien subi.
@@ -168,8 +171,14 @@ struct RefonteVague5IntegrationTests {
                 // Lot 14 : la cinquième, la préparation de l'entretien subi.
                 let prepaSubie = MeetingSpaceRouting
                     .usesOneOnOneCollaboratorPreparation(kind: kind, mode: mode)
-                let relire = mode == .review
-                let vraies = [atelier, seance, preparation, subie, prepaSubie, relire]
+                // Le poste de pilotage du lot 5, c'est-à-dire la branche
+                // `screen.mode == .review` de `MeetingSpaceView.contenu` —
+                // **moins** ce que le lot 18 lui prélève. C'est la seule
+                // priorité du routage : la planche de séance est posée avant,
+                // et le poste de pilotage ne voit donc jamais un atelier.
+                let relire = mode == .review && !atelierRelecture
+                let vraies = [atelier, atelierRelecture, seance, preparation,
+                              subie, prepaSubie, relire]
                     .filter { $0 }.count
                 #expect(vraies <= 1,
                         "\(kind) / \(mode) : \(vraies) branches de routage revendiquent l'écran")
@@ -177,13 +186,14 @@ struct RefonteVague5IntegrationTests {
         }
     }
 
-    // MARK: - Le crochet de recette : un seul, et dix codes
+    // MARK: - Le crochet de recette : un seul, et douze codes
 
-    @Test("Les onze codes d'écran désignent une réunion et un mode")
+    @Test("Les douze codes d'écran désignent une réunion et un mode")
     func codesDeRecette() {
-        // Onze depuis le lot 14, qui ajoute `5b` (la préparation de l'entretien
-        // subi) au `5a` du lot 13.
-        #expect(RecetteScreen.allCases.count == 11)
+        // Dix depuis le lot 13 (`5a`, l'entretien subi), onze depuis le lot 14
+        // (`5b`, sa préparation), douze depuis le lot 18 (`6b`, la planche de
+        // séance) — le même atelier que `6a`, en Relire.
+        #expect(RecetteScreen.allCases.count == 12)
         #expect(RecetteScreen.from(environment: nil) == nil)
         #expect(RecetteScreen.from(environment: "") == nil)
         #expect(RecetteScreen.from(environment: "1to1") == nil)
@@ -200,7 +210,8 @@ struct RefonteVague5IntegrationTests {
             ("4a", .demonstration, .live),
             ("5a", .entretienSubi, .live),
             ("5b", .entretienSubi, .prepare),
-            ("6a", .atelier, .live)
+            ("6a", .atelier, .live),
+            ("6b", .atelier, .review)
         ]
         #expect(attendu.count == RecetteScreen.allCases.count)
         for (code, cible, mode) in attendu {
@@ -215,19 +226,22 @@ struct RefonteVague5IntegrationTests {
 
     /// La liste reflète **les deux points d'entrée** — le menu
     /// (`MeetingCommands`) et le semis de recette (`OneToOneApp`) : lot 13
-    /// depuis la vague 6, et `seedWorkshopComplete` à la place de
-    /// `seedWorkshop` depuis le lot 17. Un semis appelé en production mais
-    /// absent d'ici ne serait jamais vu cohabiter avec les autres.
+    /// depuis la vague 6, et `seedWorkshopSession` depuis le lot 18, qui
+    /// enveloppe le `seedWorkshopComplete` du lot 17 comme celui-ci
+    /// enveloppait le `seedWorkshop` du lot 16. Le lot 14 n'a pas de semis
+    /// propre : sa carte de préparation se lit sur les fils du lot 12 et les
+    /// livrables du lot 13. Un semis appelé en production mais absent d'ici ne
+    /// serait jamais vu cohabiter avec les autres.
     @Test("Les semis de la vague, ensemble et deux fois, ne dupliquent rien")
     func semisEnsemble() throws {
         let context = try contexte()
-        // `seedWorkshopComplete` **écrit des fichiers** (les scènes des
+        // `seedWorkshopSession` **écrit des fichiers** (les scènes des
         // planches, la pièce et la capture de la section `PIÈCES & CAPTURES`) :
         // le magasin et sa racine sont injectés dans un dossier temporaire,
         // sinon le test salirait le `recordings/` réel — même précaution que
         // `WorkshopSeedLot17Tests`.
         let racine = FileManager.default.temporaryDirectory
-            .appendingPathComponent("semis-vague6-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("semis-vague7-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: racine) }
         let magasin = BoardStore(recordingsRoot: racine)
 
@@ -238,7 +252,7 @@ struct RefonteVague5IntegrationTests {
             _ = RefonteDemoSeed.seedLot11(in: context)
             _ = RefonteDemoSeed.seedLot12(in: context)
             _ = RefonteDemoSeed.seedLot13(in: context)
-            _ = RefonteDemoSeed.seedWorkshopComplete(in: context, store: magasin)
+            _ = RefonteDemoSeed.seedWorkshopSession(in: context, store: magasin)
             return demonstration
         }
 

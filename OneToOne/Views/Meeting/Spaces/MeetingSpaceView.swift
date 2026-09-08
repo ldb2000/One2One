@@ -81,6 +81,14 @@ struct MeetingSpaceView: View {
         meeting.kind == .workshop && settings.workshopEnabled && screen.mode == .live
     }
 
+    /// Le mode Relire du type Atelier est l'écran 6b, la **planche de séance**
+    /// (plan §5, lot 18) : elle remplace le poste de pilotage du lot 5, comme
+    /// 6a remplace le cockpit. Même garde de drapeau que 6a.
+    private var estAtelierEnRelecture: Bool {
+        settings.workshopEnabled
+            && MeetingSpaceRouting.usesWorkshopReview(kind: meeting.kind, mode: screen.mode)
+    }
+
     var body: some View {
         contenu
             // Lot 6, spec §4.1 : le tiroir Ressources se **superpose** à la
@@ -144,12 +152,16 @@ struct MeetingSpaceView: View {
     /// Le contenu de l'espace : le poste de pilotage seul en mode Relire, les
     /// deux colonnes — fluide et rail de 330 px — partout ailleurs.
     ///
-    /// Ordre du routage, fixé à l'intégration de la vague 5 : **type Atelier**,
-    /// puis **type 1:1** selon le mode, puis la disposition standard selon le
-    /// mode. Les prédicats sont exclusifs deux à deux (l'atelier veut
-    /// `.workshop`, le 1:1 veut `.oneToOne`, Relire veut `.review` quand les
-    /// deux autres veulent `.live` ou `.prepare`) : l'ordre est donc une
-    /// lecture, pas une priorité qui masquerait un cas.
+    /// Ordre du routage, fixé à l'intégration de la vague 5 et complété à celle
+    /// de la vague 7 : **type Atelier** (séance puis Relire), puis **1:1 mené**
+    /// selon le mode, puis **1:1 subi** selon le mode, puis la disposition
+    /// standard. Les prédicats de type sont exclusifs deux à deux (l'atelier
+    /// veut `.workshop`, le 1:1 mené `.oneToOne`, le 1:1 subi `.manager`) :
+    /// entre eux, l'ordre est une lecture.
+    ///
+    /// La seule vraie **priorité** est celle du lot 18 : la planche de séance
+    /// (`.workshop` + `.review`) doit passer avant le `screen.mode == .review`
+    /// du poste de pilotage, qui la couvrirait sinon.
     ///
     /// Extrait de `body` à l'intégration de la vague 4 : les points d'entrée
     /// des lots 4 et 6 se posent en modificateurs sur l'espace entier, et le
@@ -161,6 +173,12 @@ struct MeetingSpaceView: View {
             WorkshopSpaceView(meeting: meeting,
                               screen: screen,
                               isAssistantOpen: $isAssistantOpen)
+        } else if estAtelierEnRelecture {
+            // Lot 18, spec §7.3 : la planche de séance prend toute la surface.
+            // Rangée avec l'atelier en séance, et **avant** le poste de
+            // pilotage dont elle est l'exception pour ce type : ici l'ordre
+            // est une priorité, pas une lecture.
+            WorkshopSessionSheetView(meeting: meeting, screen: screen, settings: settings)
         } else if MeetingSpaceRouting.usesOneOnOneManagerSession(kind: meeting.kind,
                                                                  mode: screen.mode) {
             // Lot 11, spec §3.1 et §3.3 : l'écran de séance du 1:1 mené monte

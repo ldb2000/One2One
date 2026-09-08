@@ -35,7 +35,7 @@
 #     3a  tiroir Ressources (En séance)       2b  1:1 mené, Préparer
 #     3b  fiche projet en panneau             4a  sélecteur de capture
 #     5a  1:1 subi, En séance                 5b  1:1 subi, Préparer
-#     6a  atelier, planche plein cadre
+#     6a  atelier, planche plein cadre        6b  atelier, planche de séance
 #
 # Usage
 #   Scripts/recette-app.sh /tmp/recette
@@ -67,7 +67,7 @@ WAIT=""
 # Les codes acceptés par `RecetteScreen`. Vérifiés ici, parce qu'une faute de
 # frappe passerait autrement inaperçue : l'application retomberait sur le
 # cockpit et la capture serait celle du mauvais écran.
-SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a"
+SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a 6b"
 
 while [ $# -gt 0 ]; do
     case "$1" in

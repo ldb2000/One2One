@@ -79,7 +79,8 @@ enum ReportHTMLBuilder {
             ReportOptionalBlocks.captures(of: meeting),
             embedImages: mode == .preview))
         assembled += cite(ReportOptionalBlocks.boardsHTML(
-            ReportOptionalBlocks.boards(of: meeting)))
+            ReportOptionalBlocks.boards(of: meeting),
+            embedImages: mode == .preview))
         if let context = meeting.modelContext {
             assembled += cite(ReportOptionalBlocks.commitmentsHTML(
                 ReportOptionalBlocks.commitments(of: meeting, in: context,

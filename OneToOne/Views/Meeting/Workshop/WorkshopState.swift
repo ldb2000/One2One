@@ -563,6 +563,57 @@ final class WorkshopState {
     /// connaître le panoramique de la page ; ce n'est pas ce que la spec exige,
     /// et l'objet est déposé sélectionné, donc immédiatement déplaçable.
     static let dropOrigin = CGPoint(x: 120, y: 120)
+
+    // MARK: - Lot 18 : légendes de l'écran 6b
+
+    /// Une opération de la planche de séance est en cours (export du dossier,
+    /// description des planches par l'assistant). Les boutons de l'encart de
+    /// clôture s'en servent pour se désactiver — deux exports concurrents
+    /// écriraient dans le même dossier.
+    var isBusy = false
+
+    /// Remplit la légende **calculée** des planches qui n'en ont pas.
+    ///
+    /// Sans IA et sans réseau : une planche doit porter sa légende même hors
+    /// ligne (spec §8, « local d'abord »), et l'écran 6b comme le dock de 6a
+    /// l'affichent sans avoir à demander quoi que ce soit. Idempotent — une
+    /// légende déjà écrite, calculée ou raffinée, n'est pas recouverte.
+    ///
+    /// - Returns: le nombre de planches décrites.
+    @discardableResult
+    func fillMissingCaptions(meeting: Meeting, context: ModelContext) -> Int {
+        var remplies = 0
+        for planche in boards(of: meeting) where planche.caption.isEmpty {
+            let scene = store.loadScene(board: planche, meeting: meeting) ?? BoardScene.empty
+            planche.caption = BoardCaptionBuilder.caption(mode: planche.mode, scene: scene)
+            remplies += 1
+        }
+        if remplies > 0 { try? context.save() }
+        return remplies
+    }
+
+    /// `Décrire les planches` : l'assistant réécrit la légende de chaque
+    /// planche (spec §7.2).
+    ///
+    /// Chaque planche est traitée **séparément** : une réponse illisible sur la
+    /// troisième ne doit pas priver les deux premières de leur légende, et
+    /// `BoardCaptionBuilder.refined` retombe de toute façon sur la version
+    /// calculée. Ne lève jamais.
+    func describeBoards(meeting: Meeting,
+                        settings: AppSettings,
+                        context: ModelContext,
+                        client: AIClientProtocol = AIClient.live) async {
+        isBusy = true
+        defer { isBusy = false }
+        for planche in boards(of: meeting) {
+            let scene = store.loadScene(board: planche, meeting: meeting) ?? BoardScene.empty
+            planche.caption = await BoardCaptionBuilder.refined(mode: planche.mode,
+                                                                scene: scene,
+                                                                settings: settings,
+                                                                client: client)
+        }
+        try? context.save()
+    }
 }
 
 extension BoardStore {
