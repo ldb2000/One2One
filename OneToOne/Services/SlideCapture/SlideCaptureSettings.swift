@@ -39,6 +39,19 @@ struct SlideCaptureSettings: Equatable, Sendable {
 
     var sensitivity: Sensitivity = .normal
 
+    /// Le détecteur écrit-il une capture de lui-même quand le contenu se
+    /// stabilise ? C'est la bascule « Capturer à chaque changement de
+    /// partage » du sélecteur (spec §5.1). Coupée, la boucle **continue** de
+    /// tourner — elle signale toujours la disparition de la fenêtre — mais
+    /// seul un geste manuel écrit.
+    var detectsAutomatically: Bool = true
+
+    /// Intervalle de capture forcée, ou `nil` : la bascule « Toutes les
+    /// 2 minutes ». L'échéance se compte depuis la **dernière écriture**,
+    /// quelle qu'en soit l'origine — une capture manuelle repousse donc la
+    /// prochaine capture périodique.
+    var periodicCapture: Duration? = nil
+
     var movementThreshold: Double { sensitivity.movementThreshold }
 
     /// Seuil d'**identité** pour l'anti-doublon (image contre l'historique enregistré).
@@ -51,5 +64,15 @@ struct SlideCaptureSettings: Equatable, Sendable {
 
     init(sensitivity: Sensitivity = .normal) {
         self.sensitivity = sensitivity
+    }
+
+    /// Réglages par défaut du type de réunion (`MeetingKind.captureProfile`,
+    /// lot 7). Un 1:1 n'attend aucun slide, un atelier en attend en continu :
+    /// le même défaut pour les deux serait faux dans les deux cas.
+    init(meetingKind: MeetingKind) {
+        let profil = meetingKind.captureProfile
+        self.sensitivity = profil.sensitivity
+        self.detectsAutomatically = profil.detectsAutomatically
+        self.periodicCapture = profil.periodicCapture
     }
 }

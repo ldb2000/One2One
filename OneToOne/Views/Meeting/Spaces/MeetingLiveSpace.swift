@@ -31,6 +31,9 @@ struct MeetingLiveSpace: View {
     let onReidentify: () -> Void
     /// Ajout d'un extrait de transcription au CR manager.
     let onAddToManagerReport: (NSRange, String, String) -> Void
+    /// Le pilotage de la capture (lot 7), pour la bande en pied de colonne.
+    /// Optionnel : les aperçus montent cet espace sans session de capture.
+    var capture: CaptureSessionCoordinator?
 
     var body: some View {
         VStack(alignment: .leading, spacing: One2OneToken.cardGap) {
@@ -42,8 +45,19 @@ struct MeetingLiveSpace: View {
                 OnScreenCard(meeting: meeting, screen: screen, item: presentee)
             }
             carteNotes
+            // Lot 7, spec §5.3 : la bande de captures en **pied de colonne**.
+            // Elle ne s'affiche que si la séance a des captures ou une session
+            // ouverte — sans capture ni source, la colonne n'a pas à porter un
+            // cadre de plus (même règle que la carte « À l'écran »).
+            if let capture, capture.captureCount > 0 || captureService?.hasOpenSession == true {
+                CapturesStrip(coordinator: capture, service: capture.service)
+            }
         }
     }
+
+    /// Le service de capture, lu à travers le coordinateur : la vue n'a pas à
+    /// le recevoir deux fois.
+    private var captureService: ScreenCaptureService? { capture?.service }
 
     /// La ressource à l'écran, `nil` quand rien n'est partagé — ou quand la
     /// pièce présentée a disparu de la liste (retirée, réunion rechargée) :

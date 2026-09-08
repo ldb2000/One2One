@@ -162,6 +162,9 @@ enum One2OneToken {
     static let resourcesDrawerWidth: CGFloat = 396
     /// Colonne de transcription du mode séance.
     static let sessionTranscriptWidth: CGFloat = 400
+
+    /// Sélecteur de source de capture (spec §5.1, capture `4a`).
+    static let capturePopoverWidth: CGFloat = 346
 }
 
 private extension Color {

@@ -2,6 +2,168 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 7 : captures Teams / Zoom (4a) (2026-09-07)
+
+Branche `feat/refonte-lot-7-captures`, **sur** `fix/refonte-1to1-window-crash` : la PR
+empile donc toute la pile linéaire (PR #19 → … → #25 → #31). Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-7-captures.md` (14 tâches, toutes faites).
+
+**État : livré, `swift build` propre, `swift test` complet vert — 1 041 XCTest (1 ignoré) +
+1 468 Swift Testing (185 suites) = 2 509 tests, contre 2 402 au sommet. Recette visuelle
+différée à la passe de recette dédiée (consigne du 2026-09-07 : un seul agent est autorisé
+à piloter l'interface).**
+
+### Ce qui a été porté de Teams-Capture (programme §2.5, décision D7)
+
+Copié **avec ses tests**, jamais lié (aucune dépendance SwiftPM) :
+
+| Élément | Devenu | Ce qu'il apporte |
+| --- | --- | --- |
+| `CaptureCore/MeetingType.swift` (table de profils) | `Services/SlideCapture/CaptureProfile.swift` | `CaptureProfile` par `MeetingKind` + `captureHint` affiché sous les bascules |
+| `CaptureSettings.detectsAutomatically/periodicCapture` | `SlideCaptureSettings` (mêmes champs) | les deux bascules du sélecteur |
+| `SessionController.TunedField` | `Services/SlideCapture/CaptureTuning.swift` | changer de type n'écrase pas un réglage fait à la main |
+| `SlideDetector.acknowledge` | même nom | pas de doublon après une capture manuelle ou périodique |
+| `CaptureCoordinator` (périodique, `captureNow`, horloge injectée) | `ScreenCaptureService` | l'échéance **arme**, le premier tick stable écrit |
+| `CaptureCoordinatorTests` (785 l.) | `Tests/CapturePortedCoordinatorTests.swift` (17 tests) | dérive lente, tick en vol, détection coupée, périodique |
+| `Cockpit/SourcePopover.swift` | `Views/Meeting/Capture/CaptureSourcePopover.swift` | mise en page 346 px, `PrimaryButtonStyle`, libellés |
+| `Cockpit/CaptureRail.swift` | `Views/Meeting/Capture/CapturesStrip.swift` | vignettes 132 × 76, tuile manuelle, raccourci hors cellule lazy |
+| `Cockpit/TopBar`, `IndicatorStrip` | pilule de `MeetingTopChromeBar` | `● Capture · Teams 3 ⌄`, `Source perdue` |
+
+**Propre à OneToOne**, absent de Teams-Capture : le lien `t` ↔ audio (`MeetingPlayhead`
+comme unique axe de référence), la persistance `SlideCapture` en base avec `source` et
+`trigger`, l'OCR et son indexation, l'insertion dans les notes, `＋ Note` / `＋ Action`
+depuis la bande, Zoom, l'écran entier (`DisplayFrameSource`), et les bascules
+**applicables en cours de séance** — Teams-Capture les gelait pendant la capture, alors
+que la capture 4a les montre actives avec trois captures déjà prises.
+
+### Ce qui est en place
+
+**La capture a une source, un déclencheur et un instant.** Une session porte désormais
+`source` (`teams/zoom/screen/region`), `detectsAutomatically` et `periodicCapture`, et
+chaque `SlideCapture` écrite reçoit les trois colonnes du lot 0B. Le `t` vient du
+`MeetingPlayhead` de la réunion — **jamais** de l'horloge de la session de capture : une
+note et une capture prises au même moment doivent porter le même instant. Sans axe temps
+(ni enregistrement, ni lecture), la capture est écrite **sans** `t` plutôt qu'à `00:00`, où
+son carré désignerait un instant où rien ne s'est passé.
+
+**L'échéance périodique arme, elle n'écrit pas.** Écrire au moment de l'échéance donnerait
+une image floue au milieu d'une transition : le premier tick non `.settling` qui suit
+écrit, avec `trigger: .interval`. Une capture manuelle repousse la suivante — l'échéance se
+compte depuis la dernière écriture, quelle qu'en soit l'origine. Trois tests transposés le
+prouvent, dont celui où huit ticks de mouvement précèdent deux ticks stables : une
+implémentation qui n'écrirait *jamais* rien passerait le premier test, pas celui-là.
+
+**`captureNow()` est le seul chemin manuel.** Il acquitte le détecteur **avant** d'écrire :
+entre l'acquittement et l'écriture il y a un `await`, et un tick déjà en vol peut s'y
+stabiliser sur le même contenu et l'écrire une seconde fois. `snapshot()` y délègue — deux
+implémentations du même geste divergeaient sur l'anti-doublon (l'ancienne amorçait le
+détecteur *après* l'écriture, ce qui ne résiste pas au tick en vol).
+
+**`Source perdue` est un état, pas un dialogue** (spec §5.2). `pauseCause` distingue la
+source disparue (fenêtre fermée, autorisation refusée, écran débranché) d'un échec d'API :
+la première fait passer la pilule en `accent/warn` avec un lien de reconfiguration, la
+seconde n'est qu'un message. Aucune boîte de dialogue ne s'ouvre en séance. Le message
+d'erreur est remis à zéro sur **tous** les chemins de succès, écriture comprise (piège 14
+de `One2One-specs.md`).
+
+**Le sélecteur dit la vérité sur chaque source.** `CaptureSourceCatalog` est pur : il reçoit
+les fenêtres partageables et rend les trois lignes de la capture 4a. Le titre de la fenêtre
+Teams sert **uniquement** à détecter la réunion active (décision D7) ; « un partage est en
+cours » vient du détecteur d'image (`isContentMoving`). Le partageur n'est nommé que s'il
+est déjà **participant de la réunion** : deviner un prénom depuis un mot du titre
+produirait « partage de Réunion en cours ». Zoom est reconnu par son seul bundle
+(`us.zoom.xos`), et l'écran entier est toujours proposé — un sélecteur sans aucune ligne
+active serait un cul-de-sac.
+
+**Tout se lit sans ouvrir de menu** (critère n° 1). `CaptureState.pill` est une fonction
+pure : `idle` → bouton neutre `Capture` ; `armed(source, count, automatic)` → pilule
+`● Capture · Teams 3 ⌄` en `accent/ok` bordée, le point vert quand la détection écrit
+d'elle-même, gris quand elle attend un geste ; `lost(count)` → `Source perdue`, **compteur
+conservé** (les captures déjà prises ne disparaissent pas avec la source). Le chevron fait
+ce qu'il annonce : il rouvre le sélecteur.
+
+**La bande de captures est en pied de colonne**, montée par une ligne de
+`MeetingLiveSpace`. Vignettes 132 × 76 servies par un cache mémoire **borné** (64 entrées,
+éviction LRU, clé = chemin + date de modification) qui décode à la taille demandée via
+`CGImageSourceCreateThumbnailAtIndex` : sans lui, la bande redécoderait un PNG plein écran
+par vignette et par rendu. La légende affiche l'**intervalle réel** (`2 min`) et non le mot
+« périodique ». La colonne d'état ne promet rien de faux : une capture sans OCR annonce
+« Aucun texte extrait », une capture sans `t` « Aucun timecode (capture hors séance) ».
+`Joindre au rapport` est une case réelle, persistée sur `SlideCapture.includeInReport`
+(colonne neuve à valeur par défaut, migration légère, aucune version de schéma).
+
+**La frise porte le carré de 12 px.** Les repères existaient depuis le lot 2 ; ce qui
+manquait était **quel** carré est le dernier (`accent/action`) et **quand** la légende
+`■ = capture` a un sens — deux fonctions pures dans
+`MeetingTimelineMarkers+Captures.swift`, plutôt que deux `if` dans le `Canvas`.
+
+**Une capture s'insère dans les notes** en carte 56 × 36 + titre + première ligne d'OCR +
+`Agrandir` (`Notes/TimedNotesColumn+Capture.swift`, aiguillage de trois lignes dans
+`TimedNotesColumn`). La note ne copie **pas** l'image ni le texte : elle porte un
+`sourceRef {capture, id, t}` et la carte relit la capture — copier l'OCR aurait figé un
+texte que Vision met à jour une seconde plus tard. L'insertion est idempotente, et une
+référence morte fait retomber la ligne sur son texte plutôt que d'afficher un cadre vide.
+
+**Le texte extrait est cherchable** (critère n° 4) : l'OCR alimente `extractedText` du lot
+(`rebuildAttachmentText`, déjà en place), que `reindexAttachment` découpe en
+`TranscriptChunk`. Le test le prouve **sans** appeler `reindexAttachment` — son pipeline
+d'embeddings exige `default.metallib`, absent de `swift test` : il vérifie la chaîne
+observable OCR → `extractedText` → `TextChunker` → `BM25Index`, et que la requête
+« chiffrage Reprise AP Marine » désigne bien le chunk de la capture et non la ligne de
+transcription concurrente.
+
+### Écarts assumés
+
+1. **La recette visuelle n'est pas faite.** Consigne du 2026-09-07 : plusieurs agents
+   pilotaient le même bureau et se tuaient mutuellement leurs instances ; une **passe de
+   recette dédiée** la reprendra (`recette/lot-7-1920.png` à comparer à
+   `4a-capture-selecteur.png`). À vérifier à ce moment-là : Teams ouvert **sans** réunion
+   doit afficher « Fenêtre ouverte · aucune réunion active » (et « Aucune réunion active »
+   quand Teams n'est pas lancé), la pilule `● Capture · Teams 3 ⌄`, la bande et la légende
+   `■ = capture`.
+2. **L'ordre vertical diffère de 4a.** La capture montre la frise **sous** la bande de
+   captures ; ici la frise reste au pied de la carte notes ↔ transcription, où le lot 2 l'a
+   posée, et la bande vient dessous. Déplacer la frise hors de la carte aurait touché la
+   disposition des lots 2, 4 et 5 — hors périmètre, et la consigne du lot 7 est « une
+   ligne » dans `MeetingLiveSpace`.
+3. **« Zone à la souris » n'est pas sélectionnable.** La ligne `ÉCRAN` porte le sous-titre
+   de la capture (« Ou une zone à la souris ») et capture l'écran entier ; le tracé d'une
+   zone à la souris demande une fenêtre de sélection plein écran, qui relève de la pastille
+   (lot 8). La valeur `CaptureSource.region` reste dans le modèle, personne ne l'écrit.
+4. **Changer de source clôt le lot courant** et en ouvre un autre. Une session porte une
+   source figée à sa construction ; accepter le changement à chaud donnerait un sélecteur
+   qui confirme un choix sans effet (défaut « contrôle sans effet » de `One2One-specs.md`).
+5. **`CropSelectionView` a été supprimée** en même temps que `ScreenCaptureConfigView`, son
+   seul appelant : le sélecteur ne demande plus de tracer une zone avant de capturer.
+   `NormalizedRect` et ses 12 tests restent — le recadrage est toujours appliqué, il n'est
+   simplement plus réglé à la main. `MeetingSlidesPopover` est supprimée comme le lot 6
+   l'avait prévu.
+6. **La pastille flottante est le lot 8**, avec `⌘⇧S` global (Carbon) et le mini-panneau de
+   confirmation de 4 s. Ici `⌘⇧S` est le raccourci de menu, actif quand la fenêtre de
+   réunion a le focus.
+
+### Fichiers partagés touchés
+
+Au minimum près : `MeetingScreenModel.swift` (**une** ligne, `var capture`),
+`MeetingTopChromeBar.swift` (la pilule de capture et son popover seulement),
+`MeetingLiveSpace.swift` + `MeetingSpaceView.swift` (montage de la bande, un paramètre
+optionnel), `MeetingView.swift` (**retraits** + le coordinateur et deux closures),
+`Menus/{MeetingCommands,MeetingMenuActions}.swift` (`⌘⇧S` et l'appel du semis),
+`Notes/TimedNotesColumn.swift` (aiguillage de trois lignes),
+`Spaces/AudioTimelineStrip.swift` (carré de 12 px, dernier en accent, légende),
+`Models/MeetingModels.swift` (`SlideCapture.includeInReport`),
+`Views/DesignSystem/One2OneTokens.swift` (`capturePopoverWidth = 346`).
+Aucun fichier de `Views/Meeting/OneOnOne/**`, `Services/OneOnOne/**`, `Workshop/**`,
+`Rail/**`, `Review/**`, `Session/**`, `Project/**` ni `Resources/**` n'est touché —
+`ResourceItem` et le tiroir sont réutilisés tels quels.
+
+### Prochaine action
+
+Faire relire et fusionner dans l'ordre `#19 → … → #25 → #31 → (lot 7)`, puis la **passe de
+recette dédiée** reprend la comparaison avec `4a-capture-selecteur.png` (écarts n° 1 et
+n° 2). Le lot 8 (pastille flottante, `4b`) part de ce sommet : `captureNow()`,
+`CaptureState` et la bande lui servent tels quels.
+
 ## Lot 16 — Atelier : socle des planches et mode Croquis (6a partiel) (2026-09-07)
 
 Branche `feat/refonte-lot-16-atelier-socle`. Développée depuis

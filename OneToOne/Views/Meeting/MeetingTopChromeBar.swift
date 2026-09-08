@@ -140,6 +140,12 @@ struct MeetingTopChromeBar: View {
     /// la barre sans modèle d'écran n'ont pas de partage à annoncer.
     var resources: ResourcesState?
 
+    /// Le pilotage de la capture (lot 7, spec §5.1) : la pilule y ancre le
+    /// sélecteur de source. Optionnel pour la même raison que `resources` —
+    /// une barre montée sans modèle d'écran n'a pas de session à piloter, et
+    /// la pilule retombe alors sur son bouton neutre.
+    var capture: CaptureSessionCoordinator?
+
     /// Bascule lecture/pause de l'audio enregistré.
     let onTogglePlay: () -> Void
     /// Ouvre la configuration de la source de capture d'écran.
@@ -172,7 +178,6 @@ struct MeetingTopChromeBar: View {
             badgeAtelier
             titleField
             Spacer(minLength: 8)
-            piluleLocale
             // Une note n'a ni audio, ni transcription, ni rapport : ses
             // contrôles disparaissent entièrement (même règle que
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
@@ -180,6 +185,18 @@ struct MeetingTopChromeBar: View {
                 audioPill
                 sharePill
                 captureButton
+                    .popover(isPresented: capturePopoverBinding,
+                             attachmentAnchor: .rect(.bounds),
+                             arrowEdge: .bottom) {
+                        if let capture {
+                            CaptureSourcePopover(coordinator: capture, service: captureService)
+                        }
+                    }
+                // Spec §2.1 : les pilules d'état se suivent — partage (lot 6),
+                // capture (lot 7), puis `Local · hors ligne` de l'atelier
+                // (lot 16). La placer avant la pilule audio, comme le lot 16
+                // l'avait écrite seul, la sortait de ce groupe.
+                piluleLocale
                 typeMenu
                 templatePickerButton
                 reportButton
@@ -555,41 +572,19 @@ struct MeetingTopChromeBar: View {
 
     // MARK: - Capture
 
-    /// État de capture dans la barre du haut. La spec §5.2 (lot 7) y place une
-    /// pilule `● Capture · Teams n ⌄` en `accent/ok` et un bouton neutre
-    /// `Capture` sinon ; d'ici là, la version courte du même emplacement — sans
-    /// elle, la configuration de capture deviendrait injoignable.
+    /// État de capture dans la barre du haut (spec §5.2, capture 4a) :
+    /// pilule `● Capture · Teams 3 ⌄` en `accent/ok` bordée, `Source perdue` en
+    /// `accent/warn` avec un lien de reconfiguration, bouton neutre `Capture`
+    /// sinon. Le chevron rouvre le sélecteur de source.
+    ///
+    /// Tout se lit **sans ouvrir de menu** : l'état, la source et le compteur
+    /// (critère d'acceptation n° 1 du chantier 4). La décision est
+    /// `CaptureState.pill`, une fonction pure testée à part.
     @ViewBuilder
     private var captureButton: some View {
-        if captureService.hasOpenSession {
-            Button(action: onShowSlides) {
-                HStack(spacing: 5) {
-                    Circle().fill(captureStatusColor).frame(width: 6, height: 6)
-                    Text(captureStatusText)
-                        .font(.plexSans(10.5, .medium))
-                        .foregroundStyle(captureStatusColor)
-                }
-                .padding(.horizontal, 9)
-                .frame(height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: One2OneToken.radiusPill)
-                        .fill(One2OneToken.okBg)
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(captureStatusHelp)
-            .contextMenu {
-                Button("Configurer…") { onShowCaptureSetup() }
-                if captureService.isCapturing {
-                    Button("Arrêter la capture") { captureService.stop() }
-                } else {
-                    Button("Reprendre la capture") { captureService.resume() }
-                    Button("Terminer le lot") { Task { await captureService.finish() } }
-                }
-            }
-        } else {
-            Button(action: capturedSlidesCount > 0 ? onShowSlides : onShowCaptureSetup) {
+        switch capturePill {
+        case .idle:
+            Button(action: onShowCaptureSetup) {
                 Text(capturedSlidesCount > 0 ? "Capture \(capturedSlidesCount)" : "Capture")
                     .font(.plexSans(10.5, .medium))
                     .foregroundStyle(One2OneToken.ink2)
@@ -606,32 +601,88 @@ struct MeetingTopChromeBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(capturedSlidesCount > 0 ? "Voir les captures" : "Configurer la capture d'écran")
+            .help("Choisir la source à capturer (⌘⇧S)")
+
+        case .armed(_, _, let automatique):
+            capturePillView(texte: capturePill.label,
+                            ton: .ok,
+                            point: automatique ? One2OneToken.ok : One2OneToken.ink4,
+                            aide: automatique
+                                ? "Capture armée — une capture à chaque changement de partage. Clic pour changer de source."
+                                : "Capture prête — ⌘⇧S capture ce qui est à l'écran. Clic pour changer de source.")
+
+        case .lost:
+            capturePillView(texte: capturePill.label,
+                            ton: .warn,
+                            point: One2OneToken.warn,
+                            aide: captureStatusHelp + " — clic pour reconfigurer la source.")
         }
     }
 
-    /// Vert en cours, orange en pause, encre au repos : l'état réel, pas déduit.
-    private var captureStatusColor: Color {
-        switch captureService.state {
-        case .running: return One2OneToken.okDeep
-        case .paused: return One2OneToken.warnInk
-        case .stopped, .idle: return One2OneToken.ink4
-        }
+    /// Ouverture du sélecteur, portée par `CaptureState` : le raccourci `⌘⇧S`
+    /// et la bande de captures l'ouvrent aussi, et un `@State` local ici les
+    /// laisserait sans porte.
+    private var capturePopoverBinding: Binding<Bool> {
+        Binding(get: { capture?.screen.capture.showPopover ?? false },
+                set: { capture?.screen.capture.showPopover = $0 })
     }
 
-    private var captureStatusText: String {
-        let count = captureService.capturedSlidesCount
-        switch captureService.state {
-        case .running: return "Capture · \(count)"
-        case .paused: return "En pause · \(count)"
-        case .stopped: return "Arrêtée · \(count)"
-        case .idle: return "Capture"
+    /// L'état de la pilule, dérivé du service : jamais stocké, sinon il
+    /// annoncerait une capture armée sur une session close.
+    private var capturePill: CapturePillState {
+        CaptureState.pill(sessionOpen: captureService.hasOpenSession,
+                          sourceLost: captureService.isSourceLost,
+                          source: captureService.configuration?.source,
+                          count: capturedSlidesCount,
+                          automatic: captureService.configuration?.detectsAutomatically ?? false)
+    }
+
+    /// La pilule elle-même : point, libellé, chevron. Le chevron **fait** ce
+    /// qu'il annonce (rouvrir le sélecteur) ; le clic droit garde le pilotage
+    /// de la session.
+    private func capturePillView(texte: String,
+                                 ton: ChipTon,
+                                 point: Color,
+                                 aide: String) -> some View {
+        Button(action: onShowCaptureSetup) {
+            HStack(spacing: 5) {
+                Circle().fill(point).frame(width: 6, height: 6)
+                Text(texte)
+                    .font(.plexSans(10.5, .medium))
+                    .foregroundStyle(ton.encre)
+                Text("⌄")
+                    .font(.plexSans(10.5, .medium))
+                    .foregroundStyle(ton.encre.opacity(0.7))
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: One2OneToken.radiusPill).fill(ton.fond)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: One2OneToken.radiusPill)
+                    .strokeBorder(ton.encre.opacity(0.35), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(aide)
+        .contextMenu {
+            Button("Choisir la source…") { onShowCaptureSetup() }
+            Button("Voir les captures") { onShowSlides() }
+            Divider()
+            if captureService.isCapturing {
+                Button("Arrêter la capture") { captureService.stop() }
+            } else {
+                Button("Reprendre la capture") { captureService.resume() }
+            }
+            Button("Terminer le lot") { Task { await captureService.finish() } }
         }
     }
 
     private var captureStatusHelp: String {
         if case .paused(let reason) = captureService.state { return reason }
-        return "Voir les captures — clic droit pour les options"
+        return "Voir les captures"
     }
 
     // MARK: - Menu de type

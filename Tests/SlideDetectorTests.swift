@@ -122,4 +122,72 @@ struct SlideDetectorTests {
         #expect(fresh.contains(.newSlide))
         #expect(detector.recordedCount == 2)
     }
+
+    // MARK: - acknowledge (lot 7, port de Teams-Capture)
+
+    @Test("acknowledge : le contenu qu'on vient de capturer à la main n'est pas réécrit")
+    func acknowledgePreventsDoubleWrite() throws {
+        var detector = SlideDetector(settings: SlideCaptureSettings())
+        // Trois ticks sur la même image : le détecteur écrirait normalement au
+        // troisième (`.newSlide`). On simule ici une capture manuelle arrivée
+        // avant, sur ce même contenu.
+        let fp = try #require(SlideFingerprint(image: banded(0.3)))
+        detector.acknowledge(fp)
+        #expect(detector.recordedCount == 1)
+
+        let decisions = try feed(&detector, banded(0.3), times: 5)
+        // Preuve par mutation : retirer `armed = false` de `acknowledge` fait
+        // apparaître un `.duplicate` au deuxième tick — le détecteur
+        // « conclurait » sur un contenu déjà écrit, et la bande afficherait
+        // une décision là où il n'y a rien eu.
+        #expect(decisions == [.ignore, .ignore, .ignore, .ignore, .ignore])
+        #expect(detector.recordedCount == 1)
+    }
+
+    @Test("acknowledge : un contenu nouveau après la capture manuelle est toujours écrit")
+    func acknowledgeDoesNotFreezeDetection() throws {
+        var detector = SlideDetector(settings: SlideCaptureSettings())
+        detector.acknowledge(try #require(SlideFingerprint(image: banded(0.2))))
+        _ = try feed(&detector, banded(0.2), times: 2)
+
+        let suite = try feed(&detector, banded(0.9), times: 4)
+        #expect(suite.contains(.newSlide))
+        #expect(detector.recordedCount == 2)
+    }
+
+    @Test("acknowledge : revenir au contenu capturé à la main le reconnaît en doublon")
+    func acknowledgeRecordsForAntiDuplicate() throws {
+        var detector = SlideDetector(settings: SlideCaptureSettings())
+        detector.acknowledge(try #require(SlideFingerprint(image: banded(0.2))))
+
+        // On s'éloigne : le nouveau contenu est bien écrit…
+        let ailleurs = try feed(&detector, banded(0.9), times: 4)
+        #expect(ailleurs.contains(.newSlide))
+
+        // …puis on revient sur le contenu capturé à la main. Preuve par
+        // mutation : sans le `recorded.append` d'`acknowledge`, ce retour
+        // produit un `.newSlide` et la même image est écrite deux fois.
+        let retour = try feed(&detector, banded(0.2), times: 4)
+        #expect(retour.contains(.duplicate))
+        #expect(!retour.contains(.newSlide))
+    }
+
+    @Test("acknowledge avant le premier tick ne fait pas repartir de .settling")
+    func acknowledgeSeedsPrevious() throws {
+        var detector = SlideDetector(settings: SlideCaptureSettings())
+        detector.acknowledge(try #require(SlideFingerprint(image: banded(0.4))))
+        // `previous` est posé par `acknowledge` : le tout premier tick n'est
+        // donc plus un `.settling` gâché.
+        let premier = try feed(&detector, banded(0.4), times: 1)
+        #expect(premier == [.ignore])
+    }
+
+    @Test("acknowledge d'un contenu déjà enregistré n'ajoute pas de doublon dans l'historique")
+    func acknowledgeIsIdempotent() throws {
+        var detector = SlideDetector(settings: SlideCaptureSettings())
+        let fp = try #require(SlideFingerprint(image: banded(0.5)))
+        detector.acknowledge(fp)
+        detector.acknowledge(fp)
+        #expect(detector.recordedCount == 1)
+    }
 }

@@ -54,6 +54,10 @@ struct MeetingSpaceView: View {
     /// Ouvre le sélecteur de fichiers du tiroir Ressources. Porté par
     /// `MeetingView`, qui n'a qu'**un** `.fileImporter` dans sa hiérarchie.
     let onImportResources: () -> Void
+    /// Le pilotage de la capture (lot 7), transmis à `MeetingLiveSpace` pour la
+    /// bande de captures en pied de colonne. Optionnel : les aperçus et les
+    /// tests montent cet écran sans session de capture.
+    var capture: CaptureSessionCoordinator?
 
     /// Les collaborateurs, pour les sélecteurs de responsable du rail.
     /// Interrogés ici plutôt que passés en paramètre : c'est la vue qui monte
@@ -240,7 +244,8 @@ struct MeetingSpaceView: View {
                              onSummarize: onSummarize,
                              onDiarize: onDiarize,
                              onReidentify: onReidentify,
-                             onAddToManagerReport: onAddToManagerReport)
+                             onAddToManagerReport: onAddToManagerReport,
+                             capture: capture)
                 .padding(.horizontal, 14)
         case .review:
             // Inatteignable : le mode Relire est routé en amont, hors de la

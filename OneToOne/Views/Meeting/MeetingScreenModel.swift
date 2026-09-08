@@ -363,6 +363,13 @@ final class MeetingScreenModel {
     /// faire grossir ce modèle.
     var resources = ResourcesState()
 
+    // MARK: - Lot 7 : captures Teams / Zoom
+
+    /// L'état d'écran de la capture (`Views/Meeting/Capture/CaptureState.swift`) :
+    /// source choisie, bascules, sélection de la bande. Une ligne ici, tout le
+    /// reste là-bas.
+    var capture = CaptureState()
+
     // MARK: - Lot 10 : domaine 1:1
 
     /// L'état d'écran du 1:1 (filtre d'engagements, confirmation d'escalade).

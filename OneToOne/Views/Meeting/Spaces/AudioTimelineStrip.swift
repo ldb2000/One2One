@@ -78,6 +78,15 @@ struct AudioTimelineStrip: View {
                 .font(.plexMono(9.5, .medium))
                 .monospacedDigit()
                 .foregroundStyle(One2OneToken.ink4)
+            // Spec §5.2 (lot 7) : la légende du carré, seulement quand la
+            // séance a des captures — expliquer un symbole absent est du bruit.
+            if let legende = MeetingTimelineMarkers.captureLegend(playhead.markers) {
+                Text(legende)
+                    .font(.plexMono(9.5, .medium))
+                    .foregroundStyle(One2OneToken.ink4)
+                    .fixedSize()
+                    .help("Chaque carré est une capture d'écran de la séance")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -229,8 +238,15 @@ struct AudioTimelineStrip: View {
             losange.closeSubpath()
             ctx.fill(losange, with: .color(One2OneToken.report))
         case .capture:
-            ctx.fill(Path(roundedRect: cadre, cornerRadius: 1.5),
-                     with: .color(One2OneToken.captureMarker))
+            // Spec §5.2 (lot 7) : carré de 12 px, `accent/action` pour la
+            // **dernière** capture — celle qu'on cherche en priorité quand on
+            // revient sur la frise.
+            let cote = MeetingTimelineMarkers.captureMarkerSize
+            let carre = CGRect(x: centre.x - cote / 2, y: centre.y - cote / 2,
+                               width: cote, height: cote)
+            let estDerniere = repere.t == MeetingTimelineMarkers.lastCaptureT(playhead.markers)
+            ctx.fill(Path(roundedRect: carre, cornerRadius: 2),
+                     with: .color(estDerniere ? One2OneToken.action : One2OneToken.captureMarker))
         case .board:
             ctx.fill(Path(roundedRect: cadre, cornerRadius: 1.5),
                      with: .color(One2OneToken.workshop))
