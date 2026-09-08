@@ -97,7 +97,10 @@ gagne l'index qui lui manquait.
 
 ### Vérification
 
-`swift build` propre (aucune erreur, aucun avertissement nouveau).
+`swift build` propre (aucune erreur, aucun avertissement nouveau). `swift test` complet
+**vert** sur le sommet rebasé, le 2026-09-08 à 06:20 : **2 009 tests Swift Testing / 251
+suites** et **1 047 XCTest** (1 ignoré), sortie 0. La base du lot 19a rebasé en comptait
+1 978 + 1 047 : ce lot en ajoute trente et un.
 
 ### Prochaine action
 
@@ -154,7 +157,8 @@ Hors pile : #37 (`fix/menubar-stats-test-horaire`, sur `master`) corrige l'éche
 
 ### Tests
 
-`swift test` complet vert sur le sommet du 19c. Un seul échec connu, **horaire** :
+`swift test` complet vert sur le sommet du 19c : 2 009 tests Swift Testing / 251 suites et
+1 047 XCTest (1 ignoré), le 2026-09-08 à 06:20. Un seul échec connu, **horaire** :
 `MenuBarStatsTests` entre 0 h et 2 h du matin, l'heure de référence n'étant pas injectée —
 corrigé par la PR #37, hors pile. Le `--skip CalendarImportEventTests` historique n'est plus
 nécessaire.
