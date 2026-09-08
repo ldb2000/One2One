@@ -20,8 +20,10 @@ struct MeetingKPI: Equatable, Sendable {
     }
 
     struct Actions: Equatable, Sendable {
+        /// Les actions **retenues** de la réunion (ouvertes + faites), au sens
+        /// de `MeetingActionCounts` : les abandonnées n'en sont plus.
         var total: Int = 0
-        /// Sans responsable — affiché en `accent/report` (spec §2.3).
+        /// Ouvertes sans responsable — affiché en `accent/report` (spec §2.3).
         var unassigned: Int = 0
         var done: Int = 0
         /// Part faite, entre 0 et 1. Vaut 0 quand il n'y a aucune action :
@@ -128,25 +130,21 @@ enum MeetingKPIBuilder {
 
     // MARK: - Actions
 
+    /// Les chiffres viennent de `MeetingActionCounts`, la seule définition du
+    /// « nombre d'actions » de l'écran — c'est elle qui écarte les actions
+    /// abandonnées et les lignes en attente de suppression, et qui réserve
+    /// « non assignées » aux actions ouvertes. Le calcul vivait ici, dupliquait
+    /// la règle de porteur de `ActionsRailGrouping.aUnPorteur` et ne filtrait
+    /// aucun statut : le bandeau annonçait « ACTIONS 3 · 2 non assignées »
+    /// au-dessus d'un tableau d'une seule ligne.
     @MainActor
     private static func actions(meeting: Meeting) -> MeetingKPI.Actions {
-        let taches = meeting.tasks
-        let total = taches.count
-        let faites = taches.filter(\.isCompleted).count
-        let sansPorteur = taches.filter { tache in
-            guard tache.collaborator == nil else { return false }
-            // `unresolvedAssigneeName` est renseigné quand le rapport nomme
-            // quelqu'un que la base ne connaît pas : l'action **a** un
-            // porteur, elle n'est pas « à assigner ».
-            let nomLibre = tache.unresolvedAssigneeName?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return nomLibre.isEmpty
-        }.count
+        let compteurs = MeetingActionCounts.compute(meeting: meeting)
         return MeetingKPI.Actions(
-            total: total,
-            unassigned: sansPorteur,
-            done: faites,
-            doneFraction: total > 0 ? Double(faites) / Double(total) : 0
+            total: compteurs.retenues,
+            unassigned: compteurs.sansPorteur,
+            done: compteurs.faites,
+            doneFraction: compteurs.doneFraction
         )
     }
 

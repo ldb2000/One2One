@@ -51,7 +51,8 @@ struct ActionsRailList: View {
             // apparaît immédiatement en tête du rail avec une animation de
             // 150 ms ». Déclenchée par le nombre d'actions ouvertes, la seule
             // grandeur qui change à la création.
-            .animation(.easeOut(duration: 0.15), value: meeting.tasks.count)
+            .animation(.easeOut(duration: 0.15),
+                       value: MeetingActionCounts.compute(meeting: meeting).ouvertes)
         }
     }
 

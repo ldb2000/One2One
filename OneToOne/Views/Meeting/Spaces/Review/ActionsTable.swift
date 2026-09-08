@@ -105,7 +105,7 @@ struct ActionsTable: View {
     /// les abandonnées quittent le tableau comme elles quittent l'onglet
     /// Actions : elles vivent dans l'Historique.
     private var toutes: [ActionTask] {
-        ActionsRailGrouping.triees(meeting.tasks.filter { $0.status == .open })
+        ActionsRailGrouping.triees(MeetingActionCounts.ouvertes(meeting.tasks))
     }
 
     private var visible: (visibles: [ActionTask], restantes: Int) {
@@ -115,7 +115,7 @@ struct ActionsTable: View {
     }
 
     private var sansResponsable: Int {
-        toutes.filter { !ActionsRailGrouping.aUnPorteur($0) }.count
+        MeetingActionCounts.compute(meeting.tasks).sansPorteur
     }
 
     /// Les actions du projet, pour la règle du préfixe de `OwnerSuggestion`.
@@ -138,7 +138,10 @@ struct ActionsTable: View {
             }
             pied
         }
-        .animation(.easeOut(duration: 0.15), value: meeting.tasks.count)
+        // Sur le nombre de lignes **affichées**, pas sur la relation brute :
+        // abandonner une action la retire du tableau sans changer
+        // `meeting.tasks.count`, et la ligne disparaissait sans transition.
+        .animation(.easeOut(duration: 0.15), value: toutes.count)
     }
 
     // MARK: - En-tête de carte
@@ -446,7 +449,19 @@ struct ActionsTable: View {
             Button("Descendre") { deplacer(task, de: 1) }
             Divider()
             Button("Supprimer", role: .destructive) {
+                // Les états d'écran qui désignent la ligne partent avec elle :
+                // un `persistentModelID` de ligne effacée garderait une
+                // sélection et un sélecteur ouverts sur du vide.
+                if screen.review.ligneSelectionnee == task.persistentModelID {
+                    screen.review.ligneSelectionnee = nil
+                }
+                if cellule?.ligne == task.persistentModelID { cellule = nil }
+                if titreEnEdition == task.persistentModelID { titreEnEdition = nil }
                 context.delete(task)
+                // Le `save()` est ce qui retire la ligne de `meeting.tasks` :
+                // sans lui la relation la garde, et les compteurs qui la lisent
+                // annonceraient une action supprimée. Les compteurs s'en
+                // protègent aussi par `MeetingActionCounts` (`isDeleted`).
                 onSave()
             }
         } label: {

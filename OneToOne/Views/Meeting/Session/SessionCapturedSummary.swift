@@ -74,7 +74,10 @@ enum SessionCapturedSummary {
     static func compteurs(meeting: Meeting, depuis: Date) -> Compteurs {
         let notes = meeting.timedNotes
         return compteurs(
-            actions: meeting.tasks.map(\.createdAt),
+            // Les actions **retenues** : une action créée en séance puis
+            // abandonnée, ou supprimée, n'est plus une prise de la séance — et
+            // la relation la garde jusqu'au `save()`.
+            actions: MeetingActionCounts.retenues(meeting.tasks).map(\.createdAt),
             decisions: notes.filter { $0.kind == .decision }.map { $0.createdAt as Date? },
             risques: meeting.meetingAlerts.filter { !$0.isResolved }.map { $0.date as Date? },
             depuis: depuis

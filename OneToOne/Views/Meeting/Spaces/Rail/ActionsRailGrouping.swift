@@ -62,7 +62,11 @@ enum ActionsRailGrouping {
     /// n'est pas rendu — la spec veut une invite, pas un en-tête suivi de rien,
     /// et l'invite est le composeur en pied.
     static func groupes(for tasks: [ActionTask], calendar: Calendar = .current) -> [Groupe] {
-        let ouvertes = tasks.filter { $0.status == .open }
+        // `MeetingActionCounts.ouvertes` et non un filtre local : c'est la même
+        // définition que les compteurs de l'onglet, du bandeau et de la nav du
+        // mode Relire, et elle écarte aussi les lignes en attente de
+        // suppression.
+        let ouvertes = MeetingActionCounts.ouvertes(tasks)
 
         let reportees = ouvertes.filter(estReportee)
         let reste = ouvertes.filter { !estReportee($0) }
