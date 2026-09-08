@@ -1185,11 +1185,14 @@ struct MeetingView: View {
                 try? fm.removeItem(at: target)  // copie intermédiaire devenue inutile
             }
 
-            let file = try AVAudioFile(forReading: audioURL)
-            let durationSeconds = Double(file.length) / file.processingFormat.sampleRate
+            // Lève si le fichier préparé n'a aucun échantillon : mieux vaut un
+            // message que le couple « chemin audio valide + durée nulle », qui
+            // renvoyait ensuite `Transcrire + Rapport` dans l'export
+            // AVFoundation (défaut du 2026-09-08).
+            let durationSeconds = try AudioImportService.pipelineDurationSeconds(of: audioURL)
 
             meeting.wavFilePath = audioURL.path
-            meeting.durationSeconds = Int(durationSeconds.rounded())
+            meeting.durationSeconds = durationSeconds
             saveContext()
             print("[MeetingView] importWAV → \(audioURL.path) duration=\(durationSeconds)s")
         } catch {
@@ -1444,7 +1447,14 @@ struct MeetingView: View {
             return
         }
         if meeting.rawTranscript.isEmpty {
-            guard let wav = meeting.wavFileURL else { return }
+            // Le bouton est désarmé sans audio (`hasPlayableAudio`), mais le
+            // fichier peut avoir disparu depuis le dernier rendu : un message
+            // plutôt qu'un clic sans effet.
+            guard let wav = meeting.wavFileURL else {
+                reportError = "Cette réunion n'a ni transcription ni fichier audio : "
+                    + "enregistrez ou importez un audio avant de demander un rapport."
+                return
+            }
             await retranscribe(wavURL: wav, thenGenerateReport: true)
         } else {
             await generateReport()
@@ -1457,6 +1467,8 @@ struct MeetingView: View {
             return
         }
         guard !meeting.rawTranscript.isEmpty else {
+            reportError = "Le rapport a besoin d'une transcription : la transcription de cette "
+                + "réunion est vide."
             TeamsAutoRecordCoordinator.shared.reportDidFinish(
                 meetingID: meeting.ensuredStableID, succeeded: false)
             return
