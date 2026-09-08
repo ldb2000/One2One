@@ -136,3 +136,100 @@ struct MeetingPlayheadTests {
         #expect(playhead.marker(at: 252)?.label == "Décision")
     }
 }
+
+/// Le gel du 2026-09-08 : au démarrage de l'enregistrement, la pastille
+/// flottante lisait le chrono par `MeetingPillTarget.elapsed`, qui appelait
+/// `MeetingPlayhead.refresh()` — donc **écrivait** `t` et `duration` pendant
+/// l'évaluation du corps de vue qui venait de les lire. Chaque rendu
+/// invalidait la vue qui le produisait : boucle de rendu, 100 % du thread
+/// principal, application figée.
+///
+/// Ces tests figent les deux moitiés du remède : une lecture d'affichage ne
+/// modifie rien, et c'est un **battement** qui fait avancer `t`, à cadence
+/// bornée.
+@Suite("Tête de lecture — la lecture d'affichage n'écrit pas")
+@MainActor
+struct MeetingPlayheadReadOnlyTests {
+
+    @Test("Le chrono se lit sans écrire ni t ni duration")
+    func lectureSansEcriture() {
+        var maintenant = Date(timeIntervalSince1970: 1_000)
+        let playhead = MeetingPlayhead(meetingStableID: UUID(), now: { maintenant })
+        playhead.beginRecording(startedAt: Date(timeIntervalSince1970: 1_000))
+        #expect(playhead.t == 0)
+
+        maintenant = Date(timeIntervalSince1970: 1_042)
+
+        // L'observation est armée comme SwiftUI l'arme autour d'un corps de
+        // vue : si la lecture écrit, `onChange` part et la vue se réévalue.
+        var invalide = false
+        withObservationTracking {
+            _ = playhead.t
+            _ = playhead.duration
+        } onChange: {
+            invalide = true
+        }
+
+        #expect(playhead.currentTime == 42)
+        #expect(playhead.elapsedIfAny == 42)
+        #expect(!invalide, "une lecture d'affichage a invalidé l'observation")
+        #expect(playhead.t == 0)
+        #expect(playhead.duration == 0)
+    }
+
+    @Test("Sans axe temps, le timecode d'une note ou d'une capture est absent")
+    func pasDAxeTemps() {
+        let playhead = MeetingPlayhead(meetingStableID: UUID())
+        #expect(playhead.source == .idle)
+        #expect(playhead.elapsedIfAny == nil)
+
+        // Une position acquise (seek depuis un timecode de note) reste un axe.
+        playhead.duration = 600
+        playhead.seek(to: 252)
+        #expect(playhead.elapsedIfAny == 252)
+    }
+
+    @Test("Un refresh qui ne change rien n'invalide personne")
+    func refreshInerte() {
+        let maintenant = Date(timeIntervalSince1970: 1_000)
+        let playhead = MeetingPlayhead(meetingStableID: UUID(), now: { maintenant })
+        playhead.beginRecording(startedAt: Date(timeIntervalSince1970: 900))
+        #expect(playhead.t == 100)
+
+        var invalide = false
+        withObservationTracking {
+            _ = playhead.t
+            _ = playhead.duration
+        } onChange: {
+            invalide = true
+        }
+        playhead.refresh()
+        #expect(!invalide, "refresh a réécrit une valeur inchangée")
+    }
+
+    @Test("En enregistrement, un battement fait avancer t sans aucune vue")
+    func battementEnEnregistrement() async throws {
+        // Horloge injectée, et attente **par condition** : la suite tourne en
+        // parallèle et le `MainActor` peut rester saturé plusieurs secondes,
+        // pendant lesquelles un `Task.sleep` de durée fixe ne prouve rien.
+        var maintenant = Date(timeIntervalSince1970: 1_000)
+        let playhead = MeetingPlayhead(meetingStableID: UUID(),
+                                       now: { maintenant },
+                                       recordingTick: .milliseconds(10))
+        playhead.beginRecording(startedAt: Date(timeIntervalSince1970: 1_000))
+        #expect(playhead.t == 0)
+        #expect(playhead.isTickingForTesting, "beginRecording n'a pas armé le battement")
+
+        maintenant = Date(timeIntervalSince1970: 1_252)
+        for _ in 0..<400 where playhead.t != 252 {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(playhead.t == 252, "le battement n'a pas avancé la position")
+        #expect(playhead.duration == 252)
+
+        // `stop()` arrête le battement : une réunion close ne doit pas
+        // continuer à faire courir son axe.
+        playhead.stop()
+        #expect(!playhead.isTickingForTesting, "le battement tourne encore après stop()")
+    }
+}

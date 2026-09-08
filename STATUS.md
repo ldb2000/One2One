@@ -2,6 +2,60 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Gel au démarrage de l'enregistrement (2026-09-08)
+
+Branche `fix/refonte-gel-enregistrement`, sur `fix/refonte-recette-finale`.
+
+**Reproduit** sur instance isolée (`Scripts/recette-app.sh` + `recette-run.sh --screen 1a
+--reset`, clic sur `● Enregistrer` par `AXUIElementPerformAction` sur mon pid) : 100 % du
+thread principal, application muette, `terminate()` refusé. `sample` : 1 722 échantillons
+sur 1 722 dans
+
+    NSHostingView.beginTransaction → GraphHost.flushTransactions
+      → FloatingPill.pastille (TimelineView) → MeetingPillTarget.elapsed
+        → MeetingPlayhead.refresh() → MeetingPlayhead.t.setter
+
+**Cause racine.** `MeetingPillTarget.elapsed` appelait `MeetingPlayhead.refresh()`, qui
+**écrit** `t` et `duration` sur un `@Observable`. Lu depuis le corps de la pastille, cette
+écriture invalidait la vue qui venait de les lire ; le rendu suivant relisait l'horloge et
+écrivait une valeur différente. Aucune garde d'égalité n'aurait pu l'arrêter : `t` change à
+chaque microseconde. La pastille devient visible exactement quand un enregistrement tourne
+alors que One2One n'est pas au premier plan — d'où le gel au démarrage.
+
+**Correctif.** `MeetingPlayhead` sépare la position **calculée** (`currentTime`,
+`elapsedIfAny` — purs, seule lecture autorisée depuis une vue) de la position **publiée**
+(`t`). Un battement (1 s en séance, 250 ms en relecture) publie le temps hors de tout
+rendu et s'arrête avec la source. Les trois sites qui appelaient `refresh()` en lecture
+(`MeetingPillTarget`, les deux fournisseurs de timecode de capture) passent au lecteur pur.
+
+**Deux défauts de plus sur ce chemin, corrigés dans des commits séparés :**
+
+1. `t` n'avançait **que** si la pastille était visible. Pastille masquée — le cas
+   ordinaire — les notes et les captures de séance étaient horodatées à l'instant du
+   démarrage. Le battement le règle.
+2. `TranscriptColumn` interrogeait `Meeting.wavFileURL` **trois fois par rangée** (teinte,
+   `disabled`, infobulle) et deux fois de plus dans sa barre d'outils, à chaque rendu ;
+   chaque appel construit un `URL(fileURLWithPath:)`, donc un `lstat`. La moitié du
+   `sample` passait là. La colonne teste désormais le chemin une fois (`aUnAudio`).
+
+**Après correctif**, même geste : enregistrement démarré, thread principal **au repos**
+(27 échantillons sur 31 dans `nextEventMatchingMask`), ~24 % de CPU sur les fils audio,
+chrono de la barre du haut et de la pastille qui avancent (`00:42` → `00:47`,
+`01:18` → `01:22`), `terminate()` honoré. `swift build` propre ; `swift test` complet vert
+trois fois de suite : 2 013 Swift Testing / 252 suites + 1 047 XCTest (1 ignoré) = 3 060,
+exit 0.
+
+**Piège reconfirmé** : ne jamais tuer une instance de recette par `kill -9` ni
+`forceTerminate`. Le lancement suivant est traité comme une reprise après plantage — la
+fenêtre de réunion rouvre **sans** le jeton de recette et l'écran reste nu (vingt minutes
+perdues au lot 19b, dix ici). Le processus figé ne laissait pas le choix ; il faut alors un
+relancement propre après un `terminate()` réussi.
+
+### Prochaine action
+
+Vérifier le gel sur le store de production de l'utilisateur (le seul point non couvert :
+la recette part d'un store vide semé).
+
 ## Lot 19b : recette finale des treize écrans (2026-09-08)
 
 Branche `fix/refonte-recette-finale`, sur `feat/refonte-lot-19c-cloture-suite` (PR #46).

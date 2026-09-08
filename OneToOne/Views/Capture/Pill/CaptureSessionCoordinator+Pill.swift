@@ -72,11 +72,9 @@ extension CaptureSessionCoordinator {
                               meeting: meeting,
                               context: context,
                               appendTo: pillLastBatch,
-                              timecode: {
-                                  playhead.refresh()
-                                  if case .idle = playhead.source, playhead.t <= 0 { return nil }
-                                  return playhead.t
-                              })
+                              // Même règle que `timecodeProvider()` : on calcule
+                              // sans publier (cf. `MeetingPlayhead.currentTime`).
+                              timecode: { playhead.elapsedIfAny })
         } catch {
             screen.capture.catalogError = error.localizedDescription
         }
