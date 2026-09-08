@@ -48,12 +48,17 @@ struct AvatarStack: View {
 
     var body: some View {
         let mise = Self.layout(noms: noms, maxVisibles: maxVisibles)
+        let derniere = mise.visibles.count - 1
         HStack(spacing: Self.chevauchement) {
-            ForEach(Array(mise.visibles.enumerated()), id: \.offset) { _, nom in
-                pastille(initiales(nom), aide: nom)
+            ForEach(Array(mise.visibles.enumerated()), id: \.offset) { index, nom in
+                // Couverte dès qu'une pastille la suit — la suivante, ou le
+                // `+n`.
+                pastille(initiales(nom), aide: nom,
+                         couverte: index < derniere || mise.surplus > 0)
             }
             if mise.surplus > 0 {
-                pastille("+\(mise.surplus)", aide: "\(mise.surplus) participants de plus")
+                pastille("+\(mise.surplus)", aide: "\(mise.surplus) participants de plus",
+                         couverte: false)
             }
         }
     }
@@ -68,11 +73,25 @@ struct AvatarStack: View {
     /// qui se détache de `surface`, et il se détache aussi de `dark/card` en
     /// thème `.session`. L'anneau reste `card` : c'est lui qui sépare deux
     /// pastilles chevauchées.
-    private func pastille(_ texte: String, aide: String) -> some View {
+    /// `couverte` : une autre pastille chevauche son bord droit de 6 px.
+    ///
+    /// Les initiales sont alors centrées dans la **partie visible** et non
+    /// dans le disque entier. Sans cela, deux lettres de 8,5 px semi-gras
+    /// mesurent une douzaine de pixels centrés dans 19, donc s'étendent
+    /// jusqu'au bord droit — que la pastille suivante recouvre : la recette
+    /// finale lisait « C̸A CF LC LS NL PY » là où le semis dit
+    /// « CA CF LD LS NL PY », la seconde lettre de chaque paire mangée par le
+    /// disque voisin. La géométrie de §1.2 (19 px, chevauchement −6) est
+    /// inchangée ; c'est le glyphe qui se recentre.
+    private func pastille(_ texte: String, aide: String, couverte: Bool) -> some View {
         Text(texte)
             .font(.plexSans(8.5, .semibold))
             .foregroundStyle(theme.colors.ink3)
-            .frame(width: Self.diametre, height: Self.diametre)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(width: Self.diametre + Self.chevauchement, height: Self.diametre)
+            .frame(width: Self.diametre, height: Self.diametre,
+                   alignment: couverte ? .leading : .center)
             .background(Circle().fill(theme.colors.base))
             .overlay(Circle().strokeBorder(theme.colors.card, lineWidth: 1.5))
             .help(aide)
