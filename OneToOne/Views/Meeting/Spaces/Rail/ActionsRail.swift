@@ -41,9 +41,12 @@ struct ActionsRail: View {
 
     @Environment(\.modelContext) private var context
 
-    /// Le nombre d'actions **ouvertes** : c'est celui de l'onglet.
+    /// Le nombre d'actions **ouvertes** : c'est celui de l'onglet, et c'est
+    /// exactement ce que la liste en dessous affiche. La définition vient de
+    /// `MeetingActionCounts` — une action en attente de suppression n'est plus
+    /// comptée, même avant le `save()`.
     private var nombreDActions: Int {
-        meeting.tasks.filter { $0.status == .open }.count
+        MeetingActionCounts.compute(meeting: meeting).ouvertes
     }
 
     /// Le nombre de risques ouverts, réunion et projet confondus, sans

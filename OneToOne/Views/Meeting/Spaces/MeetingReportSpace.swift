@@ -270,9 +270,13 @@ struct MeetingReportSpace<Toolbar: View>: View {
 
     @ViewBuilder
     private var actionsNotice: some View {
+        // Le même compte que le bandeau et la nav du mode Relire : le plan
+        // d'actions du rapport, ce sont les actions retenues (ouvertes +
+        // faites), pas la relation brute qui garde les abandonnées.
+        let retenues = MeetingActionCounts.compute(meeting: meeting).retenues
         HStack(spacing: 7) {
             Text("PLAN D'ACTIONS").sectionLabel()
-            MonoMeta("\(meeting.tasks.count)", emphase: !meeting.tasks.isEmpty)
+            MonoMeta("\(retenues)", emphase: retenues > 0)
             Spacer()
             Text("↗ Éditer dans l'espace Réunion, mode Relire")
                 .font(.plexSans(11.5))

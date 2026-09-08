@@ -88,15 +88,17 @@ struct ReviewSidebarNav: View {
                               alerte: false,
                               atone: meeting.rawTranscript.isEmpty)
             case .actions:
-                let total = meeting.tasks.count
-                let sansPorteur = meeting.tasks.filter {
-                    $0.status == .open && !ActionsRailGrouping.aUnPorteur($0)
-                }.count
+                // Le même compte que la carte ACTIONS du bandeau, et pour la
+                // même raison qu'`aUnPorteur` est partagée : `meeting.tasks`
+                // brut retenait les actions abandonnées et les lignes encore
+                // en attente de suppression, et le rail annonçait « Actions 3 »
+                // au-dessus d'un tableau d'une seule ligne.
+                let compteurs = MeetingActionCounts.compute(meeting: meeting)
                 return Entree(section: section,
                               libelle: section.libelle,
-                              complement: .compte(total),
-                              alerte: sansPorteur > 0,
-                              atone: total == 0)
+                              complement: .compte(compteurs.retenues),
+                              alerte: compteurs.sansPorteur > 0,
+                              atone: compteurs.retenues == 0)
             case .rapport:
                 let genere = !meeting.summary.isEmpty
                 return Entree(section: section,
