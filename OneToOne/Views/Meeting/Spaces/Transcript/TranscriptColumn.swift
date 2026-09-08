@@ -62,6 +62,18 @@ struct TranscriptColumn: View {
         settings.transcriptionMode == .diarizeFirst && screen.showSpeakers
     }
 
+    /// La réunion a un audio à lire — testé sur le **chemin**, pas sur l'URL.
+    ///
+    /// `Meeting.wavFileURL` construit un `URL(fileURLWithPath:)`, ce qui coûte
+    /// un `lstat`. La rangée l'interrogeait trois fois (teinte, `disabled`,
+    /// infobulle) : sur une transcription de cent segments, trois cents appels
+    /// système à chaque rendu de la colonne — et la colonne se réévalue à chaque
+    /// avancée de la tête de lecture, un appel du `sample` du gel du 2026-09-08
+    /// sur deux passait là.
+    private var aUnAudio: Bool {
+        !(meeting.wavFilePath ?? "").isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             barreDOutils
@@ -127,7 +139,7 @@ struct TranscriptColumn: View {
                         .foregroundStyle(c.ink3)
                 }
                 .buttonStyle(.plain)
-                .disabled(segments.isEmpty || (meeting.wavFilePath ?? "").isEmpty)
+                .disabled(segments.isEmpty || !aUnAudio)
                 .help("Détecter les locuteurs (VAD) puis réattribuer les tours de parole")
 
                 Button(action: onReidentify) {
@@ -136,7 +148,7 @@ struct TranscriptColumn: View {
                         .foregroundStyle(c.ink3)
                 }
                 .buttonStyle(.plain)
-                .disabled((meeting.wavFilePath ?? "").isEmpty)
+                .disabled(!aUnAudio)
                 .help("Ré-identifier les locuteurs depuis les empreintes vocales")
             }
         }
@@ -248,17 +260,15 @@ struct TranscriptColumn: View {
                     Text(TimecodeLabel.format(segment.startSeconds))
                         .font(.plexMono(10, .medium))
                         .monospacedDigit()
-                        .foregroundStyle(meeting.wavFileURL == nil
-                                         ? c.ink4
-                                         : c.action)
+                        .foregroundStyle(aUnAudio ? c.action : c.ink4)
                         .frame(width: TimecodeLabel.width, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(meeting.wavFileURL == nil)
-                .help(meeting.wavFileURL == nil
-                      ? "Aucun audio attaché à la réunion"
-                      : "Lire à partir de \(TimecodeLabel.format(segment.startSeconds))")
+                .disabled(!aUnAudio)
+                .help(aUnAudio
+                      ? "Lire à partir de \(TimecodeLabel.format(segment.startSeconds))"
+                      : "Aucun audio attaché à la réunion")
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
