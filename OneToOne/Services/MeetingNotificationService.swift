@@ -33,6 +33,12 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
 
     enum Category {
         static let preStart = "MEETING_PRE_START"  // Outlook-style "starts in N min"
+        /// Le même pré-rappel, pour un **1:1 subi** : il porte en plus l'action
+        /// `Préparer` (lot 14, capture 5b). Une catégorie distincte et non une
+        /// action de plus sur `preStart` : les actions d'une notification sont
+        /// figées par sa catégorie, et un « Préparer » sur une réunion de
+        /// projet ouvrirait un écran qui n'existe pas pour elle.
+        static let preStartOneOnOne = "MEETING_PRE_START_1TO1"
         static let start    = "MEETING_START"
         static let end      = "MEETING_END"
         static let recording = "RECORDING_STARTED"
@@ -42,6 +48,17 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         static let open  = "OPEN_MEETING"
         static let teams = "JOIN_TEAMS"
         static let snooze5 = "SNOOZE_5"
+        /// « Préparer » : ouvre l'entretien en mode Préparer, c'est-à-dire la
+        /// préparation en deux minutes de la capture 5b.
+        static let prepare = "PREPARE_ONE_ON_ONE"
+    }
+
+    /// La catégorie du pré-rappel d'une réunion, selon son type — **pure**, et
+    /// c'est le propos : la présence de l'action « Préparer » ne doit dépendre
+    /// d'aucun réglage ni d'aucun état d'écran, seulement du fait que
+    /// l'entretien est subi.
+    nonisolated static func preStartCategory(for kind: MeetingKind) -> String {
+        kind == .manager ? Category.preStartOneOnOne : Category.preStart
     }
 
     /// Catégories du parcours Teams auto-record (spec §5). Distinctes de
@@ -130,7 +147,7 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                          title: "Réunion dans \(preMinutes) min — \(meeting.title)",
                          body: prestartBody(for: meeting, start: start),
                          fireAt: preFire,
-                         category: Category.preStart,
+                         category: Self.preStartCategory(for: meeting.kind),
                          userInfo: userInfo,
                          interruptionLevel: .timeSensitive)
             }
@@ -249,6 +266,21 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                                                 userInfo: ["meetingID": meetingID])
             case Action.snooze5:
                 NotificationCenter.default.post(name: Self.snoozeMeetingNotification,
+                                                object: nil,
+                                                userInfo: ["meetingID": meetingID])
+            case Action.prepare:
+                // Lot 14 : ouvrir l'entretien **en mode Préparer**. Le mode
+                // s'impose en écrivant la clé mémorisée avant l'ouverture —
+                // c'est le chemin qu'emploient déjà le crochet de recette et
+                // `MeetingSpaceView.appliquerModeInitial`, et le seul qui
+                // survive à la relecture que fait `MeetingScreenModel.attach`.
+                // Pas de second chemin d'ouverture : la notification poste le
+                // même avis que l'action « Ouvrir ».
+                if let id = UUID(uuidString: meetingID) {
+                    UserDefaults.standard.set(MeetingScreenModel.Mode.prepare.rawValue,
+                                              forKey: MeetingScreenModel.modeKey(for: id))
+                }
+                NotificationCenter.default.post(name: Self.openMeetingNotification,
                                                 object: nil,
                                                 userInfo: ["meetingID": meetingID])
             default:
@@ -398,6 +430,8 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                                                title: "Rejoindre Teams", options: [.foreground])
         let snoozeAction = UNNotificationAction(identifier: Action.snooze5,
                                                 title: "Rappeler dans 5 min", options: [])
+        let prepareAction = UNNotificationAction(identifier: Action.prepare,
+                                                 title: "Préparer", options: [.foreground])
 
         let startRecord = UNNotificationAction(identifier: TeamsAction.startRecord,
                                                title: "Démarrer", options: [.foreground])
@@ -422,6 +456,12 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
         return [
             UNNotificationCategory(identifier: Category.preStart,
                                    actions: [teamsAction, openAction, snoozeAction],
+                                   intentIdentifiers: []),
+            // Le rappel de la veille d'un 1:1 subi (lot 14) : `Préparer` en
+            // tête, parce que c'est ce qu'on vient faire — deux minutes avant
+            // l'entretien, pas un joindre-la-réunion.
+            UNNotificationCategory(identifier: Category.preStartOneOnOne,
+                                   actions: [prepareAction, openAction, snoozeAction],
                                    intentIdentifiers: []),
             UNNotificationCategory(identifier: Category.start,
                                    actions: [teamsAction, openAction], intentIdentifiers: []),

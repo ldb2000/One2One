@@ -165,8 +165,12 @@ struct RefonteVague5IntegrationTests {
                 // Lot 13 : la quatrième branche 1:1, celle de l'entretien subi.
                 let subie = MeetingSpaceRouting.usesOneOnOneCollaboratorSession(kind: kind,
                                                                                 mode: mode)
+                // Lot 14 : la cinquième, la préparation de l'entretien subi.
+                let prepaSubie = MeetingSpaceRouting
+                    .usesOneOnOneCollaboratorPreparation(kind: kind, mode: mode)
                 let relire = mode == .review
-                let vraies = [atelier, seance, preparation, subie, relire].filter { $0 }.count
+                let vraies = [atelier, seance, preparation, subie, prepaSubie, relire]
+                    .filter { $0 }.count
                 #expect(vraies <= 1,
                         "\(kind) / \(mode) : \(vraies) branches de routage revendiquent l'écran")
             }
@@ -175,10 +179,11 @@ struct RefonteVague5IntegrationTests {
 
     // MARK: - Le crochet de recette : un seul, et dix codes
 
-    @Test("Les dix codes d'écran désignent une réunion et un mode")
+    @Test("Les onze codes d'écran désignent une réunion et un mode")
     func codesDeRecette() {
-        // Dix depuis le lot 13, qui ajoute `5a` (l'entretien subi).
-        #expect(RecetteScreen.allCases.count == 10)
+        // Onze depuis le lot 14, qui ajoute `5b` (la préparation de l'entretien
+        // subi) au `5a` du lot 13.
+        #expect(RecetteScreen.allCases.count == 11)
         #expect(RecetteScreen.from(environment: nil) == nil)
         #expect(RecetteScreen.from(environment: "") == nil)
         #expect(RecetteScreen.from(environment: "1to1") == nil)
@@ -194,6 +199,7 @@ struct RefonteVague5IntegrationTests {
             ("3b", .demonstration, .live),
             ("4a", .demonstration, .live),
             ("5a", .entretienSubi, .live),
+            ("5b", .entretienSubi, .prepare),
             ("6a", .atelier, .live)
         ]
         #expect(attendu.count == RecetteScreen.allCases.count)

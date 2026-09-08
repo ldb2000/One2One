@@ -91,12 +91,30 @@ enum MeetingSpaceRouting {
         kind == .oneToOne && mode == .prepare
     }
 
+    /// Vrai quand le mode Préparer doit monter la **préparation en deux
+    /// minutes** du 1:1 subi (`CollaboratorPrepView`, capture 5b, lot 14).
+    ///
+    /// Symétrique de `usesOneOnOnePreparation`, et exclusive de lui comme des
+    /// deux écrans de séance : `myRole` se déduit du type (D4), donc un
+    /// entretien est mené ou subi, jamais les deux. C'est le mode par défaut à
+    /// l'ouverture d'un 1:1 subi sans enregistrement (`initialMode`), parce que
+    /// c'est l'écran que la notification de la veille propose d'ouvrir.
+    static func usesOneOnOneCollaboratorPreparation(kind: MeetingKind,
+                                                    mode: MeetingScreenModel.Mode) -> Bool {
+        kind == .manager && mode == .prepare
+    }
+
     /// Le mode d'ouverture d'une réunion **jamais ouverte**, quand rien n'est
     /// mémorisé pour elle.
     ///
     /// Spec §3 : « `2b` s'ouvre par défaut en mode `Préparer` ». Un 1:1 qui
     /// porte déjà un enregistrement n'est plus à préparer : on l'ouvre là où on
     /// l'avait laissé, c'est-à-dire en séance.
+    ///
+    /// **Les deux types de tête-à-tête**, depuis le lot 14 : la préparation en
+    /// deux minutes de la capture 5b est précisément l'écran qu'on ouvre la
+    /// veille d'un entretien subi, et l'ouvrir en séance obligerait à changer
+    /// de mode à la main avant chaque entretien.
     ///
     /// - Parameter persistedRaw: la valeur mémorisée dans `UserDefaults`, `nil`
     ///   si la réunion n'a jamais été ouverte. Un choix mémorisé fait toujours
@@ -106,7 +124,7 @@ enum MeetingSpaceRouting {
                             kind: MeetingKind,
                             hasRecording: Bool) -> MeetingScreenModel.Mode? {
         guard persistedRaw == nil || MeetingScreenModel.Mode(rawValue: persistedRaw ?? "") == nil,
-              kind == .oneToOne,
+              OneOnOneThreadStore.faceToFace.contains(kind),
               !hasRecording,
               modes(for: kind).contains(.prepare) else { return nil }
         return .prepare

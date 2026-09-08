@@ -86,4 +86,21 @@ final class OneOnOneScreenState {
     /// de partage est alors inerte : partager « la » ligne quand il n'y en a
     /// pas serait partager la dernière au hasard.
     var collabSelectedNoteID: PersistentIdentifier?
+
+    // MARK: - Lot 14 : préparation en deux minutes du 1:1 subi (5b)
+
+    /// Les lignes de `RESTÉ SANS RÉPONSE` que j'ai cochées — **décochées par
+    /// défaut** (capture 5b). Porter une parole non tenue en séance est un
+    /// choix : la carte l'expose, elle ne le prend pas pour moi.
+    ///
+    /// Des identifiants de ligne (`UnansweredItemsBuilder.Item.id`) et non des
+    /// objets : une ligne sans réponse est un **calcul**, elle n'existe pas en
+    /// base avant que le bouton ne la matérialise.
+    var collabPrepCheckedUnanswered: Set<String> = []
+
+    /// Les sujets de `CE QUE JE VEUX OBTENIR` que j'ai **décochés**. La carte
+    /// les coche tous par défaut — je les ai écrits pour les dire —, donc
+    /// l'état d'écran ne retient que le refus : un ensemble vide veut dire
+    /// « tout est coché », y compris un sujet ajouté à l'instant.
+    var collabPrepDroppedWanted: Set<PersistentIdentifier> = []
 }

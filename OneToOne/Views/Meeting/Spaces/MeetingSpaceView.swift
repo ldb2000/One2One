@@ -192,6 +192,15 @@ struct MeetingSpaceView: View {
             // Kanban) : elle porte ses six cartes et sa propre barre
             // d'assistant, dont le contexte est le **fil** et non la séance.
             preparation1a1
+        } else if MeetingSpaceRouting.usesOneOnOneCollaboratorPreparation(kind: meeting.kind,
+                                                                          mode: screen.mode) {
+            // Lot 14, spec §6.3 : la préparation en deux minutes du 1:1 subi
+            // est une **carte étroite centrée** — ni rail, ni bandeau
+            // d'indicateurs, ni barre d'assistant. Deux minutes veut dire dix
+            // lignes qu'on lit d'un coup d'œil.
+            CollaboratorPrepView(meeting: meeting,
+                                 screen: screen,
+                                 historique: historique)
         } else if screen.mode == .review {
             posteDePilotage
         } else {
