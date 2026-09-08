@@ -148,11 +148,10 @@ struct CaptureSessionCoordinator {
     /// ne s'est passé.
     private func timecodeProvider() -> ScreenCaptureService.TimecodeProvider {
         let playhead = screen.playhead
-        return {
-            playhead.refresh()
-            if case .idle = playhead.source, playhead.t <= 0 { return nil }
-            return playhead.t
-        }
+        // `elapsedIfAny` calcule sans publier : ce fournisseur est appelé depuis
+        // la boucle de capture, et écrire `t` hors du battement réveillerait
+        // toutes les surfaces qui le lisent à chaque image capturée.
+        return { playhead.elapsedIfAny }
     }
 
     // MARK: - Capture

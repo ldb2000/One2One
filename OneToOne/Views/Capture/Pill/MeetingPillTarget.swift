@@ -35,11 +35,14 @@ final class MeetingPillTarget: SessionPillTarget {
     /// Le `t` de la réunion, depuis l'axe **audio** — jamais l'horloge de la capture
     /// (même règle que le lot 7 : une note et une capture prises au même moment doivent
     /// porter le même instant).
+    /// `elapsedIfAny` et non `refresh()` : ce chrono est lu **depuis un corps de
+    /// vue** (le `TimelineView` de `FloatingPill`), et `refresh()` écrit `t` et
+    /// `duration`. Une écriture pendant un rendu invalide ce rendu, qui relit,
+    /// qui réécrit : c'est le gel du 2026-09-08 au démarrage de
+    /// l'enregistrement. Le temps est publié par le battement de la tête de
+    /// lecture, pas par la vue qui l'affiche.
     var elapsed: Double? {
-        let playhead = handle.screen.playhead
-        playhead.refresh()
-        if case .idle = playhead.source, playhead.t <= 0 { return nil }
-        return playhead.t
+        handle.screen.playhead.elapsedIfAny
     }
 
     var captureCount: Int { handle.capture.captureCount }

@@ -97,15 +97,63 @@ final class MeetingPlayhead {
     /// `t` formaté pour l'affichage (`04:12`).
     var formatted: String { Self.mmss(t) }
 
+    // MARK: - Lecture d'affichage
+
+    /// La position **calculée** depuis la source, sans rien écrire.
+    ///
+    /// Distincte de `t`, qui est la position *publiée*. C'est la seule lecture
+    /// autorisée depuis un rendu SwiftUI : appeler `refresh()` dans un corps de
+    /// vue écrivait `t` et `duration` pendant l'évaluation de ce corps, donc
+    /// invalidait la vue qui venait de les lire — chaque rendu en produisait un
+    /// autre. C'est le gel du 2026-09-08, observé au démarrage de
+    /// l'enregistrement (100 % du thread principal dans
+    /// `GraphHost.flushTransactions`, sous `FloatingPill.pastille`).
+    ///
+    /// Aucune dépendance d'observation n'y est prise en séance : la valeur vient
+    /// de l'horloge, et c'est le battement (`refresh()`) qui réveille les vues.
+    var currentTime: Double {
+        switch source {
+        case .idle:
+            return t
+        case .recording(let startedAt):
+            return max(0, now().timeIntervalSince(startedAt))
+        case .playback:
+            return player.currentTime
+        }
+    }
+
+    /// Le timecode à porter sur une note ou une capture. `nil` quand la réunion
+    /// n'a pas d'axe temps — ni enregistrement, ni lecture, ni position
+    /// acquise : la note est alors écrite **sans** `t` plutôt qu'à `00:00`, où
+    /// son marqueur désignerait un instant où rien ne s'est passé.
+    var elapsedIfAny: Double? {
+        let valeur = currentTime
+        if case .idle = source, valeur <= 0 { return nil }
+        return valeur
+    }
+
     /// `player` reste injectable, mais sans valeur par défaut évaluée hors de
     /// l'acteur principal : `AudioPlayerService()` est `@MainActor`, et un
     /// argument par défaut est évalué dans le contexte de l'appelant.
+    ///
+    /// `recordingTick` est la cadence du battement en séance. Une seconde
+    /// suffit à un chrono `mm:ss`, et chaque écriture de `t` invalide **toutes**
+    /// les surfaces qui le lisent (frise, colonne de transcription, composeur de
+    /// note) : la relever serait payé à chaque rendu. Les tests la raccourcissent.
     init(meetingStableID: UUID,
          player: AudioPlayerService? = nil,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         recordingTick: Duration = .seconds(1),
+         playbackTick: Duration = .milliseconds(250)) {
         self.meetingStableID = meetingStableID
         self.player = player ?? AudioPlayerService()
         self.now = now
+        self.recordingTick = recordingTick
+        self.playbackTick = playbackTick
+    }
+
+    deinit {
+        ticker?.cancel()
     }
 
     // MARK: - Sources
@@ -113,9 +161,15 @@ final class MeetingPlayhead {
     /// Passe l'axe en mode séance. Idempotent sur la même origine : un
     /// enregistrement complémentaire ne doit pas décaler les notes déjà posées.
     func beginRecording(startedAt: Date) {
-        if case .recording(let existant) = source, existant == startedAt { return }
+        if case .recording(let existant) = source, existant == startedAt {
+            // Idempotent sur l'origine, mais le battement doit tourner : un
+            // écran remonté rappelle `beginRecording` sans rien changer.
+            if ticker == nil { startTicking() }
+            return
+        }
         source = .recording(startedAt: startedAt)
         refresh()
+        startTicking()
         playheadLog.info("beginRecording: meeting=\(self.meetingStableID.uuidString, privacy: .public)")
     }
 
@@ -123,27 +177,80 @@ final class MeetingPlayhead {
     func beginPlayback() {
         source = .playback
         refresh()
+        startTicking()
     }
 
     /// Repasse à l'arrêt : `t` reste où il est, plus rien ne le fait avancer.
     func stop() {
         source = .idle
+        stopTicking()
     }
 
-    /// Relit la source active. Appelée par les surfaces qui affichent `t` (un
-    /// `TimelineView` en séance, le rafraîchissement du lecteur en relecture) —
-    /// et par les tests, avec leur propre horloge.
+    /// Publie la position de la source active dans `t`.
+    ///
+    /// Appelée par le **battement** et par les tests, avec leur propre horloge
+    /// — jamais depuis un corps de vue : c'est une écriture, et une écriture
+    /// pendant un rendu invalide ce rendu (cf. `currentTime`).
+    ///
+    /// Les deux affectations sont gardées par une comparaison : `@Observable`
+    /// notifie toute écriture, même d'une valeur identique, et une notification
+    /// pour rien réveille la frise, la transcription et le composeur de note.
     func refresh() {
         switch source {
         case .idle:
             break
-        case .recording(let startedAt):
-            t = max(0, now().timeIntervalSince(startedAt))
-            duration = max(duration, t)
+        case .recording:
+            let valeur = currentTime
+            if t != valeur { t = valeur }
+            if valeur > duration { duration = valeur }
         case .playback:
-            t = player.currentTime
-            duration = player.duration
+            let valeur = player.currentTime
+            if t != valeur { t = valeur }
+            if duration != player.duration { duration = player.duration }
         }
+    }
+
+    // MARK: - Battement
+
+    /// La cadence du battement en séance, et celle en relecture.
+    @ObservationIgnored private let recordingTick: Duration
+    @ObservationIgnored private let playbackTick: Duration
+
+    /// Le battement qui fait avancer `t`.
+    ///
+    /// C'est lui, et non un rendu de vue, qui publie le temps : avant le
+    /// correctif du 2026-09-08, `t` n'avançait que parce que le corps de la
+    /// pastille flottante appelait `refresh()` — donc jamais quand la pastille
+    /// était masquée (les notes de séance étaient horodatées à `00:00`), et en
+    /// boucle infinie quand elle était visible.
+    ///
+    /// `nonisolated(unsafe)` : lu et écrit uniquement depuis le `MainActor`,
+    /// mais le `deinit` d'une classe `@MainActor` n'est pas lui-même isolé.
+    @ObservationIgnored private nonisolated(unsafe) var ticker: Task<Void, Never>?
+
+    private var tick: Duration? {
+        switch source {
+        case .idle:      return nil
+        case .recording: return recordingTick
+        case .playback:  return playbackTick
+        }
+    }
+
+    private func startTicking() {
+        stopTicking()
+        guard let tick else { return }
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: tick)
+                guard !Task.isCancelled, let self else { return }
+                self.refresh()
+            }
+        }
+    }
+
+    private func stopTicking() {
+        ticker?.cancel()
+        ticker = nil
     }
 
     // MARK: - Déplacement

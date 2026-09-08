@@ -53,10 +53,12 @@ struct FloatingPill: View {
                 .onAppear { pulses = model.isRecording }
                 .onChange(of: model.isRecording) { _, enregistre in pulses = enregistre }
 
-            // `TimelineView` et non une simple lecture : le `t` se calcule depuis
-            // l'horloge (`MeetingPlayhead.refresh()`), pas depuis un état observé — rien
-            // ne provoquerait la réévaluation de cette vue, et le chrono resterait figé
-            // entre deux captures.
+            // `TimelineView` et non une simple lecture : le `t` de la séance se
+            // calcule depuis l'horloge (`MeetingPlayhead.currentTime`), pas depuis
+            // un état observé — rien ne provoquerait la réévaluation de cette vue,
+            // et le chrono resterait figé entre deux captures. La lecture est
+            // **pure** : la version qui appelait `refresh()` ici écrivait `t`
+            // pendant le rendu et bouclait (gel du 2026-09-08).
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 Text(model.timecode)
                     .font(.plexMono(11, .medium))
