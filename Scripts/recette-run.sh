@@ -30,12 +30,33 @@
 #   vague 5 — il remplace `ONETOONE_SEED_OPEN`, que le lot 12 avait ajouté à
 #   côté. Table : `OneToOne/Services/Debug/RecetteScreen.swift`.
 #
-#     1a  cockpit de réunion (En séance)      1c  poste de pilotage (Relire)
-#     1b  espaces et indicateurs (En séance)  2a  1:1 mené, En séance
-#     3a  tiroir Ressources (En séance)       2b  1:1 mené, Préparer
-#     3b  fiche projet en panneau             4a  sélecteur de capture
-#     5a  1:1 subi, En séance                 5b  1:1 subi, Préparer
-#     6a  atelier, planche plein cadre        6b  atelier, planche de séance
+#     1a  cockpit de réunion (En séance)        1c  poste de pilotage (Relire)
+#     1b  espaces et indicateurs (En séance)    2a  1:1 mené, En séance
+#     3a  tiroir Ressources (En séance)         2b  1:1 mené, Préparer
+#     3b  fiche projet en panneau               4a  sélecteur de capture
+#     5a  1:1 subi, En séance                   5b  1:1 subi, Préparer
+#     6a  atelier, planche plein cadre          6b  atelier, planche de séance
+#
+#   Cette liste est **lue** dans `RecetteScreen.swift`, pas recopiée : la
+#   recopier l'avait déjà fait diverger (le code `5a` du lot 13 manquait ici
+#   alors que la table le déclarait, et une faute de frappe aurait ouvert le
+#   cockpit sans le dire). Le tableau ci-dessus est donc indicatif : le script
+#   accepte exactement ce que la table déclare, ni plus ni moins.
+#
+# Deux gardes avant lancement
+#   Verrou d'écran : sur session verrouillée, toute capture est noire et le
+#   redimensionnement par l'API Accessibility échoue en silence — cinq recettes
+#   de la refonte ont été perdues ainsi. La clé est rendue **sans espaces**
+#   autour du `=` par `ioreg -r` : chercher `"CGSSessionScreenIsLocked" = Yes`
+#   ne correspond jamais.
+#   Teams (ou Zoom) en réunion : la recette redimensionne des fenêtres et
+#   photographie l'écran. Les titres de fenêtres sont lus par
+#   `CGWindowListCopyWindowInfo`, via `Scripts/window-titles.swift`, et
+#   **jamais par AppleScript** — « first process whose unix id is … » résout mal
+#   le processus quand deux instances partagent le `CFBundleIdentifier`, et
+#   c'est ce qui a redimensionné une fenêtre de production le 7 septembre 2026.
+#   En Swift et non en Python : `Quartz` (pyobjc) n'est pas dans le python3 du
+#   système sur ce poste.
 #
 # Usage
 #   Scripts/recette-app.sh /tmp/recette
@@ -49,6 +70,21 @@
 #   --screen <code>  pose ONETOONE_SEED_DEMO_SCREEN=<code> et implique --seed
 #   --reset          efface le HOME de recette avant de lancer
 #   --wait           reste au premier plan (par défaut, le script rend la main)
+#   --ignore-lock    lance malgré une session verrouillée
+#   --ignore-teams   lance malgré une réunion Teams détectée
+#
+# Vérification (manuelle — aucun test SwiftPM n'exécute un script shell)
+#   1. Scripts/recette-run.sh --help
+#      → douze codes listés
+#   2. sed -n 's/^ *case [a-zA-Z]* = "\([0-9a-z]*\)"/\1/p' \
+#        OneToOne/Services/Debug/RecetteScreen.swift | tr '\n' ' '
+#      → la même liste que celle que le script accepte
+#   3. ioreg -n Root -d1 -r | grep -c 'CGSSessionScreenIsLocked"=Yes'
+#      → 1 écran verrouillé (le script doit refuser), 0 déverrouillé
+#   4. Scripts/recette-run.sh --screen 9z --app … → « Code d'écran inconnu »
+#   5. swift Scripts/window-titles.swift MSTeams MicrosoftTeams
+#      → une ligne par fenêtre Teams nommée ; « Calendar | APRIL | … » ne
+#        déclenche rien, un titre de réunion oui
 #
 # Le Trousseau, lui, reste celui de la session : un endpoint IA configuré hors
 # recette peut donc être lu. C'est voulu — sinon l'encart de suggestions serait
@@ -63,11 +99,25 @@ SEED=""
 SCREEN=""
 RESET=""
 WAIT=""
+IGNORE_LOCK=""
+IGNORE_TEAMS=""
 
-# Les codes acceptés par `RecetteScreen`. Vérifiés ici, parce qu'une faute de
-# frappe passerait autrement inaperçue : l'application retomberait sur le
-# cockpit et la capture serait celle du mauvais écran.
-SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a 6b"
+# Les codes acceptés par `RecetteScreen`, **lus dans la table** et non
+# recopiés. Une faute de frappe passerait autrement inaperçue (l'application
+# retomberait sur le cockpit, et la capture serait celle du mauvais écran) — et
+# une liste recopiée finit par mentir : celle-ci ignorait `5a`, ajouté au
+# lot 13.
+RECETTE_SCREEN_SWIFT="OneToOne/Services/Debug/RecetteScreen.swift"
+SCREENS=""
+if [ -f "${RECETTE_SCREEN_SWIFT}" ]; then
+    SCREENS="$(sed -n 's/^ *case [a-zA-Z]* = "\([0-9a-z]*\)"/\1/p' \
+        "${RECETTE_SCREEN_SWIFT}" | tr '\n' ' ')"
+fi
+if [ -z "${SCREENS}" ]; then
+    # Repli : le script s'utilise aussi hors du dépôt, à côté du seul bundle.
+    SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a 6b "
+    echo "⚠️  ${RECETTE_SCREEN_SWIFT} illisible — liste de codes par défaut."
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -80,7 +130,9 @@ while [ $# -gt 0 ]; do
         --screen=*) SCREEN="${1#*=}"; SEED="1"; shift ;;
         --reset)  RESET="1"; shift ;;
         --wait)   WAIT="1"; shift ;;
-        -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
+        --ignore-lock)  IGNORE_LOCK="1"; shift ;;
+        --ignore-teams) IGNORE_TEAMS="1"; shift ;;
+        -h|--help) sed -n '2,88p' "$0"; exit 0 ;;
         *)
             echo "✗ Argument inconnu : $1 (voir --help)"
             exit 1
@@ -108,6 +160,52 @@ if [ ! -x "${BINARY}" ]; then
     echo "✗ Bundle de recette introuvable : ${APP}"
     echo "  Lance d'abord : Scripts/recette-app.sh"
     exit 1
+fi
+
+# ----------------------------------------------------------------------
+# Garde 1 — verrou d'écran. Sur session verrouillée, `screencapture` rend une
+# image noire et `AXUIElement…` échoue sans message : la recette « réussit »
+# et ne montre rien. La clé n'a pas d'espaces autour du `=` dans la sortie de
+# `ioreg -r`, contrairement à ce que les comptes rendus des lots 1 à 5
+# cherchaient.
+# ----------------------------------------------------------------------
+if [ -z "${IGNORE_LOCK}" ] \
+   && ioreg -n Root -d1 -r | grep -q 'CGSSessionScreenIsLocked"=Yes'; then
+    echo "✗ Session graphique verrouillée : toute capture serait noire et le"
+    echo "  redimensionnement échouerait en silence."
+    echo "  Déverrouille l'écran puis relance (--ignore-lock pour forcer)."
+    exit 1
+fi
+
+# ----------------------------------------------------------------------
+# Garde 2 — Teams en réunion. La recette redimensionne des fenêtres et
+# photographie l'écran : pendant un appel, c'est exclu. On lit les titres des
+# fenêtres du processus `MSTeams` par `CGWindowListCopyWindowInfo` ; **jamais**
+# par AppleScript (cf. l'en-tête). Le filtre reste littéral : le 7 septembre
+# 2026, la seule fenêtre `MSTeams` portait « Calendar | APRIL | … », qui ne
+# déclenche rien.
+# ----------------------------------------------------------------------
+# `Scripts/window-titles.swift` lit `CGWindowListCopyWindowInfo` et rend une
+# ligne par fenêtre nommée. En Swift et non en Python : `Quartz` (pyobjc) n'est
+# pas dans le python3 du système, et un garde-fou muet serait pire qu'aucun
+# garde-fou. Il vit à côté de ce script ; s'il manque, on le dit.
+TITRES_SWIFT="$(dirname "$0")/window-titles.swift"
+
+if [ -z "${IGNORE_TEAMS}" ]; then
+    if [ ! -f "${TITRES_SWIFT}" ] || ! command -v swift >/dev/null 2>&1; then
+        echo "⚠️  Garde Teams inactive : ${TITRES_SWIFT} ou swift introuvable."
+        echo "    Vérifie toi-même qu'aucune réunion n'est en cours."
+    else
+        EN_REUNION="$(swift "${TITRES_SWIFT}" MSTeams MicrosoftTeams Teams zoom.us 2>/dev/null \
+            | grep -iE 'réunion|reunion|meeting|appel|call|en cours' | head -1)"
+        if [ -n "${EN_REUNION}" ]; then
+            echo "✗ Une réunion ou un appel semble en cours :"
+            echo "  ${EN_REUNION}"
+            echo "  La recette redimensionne des fenêtres et capture l'écran."
+            echo "  Attends la fin de l'appel (--ignore-teams pour forcer)."
+            exit 1
+        fi
+    fi
 fi
 
 if [ -z "${FAKE_HOME}" ]; then
