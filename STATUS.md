@@ -2,6 +2,272 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Intégration vague 6 : la pile redevient linéaire (2026-09-08)
+
+Cinq branches développées en parallèle sur le sommet `feat/refonte-lot-12-1to1-manager-prepa`
+(PR #33), remises en pile linéaire :
+`#33 → 8 (#38) → 13 (#39) → 15 (#40) → 17 (#41) → recette (#36)`.
+
+### Ce qui a conflicté, et rien de plus
+
+Les quatre premiers maillons n'ont conflicté que sur **`STATUS.md`** — union des sections
+en ordre chronologique inverse. Tout le code s'est recousu seul, ce qui n'était pas
+acquis : `MeetingTopChromeBar.swift` est touché par les lots 13, 15, 17 **et** la recette,
+mais dans des régions disjointes (fil d'Ariane et `Mon récap` pour le 13,
+`compatibleTemplates` avec Escalade pour le 15, badge `ATELIER` et titre pour le 17, groupe
+de contrôles et pilule de partage pour la recette). Vérifié à la lecture plutôt que sur la
+foi du rebase :
+
+- **`MeetingSpaceView.swift`** porte le modificateur `.sessionPill` du lot 8, la branche
+  `CollaboratorSessionView` du lot 13 et le rail à 330 px de la recette. Ordre de routage
+  conforme à la spec : Atelier → 1:1 mené → 1:1 subi → préparation → Relire → standard.
+- **`OneToOneApp.swift`** : hotkeys de la pastille (lot 8) **et** semis / cible
+  `.entretienSubi` du lot 13.
+- **`MeetingCommands.swift`** : une seule ligne de semis par lot, et
+  `seedWorkshopComplete` du lot 17 à la place de l'appel du lot 16.
+- **`RecetteScreen`** couvre `1a 1b 1c 2a 2b 3a 3b 4a 5a 6a` (le lot 14 ajoutera `5b`).
+- **`Models/OtherModels.swift`** : `acceptedProjectUpdatesJSON` en fin de type. **Aucune
+  nouvelle version de schéma.**
+
+### Trois arbitrages
+
+**1. La largeur de la barre du haut — deux correctifs, une règle.** Le lot 17 et la
+recette de la vague 1–4 visaient le **même** défaut par deux mécanismes différents : le
+lot 17 donnait au titre une `layoutPriority(-1)` et un `fixedSize` au badge `ATELIER` (le
+badge était tronqué à 1 616 px) ; la recette extrayait les contrôles de droite dans un
+`controlsGroup` à `fixedSize` (à 1 280 px, `Rapport ✓ 6:20` se réduisait à « R », `Capture`
+à « C », `● Partage actif · 5 voient` à un carré bleu). Les deux vont dans le même sens —
+priorité de compression au **titre**, largeur intrinsèque aux contrôles — et **les deux
+sont conservés** : n'en garder qu'une moitié ramène l'un des deux défauts. Ne restaient
+incohérents que les commentaires (l'un décrivait encore le `layoutPriority(1)` que l'autre
+venait de passer à `-1`) : refondus en une seule explication, moitié « qui cède » sur
+`titleField`, moitié « qui ne cède pas » sur `controlsGroup`. Trois tests de lecture
+verrouillent la règle entière dans `MeetingTopChromeBarTests`.
+
+**2. Recette contre lots, sur les vues retouchées entre-temps.** Les 14 corrections de
+finition datent d'avant les lots 7, 11, 12, 13, 15 et 17, qui ont retouché les mêmes vues.
+Règle appliquée : la **finition** l'emporte quand le conflit porte sur un défaut visuel, le
+**comportement** des lots quand il est fonctionnel. En pratique aucun conflit fonctionnel
+n'est apparu, et les 14 corrections sont intactes : pastille `base` au lieu de `pill` dans
+`AvatarStack` (invisible sur `surface`), `lineLimit(1)` sur `Chip` / `Pill` / `InvitePill`,
+padding de carte 12 × 10 et cartes de hauteur égale dans `MeetingKPIBand`, « Aucun audio »
+seulement quand la frise est vraiment vide, corps 12,5 px et interligne 1,55 dans les notes
+et la transcription, rail à 330 px (le filet est prélevé sur la colonne fluide),
+`ALERTES · 5`, singulier de « +1 autre », et `ink/4` partout sous 11,5 px.
+`SessionNoChromeTests`, `ActionsRailNoModalTests`, `SessionThemeTests` et les tests de
+contraste (`One2OneThemeTests`, `One2OneTokensTests`) restent verts.
+
+**3. Le jeu de démonstration avait deux points d'entrée désaccordés.** Le lot 17 avait
+remplacé `seedWorkshop` par `seedWorkshopComplete` dans le menu, mais pas dans le semis de
+recette de `OneToOneApp` : la capture `6a` aurait montré l'atelier du lot 16, sans les
+objets annotés, la pièce ni la capture du lot 17. Les deux points d'entrée sèment
+désormais la même chose. `RefonteVague5IntegrationTests.semisEnsemble` reflétait lui aussi
+la vague 5 (ni `seedLot13` ni `seedWorkshopComplete`) : il porte maintenant les sept semis,
+avec un magasin de planches injecté dans un dossier temporaire — `seedWorkshopComplete`
+écrit de vrais fichiers.
+
+### La couture laissée par le lot 15
+
+Le clic sur un timecode du rapport ne déplaçait pas la lecture. Toute la logique était là —
+`CitationLinker` écrit les liens `onetoone://`, `MeetingReportPreview` les intercepte,
+`QuickLaunchURLHandler.handle` sait déplacer une tête de lecture — mais **personne
+n'appelait `handle`** : `MeetingReportSpace` ne recevait aucune `MeetingPlayhead` et le lien
+mourait dans le délégué de navigation. Câblage seul, aucune logique nouvelle :
+`MeetingReportSpace` reçoit `playhead` et passe `onCitation` à l'aperçu ; `MeetingView`
+(l. 609) fournit `screen.playhead`. Deux tests purs, dont un bout à bout qui relit l'URL
+**depuis le HTML du rapport** avant de la passer à `handle`.
+
+### Vérifié
+
+- `swift build` propre à chaque maillon. Les avertissements de concurrence Swift 6 sur
+  `SessionPillPanelController.shared` et `MoodTrend.historyLength` viennent des branches
+  elles-mêmes, pas de l'intégration.
+- `swift test` complet et vert à chaque maillon, à l'échec **horaire préexistant**
+  `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` près (entre 0 h et 2 h ;
+  corrigé par la PR #37 sur `master`, hors pile) — toutes les exécutions de cette session
+  sont tombées entre 01 h 02 et 01 h 20 CEST.
+- Progression des totaux, chaque fois l'union exacte des apports : 2 714 (base #33) →
+  **2 770** (lot 8) → **2 839** (lot 13) → **2 891** (lot 15, dont 2 tests de la couture) →
+  **2 949** (lot 17) → **2 952** (recette, dont 3 tests d'arbitrage de largeur).
+- `MeetingView.swift` : **2 064 lignes** (plafond 2 100), la seule ligne ajoutée étant
+  celle de la couture.
+- Un crash SwiftData isolé (`ModelContext.reset`, signal 5) est apparu sur **une**
+  exécution du maillon 15, dans la suite `ScreenCaptureService` : c'est le flake que
+  l'en-tête de `ScreenCaptureServiceTests` documente déjà (tâche OCR détachée, conteneurs
+  en mémoire construits en parallèle). Non reproduit à l'exécution suivante ni sur les
+  maillons suivants.
+
+### Non fait
+
+- **Aucune fusion** : la pile est publiée, les cinq PR rebasées et leurs bases corrigées.
+- **Aucune recette visuelle** de cette session : pas de lancement de l'app. Les nouveaux
+  écrans (5a, 6a complet, rapport avec citations, pastille) restent à voir à l'écran, et
+  les nouvelles captures de la recette des vagues 1–4 restent à reprendre — les PNG
+  versionnés sont **antérieurs** aux 14 corrections, comme leur fichier le documente.
+- `feat/refonte-lot-14-1to1-collab-prepa` (sur le lot 13) et
+  `fix/refonte-session-fullscreen-content` (sur #33) se rebaseront elles-mêmes sur cette
+  pile ; elles n'ont pas été touchées.
+
+## Recette visuelle des vagues 1 à 4 — écrans 1a, 1b, 1c, 3a, 3b (2026-09-08)
+
+Branche `fix/refonte-recette-vagues-1-4`, sur
+`fix/refonte-1to1-window-crash` (PR #31), donc au **sommet** de la pile
+linéaire `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 →
+#25 → #31`. Recette complète :
+`docs/superpowers/specs/refonte-2026-09/recette/2026-09-07-recette-vagues-1-4.md`
+(tableau zone par zone pour les cinq écrans).
+
+**État : neuf captures produites, 14 corrections de finition livrées en
+6 commits, 18 écarts assumés confirmés, 12 écarts fonctionnels à traiter.
+`swift build` propre, `swift test` complet à 2 402 tests. Recapture d'après
+correction encore due — l'écran s'est verrouillé.**
+
+### Captures produites
+
+Dans `docs/superpowers/specs/refonte-2026-09/recette/` : `1a-1280.png`,
+`1a-1920.png`, `1b-1920.png`, `1c-1280.png`, `1c-1920.png`, `3a-1280.png`,
+`3a-1920.png`, `3b-1920.png` et **`3b-edition-1920.png`** — le mode Édition de
+la fiche projet, que le lot 9 n'avait pas pu atteindre, est vu pour la première
+fois. `lot-9-1280.png` est conservée.
+
+Toutes sont prises dans la **fenêtre dédiée** `1to1-meeting` (celle du
+correctif #31), donc sans la barre latérale de l'application, contrairement à
+`lot-9-1280.png`. Store isolé (`HOME` **et** `CFFIXED_USER_HOME` jetables),
+isolation vérifiée par `lsof` à chaque lancement : **zéro descripteur** sur le
+store de production.
+
+⚠️ **Les `*-1920.png` mesurent 1 728 × 1 023 pt, pas 1 920 × 1 080.** L'écran
+de ce poste fait 1 728 × 1 117 pt et AppKit borne une fenêtre au cadre visible.
+Un mode d'affichage à 2 056 × 1 285 pt existe, mais changer la résolution d'une
+session de travail active n'est pas une décision à prendre seul (CLAUDE.md,
+règle 6). Les `*-1280.png` sont, eux, exactement 1 280 × 800 pt.
+
+⚠️ **Les captures livrées sont antérieures aux corrections** : l'écran s'est
+verrouillé avant que le binaire corrigé ne soit empaqueté. Elles valent comme
+constat, pas comme démonstration du résultat.
+
+### Corrections de finition livrées
+
+| Commit | Écran(s) | Correction |
+| --- | --- | --- |
+| `pilules et chips : une seule ligne` | 1a, 1c, 3a, 3b | `Chip`, `InvitePill` et `Pill` prennent `lineLimit(1)` + `fixedSize` : `＋ Pierre-Yves` se repliait en « ＋ Pierre- / Yves », `/décision` en « / décisio / n », `● Partage actif · 5 voient` en carré bleu. Même défaut que la chip « PostgreS / QL » du lot 9, remonté dans les primitives. |
+| `1a : bandeau d'indicateurs et pile d'avatars` | 1a | **Les six pastilles d'avatar étaient invisibles** (`pill` = `surface` = `#ffffff` en clair, soit le fond de la carte) → fond `base`. Padding de carte désinversé (10 vertical × 12 horizontal, §2.3). Les 4 cartes reprennent une hauteur égale (`fixedSize` vertical + `maxHeight: .infinity`). |
+| `barre du haut : libellés préservés, pilule de partage` | 1a, 3a, 3b | `Rapport ✓ 6:20` se réduisait à « R », `Capture` à « C » : le titre (`layoutPriority(1)`) gagnait l'arbitrage contre les contrôles, alors que §2.1 en fait la colonne fluide. Les contrôles passent en `fixedSize`. La pilule de partage passe de `radiusButton` (6) à `Capsule` (§4.2 + §1.2). |
+| `notes ↔ transcription : corps 12,5 px, plus de recouvrement` | 1a, 3a | À 1 280 px, la décision de 11:03 recouvrait la note de 15:20 : le préfixe était un `HStack` aligné sur la première ligne de base, qui gardait la hauteur d'une ligne → un seul `Text` concaténé. Corps passé de 12 à **12,5 px** avec `line-height 1.55` (§1.2). |
+| `frise audio lisible et rail d'actions à 330 px` | 1a, 1c, 3a | « Aucun audio » était écrit **par-dessus** les marqueurs sur les cinq captures → réservé à la frise sans marqueur. Bornes de frise en 10 px (§1.2). Le rail mesurait **329 px** : le filet est désormais prélevé sur la colonne fluide, pas sur le rail que §1.2 fixe à 330. |
+| `1c : « ALERTES · 5 » et le singulier de « +1 autre »` | 1c | Point médian devant le compteur, comme `DÉCISIONS PRISES · 3` et `RISQUES · 5` ; singulier ; `ink/4`. |
+| `contraste des textes sous 11,5 px` | 1a, 1c, 3a | Cinq emplois de `ink/muted` sous le seuil de §1.2 (« réservé aux placeholders de 11,5 px et plus ») passent en `ink/4` : compléments d'onglet, détail de risque, mention de la bande épinglée, légende d'aperçu, `⌘⇧V` de la zone de dépôt. |
+
+Aucune couleur hors `One2OneToken`, aucune fonctionnalité nouvelle, aucun
+service ni modèle touché, `MeetingView.swift` intact.
+
+### Écarts assumés confirmés visibles (18)
+
+Tous relevés sur les captures et **non touchés** : pile d'avatars triée par nom
+et initiales `PY` (lot 1 n° 2 et n° 3) ; chips `/…` alignées à droite (lot 2
+n° 2) ; `À ASSIGNER — 9` au lieu de 3 (lot 4) ; bouton `Capture` dans la barre
+du haut (lot 1 n° 5) ; `Notes 6` au lieu de 5, compléments de `Synthèse` et
+`Assistant`, sélecteur de mode et dock d'assistant dans le poste de pilotage,
+titres du bloc `ALERTES`, nom de projet sans « Chaîne », cartes empilées sous
+900 px (lot 5 n° 1, 2, 3, 6, 7, 10) ; groupe `DÉLÉGUÉES` (lot 3 n° 2) ;
+`4 séance` comptant le lien (lot 6 n° 4) ; **barre de budget verte à 65,6 %**,
+budget en champs inline, chevrons de réordonnancement des jalons, chips de
+thèmes en grille adaptative (lot 9 n° 1, 3, 4, 6) ; rond ambre du risque sur la
+frise (lot 2 n° 5) ; `Documents 4` au lieu de `Documents ＋`.
+
+### Écarts fonctionnels à traiter (12) — détail dans le fichier de recette
+
+1. **L'écran 1b n'est pas atteignable.** Le plein écran s'active (la barre de
+   titre disparaît, donc `SessionWindowSwapper.presenter` a bien été
+   parcouru) mais **le contenu n'est pas substitué** : le cockpit clair reste
+   affiché, `Clore la séance` et `TRANSCRIPTION LIVE` sont absents de l'arbre
+   d'accessibilité. Reproduit deux fois, par le bouton de la pilule audio et
+   par l'item de menu. Piste : `WindowReader` fournit-il bien la fenêtre de la
+   scène `1to1-meeting` ? **Bloque un écran entier de la spec → correctif au
+   lot 4.**
+2. Crash Auto Layout de la fenêtre dédiée, reproduit cinq fois en début de
+   session — **avec un bundle empaqueté par erreur depuis un binaire périmé**
+   (cf. n° 12). Plus aucun crash après reconstruction du bundle. À reverifier
+   à la recapture.
+3. Le **titre de réunion n'est pas un titre** : `EditableTextField` force
+   `NSFont.systemFont` et un `bezelStyle` arrondi, et ignore le
+   `.font(.plexSans(13, .semibold))` de la barre. → lot 19.
+4. La barre du haut **reste affichée en mode Relire**, que la maquette 1c ne
+   montre pas. Arbitrage (accès au type, au template, au `⋯`) → lot 19 + D0.
+5. La bascule `Speakers` ne s'affiche jamais : le semis ne pose pas de
+   locuteur sur ses segments. → lot 19 ou complément de semis, à trancher.
+6. Les niveaux de risque bas sortent en **bleu et gris** ; la maquette
+   n'emploie que `report` et `warn`. → lot 19 (décision de charte).
+7. ⚠️ **La fenêtre de l'instance de production de l'utilisateur (pid 16538,
+   « NPA/LDB ») a changé de géométrie** — 40,40 / 1 542 × 800 au début de
+   session, 0,33 / 1 720 × 1 024 ensuite. Elle n'a pas été touchée après le
+   constat. Parade durable : donner au bundle de recette un
+   `CFBundleIdentifier` distinct dans `Scripts/recette-app.sh`, ce qui rendrait
+   impossible la confusion de processus dont AppleScript est capable.
+8. `Citer` et `Envoyer` n'apparaissent que sur la pièce présentée (§4.1 les
+   veut par vignette). → lot 15 ou 19.
+9. En édition, la carte `STATUT` perd son point coloré et met son chevron à
+   gauche. → lot 19.
+10. Le pied de la fiche projet (visibilité, `Annuler`, `Enregistrer`) n'existe
+    qu'en édition ; §4.3 le liste sans condition. → lot 19.
+11. La fiche projet en édition **tronque sans ellipsis** (risques,
+    interlocuteurs) — même cause que le n° 3. → lot 19.
+12. **`Scripts/recette-app.sh` peut empaqueter un binaire périmé sans le
+    dire.** Le premier bundle de la session a été construit depuis un
+    `.build/release/OneToOne` antérieur au build en cours ; il lui manquait les
+    lots 4, 5 et 6, ce qui a produit deux heures d'observations fausses (mode
+    Relire rendu comme au lot 1, ressources absentes) avant que la comparaison
+    des chaînes du binaire ne le révèle. Le script devrait afficher `mtime` et
+    taille du binaire copié, ou le comparer au dernier commit touchant
+    `OneToOne/`. → lot 19.
+
+### Conditions rencontrées
+
+- **Écran** : déverrouillé pendant toute la série de captures (19 h 50 –
+  20 h 30), verrouillé ensuite — c'est ce qui a empêché la recapture d'après
+  correction. L'attente réglementaire a été tenue : sondage toutes les 50 s
+  de **00:09 à 00:49 CEST**, soit 40 minutes, l'écran est resté verrouillé.
+  La procédure de recapture, outillage compris, est écrite en fin du fichier
+  de recette.
+- **Teams** : aucune réunion en cours ; la seule fenêtre du processus `MSTeams`
+  portait « Calendar | APRIL | … », vérifié avant chaque série.
+- **Instance de l'utilisateur** : jamais d'événement envoyé, jamais arrêtée.
+  Tout le pilotage passe par `AXUIElementCreateApplication(<mon pid>)` et
+  `CGWindowListCopyWindowInfo` filtré sur `kCGWindowOwnerPID`, jamais par
+  AppleScript ni par nom d'application ; `kill` ne cible que les pid dont la
+  ligne de commande est le chemin du bundle de recette. Cf. écart n° 7.
+- **Store de production** : jamais ouvert (vérifié par `lsof` à chaque
+  lancement).
+
+### Vérification
+
+`swift build` propre. `swift test` complet, `exit 0` : **1 041 XCTest**
+(1 ignoré) + **1 361 Swift Testing** en 177 suites = **2 402 tests**, le
+chiffre exact du sommet de la pile.
+
+**Un seul échec XCTest, préexistant et dépendant de l'heure d'exécution** :
+`MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject`, suite lancée à
+**00:04 CEST le 2026-09-08**. Le test place ses réunions « passées » à
+`startOfDay + 1 h` et `+ 2 h` et attend qu'elles soient révolues — entre
+minuit et 2 h du matin, elles sont dans le futur et `tempsPasseSeconds` vaut 0.
+Rejoué **sur les sources du commit de base** (`1fe3f0a`, restauration de
+`OneToOne/` seul) : échec à l'identique. Le diff de cette branche ne touche
+aucun `Services/` ni `Models/`, et `TodayStatsCalculator` n'y figure pas.
+**Non corrigé ici** — une PR de recette n'a pas à toucher un test de
+statistiques ; à reprendre au lot 19 en injectant l'heure de référence, comme
+le font déjà les autres tests de la suite. Le même échec est constaté par le
+lot 8 à 00:33 CEST, sur une autre base.
+
+### Prochaine action
+
+1. **Recapturer les neuf écrans** avec le binaire corrigé, écran déverrouillé,
+   et remplacer les fichiers de `recette/`.
+2. **Ouvrir le correctif de l'écart n° 1** (mode séance plein écran
+   inatteignable) : c'est le seul qui prive la spec d'un écran entier.
+3. Traiter les autres écarts (c), et trancher les deux questions restées
+   ouvertes du lot 9 (teinte de la barre de budget, lignes de démonstration
+   dans le store de production).
+
 ## Lot 17 — Atelier : modes Schéma et Manuscrit, pièces et captures (6a complet) (2026-09-08)
 
 Branche `feat/refonte-lot-17-atelier-modes`, développée sur

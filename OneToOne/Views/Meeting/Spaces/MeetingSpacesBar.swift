@@ -153,7 +153,11 @@ struct MeetingSpacesBar: View {
     /// dans toute la refonte ; les compteurs restent en `ink/muted`.
     private func complementColor(for space: MeetingScreenModel.Space, actif: Bool) -> Color {
         if space == .report && hasReport { return One2OneToken.report }
-        return actif ? One2OneToken.ink4 : One2OneToken.inkMuted
+        // Le complément (`0 doc`, `à générer`, `✓`) est en 10,5 px :
+        // `ink/muted` n'y atteint pas 4,5:1 (spec §1.2). `ink/4` actif,
+        // `ink/4` inactif — la distinction se fait par la graisse et le
+        // soulignement de l'onglet, pas par un contraste hors barème.
+        return One2OneToken.ink4
     }
 }
 

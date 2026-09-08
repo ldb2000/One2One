@@ -397,7 +397,10 @@ struct ReviewSidebarNav: View {
             HStack(spacing: 6) {
                 SectionLabel("alertes")
                     .foregroundStyle(One2OneToken.report)
-                MonoMeta("\(toutes.count)", emphase: !toutes.isEmpty)
+                // `ALERTES · 5` comme la capture `1c-poste-de-pilotage.png`
+                // (et comme `DÉCISIONS PRISES · 3` et `RISQUES · 5`) : le
+                // point médian sépare le libellé de son compteur.
+                MonoMeta("· \(toutes.count)", emphase: !toutes.isEmpty)
                 Spacer(minLength: 0)
             }
             if toutes.isEmpty {
@@ -421,9 +424,12 @@ struct ReviewSidebarNav: View {
                     }
                 }
                 if toutes.count > 4 {
-                    Text("+\(toutes.count - 4) autres")
+                    // Singulier quand il n'en reste qu'une, et `ink/4` : la
+                    // spec §1.2 réserve `ink/muted` aux textes de 11,5 px et
+                    // plus.
+                    Text(toutes.count - 4 == 1 ? "+1 autre" : "+\(toutes.count - 4) autres")
                         .font(.plexSans(11))
-                        .foregroundStyle(One2OneToken.inkMuted)
+                        .foregroundStyle(One2OneToken.ink4)
                 }
             }
         }

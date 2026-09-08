@@ -48,6 +48,12 @@ struct InvitePill: View {
         Text(texte)
             .font(.plexSans(10.5, .medium))
             .foregroundStyle(etat.encre)
+            // Une pilule tient sur **une** ligne. Dans le rail de 330 px, sans
+            // cela, `＋ Pierre-Yves` se replie en « ＋ Pierre- / Yves » et
+            // `＋ échéance` en « ＋ / échéanc / e » : relevé par la recette
+            // visuelle de la vague 1–4 sur `1a-cockpit.png`.
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(Capsule(style: .continuous).fill(etat.fond))

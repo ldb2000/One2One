@@ -198,12 +198,26 @@ struct TimedNotesColumn: View {
                 corps(of: note)
             }
         } else {
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text("\(note.kind.label) ").font(.plexSans(12, .semibold))
-                    .foregroundStyle(note.kind == .decision ? c.reportInk : c.warnInk)
-                Text("— ").font(.plexSans(12)).foregroundStyle(c.ink4)
-                corps(of: note)
-            }
+            // Un **seul** `Text` concaténé, et non un `HStack` de trois vues :
+            // dans une colonne étroite (1 280 px), le texte de la décision
+            // passe à la ligne, mais l'`HStack` alignait ses enfants sur la
+            // première ligne de base et gardait la hauteur d'une seule ligne —
+            // la seconde ligne recouvrait la note suivante (recette visuelle
+            // de la vague 1–4 sur `1a-cockpit.png`). La concaténation laisse
+            // le retour à la ligne se faire dans un seul bloc de texte, dont
+            // `fixedSize` vertical garantit la hauteur.
+            (Text("\(note.kind.label) ")
+                .font(.plexSans(12.5, .semibold))
+                .foregroundColor(note.kind == .decision ? c.reportInk : c.warnInk)
+             + Text("— ")
+                .font(.plexSans(12.5))
+                .foregroundColor(c.ink4)
+             + Text(note.text)
+                .font(.plexSans(12.5))
+                .foregroundColor(c.ink2))
+                .lineSpacing(Self.interligne)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
     }
 
@@ -224,17 +238,26 @@ struct TimedNotesColumn: View {
                 MentionFlow(fragments: fragments, couleurs: c)
             } else {
                 Text(note.text)
-                    .font(.plexSans(12))
+                    .font(.plexSans(12.5))
                     .foregroundStyle(c.ink2)
+                    .lineSpacing(Self.interligne)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
         } else {
             Text(note.text)
-                .font(.plexSans(12))
+                .font(.plexSans(12.5))
                 .foregroundStyle(c.ink2)
+                .lineSpacing(Self.interligne)
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
     }
+
+    /// Interligne du corps : `line-height 1.55` de la spec §1.2, exprimé en
+    /// espacement additionnel (`lineSpacing` s'ajoute à la hauteur de ligne
+    /// naturelle) — même calcul que `OneSentenceCard`.
+    static let interligne: CGFloat = 12.5 * 0.55
 
     /// Barre gauche de 2 px : `accent/report` pour une décision, `accent/warn`
     /// pour un risque, rien pour le reste (spec §2.4).

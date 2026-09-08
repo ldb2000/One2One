@@ -93,7 +93,8 @@ struct DocumentPreviewScene: View {
             document
             Text(Self.caption)
                 .font(.plexMono(10.5))
-                .foregroundStyle(One2OneToken.inkMuted)
+                // 10,5 px : `ink/4` (spec §1.2, `ink/muted` interdit sous 11,5).
+                .foregroundStyle(One2OneToken.ink4)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -56,12 +56,22 @@ struct AvatarStack: View {
         }
     }
 
+    /// Une pastille.
+    ///
+    /// Le fond est `base` et **non** `pill` : en thème `.paper`, `pill` résout
+    /// vers `surface` (`#ffffff`), c'est-à-dire exactement le fond de la carte
+    /// Présence — les six pastilles y étaient invisibles et ne restaient que
+    /// six paires d'initiales flottantes (recette visuelle de la vague 1–4 sur
+    /// `1a-cockpit.png`). `base` (`bg/app`, `#f7f4ee`) est le seul jeton neutre
+    /// qui se détache de `surface`, et il se détache aussi de `dark/card` en
+    /// thème `.session`. L'anneau reste `card` : c'est lui qui sépare deux
+    /// pastilles chevauchées.
     private func pastille(_ texte: String, aide: String) -> some View {
         Text(texte)
             .font(.plexSans(8.5, .semibold))
             .foregroundStyle(theme.colors.ink3)
             .frame(width: Self.diametre, height: Self.diametre)
-            .background(Circle().fill(theme.colors.pill))
+            .background(Circle().fill(theme.colors.base))
             .overlay(Circle().strokeBorder(theme.colors.card, lineWidth: 1.5))
             .help(aide)
     }

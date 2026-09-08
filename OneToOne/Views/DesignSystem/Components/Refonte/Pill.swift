@@ -21,6 +21,11 @@ struct Pill: View {
         Text(texte)
             .font(.plexSans(10.5, .medium))
             .foregroundStyle(ton.encre)
+            // Une pilule tient sur **une** ligne (même règle que `Chip` et
+            // `InvitePill`) : `● Partage actif · 5 voient` de la barre du haut
+            // se réduisait à un carré bleu quand la place manquait.
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(Capsule(style: .continuous).fill(ton.fond))

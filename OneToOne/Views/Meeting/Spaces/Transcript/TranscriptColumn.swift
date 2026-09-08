@@ -204,7 +204,7 @@ struct TranscriptColumn: View {
                 }
             }
             Text(live.liveTranscript.isEmpty ? "En écoute…" : live.liveTranscript)
-                .font(.plexSans(12))
+                .font(.plexSans(12.5))
                 .foregroundStyle(live.liveTranscript.isEmpty
                                  ? c.inkMuted
                                  : c.ink2)
@@ -281,8 +281,9 @@ struct TranscriptColumn: View {
                                 .foregroundStyle(c.warn)
                         }
                         Text(segment.text)
-                            .font(.plexSans(12))
+                            .font(.plexSans(12.5))
                             .foregroundStyle(c.ink2)
+                            .lineSpacing(TimedNotesColumn.interligne)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }

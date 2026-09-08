@@ -113,7 +113,8 @@ struct ActionsRailRisks: View {
                         if !alerte.detail.isEmpty {
                             Text(alerte.detail)
                                 .font(.plexSans(10.5))
-                                .foregroundStyle(One2OneToken.inkMuted)
+                                // 10,5 px : `ink/4` (spec §1.2).
+                                .foregroundStyle(One2OneToken.ink4)
                                 .lineLimit(2)
                         }
                     }

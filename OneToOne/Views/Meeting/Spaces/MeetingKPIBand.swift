@@ -17,9 +17,12 @@ struct MeetingKPIBand: View {
 
     /// Écart entre les cartes (spec §2.3).
     static let gap: CGFloat = 10
-    /// Padding interne d'une carte : 10 horizontal, 12 vertical (spec §2.3).
-    static let cardPaddingH: CGFloat = 10
-    static let cardPaddingV: CGFloat = 12
+    /// Padding interne d'une carte : « carte 10 × 12 px » (spec §2.3), lu
+    /// **vertical × horizontal** comme le « padding 9 × 14 » de la barre du
+    /// haut (§2.1, où 9 est bien le vertical d'une barre de 38 px). Les deux
+    /// axes étaient inversés : relevé par la recette visuelle de la vague 1–4.
+    static let cardPaddingH: CGFloat = 12
+    static let cardPaddingV: CGFloat = 10
     /// Diamètre d'un point de risque.
     static let riskDot: CGFloat = 7
 
@@ -38,6 +41,12 @@ struct MeetingKPIBand: View {
             decisionsCard
             risksCard
         }
+        // « 4 cartes **égales** », grille `repeat(4,1fr)` (spec §2.3) : en CSS
+        // une piste de grille étire ses cellules à la hauteur de la ligne.
+        // `fixedSize` vertical fixe la ligne à la plus haute des quatre, et le
+        // `maxHeight: .infinity` de `card` fait monter les trois autres — sans
+        // lui, la carte Présence dépassait ses voisines (recette vague 1–4).
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Présence
@@ -153,7 +162,7 @@ struct MeetingKPIBand: View {
         let corps = VStack(alignment: .leading, spacing: 7) {
             content()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, Self.cardPaddingH)
         .padding(.vertical, Self.cardPaddingV)
         .background(

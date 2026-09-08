@@ -200,8 +200,14 @@ struct MeetingSpaceView: View {
                                                           rail: One2OneToken.actionsRailWidth,
                                                           sideNav: nil)
                 HStack(alignment: .top, spacing: 0) {
+                    // Le filet est prélevé sur la colonne **fluide**, pas sur
+                    // le rail : la spec §1.2 fixe le rail d'actions à
+                    // **330 px** et déclare « le reste fluide ». Il mesurait
+                    // 329 px — relevé par la recette visuelle de la vague 1–4.
                     colonneFluide
-                        .frame(width: colonnes.fluid)
+                        .frame(width: colonnes.rail > 0
+                               ? max(0, colonnes.fluid - MeetingSpaceLayout.hairlineWidth)
+                               : colonnes.fluid)
                     if colonnes.rail > 0 {
                         Rectangle()
                             .fill(One2OneToken.hair)
@@ -211,7 +217,7 @@ struct MeetingSpaceView: View {
                                     allCollaborators: allCollaborators,
                                     onSeek: { screen.playhead.seek(to: $0) },
                                     reduit: screen.mode == .prepare)
-                            .frame(width: colonnes.rail - MeetingSpaceLayout.hairlineWidth)
+                            .frame(width: colonnes.rail)
                     }
                 }
             }

@@ -77,6 +77,13 @@ struct Chip: View {
         Text(texte)
             .font(.plexSans(10.5, .medium))
             .foregroundStyle(ton.encre(theme))
+            // Une chip tient sur **une** ligne (spec §1.2 : « Pilule / chip …
+            // rayon 11 px, padding 2–3 × 7–8 »). Sans cela, une chip posée
+            // dans une colonne étroite ou dans une grille adaptative se replie
+            // au milieu d'un mot — la recette du lot 9 l'a vu sur
+            // « PostgreS / QL », celle de la vague 1–4 sur « / décisio / n ».
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(

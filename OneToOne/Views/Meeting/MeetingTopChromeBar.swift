@@ -266,6 +266,28 @@ struct MeetingTopChromeBar: View {
             badgeAtelier
             titleField
             Spacer(minLength: 8)
+            controlsGroup
+        }
+        .padding(.horizontal, Self.paddingHorizontal)
+        .frame(height: Self.height)
+        .background(Self.tint(for: meeting.kind))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(One2OneToken.cardBorder).frame(height: 1)
+        }
+    }
+
+    /// Les contrôles de droite, **à leur largeur intrinsèque**.
+    ///
+    /// Deuxième moitié de la règle d'arbitrage de la barre (cf. `titleField`) :
+    /// le titre cède, les contrôles gardent leur taille. Les recettes des
+    /// lots 16 et 1–4 ont relevé les deux faces du **même** défaut — le badge
+    /// `ATELIER` tronqué à 1 616 px, et à 1 280 px `Rapport ✓ 6:20` réduit à
+    /// « R », `Capture` à « C », `● Partage actif · 5 voient` à un carré bleu.
+    /// La priorité négative du titre ne suffisait pas seule : elle décide de
+    /// **qui** cède, ce `fixedSize` dit que ce groupe ne cède pas du tout,
+    /// popovers et menus compris.
+    private var controlsGroup: some View {
+        HStack(spacing: 10) {
             // Une note n'a ni audio, ni transcription, ni rapport : ses
             // contrôles disparaissent entièrement (même règle que
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
@@ -301,12 +323,7 @@ struct MeetingTopChromeBar: View {
             }
             moreMenu
         }
-        .padding(.horizontal, Self.paddingHorizontal)
-        .frame(height: Self.height)
-        .background(Self.tint(for: meeting.kind))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(One2OneToken.cardBorder).frame(height: 1)
-        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Atelier (lot 16)
@@ -340,8 +357,7 @@ struct MeetingTopChromeBar: View {
                 // déjà fil d'Ariane, titre, pilules audio et capture, menus de
                 // type et de modèle et le bouton Rapport, et le badge
                 // apparaissait **tronqué** (recette du lot 16, 2026-09-07).
-                // C'est le titre qui doit se comprimer — il est ellipsé, un
-                // badge de six lettres ne l'est pas.
+                // Même règle que `controlsGroup` — cf. `titleField`.
                 .fixedSize()
                 .accessibilityLabel("Type Atelier")
         }
@@ -500,11 +516,18 @@ struct MeetingTopChromeBar: View {
     /// Titre de la réunion : `flex:1; min-width:0` de la spec, donc
     /// `maxWidth: .infinity` + une ligne. Éditable en place.
     ///
-    /// **Priorité de mise en page négative** : le titre est ce qui doit céder
-    /// quand la barre est étroite. Avec `layoutPriority(1)`, il était servi le
-    /// premier et absorbait toute la largeur restante — les voisins, dont le
-    /// badge `ATELIER`, se retrouvaient tronqués à 1 616 px (recette du
-    /// lot 16). Le titre porte une ellipse, eux non.
+    /// **Première moitié de la règle d'arbitrage de largeur de la barre**, et
+    /// la seule qui vaille : quand la place manque, c'est le titre qui se
+    /// rogne. Lui seul porte une ellipse ; un badge de six lettres, une pilule
+    /// ou un libellé de bouton n'en ont pas, et se réduisent à leur première
+    /// lettre. Avec `layoutPriority(1)`, le titre était servi le premier et
+    /// absorbait toute la largeur restante.
+    ///
+    /// Les deux moitiés sont nécessaires et vont dans le même sens : la
+    /// priorité négative désigne le perdant de l'arbitrage, le `fixedSize` de
+    /// `controlsGroup` (et ceux de `breadcrumb` et du badge `ATELIER`) met les
+    /// gagnants hors d'atteinte. Ne garder que l'une des deux ramène l'un des
+    /// deux défauts de recette (lot 16 à 1 616 px, vague 1–4 à 1 280 px).
     private var titleField: some View {
         EditableTextField(placeholder: Self.titlePlaceholder(for: meeting), text: $meeting.title)
             .font(.plexSans(13, .semibold))
@@ -720,11 +743,14 @@ struct MeetingTopChromeBar: View {
                     .foregroundStyle(One2OneToken.onFilledButton)
                     .padding(.horizontal, 10)
                     .frame(height: 24)
+                    // Spec §4.2 : « pilule `accent/action` pleine ». Une
+                    // pilule prend le rayon 11 de la table §1.2, pas celui
+                    // d'un bouton (6) — la recette visuelle de la vague 1–4 a
+                    // relevé le carré à la place de la pilule.
                     .background(
-                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                            .fill(One2OneToken.action)
+                        Capsule(style: .continuous).fill(One2OneToken.action)
                     )
-                    .contentShape(Rectangle())
+                    .contentShape(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .help("Un document est à l'écran des participants — ouvrir le tiroir Ressources")
