@@ -6,9 +6,10 @@ import Observation
 /// de saisie.
 ///
 /// Remplace les `@State` de `MeetingView` qui descendaient en `@Binding` sur
-/// deux niveaux (`MeetingView` → `OverviewDashboard` → `ActionsPanel`) : le
-/// programme de refonte interdit désormais tout `@Binding` traversant plus d'un
-/// niveau, et cette classe est l'unique porteuse de cet état.
+/// deux niveaux, à travers le dashboard et son panneau d'actions (retirés au
+/// lot 19) : le programme de refonte interdit désormais tout `@Binding`
+/// traversant plus d'un niveau, et cette classe est l'unique porteuse de cet
+/// état.
 ///
 /// Ce qui est **mémorisé** d'une ouverture à l'autre : l'espace et le mode, par
 /// réunion, dans `UserDefaults`. Le mode est un état d'écran, pas une donnée :

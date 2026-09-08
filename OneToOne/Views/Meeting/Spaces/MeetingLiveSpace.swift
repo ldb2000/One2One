@@ -23,7 +23,7 @@ struct MeetingLiveSpace: View {
     /// Vrai si la transcription montre des locuteurs (mode diarisation) : la
     /// bascule `Speakers` n'a pas de sens sinon.
     let showsSpeakerToggle: Bool
-    /// Lance la génération du résumé (`SummaryCard.generate` existant).
+    /// Lance la génération du résumé (`MeetingSummaryService.generate`).
     let onSummarize: () -> Void
     /// Diarisation VAD, orchestrée par `MeetingView` (tâches longues, phases).
     let onDiarize: () -> Void

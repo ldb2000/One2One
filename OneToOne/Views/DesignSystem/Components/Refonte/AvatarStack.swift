@@ -3,8 +3,10 @@ import SwiftUI
 /// Pile d'avatars de la refonte : pastilles de 19 px, chevauchement de −6 px,
 /// six au maximum puis un `+n` (spec §1.2 et capture 1a).
 ///
-/// Distincte de `MeetingAvatarStack`, qui sert les écrans non refondus avec sa
-/// propre géométrie : ce lot ne remplace pas l'existant.
+/// Seule pile d'avatars de l'application depuis le lot 19 : `MeetingAvatarStack`,
+/// qui servait les écrans non refondus avec sa propre géométrie, est partie avec
+/// le dashboard, son dernier hôte. Les pastilles unitaires (`AvatarCircle`,
+/// `AvatarMini`) restent, elles, employées par les écrans hors refonte.
 struct AvatarStack: View {
 
     static let diametre: CGFloat = 19

@@ -263,9 +263,8 @@ struct MarkdownEditorView: View {
     /// texte de collaborateur).
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var mentionableCollaborators: [Collaborator]
     /// Voir la doc de la même propriété dans `MarkdownNoteEditor` : ouvre la
-    /// fiche du collaborateur mentionné en feuille, seul point d'entrée
-    /// disponible ici (`CollaboratorDetailView` n'a pas d'autre chemin
-    /// programmatique que le `NavigationLink` de la barre latérale).
+    /// fiche du collaborateur mentionné (`CollaboratorFicheView`) en feuille,
+    /// seul point d'entrée programmatique depuis un champ de texte.
     @State private var openedCollaborator: Collaborator?
 
     var body: some View {

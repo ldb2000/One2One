@@ -1,8 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// Section « Notes » embarquée dans `ProjectDetailView` ou
-/// `CollaboratorDetailView`. Une note est un `Meeting` de kind `.note` : la
+/// Section « Notes » embarquée dans `ProjectDetailView` (son seul hôte depuis
+/// que le lot 19 a retiré l'ancienne fiche collaborateur, remplacée par
+/// `CollaboratorFicheView`). Une note est un `Meeting` de kind `.note` : la
 /// section liste celles de la cible, du plus récent au plus ancien, et ouvre
 /// `MeetingView` — il n'y a plus d'éditeur en feuille.
 struct NotesSection: View {

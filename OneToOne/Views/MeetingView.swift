@@ -72,8 +72,9 @@ struct MeetingView: View {
 
     /// L'état d'écran de cette réunion : espace, moment, brouillon d'action,
     /// bascules d'affichage. Remplace treize `@State` dont huit descendaient en
-    /// `@Binding` sur deux niveaux (`OverviewDashboard` → `ActionsPanel`), cf.
-    /// `MeetingScreenModel`. Rattaché à la réunion dans `.onAppear`.
+    /// `@Binding` sur deux niveaux, à travers le dashboard et son panneau
+    /// d'actions — tous deux retirés au lot 19. Cf. `MeetingScreenModel`.
+    /// Rattaché à la réunion dans `.onAppear`.
     @State private var screen = MeetingScreenModel()
     @State private var showDetailsSheet = false
     /// L'assistant est ouvert (barre d'invocation ou `⌘K`, spec §1.4).
@@ -542,11 +543,10 @@ struct MeetingView: View {
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Les sept onglets ont cédé la place aux trois espaces de la spec
-            // §1.1 et au sous-mode temporel du §2.2. `OverviewDashboard` et
-            // `MeetingChatView` ne sont plus instanciés depuis ici (décision
-            // D8 du programme : leur code n'est retiré qu'au lot 19) ; la
-            // préparation est devenue le mode Préparer, le chat la barre
-            // d'assistant.
+            // §1.1 et au sous-mode temporel du §2.2 : la préparation est
+            // devenue le mode Préparer, le chat la barre d'assistant. Le
+            // dashboard (`OverviewDashboard`) a été retiré au lot 19 ;
+            // `MeetingChatView` vit désormais dans `MeetingAssistantPanel`.
             MeetingSpacesBar(
                 screen: screen,
                 kind: meeting.kind,
@@ -695,16 +695,17 @@ struct MeetingView: View {
         }
     }
 
-    /// Génère le résumé en une phrase du mode Relire. Même chemin que la carte
-    /// Résumé du dashboard : `SummaryCard.generate` est la seule définition du
-    /// prompt et de la source.
+    /// Génère le résumé en une phrase du mode Relire.
+    /// `MeetingSummaryService.generate` est la seule définition du prompt et de
+    /// la source (le lot 19 l'a extraite de la carte Résumé du dashboard, qu'il
+    /// a retirée avec le dashboard lui-même).
     @MainActor
     private func generateShortSummary() async {
         guard !isSummarizing else { return }
         isSummarizing = true
         defer { isSummarizing = false }
         do {
-            try await SummaryCard.generate(meeting: meeting, settings: settings)
+            try await MeetingSummaryService.generate(meeting: meeting, settings: settings)
             saveContext()
         } catch {
             reportError = error.localizedDescription
@@ -1734,19 +1735,6 @@ struct MeetingView: View {
     }
 
     // MARK: - Utils
-
-    private var currentSlides: [SlideCapture] {
-        // Pendant une session : source de vérité = service.
-        if let att = captureService.currentAttachment {
-            return att.slides.sorted(by: { $0.index < $1.index })
-        }
-        // Hors session : on affiche la dernière session "slides" de cette réunion.
-        let latest = meeting.attachments
-            .filter { $0.kind == "slides" }
-            .sorted(by: { $0.importedAt > $1.importedAt })
-            .first
-        return latest?.slides.sorted(by: { $0.index < $1.index }) ?? []
-    }
 
     private func saveContext() {
         do { try context.save() } catch { print("[MeetingView] save FAILED: \(error)") }

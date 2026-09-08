@@ -4,10 +4,10 @@ import SwiftUI
 /// `EN UNE PHRASE` (résumé généré + tags de sujets) », capture
 /// `1c-poste-de-pilotage.png`).
 ///
-/// Le résumé est `Meeting.shortSummary`, généré par **la même** fonction que la
-/// carte Résumé du dashboard (`SummaryCard.generate`) : deux définitions du
-/// « texte de la réunion » finiraient par produire deux résumés différents pour
-/// la même séance.
+/// Le résumé est `Meeting.shortSummary`, généré par **la seule** fonction de
+/// l'application qui le fasse (`MeetingSummaryService.generate`) : deux
+/// définitions du « texte de la réunion » finiraient par produire deux résumés
+/// différents pour la même séance.
 ///
 /// Vide, la carte n'affiche pas un cadre blanc mais une invite qui dit quoi
 /// faire (critère d'acceptation n° 1 du chantier 1).
