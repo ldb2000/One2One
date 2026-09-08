@@ -20,9 +20,12 @@ final class StorageStatsService {
         /// reste visible dans les réglages de stockage.
         var annualBytes: Int64 = 0
         var annualCount: Int = 0
+        /// Planches d'atelier : `recordings/<uuid>/boards/` (scène + vignette).
+        var boardsBytes: Int64 = 0
+        var boardsCount: Int = 0
         var databaseBytes: Int64 = 0
         var totalBytes: Int64 {
-            wavBytes + attachmentBytes + slidesBytes + annualBytes + databaseBytes
+            wavBytes + attachmentBytes + slidesBytes + annualBytes + boardsBytes + databaseBytes
         }
     }
 
@@ -107,6 +110,8 @@ final class StorageStatsService {
         // which are already counted separately via Meeting.wavFilePath.
         var slidesBytes: Int64 = 0
         var slidesCount = 0
+        var boardsBytes: Int64 = 0
+        var boardsCount = 0
         if let meetingDirs = try? FileManager.default.contentsOfDirectory(
             at: recordingsDir, includingPropertiesForKeys: [.isDirectoryKey]
         ) {
@@ -118,10 +123,19 @@ final class StorageStatsService {
                 let (b, c) = directorySize(at: slidesSub)
                 slidesBytes += b
                 slidesCount += c
+                // Planches d'atelier : le même patron, un dossier de plus.
+                // Chaque nouveau dossier de fichiers s'enregistre ici (plan
+                // §2.4 point 6), sinon il grossit sans jamais être compté.
+                let boardsSub = dir.appendingPathComponent(BoardStore.folderName)
+                let (bb, bc) = directorySize(at: boardsSub)
+                boardsBytes += bb
+                boardsCount += bc
             }
         }
         stats.slidesBytes = slidesBytes
         stats.slidesCount = slidesCount
+        stats.boardsBytes = boardsBytes
+        stats.boardsCount = boardsCount
 
         // Récaps 1:1 du dossier annuel (lot 10) : `recordings/annual/` n'est
         // pas un dossier de réunion, il n'a donc pas de sous-dossier `slides`

@@ -170,6 +170,12 @@ final class AppSettings {
     /// sollicite le GPU/Neural Engine en continu — impact batterie/ventilateur).
     var liveTranscriptionEnabled: Bool = false
 
+    /// Arme le type de réunion **Atelier** (planches locales, écran 6a).
+    /// Expérimental et donc `false` par défaut : le moteur de planches embarque
+    /// 3,5 Mo de ressource dans un `WKWebView` et les modes Schéma et Manuscrit
+    /// ne sont pas complets avant le lot 17.
+    var workshopEnabled: Bool = false
+
     /// Pré-rappel style Outlook (banner + son + bouton Teams).
     var notifMeetingPreStart: Bool = true
     /// Minutes avant le début pour le pré-rappel (Outlook default = 15).

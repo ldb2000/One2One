@@ -69,6 +69,14 @@ struct MeetingSpaceView: View {
     /// Un glisser survole la fenêtre : la zone de dépôt du tiroir s'allume.
     @State private var isDropTargeted = false
 
+    /// Le mode En séance du type Atelier est l'écran 6a, qui occupe **toute**
+    /// la largeur : son dock de 314 px remplace le rail d'actions (plan §5,
+    /// lot 16). Derrière `workshopEnabled` : sans le drapeau, l'atelier se
+    /// comporte comme une réunion ordinaire.
+    private var estAtelierEnSeance: Bool {
+        meeting.kind == .workshop && settings.workshopEnabled && screen.mode == .live
+    }
+
     var body: some View {
         contenu
             // Lot 6, spec §4.1 : le tiroir Ressources se **superpose** à la
@@ -107,7 +115,11 @@ struct MeetingSpaceView: View {
     /// il faudrait répéter chaque modificateur dans les deux branches.
     @ViewBuilder
     private var contenu: some View {
-        if screen.mode == .review {
+        if estAtelierEnSeance {
+            WorkshopSpaceView(meeting: meeting,
+                              screen: screen,
+                              isAssistantOpen: $isAssistantOpen)
+        } else if screen.mode == .review {
             posteDePilotage
         } else {
             GeometryReader { geo in

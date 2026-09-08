@@ -2,6 +2,163 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Lot 16 — Atelier : socle des planches et mode Croquis (6a partiel) (2026-09-07)
+
+Branche `feat/refonte-lot-16-atelier-socle`. Développée depuis
+`feat/refonte-lot-3-rail-actions`, **rebasée** sur `feat/refonte-lot-9-fiche-projet`
+une fois l'intégration de la vague 4 terminée (quatre conflits attendus, tous des
+ajouts « en fin de type » : `MeetingScreenModel`, `StorageStatsService`,
+`MeetingSpaceView` — la branche atelier est entrée dans `contenu`, avant le mode
+Relire, pour que les modificateurs des lots 4, 5 et 6 restent posés une seule fois —
+et `STATUS.md`).
+Tout est derrière **`AppSettings.workshopEnabled`, défaut `false`**.
+ADR : `docs/adr/2026-09-07-moteur-de-planches-excalidraw-embarque.md` (décision D6).
+Plan : `docs/superpowers/plans/2026-09-07-refonte-lot-16-atelier-socle.md`.
+
+### Le moteur : Excalidraw embarqué, 3,5 Mo, aucun réseau
+
+`Scripts/build-excalidraw-bundle.sh` construit le bundle **hors du dépôt** (npm dans un
+dossier temporaire) et dépose dans `OneToOne/Resources/Whiteboard/` un fichier IIFE
+unique de **3,1 Mo**, sa feuille de style de **248 Ko**, la licence MIT et
+`VERSIONS.txt`. Versions épinglées : `@excalidraw/excalidraw` **0.18.1**, `react` et
+`react-dom` **18.3.1**, `esbuild` **0.28.2**. Le bundle est **commité**, comme
+`mermaid.min.js` (3,4 Mo) : le script ne sert qu'à le régénérer.
+
+Sans trois allègements délibérés (`Scripts/excalidraw-esbuild.mjs`) le fichier ferait
+**8,5 Mo** : les 55 traductions d'Excalidraw et le convertisseur Mermaid (mermaid +
+chevrotain + langium, ~4 Mo) sont remplacés par des modules vides — l'interface
+d'Excalidraw est **masquée**, toute la chrome est native — et la famille CJK Xiaolai
+(12,5 Mo) n'est pas inlinée.
+
+**Aucune requête réseau possible.** La page (`WhiteboardHTML.page()`) inline le JS et le
+CSS, comme `MermaidRenderer`, et porte
+`default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:`.
+Les 230 fontes `./fonts/**.woff2` du moteur sont réécrites en `data:font/woff2;base64,…`
+par le script — `Fonts.createUrls` rend une telle URI telle quelle et ne consulte jamais
+son CDN de secours — et les sept bases interrogeables du moteur (esm.sh, unpkg, partage
+de scène, bibliothèque publique, IA, collaboration) deviennent des `file:///` morts.
+
+**Écart assumé sur « aucune URL http(s) dans la page ».** Le bundle contient encore des
+URL qui ne sont **pas** des ressources chargées : les deux espaces de noms XML du W3C
+(`http://www.w3.org/2000/svg`, `.../1999/xhtml`), **indispensables** à `createElementNS`
+donc à l'export SVG, et des constantes de liens d'interface (github.com, youtube.com,
+plus.excalidraw.com…) qui vivent dans la chrome masquée. Les retirer casserait l'export
+SVG et corromprait des littéraux d'expression régulière. `WhiteboardHTML.audit(_:)`
+vérifie donc quatre choses, et `WhiteboardHTMLTests` les assène sur le bundle réellement
+embarqué : la CSP exacte est présente ; le **balisage** (corps des `<script>`/`<style>`
+retiré) ne porte aucune adresse réseau ni `<script src>`/`<link href>`/`@import` ;
+aucune URL de fonte n'est autre que `data:` ; aucune des sept bases n'a survécu.
+
+### Le socle
+
+- `WhiteboardResourceLocator` — même structure que `MermaidResourceLocator` :
+  `Bundle.module` en développement, disposition du `.app` packagé ensuite. Rappel :
+  `.process("Resources")` **aplatit** l'arborescence, le fichier vit à la racine du
+  bundle de ressources et non dans `Whiteboard/`.
+- `WhiteboardBridge` — un **protocole**, pas une classe, plus `WhiteboardBridgeDouble`.
+  Toute la règle métier et tout `BoardStore` se testent sans WebKit (parade du plan §8).
+  `WhiteboardWebBridge` en est l'implémentation `WKWebView` ; son gestionnaire de
+  messages passe par un **proxy faible**, sans quoi `WKUserContentController.add(_:name:)`
+  et la configuration retenue par la vue formeraient un cycle que rien ne casserait.
+- `BoardStore` — `recordings/<uuid de la réunion>/boards/<stableID>.excalidraw.json` et
+  `.png`, racine **et horloge injectables**, vignette amortie à 5 s (`force` au
+  changement de planche). `BoardOrdering` (tri, renumérotation, duplication, libellés du
+  compteur et de fraîcheur), `BoardScene` (compte les objets d'une scène sans le moteur,
+  et fabrique une scène à partir de boîtes étiquetées), `BoardModeRule` (règle §7.1).
+- `StorageStatsService` compte `boards/`, `MaintenanceView` l'affiche en teal.
+  `BackupService` gagne un `BoardDTO` (scène et vignette **en base64**, clé `boards`
+  optionnelle pour les sauvegardes antérieures) et un `BoardStore` injectable : sans lui
+  une restauration de test écrirait dans le `recordings/` de production.
+
+### L'écran 6a
+
+`WorkshopSpaceView` = mode **En séance** du type Atelier, grille `52 | 1fr | 314` sous une
+barre d'outils de 32 px. Une seule branche dans `MeetingSpaceView` : le **dock remplace le
+rail d'actions**. `WorkshopState` (une ligne en fin de `MeetingScreenModel`) porte la
+planche active, la palette, l'onglet du dock et **l'unique `WKWebView` de la réunion** —
+la page inline 3,1 Mo que WebKit réanalyse à chaque création, une vue par planche
+multiplierait ce coût par 40. Sa fabrique de pont est injectable, donc l'orchestration
+entière (créer, dessiner, sauvegarder, changer de mode, dupliquer, réordonner) se teste
+contre le double.
+
+Les cinq couleurs sont **dérivées des jetons** (`WorkshopPalette.hexString`) et non
+recopiées : le moteur veut un hexadécimal, la règle du programme §7 interdit une couleur
+hors `One2OneTokens`, et un test vérifie que les deux coïncident.
+
+### Recette visuelle — partielle, et deux défauts trouvés
+
+`Scripts/recette-app.sh` et `Scripts/recette-run.sh` repris de la branche du lot 9
+(la base du lot 3 ne les avait pas). `.app` **debug** empaqueté, lancé avec `HOME` **et**
+`CFFIXED_USER_HOME` jetables ; garde-fou d'isolation vert, le store de production n'a
+jamais été ouvert. Capture : **`recette/lot-16-atelier-6a.png`** (fenêtre de 1 616 px
+logiques — l'écran du poste fait 1 728 px, 1 920 est hors de portée).
+
+Ce que la capture confirme par rapport à `6a-atelier-planche.png` : palette verticale de
+52 px avec ses neuf outils et `↺ ↻` en pied ; toile `#fdfcfa` à points de 18 px ; dock de
+314 px avec `Planches 4 / Captures 0 / Pièces 0`, les quatre planches
+(`CROQUIS Périmètre actuel 08:15 · Yann`, `SCHÉMA Flux réseau 19:40 · Claire-Amélie`,
+`CROQUIS Cible d'architecture 34:20 · en cours`, `MANUSCRIT Notes de Patrice 28:05 ·
+stylet`), l'active bordée teal sur `#f2f8f7`, `＋ Planche` teal plein et `Dupliquer`,
+le pied `L'assistant peut décrire les planches dans le rapport` ; type `Atelier` dans la
+barre du haut. Le semis a bien écrit ses **quatre fichiers de scène** dans
+`recordings/<uuid>/boards/` — le critère n° 1 (« se crée, se dessine, se sauvegarde,
+se retrouve horodatée, sans réseau ») est vérifié dans l'application réelle, pas
+seulement en test.
+
+**Deux défauts trouvés par cette recette, corrigés et couverts par un test :**
+
+1. L'écran demandait sa planche **avant** que la page ait fini d'analyser 3,1 Mo de
+   JavaScript. Le `load` échouait, un bandeau « Le moteur de planches n'est pas encore
+   prêt » s'affichait et la toile restait vide jusqu'au clic suivant. `WorkshopState`
+   garde désormais l'intention (`pendingLoad`) et `onReady` la rejoue ; aucune erreur
+   n'est posée entre-temps, puisque rien n'est cassé.
+   Test : `selectionIsDeferredUntilReady`.
+2. Le bandeau d'erreur, posé en `.overlay(alignment: .top)`, **recouvrait la barre
+   d'outils** de 32 px : modes, couleurs, épaisseurs, compteur et export disparaissaient.
+   Il est passé dans le flux, sous la barre.
+
+**Écarts et limites de la recette, à reprendre :**
+
+- La vérification **après** correctif n'a pas pu être refaite : plusieurs agents pilotaient
+  le même bureau au même moment (une passe « recette visuelle des écrans 1a–3b » tournait
+  en parallèle) et tuaient les processus `OneToOne`. La capture conservée montre donc
+  l'écran **avant** les deux correctifs — barre d'outils masquée par le bandeau, toile
+  vide. À refaire au calme.
+- Le badge `ATELIER` apparaît **tronqué** dans la barre du haut à 1 616 px : la barre
+  porte déjà fil d'Ariane, titre, pilules audio et capture, menus de type et de modèle, et
+  le bouton Rapport. À arbitrer (masquer le fil d'Ariane sous une largeur seuil ?).
+- Le crash **préexistant** de la fenêtre dédiée est bien là : le semis pose un
+  `QuickLaunchRouter.pendingToken`, la fenêtre dédiée s'ouvre et l'application tombe sur
+  `NSGenericException` « needing another Update Constraints in Window pass ». La réunion
+  s'ouvre sans problème depuis la fenêtre principale, comme consigné.
+- Effet de bord sur le poste : l'instance de production (`.build/.../release/OneToOne`,
+  fenêtre `NPA/LDB`) a été **redimensionnée** à 0,33 / 1 720 × 1 024 pendant la recette —
+  `first application process whose unix id is …` d'AppleScript renvoie le mauvais
+  processus quand deux instances partagent l'identifiant de bundle. Aucune donnée touchée,
+  seulement la géométrie de la fenêtre. Adressage par itération de la liste depuis.
+
+### Performances
+
+**Non mesurées.** Le rendu à 2 000 objets et le temps de chargement du bundle demandent une
+session graphique tranquille ; la contention du bureau (cf. ci-dessus) a empêché la
+mesure. Repère indirect seulement : le bundle fait la taille de `mermaid.min.js`, déjà
+inliné dans un `WKWebView` par l'éditeur.
+
+### Laissé au lot 17
+
+Modes Schéma et Manuscrit complets (bibliothèque de formes, pression du stylet,
+surligneur, lasso), onglets `Captures` et `Pièces` du dock (ils portent une invite non
+vide, testée), section `SUR CETTE PLANCHE`, `＋ Action depuis la sélection`,
+`Épingler à mm:ss`. Lot 18 : planche de séance 6b et légende d'assistant.
+
+### Vérifications
+
+`swift build` propre (avertissements préexistants seuls). `swift test` complet **vert** :
+1 041 XCTest + 1 419 Swift Testing (**2 460**), 0 échec — contre 2 402 au sommet de la
+pile après l'intégration de la vague 4.
+
+**Prochaine action :** refaire la recette de 6a après les deux correctifs, sur un bureau
+libre, et mesurer le chargement du bundle plus le rendu à 2 000 objets.
 ## Crash à l'ouverture de la fenêtre de réunion dédiée — corrigé (2026-09-07)
 
 Branche `fix/refonte-1to1-window-crash`, **au sommet de la vague 4** — sur

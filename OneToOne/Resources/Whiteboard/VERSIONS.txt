@@ -1,0 +1,9 @@
+Bundle Excalidraw embarqué — versions épinglées
+Régénérer avec Scripts/build-excalidraw-bundle.sh
+
+@excalidraw/excalidraw 0.18.1
+react                  18.3.1
+react-dom              18.3.1
+esbuild                0.28.2
+node                   v22.23.2
+construit le           2026-09-07T17:27:47Z

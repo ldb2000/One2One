@@ -105,6 +105,12 @@ struct MeetingTopChromeBar: View {
 
     @Bindable var meeting: Meeting
     @Environment(\.modelContext) private var modelContext
+
+    /// Les réglages, pour le drapeau `workshopEnabled`. Interrogés ici plutôt
+    /// que passés en paramètre : la barre est déjà appelée avec dix-huit
+    /// arguments, et un dix-neuvième traversant `MeetingView` est exactement ce
+    /// que le programme §8 refuse.
+    @Query private var reglages: [AppSettings]
     @Query private var allTemplates: [ReportTemplate]
     @ObservedObject var recorder: AudioRecorderService
     @ObservedObject var stt: TranscriptionService
@@ -163,8 +169,10 @@ struct MeetingTopChromeBar: View {
                 panelButton(onBack)
             }
             breadcrumb
+            badgeAtelier
             titleField
             Spacer(minLength: 8)
+            piluleLocale
             // Une note n'a ni audio, ni transcription, ni rapport : ses
             // contrôles disparaissent entièrement (même règle que
             // `MeetingSpaceRouting`, qui lui retire l'espace Rapport).
@@ -185,6 +193,61 @@ struct MeetingTopChromeBar: View {
         .background(Self.tint(for: meeting.kind))
         .overlay(alignment: .bottom) {
             Rectangle().fill(One2OneToken.cardBorder).frame(height: 1)
+        }
+    }
+
+    // MARK: - Atelier (lot 16)
+
+    /// Vrai quand le type Atelier est armé dans les réglages.
+    private var atelierArme: Bool {
+        reglages.canonicalSettings?.workshopEnabled ?? false
+    }
+
+    /// Les types proposés. L'Atelier n'apparaît que si le drapeau est armé —
+    /// mais une réunion déjà de ce type garde son entrée, sinon le sélecteur
+    /// afficherait un type absent de sa propre liste.
+    private var typesOfferts: [MeetingKind] {
+        MeetingKind.allCases.filter { $0 != .workshop || atelierArme || meeting.kind == .workshop }
+    }
+
+    /// Le badge `ATELIER` en `accent/workshop` plein (capture 6a).
+    @ViewBuilder
+    private var badgeAtelier: some View {
+        if meeting.kind == .workshop {
+            Text("ATELIER")
+                .font(.plexMono(9.5, .semibold))
+                .tracking(9.5 * 0.07)
+                .foregroundStyle(One2OneToken.onFilledButton)
+                .padding(.horizontal, 8)
+                .frame(height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                        .fill(One2OneToken.workshop))
+                .accessibilityLabel("Type Atelier")
+        }
+    }
+
+    /// `● Local · hors ligne` — **toujours vrai** pour l'atelier : les planches
+    /// vivent dans le dossier de la réunion et le moteur est embarqué (spec
+    /// §7.4, ADR du 2026-09-07). La pilule est donc une affirmation, pas un
+    /// état à surveiller.
+    @ViewBuilder
+    private var piluleLocale: some View {
+        if meeting.kind == .workshop {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(One2OneToken.ok)
+                    .frame(width: 6, height: 6)
+                Text("Local · hors ligne")
+                    .font(.plexSans(10.5, .medium))
+                    .foregroundStyle(One2OneToken.ink2)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(Capsule(style: .continuous).fill(One2OneToken.surface))
+            .overlay(Capsule(style: .continuous)
+                .strokeBorder(One2OneToken.strongBorder, lineWidth: 1))
+            .help("Les planches, la scène et les vignettes restent dans le dossier de la réunion")
         }
     }
 
@@ -581,7 +644,7 @@ struct MeetingTopChromeBar: View {
                 get: { meeting.kind },
                 set: { meeting.kind = $0; try? modelContext.save() }
             )) {
-                ForEach(MeetingKind.allCases) { k in
+                ForEach(typesOfferts) { k in
                     Label(k.label, systemImage: k.sfSymbol).tag(k)
                 }
             }

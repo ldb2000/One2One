@@ -71,6 +71,8 @@ struct MaintenanceView: View {
                         color: .orange)
                 segment(width: geo.size.width * CGFloat(s.slidesBytes) / CGFloat(total),
                         color: .purple)
+                segment(width: geo.size.width * CGFloat(s.boardsBytes) / CGFloat(total),
+                        color: .teal)
                 segment(width: geo.size.width * CGFloat(s.databaseBytes) / CGFloat(total),
                         color: .green)
             }
@@ -91,6 +93,8 @@ struct MaintenanceView: View {
                       detail: "\(formatBytes(s.attachmentBytes)) (\(s.attachmentCount))")
             legendRow(color: .purple, label: "Slides capturées",
                       detail: "\(formatBytes(s.slidesBytes)) (\(s.slidesCount))")
+            legendRow(color: .teal, label: "Planches d'atelier",
+                      detail: "\(formatBytes(s.boardsBytes)) (\(s.boardsCount))")
             legendRow(color: .green, label: "Base de données",
                       detail: formatBytes(s.databaseBytes))
         }
