@@ -76,6 +76,33 @@ struct MeetingTopChromeBar: View {
         kind == .oneToOne ? "Mon équipe" : nil
     }
 
+    // MARK: - Écran de séance du 1:1 subi (lot 13, capture 5a)
+
+    /// Le segment `Mes 1:1` du fil d'Ariane d'un 1:1 **subi**.
+    ///
+    /// `nil` pour un 1:1 mené : celui-là se range sous `Mon équipe`. Les deux
+    /// segments s'excluent, et c'est le propos — le fil d'Ariane dit de quel
+    /// côté de la table on est avant même qu'on lise la pilule de rôle.
+    static func myOneOnOnesSegmentLabel(for kind: MeetingKind) -> String? {
+        kind == .manager ? "Mes 1:1" : nil
+    }
+
+    /// `Avec Yann PENVEN — 4 septembre` (capture 5a).
+    ///
+    /// Dérivé de la personne et de la date, jamais stocké — même règle que
+    /// `oneOnOneSessionHeading`, dont c'est le pendant côté subi. Sert de
+    /// **placeholder** du titre : renommer son propre entretien doit rester
+    /// possible.
+    ///
+    /// Sans nom, la phrase reste une phrase (`Mon 1:1 du 4 septembre`) : un
+    /// « Avec  — 4 septembre » afficherait un tiret nu.
+    static func collaboratorSessionHeading(person: String, date: Date) -> String {
+        let jour = OneOnOneDateFormat.dayFullMonth(date)
+        let nom = person.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nom.isEmpty else { return "Mon 1:1 du \(jour)" }
+        return "Avec \(nom) — \(jour)"
+    }
+
     /// La pilule `● Privé — vous deux` (spec §3.2, niveau `shared` : « visible
     /// par les deux personnes du fil »).
     ///
@@ -111,9 +138,17 @@ struct MeetingTopChromeBar: View {
     /// Le placeholder du champ de titre : l'en-tête d'entretien pour un 1:1
     /// mené, le placeholder générique ailleurs.
     static func titlePlaceholder(for meeting: Meeting) -> String {
-        guard meeting.kind == .oneToOne else { return "Titre de la réunion…" }
-        return oneOnOneSessionHeading(person: meeting.participants.first?.name ?? "",
-                                      date: meeting.date)
+        let personne = meeting.participants.first?.name ?? ""
+        switch meeting.kind {
+        case .oneToOne:
+            return oneOnOneSessionHeading(person: personne, date: meeting.date)
+        case .manager:
+            // Lot 13 : côté subi, la personne d'en face est mon manager, et
+            // l'en-tête de la capture 5a le dit ainsi (`Avec <Manager> — <jour>`).
+            return collaboratorSessionHeading(person: personne, date: meeting.date)
+        case .global, .project, .work, .note, .workshop:
+            return "Titre de la réunion…"
+        }
     }
 
     /// Lecture d'un timecode tapé à la main dans la pilule audio (spec §2.1 :
@@ -219,6 +254,8 @@ struct MeetingTopChromeBar: View {
     @State private var showReportTypePicker = false
     /// Saisie de timecode en cours dans la pilule audio ; `nil` = affichage.
     @State private var timecodeDraft: String?
+    /// L'aperçu `Mon récap` d'un 1:1 subi est ouvert (lot 13).
+    @State private var showsMyRecap = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -238,6 +275,10 @@ struct MeetingTopChromeBar: View {
                         .help("Cet entretien n'est visible que de vous deux — les lignes privées ne sortent pas même de là")
                 }
                 audioPill
+                // Lot 13 : côté subi, la barre porte `Mon récap` — l'aperçu de
+                // ce qui partira vers mon manager. C'est la contrepartie du
+                // défaut `private` : pouvoir vérifier avant d'envoyer.
+                if meeting.kind == .manager { myRecapButton }
                 sharePill
                 captureButton
                     .popover(isPresented: capturePopoverBinding,
@@ -323,6 +364,40 @@ struct MeetingTopChromeBar: View {
         }
     }
 
+    // MARK: - Mon récap (lot 13)
+
+    /// `Mon récap` — l'aperçu du récap filtré `.manager`.
+    ///
+    /// Autonome à dessein : la barre a déjà `meeting` et le contexte, donc elle
+    /// n'a besoin d'aucun paramètre de plus. Un `onShowMyRecap` traversant
+    /// obligerait `MeetingView` à porter une closure supplémentaire, ce que le
+    /// programme §8 refuse — et `MeetingView` n'est pas touché par ce lot.
+    private var myRecapButton: some View {
+        Button {
+            showsMyRecap = true
+        } label: {
+            Text("Mon récap")
+                .font(.plexSans(11, .medium))
+                .foregroundStyle(One2OneToken.oneOnOneInk)
+                .padding(.horizontal, 9)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                        .fill(One2OneToken.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
+                        .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Voir ce qui partira vers votre manager — vos lignes privées n'y sont pas")
+        .sheet(isPresented: $showsMyRecap) {
+            MyRecapPreview(meeting: meeting)
+        }
+    }
+
     // MARK: - Fil d'Ariane
 
     /// Le retour vit dans le fil d'Ariane : c'est le seul endroit de l'écran
@@ -381,6 +456,15 @@ struct MeetingTopChromeBar: View {
             // l'annuaire n'est pas une destination de cet écran.
             if let equipe = Self.teamSegmentLabel(for: meeting.kind) {
                 Text(equipe)
+                    .font(.plexSans(11))
+                    .foregroundStyle(One2OneToken.ink4)
+                chevron
+            }
+            // Lot 13 : un 1:1 subi se range sous « Mes 1:1 » — le segment que
+            // la capture 5a montre à la place de `Mon équipe`. Non cliquable,
+            // pour la même raison.
+            if let miens = Self.myOneOnOnesSegmentLabel(for: meeting.kind) {
+                Text(miens)
                     .font(.plexSans(11))
                     .foregroundStyle(One2OneToken.ink4)
                 chevron

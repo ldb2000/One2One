@@ -247,7 +247,8 @@ struct ContentView: View {
     /// Tous les semis sont appelés, et **une seule fois chacun** : ils sont
     /// idempotents et se complètent (le lot 5 les décisions horodatées, le
     /// lot 6 les ressources, le lot 7 les captures, le lot 11 les engagements
-    /// de la séance 2a, le lot 12 les dates et les résumés de 2b). Les
+    /// de la séance 2a, le lot 12 les dates et les résumés de 2b, le lot 13 les
+    /// quatre livrables de 5a). Les
     /// distribuer écran par écran demanderait de savoir, pour chaque capture,
     /// de quel lot vient chaque pixel — et se tromperait.
     @MainActor
@@ -257,6 +258,7 @@ struct ContentView: View {
         _ = RefonteDemoSeed.seedLot7(in: context)
         let seance = RefonteDemoSeed.seedLot11(in: context)
         let fils = RefonteDemoSeed.seedLot12(in: context)
+        let seanceSubie = RefonteDemoSeed.seedLot13(in: context)
 
         let cible: Meeting?
         switch ecran.cible {
@@ -266,6 +268,11 @@ struct ContentView: View {
             // `seedLot11` rend la séance de la capture ; le repli passe par le
             // fil, parce qu'un fil sans participant ne rend rien.
             cible = seance?.meeting ?? OneOnOneThreadStore.allMeetings(of: fils.manager).last
+        case .entretienSubi:
+            // `seedLot13` rend la séance de la capture 5a ; même repli par le
+            // fil que pour l'entretien mené.
+            cible = seanceSubie?.meeting
+                ?? OneOnOneThreadStore.allMeetings(of: fils.collaborator).last
         case .atelier:
             cible = RefonteDemoSeed.seedWorkshop(in: context)
         }

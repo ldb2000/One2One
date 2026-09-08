@@ -66,6 +66,18 @@ extension OneOnOneDateFormat {
         isWithinWeekdayWindow(date, now: now) ? weekday(date) : dayMonth(date)
     }
 
+    /// `1er sept.` le premier du mois, `29 août` les autres jours (lot 13).
+    ///
+    /// `DateFormatter` ne sait pas rendre l'ordinal français : le gabarit
+    /// `d MMM` donne « 1 sept. », qui se lit mal au milieu d'une phrase
+    /// (« Réunion du 1 sept. »). Seul le premier prend un ordinal en français ;
+    /// « 2ème sept. » n'existe pas, d'où le cas unique et non une table.
+    static func dayMonthOrdinal(_ date: Date) -> String {
+        let jour = Calendar(identifier: .gregorian).component(.day, from: date)
+        guard jour == 1 else { return dayMonth(date) }
+        return "1er " + dayMonth(date).split(separator: " ").dropFirst().joined(separator: " ")
+    }
+
     /// Même fabrique que celle du lot 10, recopiée parce qu'elle y est
     /// `private` — la rendre `internal` modifierait un fichier d'un autre lot.
     /// **Locale forcée `fr_FR`** : un poste réglé en anglais afficherait

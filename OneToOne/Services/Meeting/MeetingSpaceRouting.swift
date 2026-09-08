@@ -67,6 +67,18 @@ enum MeetingSpaceRouting {
         kind == .oneToOne && mode == .live
     }
 
+    /// Vrai quand l'espace `Réunion` doit monter l'écran de séance du **1:1
+    /// subi** (capture `5a-1to1-collaborateur-seance.png`, lot 13).
+    ///
+    /// Symétrique de `usesOneOnOneManagerSession`, et **exclusive** de lui : un
+    /// type ne peut pas être à la fois mené et subi, puisque `myRole` se déduit
+    /// du type (D4). Réservé au mode En séance : la préparation est la capture
+    /// 5b (lot 14), la relecture reste le poste de pilotage.
+    static func usesOneOnOneCollaboratorSession(kind: MeetingKind,
+                                                mode: MeetingScreenModel.Mode) -> Bool {
+        kind == .manager && mode == .live
+    }
+
     /// Vrai quand le mode Préparer doit céder la place à l'écran de préparation
     /// du 1:1 côté manager (`ManagerPrepView`, capture 2b).
     ///
