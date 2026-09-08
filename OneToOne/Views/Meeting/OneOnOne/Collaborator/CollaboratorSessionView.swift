@@ -63,10 +63,13 @@ struct CollaboratorSessionView: View {
                         .frame(width: colonnes.left)
                     filet
                 }
+                // Rembourrage avant cadrage, même raison que dans
+                // `ManagerSessionView` : posé après, il s'ajoute à la largeur
+                // et pousse le rail de 24 px hors du cadre de la fenêtre.
                 CollaboratorNotesColumn(meeting: meeting, thread: fil, screen: screen)
-                    .frame(width: colonnes.center - marge(colonnes))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
+                    .frame(width: colonnes.center - marge(colonnes))
                 if colonnes.rail > 0 {
                     filet
                     colonneDroite(fil)

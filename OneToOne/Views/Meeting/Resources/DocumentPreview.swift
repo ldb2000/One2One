@@ -165,7 +165,9 @@ struct DocumentPreviewScene: View {
                 .truncationMode(.middle)
             Text("Aperçu indisponible — le document reste partagé et citable")
                 .font(.plexSans(11))
-                .foregroundStyle(One2OneToken.inkMuted)
+                // `ink/4` et non `ink/muted` : §1.2 réserve `ink/muted` aux
+                // placeholders de 11,5 px et plus, et exige 4,5:1 sous 12 px.
+                .foregroundStyle(One2OneToken.ink4)
                 .multilineTextAlignment(.center)
         }
         .padding(.vertical, 34)

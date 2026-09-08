@@ -301,6 +301,18 @@ struct ActionCard: View {
             Text(libelle)
                 .font(.plexMono(10, .medium))
                 .foregroundStyle(One2OneToken.actionInk)
+                // Un timecode est de **largeur fixe** et tient sur une ligne
+                // (spec §1.2). Sans cela, la place que les autres pilules
+                // laissent dans les 330 px du rail décide de sa mise en page :
+                // la recette finale l'a vu se replier caractère par caractère
+                // — « 04:12 ↗ » rendu en un filet vertical de 14 px, qui
+                // creusait la carte d'un vide de 80 px — puis se casser en
+                // deux lignes sur la carte suivante. Même défaut que les
+                // primitives `Chip` / `InvitePill` / `Pill`, corrigées à la
+                // recette des vagues 1-4 ; cette pilule-ci est construite sur
+                // place et leur avait échappé.
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Capsule(style: .continuous).fill(One2OneToken.actionBg))

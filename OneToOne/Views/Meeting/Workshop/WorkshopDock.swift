@@ -252,6 +252,13 @@ struct WorkshopDock: View {
             .disabled(active == nil)
         }
         .padding(.horizontal, 12)
+        // Dix pixels au-dessus : la liste des planches est bornée à 260 px et
+        // se coupe donc au milieu d'une vignette dès la quatrième planche.
+        // Collés à cette coupe, les deux boutons se lisaient comme s'ils
+        // **recouvraient** la carte — « Cible d'architecture / 34:20 · en
+        // cours » tranché net par « ＋ Planche » sur la capture 6a de la
+        // recette finale. La maquette laisse la même respiration.
+        .padding(.top, 10)
         .padding(.bottom, 12)
     }
 

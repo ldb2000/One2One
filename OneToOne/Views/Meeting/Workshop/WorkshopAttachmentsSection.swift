@@ -156,7 +156,9 @@ struct WorkshopAttachmentsSection: View {
              ? "Relâchez : le fichier est copié dans la réunion"
              : "Glissez un fichier — il est copié dans la réunion")
             .font(.plexSans(11))
-            .foregroundStyle(isTargeted ? One2OneToken.actionInk : One2OneToken.inkMuted)
+            // `ink/4` et non `ink/muted` : §1.2 réserve `ink/muted` aux
+            // placeholders de 11,5 px et plus, et exige 4,5:1 sous 12 px.
+            .foregroundStyle(isTargeted ? One2OneToken.actionInk : One2OneToken.ink4)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(

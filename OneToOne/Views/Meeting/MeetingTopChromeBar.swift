@@ -961,12 +961,19 @@ struct MeetingTopChromeBar: View {
                     Text(reportLabel).font(.plexSans(10.5, .semibold))
                 }
             }
-            .foregroundStyle(One2OneToken.onFilledButton)
+            // Indisponible, le bouton ne s'éclaircit plus : il **change de
+            // registre**. Un libellé blanc sur `report` à 45 % d'opacité
+            // tombait à moins de 2:1 — « Transcrire + Rapport 1:1 » était
+            // illisible sur les captures 2a, 2b, 5a, 5b, 6a et 6b de la
+            // recette finale. Le couple `report/bg` + `report/ink` de §1.2
+            // atteint 6:1 et dit la même chose : ce bouton n'est pas
+            // l'action primaire de l'instant.
+            .foregroundStyle(disabled ? One2OneToken.reportInk : One2OneToken.onFilledButton)
             .padding(.horizontal, 10)
             .frame(height: 24)
             .background(
                 RoundedRectangle(cornerRadius: One2OneToken.radiusButton)
-                    .fill(disabled ? One2OneToken.report.opacity(0.45) : One2OneToken.report)
+                    .fill(disabled ? One2OneToken.reportBg : One2OneToken.report)
             )
         }
         .buttonStyle(.plain)

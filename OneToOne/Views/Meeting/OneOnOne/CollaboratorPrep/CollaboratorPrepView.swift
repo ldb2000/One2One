@@ -92,7 +92,9 @@ struct CollaboratorPrepView: View {
                 actions(fil, plan: plan)
                 Text(CollabPrepModel.provenance)
                     .font(.plexSans(11))
-                    .foregroundStyle(One2OneToken.inkMuted)
+                    // `ink/4` et non `ink/muted` : §1.2 réserve `ink/muted` aux
+                    // placeholders de 11,5 px et plus, et exige 4,5:1 sous 12 px.
+                    .foregroundStyle(One2OneToken.ink4)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(14)
@@ -124,12 +126,12 @@ struct CollaboratorPrepView: View {
         HStack(spacing: 9) {
             boutonPrimaire(verse
                            ? PrepToAgenda.doneLabel(plan.count)
-                           : PrepToAgenda.agendaButtonLabel) {
+                           : PrepToAgenda.agendaButtonLabel,
+                           accompli: verse) {
                 PrepToAgenda.apply(plan, for: meeting, in: fil, in: context)
                 revision += 1
             }
             .disabled(verse)
-            .opacity(verse ? 0.55 : 1)
             .help(verse
                   ? "Ces sujets sont déjà à l'ordre du jour de l'entretien"
                   : "Créer les sujets privés correspondants, dans cet ordre")
@@ -163,18 +165,27 @@ struct CollaboratorPrepView: View {
         }
     }
 
+    /// `accompli` : le geste est déjà fait, le bouton dit l'état atteint
+    /// (`Ordre du jour prêt · 2 sujets`).
+    ///
+    /// Il **change alors de registre** au lieu de s'éclaircir. Le libellé
+    /// blanc sur `accent/oneonone` réduit à 55 % d'opacité tombait sous 2:1 :
+    /// sur la capture 5b de la recette finale, « Ordre du jour prêt · 2
+    /// sujets » ne se lisait plus. Le couple `oneonone/bg` + `oneonone/ink`
+    /// de §1.2 atteint 6:1 et se distingue toujours d'un bouton actif.
     private func boutonPrimaire(_ titre: String,
+                                accompli: Bool = false,
                                 action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(titre)
                 .font(.plexSans(12, .semibold))
-                .foregroundStyle(One2OneToken.onFilledButton)
+                .foregroundStyle(accompli ? One2OneToken.oneOnOneInk : One2OneToken.onFilledButton)
                 .padding(.horizontal, 14)
                 .frame(height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: One2OneToken.radiusButton,
                                      style: .continuous)
-                        .fill(One2OneToken.oneOnOne)
+                        .fill(accompli ? One2OneToken.oneOnOneBg : One2OneToken.oneOnOne)
                 )
                 .contentShape(Rectangle())
         }

@@ -38,8 +38,12 @@ struct ManagerNotesColumn: View {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 9) {
                         MoodScale(meeting: meeting, thread: thread)
+                        // `MoodScale` porte déjà le libellé `① COMMENT ÇA VA` :
+                        // les notes de ce temps-là viennent **sous** l'échelle,
+                        // dans la même section (capture 2a).
                         OneOnOneNotesSection(meeting: meeting, section: .howAreYou,
-                                             screen: screen)
+                                             screen: screen,
+                                             montreLeLibelle: false)
                     }
                     separateur
                     OneOnOneNotesSection(meeting: meeting, section: .topics, screen: screen)

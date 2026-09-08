@@ -63,10 +63,16 @@ struct ManagerSessionView: View {
                         .frame(width: colonnes.left)
                     filet
                 }
+                // Le rembourrage **avant** le cadrage : posé après, il s'ajoute
+                // à la largeur au lieu d'être pris dedans, et la colonne
+                // centrale mesure alors 24 px de trop — 24 px que le rail perd
+                // hors du cadre de la fenêtre. La recette finale a vu les
+                // cartes d'engagement, « 2× reporté » et le bouton « Envoyer le
+                // récap » coupés net sur le bord droit.
                 ManagerNotesColumn(meeting: meeting, thread: fil, screen: screen)
-                    .frame(width: colonnes.center - marge(colonnes))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
+                    .frame(width: colonnes.center - marge(colonnes))
                 if colonnes.rail > 0 {
                     filet
                     CommitmentsRail(meeting: meeting, thread: fil,
