@@ -7,8 +7,8 @@ description: Utiliser quand le code documenté d'un projet a changé et que /doc
 
 ## Principe
 
-La documentation doit être **vraie**, pas exhaustive : réalignée **par section**, jamais
-régénérée ; des tests la rendent fausse bruyamment.
+La documentation doit être **vraie**, pas exhaustive : réalignée **par section** ; des tests la
+rendent fausse bruyamment.
 
 ## La règle de placement
 
@@ -36,8 +36,7 @@ relie** (`voir §n` — jamais `STATUS.md`, un journal, une PR).
    de l'écrire.
 4. **Relire le document entier**, pas seulement la section touchée.
 5. **Vérifier** : commande `tests` du manifeste ; relire avec `references/regles-de-redaction.md`.
-6. **Proposer un ADR** (« proposé ») pour une décision sans trace ; un ADR validé se supersède,
-   jamais ne s'édite.
+6. **Proposer un ADR** (« proposé ») pour une décision sans trace ; un ADR validé se supersède.
 7. **Consigner** : un commit `docs(...)` par document ; un paragraphe « Documentation » en PR
    (réaligné, à trancher) ; régénérer les documents que le manifeste déclare générés (clé
    `genere_par:`).
@@ -45,7 +44,7 @@ relie** (`voir §n` — jamais `STATUS.md`, un journal, une PR).
 ## Garde-fous
 
 - Pas de régénération ; une section se corrige en place, elle ne se supprime pas.
-- `CLAUDE.md`, `docs/superpowers/`, un ADR validé : intouchables.
+- `CLAUDE.md`, `docs/superpowers/`, un ADR validé, la documentation utilisateur : hors périmètre.
 - Chemin ou symbole cité sans vérification → interdit.
 
 ## Erreurs fréquentes
