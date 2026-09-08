@@ -54,6 +54,47 @@ enum AgendaItemState: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Nature d'un sujet d'ordre du jour (spec §6.2).
+///
+/// Une **demande** est un sujet qui attend une réponse : la colonne
+/// `MES DEMANDES EN COURS` de la capture `5a` n'est pas une seconde table,
+/// c'est un filtre sur l'ordre du jour. Séparer les deux aurait obligé à
+/// synchroniser deux listes que l'utilisateur voit comme une seule.
+enum AgendaItemKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case topic   = "topic"
+    case request = "request"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .topic:   return "Sujet"
+        case .request: return "Demande"
+        }
+    }
+}
+
+/// Où en est une demande (spec §6.2). Libellés exacts de la capture `5a`.
+enum RequestStatus: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Posée, jamais reprise par le manager.
+    case pending = "pending"
+    /// Prise en compte, réponse annoncée mais pas rendue.
+    case waiting = "waiting"
+    case granted = "granted"
+    case refused = "refused"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .pending: return "Sans réponse"
+        case .waiting: return "En attente"
+        case .granted: return "Accordé"
+        case .refused: return "Refusé"
+        }
+    }
+}
+
 // MARK: - Le fil
 
 /// Le fil des tête-à-tête avec une personne (spec §1.3 `OneOnOneThread`, D3).
@@ -155,6 +196,15 @@ final class Commitment: Confidential {
 
     var promisedAt: Date = Date()
 
+    /// Date du solde — celle où l'engagement est passé `kept` ou `missed`
+    /// (lot 10, colonne à valeur par défaut).
+    ///
+    /// Sans elle, « TENUS DEPUIS LE DERNIER 1:1 » (capture 2a) ne se calcule
+    /// pas : l'état seul ne dit pas *quand*. `nil` sur un engagement encore
+    /// ouvert, et sur les lignes semées avant l'ajout de la colonne —
+    /// `CommitmentLedger.settlementDate(of:)` retombe alors sur `promisedAt`.
+    var settledAt: Date?
+
     /// Réunion où l'engagement a été pris. Relation `.nullify` sans inverse sur
     /// `Meeting` : c'est une trace de provenance, pas un contenu que la
     /// suppression d'une réunion doit emporter.
@@ -238,6 +288,33 @@ final class OneOnOneAgendaItem: Confidential {
 
     var createdAt: Date = Date()
 
+    // MARK: Demande (lot 10, spec §6.2)
+    //
+    // Quatre colonnes **à valeur par défaut** : aucune nouvelle version de
+    // schéma, la table est déclarée en V3 et la migration reste légère. Un
+    // sujet ordinaire les ignore (`topic` / `pending` / `nil` / `0`).
+
+    var kindRaw: String = AgendaItemKind.topic.rawValue
+    var kind: AgendaItemKind {
+        get { AgendaItemKind(rawValue: kindRaw) ?? .topic }
+        set { kindRaw = newValue.rawValue }
+    }
+
+    /// N'a de sens que pour un `kind == .request`.
+    var requestStatusRaw: String = RequestStatus.pending.rawValue
+    var requestStatus: RequestStatus {
+        get { RequestStatus(rawValue: requestStatusRaw) ?? .pending }
+        set { requestStatusRaw = newValue.rawValue }
+    }
+
+    /// Date de la **demande**, distincte de `createdAt` : une demande posée en
+    /// juillet peut être ressaisie en septembre, et c'est son ancienneté
+    /// d'origine qui la fait passer en `report` (spec §6.2, 60 jours).
+    var requestedAt: Date?
+
+    /// Nombre de relances (« relancé 2 fois » de la capture `5a`).
+    var remindedCount: Int = 0
+
     /// Réunion où le sujet a été traité (provenance, `.nullify` sans inverse).
     var meeting: Meeting?
     /// Réunion vers laquelle le sujet non traité a migré (`AgendaCarryover`).
@@ -247,13 +324,19 @@ final class OneOnOneAgendaItem: Confidential {
          addedBySide: OneOnOneSide = .manager,
          order: Int = 0,
          state: AgendaItemState = .todo,
-         visibility: Visibility = .shared) {
+         visibility: Visibility = .shared,
+         kind: AgendaItemKind = .topic,
+         requestStatus: RequestStatus = .pending,
+         requestedAt: Date? = nil) {
         self.stableID = UUID()
         self.text = text
         self.addedBySideRaw = addedBySide.rawValue
         self.order = order
         self.stateRaw = state.rawValue
         self.visibilityRaw = visibility.rawValue
+        self.kindRaw = kind.rawValue
+        self.requestStatusRaw = requestStatus.rawValue
+        self.requestedAt = requestedAt
         self.createdAt = Date()
     }
 
