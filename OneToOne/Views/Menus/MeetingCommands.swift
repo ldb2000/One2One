@@ -138,12 +138,13 @@ struct MeetingCommands: Commands {
             }
             .disabled(demoContext == nil)
 
-            // Lot 16 puis 17 : la réunion d'atelier de `6a-atelier-planche.png`
-            // (4 participants, 4 planches, objets annotés, une pièce et une
-            // capture). Même idempotence.
+            // Lots 16 à 18 : la réunion d'atelier de `6a-atelier-planche.png`
+            // et de `6b-atelier-planche-de-seance.png` (4 participants, 4
+            // planches légendées, objets annotés, une pièce épinglée et une
+            // capture avec son texte extrait). Même idempotence.
             Button("Charger le jeu de démonstration (atelier)") {
                 guard let demoContext else { return }
-                let reunion = RefonteDemoSeed.seedWorkshopComplete(in: demoContext)
+                let reunion = RefonteDemoSeed.seedWorkshopSession(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false
