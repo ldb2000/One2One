@@ -218,19 +218,27 @@ struct CollaboratorPrepAgendaTests {
         }
     }
 
-    @Test("Les cinq branches de routage ne se disputent jamais un écran")
+    @Test("Les six branches de routage ne se disputent jamais un écran")
     func routageExclusif() {
         for kind in MeetingKind.allCases {
             for mode in MeetingScreenModel.Mode.allCases {
                 let atelier = kind == .workshop && mode == .live
+                // Lot 18, entré dans la base à l'intégration de la vague 7 :
+                // l'atelier en Relire monte la planche de séance, et il est
+                // **prélevé** sur le poste de pilotage — d'où le `!` de la
+                // dernière ligne, qui reproduit l'ordre de
+                // `MeetingSpaceView.contenu`.
+                let atelierRelecture = MeetingSpaceRouting.usesWorkshopReview(kind: kind,
+                                                                              mode: mode)
                 let branches = [
                     atelier,
+                    atelierRelecture,
                     MeetingSpaceRouting.usesOneOnOneManagerSession(kind: kind, mode: mode),
                     MeetingSpaceRouting.usesOneOnOneCollaboratorSession(kind: kind, mode: mode),
                     MeetingSpaceRouting.usesOneOnOnePreparation(kind: kind, mode: mode),
                     MeetingSpaceRouting.usesOneOnOneCollaboratorPreparation(kind: kind,
                                                                             mode: mode),
-                    mode == .review
+                    mode == .review && !atelierRelecture
                 ]
                 #expect(branches.filter { $0 }.count <= 1,
                         "\(kind) / \(mode) : \(branches.filter { $0 }.count) branches")

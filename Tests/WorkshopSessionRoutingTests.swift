@@ -27,6 +27,10 @@ struct WorkshopSessionRoutingTests {
                     MeetingSpaceRouting.usesOneOnOneManagerSession(kind: kind, mode: mode),
                     MeetingSpaceRouting.usesOneOnOneCollaboratorSession(kind: kind, mode: mode),
                     MeetingSpaceRouting.usesOneOnOnePreparation(kind: kind, mode: mode),
+                    // Lot 14, entré dans la base à l'intégration de la vague 7 :
+                    // la préparation du 1:1 subi est le cinquième plein cadre,
+                    // et l'oublier ici laisserait passer un chevauchement.
+                    MeetingSpaceRouting.usesOneOnOneCollaboratorPreparation(kind: kind, mode: mode),
                 ].filter { $0 }.count
                 #expect(allumes <= 1)
             }
