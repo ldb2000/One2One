@@ -341,4 +341,12 @@ final class MeetingScreenModel {
     func toggleNoteFilter(_ kind: MeetingNoteKind) {
         noteFilter = (noteFilter == kind) ? nil : kind
     }
+
+    // MARK: - Lot 4 : mode séance plein écran
+
+    /// L'état du mode séance plein écran (`Views/Meeting/Session/`). Une seule
+    /// ligne ici, tout le reste dans `SessionFullscreenState` : les lots
+    /// parallèles ajoutent tous « en fin de type », et c'est ce geste qui a
+    /// produit six conflits à l'intégration des lots 2 et 3.
+    var session = SessionFullscreenState()
 }

@@ -18,7 +18,18 @@ struct TimedNotesColumn: View {
     let meeting: Meeting
     let screen: MeetingScreenModel
 
+    /// Thème de l'écran hôte. La colonne est identique en clair (espace
+    /// Réunion, capture 1a) et en sombre (mode séance plein écran, capture
+    /// 1b) : seules ses couleurs changent, et elle ne les choisit pas.
+    @Environment(\.one2OneTheme) private var theme
+    private var c: One2OneColors { theme.colors }
+
     @Environment(\.modelContext) private var context
+    /// Les collaborateurs mentionnables : même prédicat que l'éditeur markdown
+    /// (`EditableTextField.mentionableCollaborators`), pour qu'un `@Prénom`
+    /// reconnu dans une note le soit aussi dans un document.
+    @Query(filter: #Predicate<Collaborator> { !$0.isArchived })
+    private var mentionnables: [Collaborator]
     /// Ligne en cours d'édition inline. Une seule à la fois : deux champs
     /// ouverts en même temps sur la même colonne, c'est une saisie perdue.
     @State private var editing: PersistentIdentifier?
@@ -36,6 +47,11 @@ struct TimedNotesColumn: View {
     private var notes: [MeetingNote] {
         MeetingNoteStore.filtered(MeetingNoteStore.sorted(meeting.timedNotes),
                                   kind: screen.noteFilter)
+            // Une ligne vide est un **marqueur** posé par `⌘M` en mode séance
+            // (lot 4, décision D4.1) : elle porte un repère sur l'axe temps,
+            // pas une phrase. L'afficher produirait une ligne muette dont
+            // seul le timecode se lit, et qu'on ne saurait pas supprimer.
+            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     var body: some View {
@@ -43,9 +59,26 @@ struct TimedNotesColumn: View {
             if let filtre = screen.noteFilter {
                 bandeauDeFiltre(filtre)
             }
-            if notes.isEmpty {
+            if theme == .session {
+                // Capture 1b : le composeur suit la dernière note **dans le
+                // flot**, la ligne en cours de saisie prolongeant la colonne.
+                // En 1a il est ancré en pied d'une colonne courte ; ici la
+                // colonne occupe toute la hauteur de l'écran et un composeur
+                // collé en bas serait à trente centimètres du regard.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(notes, id: \.persistentModelID) { ligne(for: $0) }
+                        NoteComposer(meeting: meeting, screen: screen)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+            } else if notes.isEmpty {
                 MeetingEmptyInvite(space: .meeting, mode: .live)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                NoteComposer(meeting: meeting, screen: screen)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 9) {
@@ -55,8 +88,8 @@ struct TimedNotesColumn: View {
                     .padding(.bottom, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                NoteComposer(meeting: meeting, screen: screen)
             }
-            NoteComposer(meeting: meeting, screen: screen)
         }
     }
 
@@ -70,7 +103,7 @@ struct TimedNotesColumn: View {
             Button("tout afficher") { screen.noteFilter = nil }
                 .buttonStyle(.plain)
                 .font(.plexSans(10.5, .medium))
-                .foregroundStyle(One2OneToken.actionInk)
+                .foregroundStyle(c.actionInk)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -96,8 +129,8 @@ struct TimedNotesColumn: View {
                     .font(.plexMono(10, .medium))
                     .monospacedDigit()
                     .foregroundStyle(note.kind == .decision
-                                     ? One2OneToken.report
-                                     : One2OneToken.action)
+                                     ? c.report
+                                     : c.action)
                     .frame(width: TimecodeLabel.width, alignment: .leading)
                     .contentShape(Rectangle())
             }
@@ -116,7 +149,7 @@ struct TimedNotesColumn: View {
                 Button("OK") { commitEdition(note) }
                     .buttonStyle(.plain)
                     .font(.plexSans(10.5, .medium))
-                    .foregroundStyle(One2OneToken.actionInk)
+                    .foregroundStyle(c.actionInk)
             } else {
                 texte(for: note)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,21 +168,58 @@ struct TimedNotesColumn: View {
     }
 
     /// Le texte de la ligne. Une décision porte son préfixe en gras, comme la
-    /// capture (`11:03 | **Décision** — le partenaire finalise…`).
+    /// capture (`11:03 | **Décision** — le partenaire finalise…`) ; en mode
+    /// séance, le libellé passe **au-dessus** en mono, comme la capture 1b.
     @ViewBuilder
     private func texte(for note: MeetingNote) -> some View {
-        let corps = Text(note.text)
-            .font(.plexSans(12))
-            .foregroundStyle(One2OneToken.ink2)
         if note.kind == .note {
-            corps.textSelection(.enabled)
+            corps(of: note)
+        } else if theme == .session {
+            // Capture 1b : `DÉCISION` sur sa propre ligne, en libellé mono
+            // `accent/report`, puis le texte en dessous. La colonne y est plus
+            // large qu'en 1a et la ligne respire ; le préfixe inline y
+            // écraserait le texte contre la barre rouge.
+            VStack(alignment: .leading, spacing: 3) {
+                Text(note.kind.label)
+                    .sectionLabel()
+                    .foregroundStyle(note.kind == .decision ? c.reportInk : c.warnInk)
+                corps(of: note)
+            }
         } else {
-            (Text("\(note.kind.label) ").font(.plexSans(12, .semibold))
-                .foregroundColor(note.kind == .decision
-                                 ? One2OneToken.reportInk
-                                 : One2OneToken.warnInk)
-             + Text("— ").font(.plexSans(12)).foregroundColor(One2OneToken.ink4)
-             + Text(note.text).font(.plexSans(12)).foregroundColor(One2OneToken.ink2))
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text("\(note.kind.label) ").font(.plexSans(12, .semibold))
+                    .foregroundStyle(note.kind == .decision ? c.reportInk : c.warnInk)
+                Text("— ").font(.plexSans(12)).foregroundStyle(c.ink4)
+                corps(of: note)
+            }
+        }
+    }
+
+    /// Le corps de la ligne, mentions `@Prénom` rendues en pilule (capture 1b :
+    /// « Qui donne le feu vert ? `@Yann` »).
+    ///
+    /// Les pilules ne sont posées qu'en mode séance : le rendu clair du lot 2
+    /// ne change pas, et une pilule dans une colonne de 1a n'a pas été
+    /// dessinée. Le découpage est `SessionMentionRuns`, testé à part — c'est
+    /// « ce qui est une mention » qui est difficile, pas la pilule.
+    @ViewBuilder
+    private func corps(of note: MeetingNote) -> some View {
+        if theme == .session {
+            let fragments = SessionMentionRuns.runs(in: note.text) {
+                SessionMentionRuns.estConnu($0, parmi: mentionnables)
+            }
+            if fragments.contains(where: { if case .mention = $0 { return true } else { return false } }) {
+                MentionFlow(fragments: fragments, couleurs: c)
+            } else {
+                Text(note.text)
+                    .font(.plexSans(12))
+                    .foregroundStyle(c.ink2)
+                    .textSelection(.enabled)
+            }
+        } else {
+            Text(note.text)
+                .font(.plexSans(12))
+                .foregroundStyle(c.ink2)
                 .textSelection(.enabled)
         }
     }
@@ -158,8 +228,8 @@ struct TimedNotesColumn: View {
     /// pour un risque, rien pour le reste (spec §2.4).
     private func barre(for kind: MeetingNoteKind) -> Color? {
         switch kind {
-        case .decision: return One2OneToken.report
-        case .risk:     return One2OneToken.warn
+        case .decision: return c.report
+        case .risk:     return c.warn
         case .note, .feedback, .promise, .request, .proof: return nil
         }
     }
@@ -170,7 +240,7 @@ struct TimedNotesColumn: View {
         } label: {
             Text("⋯")
                 .font(.plexSans(12, .medium))
-                .foregroundStyle(One2OneToken.ink4)
+                .foregroundStyle(c.ink4)
                 .frame(width: 20, height: 18)
                 .contentShape(Rectangle())
         }

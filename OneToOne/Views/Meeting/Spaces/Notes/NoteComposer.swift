@@ -23,39 +23,14 @@ struct NoteComposer: View {
     let meeting: Meeting
     let screen: MeetingScreenModel
 
+    @Environment(\.one2OneTheme) private var theme
+    private var c: One2OneColors { theme.colors }
     @Environment(\.modelContext) private var context
 
     var body: some View {
-        HStack(spacing: 8) {
-            NoteComposerField(
-                placeholder: "Tape",
-                text: Binding(get: { screen.pendingNoteText },
-                              set: { screen.pendingNoteText = $0 }),
-                focusToken: screen.noteComposerFocusToken,
-                onSubmit: valider
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 20)
-
-            ForEach(NoteCommandParser.visiblePills, id: \.rawValue) { commande in
-                Button {
-                    inserer(commande)
-                } label: {
-                    Chip(commande.pill, ton: ton(for: commande))
-                }
-                .buttonStyle(.plain)
-                .help(aide(for: commande))
-            }
+        Group {
+            if theme == .session { enSeance } else { enFenetre }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                .strokeBorder(One2OneToken.strongBorder,
-                              style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-        )
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
         .overlay {
             // `⌘⇧N` (spec §1.4) : le raccourci vit dans la surface qui le rend
             // possible, plutôt que dans un item de menu qui obligerait
@@ -65,6 +40,71 @@ struct NoteComposer: View {
                 .opacity(0)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
+        }
+    }
+
+    /// Le composeur du mode fenêtré (capture 1a) : un cadre pointillé, le
+    /// champ et les quatre pilules sur une seule ligne.
+    private var enFenetre: some View {
+        HStack(spacing: 8) {
+            champ
+                .frame(maxWidth: .infinity)
+                .frame(height: 20)
+            pilules
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                .strokeBorder(c.strongBorder,
+                              style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        )
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
+    /// Le composeur du mode séance (capture 1b) : la ligne en cours **est** une
+    /// ligne de la colonne — timecode courant à gauche, texte au curseur rouge,
+    /// puis les quatre commandes en dessous. Aucun cadre : la colonne est déjà
+    /// une surface, et un rectangle pointillé de plus au milieu de l'écran ne
+    /// désigne rien.
+    private var enSeance: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                TimecodeLabel(seconds: screen.playhead.t, teinte: c.ink1)
+                champ
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 22)
+            }
+            pilules
+        }
+    }
+
+    private var champ: some View {
+        NoteComposerField(
+            placeholder: theme == .session ? "" : "Tape",
+            text: Binding(get: { screen.pendingNoteText },
+                          set: { screen.pendingNoteText = $0 }),
+            focusToken: screen.noteComposerFocusToken,
+            taille: theme == .session ? 12.5 : 12,
+            encre: NSColor(c.ink1),
+            curseur: NSColor(One2OneToken.railElapsed),
+            onSubmit: valider
+        )
+    }
+
+    @ViewBuilder
+    private var pilules: some View {
+        HStack(spacing: 6) {
+            ForEach(NoteCommandParser.visiblePills, id: \.rawValue) { commande in
+                Button {
+                    inserer(commande)
+                } label: {
+                    Chip(commande.pill, ton: ton(for: commande))
+                }
+                .buttonStyle(.plain)
+                .help(aide(for: commande))
+            }
         }
     }
 
@@ -148,6 +188,15 @@ private struct NoteComposerField: NSViewRepresentable {
     var placeholder: String
     @Binding var text: String
     var focusToken: Int
+    /// Corps de la fonte. 12 en fenêtré, 12,5 en séance (capture 1b : la ligne
+    /// en cours a le corps des notes qui la précèdent, pas celui d'un champ).
+    var taille: CGFloat = 12
+    /// Encre du texte saisi. Sans elle, le champ retomberait sur
+    /// `labelColor`, illisible sur `#1c1a17`.
+    var encre: NSColor = .labelColor
+    /// Couleur du curseur. Rouge en séance (capture 1b) : c'est le seul repère
+    /// qui dit où la prochaine note s'écrira.
+    var curseur: NSColor?
     var onSubmit: () -> Void
 
     func makeNSView(context: Context) -> CommandReturnTextField {
@@ -160,8 +209,10 @@ private struct NoteComposerField: NSViewRepresentable {
         // Même règle que `Font.plexSans` : le nom PostScript est abrégé
         // (`IBMPlexSans`), et l'absence de la fonte retombe sur le système
         // plutôt que de rendre un champ sans fonte.
-        field.font = NSFont(name: PlexWeight.regular.sansPostScriptName, size: 12)
-            ?? .systemFont(ofSize: 12)
+        field.font = NSFont(name: PlexWeight.regular.sansPostScriptName, size: taille)
+            ?? .systemFont(ofSize: taille)
+        field.textColor = encre
+        field.caretColor = curseur
         field.delegate = context.coordinator
         field.onSubmit = { context.coordinator.submit() }
         field.lineBreakMode = .byTruncatingTail
@@ -172,6 +223,9 @@ private struct NoteComposerField: NSViewRepresentable {
         context.coordinator.text = $text
         context.coordinator.onSubmit = onSubmit
         nsView.placeholderString = placeholder
+        nsView.textColor = encre
+        nsView.caretColor = curseur
+        nsView.applyCaretColor()
         if nsView.stringValue != text { nsView.stringValue = text }
         // Le jeton, et non un booléen : deux demandes de focus de suite doivent
         // toutes deux aboutir.
@@ -221,6 +275,23 @@ private struct NoteComposerField: NSViewRepresentable {
 /// `NSTextField` qui intercepte `⌘⏎` avant le menu principal.
 final class CommandReturnTextField: NSTextField {
     var onSubmit: (() -> Void)?
+
+    /// Couleur du curseur, appliquée à l'**éditeur de champ** — un
+    /// `NSTextField` n'a pas de `insertionPointColor`, c'est le `NSTextView`
+    /// partagé de la fenêtre qui dessine le curseur, et il faut donc le
+    /// repeindre à chaque prise de focus.
+    var caretColor: NSColor?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepte = super.becomeFirstResponder()
+        if accepte { applyCaretColor() }
+        return accepte
+    }
+
+    func applyCaretColor() {
+        guard let caretColor, let editeur = currentEditor() as? NSTextView else { return }
+        editeur.insertionPointColor = caretColor
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modificateurs = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

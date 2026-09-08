@@ -8,7 +8,9 @@ enum MeetingMenuItem {
          /// `⌘K` — l'assistant (spec §1.4).
          assistant,
          /// `⌘M` — un marqueur sur l'axe temps (spec §1.4).
-         marker
+         marker,
+         /// `⌃⌘F` — le mode séance plein écran (spec §2.6, lot 4).
+         sessionFullscreen
 }
 
 /// Source de vérité unique des actions « secondaires » d'une réunion, partagée
@@ -71,6 +73,17 @@ struct MeetingMenuActions {
     /// `⌘M` : pose un marqueur sur l'axe temps à l'instant courant.
     var addPlayheadMarker: () -> Void
 
+    /// `⌃⌘F` : bascule le mode séance plein écran (spec §2.6).
+    ///
+    /// Valeur par défaut, et non un paramètre requis : le lot 4 ne modifie pas
+    /// `MeetingView`, qui construit cette structure. La demande passe par
+    /// `SessionFullscreenPresenter`, où l'écran de la réunion en cours s'est
+    /// enregistré — le menu n'a besoin de connaître ni la réunion, ni sa
+    /// fenêtre.
+    var toggleSessionFullscreen: () -> Void = {
+        MainActor.assumeIsolated { SessionFullscreenPresenter.shared.demanderBascule() }
+    }
+
     /// Occupé par une opération longue (enreg./transcription/rapport).
     var busy: Bool { isRecording || isTranscribing || isGeneratingReport }
 
@@ -90,7 +103,12 @@ struct MeetingMenuActions {
         .retranscribe, .importWAV, .editAudio, .revealWAV,
         // Un marqueur sans axe temps n'a pas d'ancre : une note n'a pas
         // d'audio. `assistant` reste actif — il est « partout » (spec §1.1).
-        .marker
+        .marker,
+        // Le mode séance est celui d'une réunion : une note n'a ni
+        // transcription, ni participants, ni axe temps, et `MeetingView` lui
+        // sert son éditeur markdown plutôt que `MeetingSpaceView` — il n'y a
+        // donc même pas d'écran pour le présenter.
+        .sessionFullscreen
     ]
 
     /// Item activable dans l'état courant.
@@ -116,6 +134,11 @@ struct MeetingMenuActions {
         // Un marqueur exige un axe temps : enregistrement en cours, ou audio
         // relisible.
         case .marker:             return isRecording || hasPlayableAudio
+        // Le plein écran ne dépend ni de l'audio ni du rapport : on y passe
+        // pour prendre des notes. Le présentateur refuse de lui-même quand
+        // aucun écran n'est en mesure de présenter — un item grisé selon
+        // l'état d'un singleton ne serait pas vérifiable ici.
+        case .sessionFullscreen:  return true
         }
     }
 }
