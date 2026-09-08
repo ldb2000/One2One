@@ -52,6 +52,8 @@ enum MeetingSpaceRouting {
         )
     }
 
+    // MARK: - Lots 11 et 12 : le type 1:1 a ses propres écrans
+
     /// Vrai quand l'espace `Réunion` doit monter l'écran de séance du **1:1
     /// mené** (capture `2a-1to1-manager-seance.png`, lot 11) au lieu du
     /// cockpit multi-participants.
@@ -63,6 +65,39 @@ enum MeetingSpaceRouting {
     static func usesOneOnOneManagerSession(kind: MeetingKind,
                                            mode: MeetingScreenModel.Mode) -> Bool {
         kind == .oneToOne && mode == .live
+    }
+
+    /// Vrai quand le mode Préparer doit céder la place à l'écran de préparation
+    /// du 1:1 côté manager (`ManagerPrepView`, capture 2b).
+    ///
+    /// Le type `.manager` (je suis le collaborateur) a le **sien**, au lot 14 :
+    /// la préparation en deux minutes de la capture 5b n'est pas cet écran-là,
+    /// et servir 2b à un collaborateur lui montrerait le suivi de son propre
+    /// moral vu du poste de son manager.
+    static func usesOneOnOnePreparation(kind: MeetingKind,
+                                        mode: MeetingScreenModel.Mode) -> Bool {
+        kind == .oneToOne && mode == .prepare
+    }
+
+    /// Le mode d'ouverture d'une réunion **jamais ouverte**, quand rien n'est
+    /// mémorisé pour elle.
+    ///
+    /// Spec §3 : « `2b` s'ouvre par défaut en mode `Préparer` ». Un 1:1 qui
+    /// porte déjà un enregistrement n'est plus à préparer : on l'ouvre là où on
+    /// l'avait laissé, c'est-à-dire en séance.
+    ///
+    /// - Parameter persistedRaw: la valeur mémorisée dans `UserDefaults`, `nil`
+    ///   si la réunion n'a jamais été ouverte. Un choix mémorisé fait toujours
+    ///   loi : ce défaut ne s'applique qu'en son absence.
+    /// - Returns: le mode à imposer, ou `nil` s'il n'y a rien à changer.
+    static func initialMode(persistedRaw: String?,
+                            kind: MeetingKind,
+                            hasRecording: Bool) -> MeetingScreenModel.Mode? {
+        guard persistedRaw == nil || MeetingScreenModel.Mode(rawValue: persistedRaw ?? "") == nil,
+              kind == .oneToOne,
+              !hasRecording,
+              modes(for: kind).contains(.prepare) else { return nil }
+        return .prepare
     }
 
     /// Libellé de l'espace `Réunion` dans la barre d'espaces. « Réunion » n'a

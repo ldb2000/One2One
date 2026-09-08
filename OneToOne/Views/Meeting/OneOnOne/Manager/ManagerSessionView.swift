@@ -117,7 +117,7 @@ struct ManagerSessionView: View {
             MeetingAssistantDock(meeting: meeting,
                                  historique: historique,
                                  isOpen: $isAssistantOpen,
-                                 contexte: .fil(of: fil))
+                                 threadContext: .fil(of: fil))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)

@@ -61,4 +61,17 @@ final class OneOnOneScreenState {
         defaults.set(escalationConfirmedMeetingIDs.map(\.uuidString),
                      forKey: Self.escalationKey)
     }
+
+    // MARK: - Lot 12 : écran de préparation (2b)
+    //
+    // Ajouté **en fin de type** : les lots 11 à 14 complètent tous cette
+    // classe, et l'insertion au milieu est ce qui a produit six conflits à
+    // l'intégration de la vague précédente.
+
+    /// Le bouton `Historique` de l'en-tête a déplié la carte `HISTORIQUE` sur
+    /// tout le fil, au lieu des quatre dernières séances.
+    ///
+    /// Non persisté, comme le panneau de fiche projet du lot 9 : une carte
+    /// dépliée est un geste, pas un réglage.
+    var prepHistoryExpanded = false
 }

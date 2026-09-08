@@ -108,6 +108,27 @@ struct MeetingSpaceView: View {
                                onOpenMeeting: onOpenMeeting,
                                onDiarize: onDiarize,
                                onReidentify: onReidentify)
+            // Lot 12, spec §3 : « `2b` s'ouvre par défaut en mode `Préparer` ».
+            .onAppear(perform: appliquerModeInitial)
+    }
+
+    /// Impose le mode d'ouverture d'un 1:1 jamais ouvert (spec §3).
+    ///
+    /// Écrit la clé mémorisée **et** le mode, parce que l'ordre des `onAppear`
+    /// de SwiftUI ne dit pas si `MeetingScreenModel.attach` a déjà relu
+    /// `UserDefaults` : dans un sens c'est l'écriture du mode qui prend, dans
+    /// l'autre c'est la clé que `attach` relira. Un choix déjà mémorisé fait
+    /// toujours loi — `MeetingSpaceRouting.initialMode` rend `nil` dans ce cas.
+    private func appliquerModeInitial() {
+        let cle = MeetingScreenModel.modeKey(for: meeting.ensuredStableID)
+        let memorise = UserDefaults.standard.string(forKey: cle)
+        guard let mode = MeetingSpaceRouting.initialMode(
+                persistedRaw: memorise,
+                kind: meeting.kind,
+                hasRecording: meeting.hasPlayableAudio || meeting.recordingStartedAt != nil)
+        else { return }
+        UserDefaults.standard.set(mode.rawValue, forKey: cle)
+        if screen.mode != mode { screen.mode = mode }
     }
 
     /// Le contenu de l'espace : le poste de pilotage seul en mode Relire, les
@@ -141,6 +162,15 @@ struct MeetingSpaceView: View {
                                historique: historique,
                                isAssistantOpen: $isAssistantOpen,
                                onManageParticipants: onManageParticipants)
+        } else if MeetingSpaceRouting.usesOneOnOnePreparation(kind: meeting.kind,
+                                                             mode: screen.mode) {
+            // Lot 12, spec §3.4 : la préparation d'un 1:1 côté manager prend
+            // toute la surface, comme le poste de pilotage. Ni bandeau
+            // d'indicateurs (rien n'a encore été dit), ni rail d'actions de
+            // 330 px (spec §3.1 retire les projets affectés et les vues
+            // Kanban) : elle porte ses six cartes et sa propre barre
+            // d'assistant, dont le contexte est le **fil** et non la séance.
+            preparation1a1
         } else if screen.mode == .review {
             posteDePilotage
         } else {
@@ -194,6 +224,16 @@ struct MeetingSpaceView: View {
                             isDropTargeted: isDropTargeted)
                 .animation(.easeOut(duration: 0.16), value: screen.resources.isDrawerOpen)
         }
+    }
+
+    /// L'écran de préparation du 1:1 côté manager (lot 12, capture 2b).
+    private var preparation1a1: some View {
+        ManagerPrepView(meeting: meeting,
+                        screen: screen,
+                        historique: historique,
+                        menuActions: menuActions,
+                        isAssistantOpen: $isAssistantOpen,
+                        onOpenMeeting: onOpenMeeting)
     }
 
     /// Le mode Relire prend toute la surface : il porte sa propre navigation,

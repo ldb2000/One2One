@@ -22,14 +22,30 @@
 #   `--seed` pose `ONETOONE_SEED_DEMO=1`, lu au démarrage par `ContentView` :
 #   la réunion de démonstration est semée et ouverte sans passer par le menu.
 #
+#   `--screen <code>` pose `ONETOONE_SEED_DEMO_SCREEN=<code>` et implique
+#   `--seed`. Le code est celui de la capture de référence
+#   (`docs/superpowers/specs/refonte-2026-09/ecrans/`) : l'application sème
+#   alors tout le jeu de la refonte et ouvre **cet** écran, au bon mode, sans
+#   un clic. C'est le crochet unique de la recette depuis l'intégration de la
+#   vague 5 — il remplace `ONETOONE_SEED_OPEN`, que le lot 12 avait ajouté à
+#   côté. Table : `OneToOne/Services/Debug/RecetteScreen.swift`.
+#
+#     1a  cockpit de réunion (En séance)      1c  poste de pilotage (Relire)
+#     1b  espaces et indicateurs (En séance)  2a  1:1 mené, En séance
+#     3a  tiroir Ressources (En séance)       2b  1:1 mené, Préparer
+#     3b  fiche projet en panneau             4a  sélecteur de capture
+#     6a  atelier, planche plein cadre
+#
 # Usage
 #   Scripts/recette-app.sh /tmp/recette
 #   Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --seed
+#   Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --screen 2b
 #
 #   --app <bundle>   défaut : "${TMPDIR}/onetoone-recette/OneToOne.app"
 #   --home <dossier> défaut : <dossier du bundle>/home — réutilisable d'un
 #                    lancement à l'autre pour retrouver l'état de la veille
 #   --seed           pose ONETOONE_SEED_DEMO=1
+#   --screen <code>  pose ONETOONE_SEED_DEMO_SCREEN=<code> et implique --seed
 #   --reset          efface le HOME de recette avant de lancer
 #   --wait           reste au premier plan (par défaut, le script rend la main)
 #
@@ -43,8 +59,14 @@ set -e
 APP=""
 FAKE_HOME=""
 SEED=""
+SCREEN=""
 RESET=""
 WAIT=""
+
+# Les codes acceptés par `RecetteScreen`. Vérifiés ici, parce qu'une faute de
+# frappe passerait autrement inaperçue : l'application retomberait sur le
+# cockpit et la capture serait celle du mauvais écran.
+SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 6a"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -53,9 +75,11 @@ while [ $# -gt 0 ]; do
         --home)   FAKE_HOME="$2"; shift 2 ;;
         --home=*) FAKE_HOME="${1#*=}"; shift ;;
         --seed)   SEED="1"; shift ;;
+        --screen)   SCREEN="$2"; SEED="1"; shift 2 ;;
+        --screen=*) SCREEN="${1#*=}"; SEED="1"; shift ;;
         --reset)  RESET="1"; shift ;;
         --wait)   WAIT="1"; shift ;;
-        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
         *)
             echo "✗ Argument inconnu : $1 (voir --help)"
             exit 1
@@ -67,6 +91,17 @@ if [ -z "${APP}" ]; then
     APP="${TMPDIR:-/tmp}onetoone-recette/OneToOne.app"
 fi
 BINARY="${APP}/Contents/MacOS/OneToOne"
+
+if [ -n "${SCREEN}" ]; then
+    case " ${SCREENS} " in
+        *" ${SCREEN} "*) ;;
+        *)
+            echo "✗ Code d'écran inconnu : ${SCREEN}"
+            echo "  Codes acceptés : ${SCREENS}"
+            exit 1
+            ;;
+    esac
+fi
 
 if [ ! -x "${BINARY}" ]; then
     echo "✗ Bundle de recette introuvable : ${APP}"
@@ -86,12 +121,14 @@ mkdir -p "${FAKE_HOME}/Library/Application Support"
 
 echo "→ HOME de recette : ${FAKE_HOME}"
 [ -n "${SEED}" ] && echo "→ ONETOONE_SEED_DEMO=1 (jeu de démonstration semé au démarrage)"
+[ -n "${SCREEN}" ] && echo "→ ONETOONE_SEED_DEMO_SCREEN=${SCREEN} (écran ouvert au démarrage)"
 
 export HOME="${FAKE_HOME}"
 # La variable qui isole réellement : `NSHomeDirectory()` ignore `HOME` pour une
 # application en bundle, pas `CFFIXED_USER_HOME`.
 export CFFIXED_USER_HOME="${FAKE_HOME}"
 [ -n "${SEED}" ] && export ONETOONE_SEED_DEMO=1
+[ -n "${SCREEN}" ] && export ONETOONE_SEED_DEMO_SCREEN="${SCREEN}"
 
 STORE="${FAKE_HOME}/Library/Application Support/OneToOne/OneToOne.store"
 

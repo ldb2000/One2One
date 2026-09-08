@@ -194,12 +194,20 @@ struct ContentView: View {
     /// `Scripts/recette-run.sh --seed`.
     static let seedDemoEnvironmentKey = "ONETOONE_SEED_DEMO"
 
-    /// Écran visé par la recette, quand ce n'est pas le cockpit (`1a`).
+    /// Nom de la variable d'environnement qui choisit **quel écran** de la
+    /// refonte s'ouvre : un code de capture (`1a`, `1c`, `2a`, `2b`, `6a`…),
+    /// interprété par `RecetteScreen`. Sans elle, c'est le cockpit de
+    /// `1a-cockpit.png`, comme avant les lots 11 et 12.
     ///
-    /// `2a` ouvre la séance de 1:1 de la capture `2a-1to1-manager-seance.png`
-    /// (lot 11) : sans cela, une recette visuelle du 1:1 demanderait de
-    /// naviguer à la souris, ce qu'un script ne sait pas faire de façon
-    /// reproductible.
+    /// Une variable et non un item de menu par écran : la recette visuelle
+    /// doit être reproductible sans clic, et ni l'entretien de démonstration
+    /// ni la planche d'atelier ne sont atteignables autrement qu'à la souris
+    /// depuis la liste des réunions.
+    ///
+    /// **Un seul crochet.** Les lots 11 et 12 avaient posé deux variables pour
+    /// le même besoin (`ONETOONE_SEED_DEMO_SCREEN=2a` et
+    /// `ONETOONE_SEED_OPEN=1to1`) ; `ONETOONE_SEED_OPEN` a disparu à
+    /// l'intégration de la vague 5.
     static let seedDemoScreenEnvironmentKey = "ONETOONE_SEED_DEMO_SCREEN"
 
     /// Sème et ouvre la réunion de démonstration quand la variable
@@ -221,20 +229,54 @@ struct ContentView: View {
               !didSeedRefonteDemo else { return }
         didSeedRefonteDemo = true
 
-        // Lot 11 : `ONETOONE_SEED_DEMO_SCREEN=2a` sème **en plus** les deux
-        // fils 1:1 et ouvre la séance de la capture 2a. Sans la variable, rien
-        // ne change — le cockpit reste ce que la recette voit par défaut.
-        if ProcessInfo.processInfo.environment[Self.seedDemoScreenEnvironmentKey] == "2a" {
-            if let seance = RefonteDemoSeed.seedLot11(in: context) {
-                router.pendingToken = OneToOneLaunchToken(
-                    meetingID: seance.meeting.ensuredStableID,
-                    autoStartRecording: false)
-                return
-            }
+        guard let ecran = RecetteScreen.from(
+            environment: ProcessInfo.processInfo.environment[Self.seedDemoScreenEnvironmentKey])
+        else {
+            // Sans code d'écran, rien ne change : la réunion de
+            // `1a-cockpit.png`, au mode qu'elle a mémorisé.
+            let reunion = RefonteDemoSeed.seed(in: context)
+            router.pendingToken = OneToOneLaunchToken(meetingID: reunion.ensuredStableID,
+                                                      autoStartRecording: false)
+            return
         }
+        ouvrirEcranDeRecette(ecran)
+    }
 
-        let reunion = RefonteDemoSeed.seed(in: context)
-        router.pendingToken = OneToOneLaunchToken(meetingID: reunion.ensuredStableID,
+    /// Sème ce dont l'écran de recette a besoin, puis l'ouvre au bon mode.
+    ///
+    /// Tous les semis sont appelés, et **une seule fois chacun** : ils sont
+    /// idempotents et se complètent (le lot 5 les décisions horodatées, le
+    /// lot 6 les ressources, le lot 7 les captures, le lot 11 les engagements
+    /// de la séance 2a, le lot 12 les dates et les résumés de 2b). Les
+    /// distribuer écran par écran demanderait de savoir, pour chaque capture,
+    /// de quel lot vient chaque pixel — et se tromperait.
+    @MainActor
+    private func ouvrirEcranDeRecette(_ ecran: RecetteScreen) {
+        let demonstration = RefonteDemoSeed.seedLot5(in: context)
+        _ = RefonteDemoSeed.seedLot6(in: context)
+        _ = RefonteDemoSeed.seedLot7(in: context)
+        let seance = RefonteDemoSeed.seedLot11(in: context)
+        let fils = RefonteDemoSeed.seedLot12(in: context)
+
+        let cible: Meeting?
+        switch ecran.cible {
+        case .demonstration:
+            cible = demonstration
+        case .entretienMene:
+            // `seedLot11` rend la séance de la capture ; le repli passe par le
+            // fil, parce qu'un fil sans participant ne rend rien.
+            cible = seance?.meeting ?? OneOnOneThreadStore.allMeetings(of: fils.manager).last
+        case .atelier:
+            cible = RefonteDemoSeed.seedWorkshop(in: context)
+        }
+        guard let cible else { return }
+
+        // Le mode vit dans `UserDefaults`, par réunion : l'y écrire **avant**
+        // l'ouverture est le seul moyen de l'imposer sans clic, et il survit à
+        // la relecture que fait `MeetingScreenModel.attach`.
+        UserDefaults.standard.set(ecran.mode.rawValue,
+                                  forKey: MeetingScreenModel.modeKey(for: cible.ensuredStableID))
+        router.pendingToken = OneToOneLaunchToken(meetingID: cible.ensuredStableID,
                                                   autoStartRecording: false)
     }
 

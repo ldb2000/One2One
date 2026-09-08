@@ -137,16 +137,27 @@ struct CommitmentsRailModelTests {
 
     // MARK: - Pilules de la carte
 
-    @Test("L'échéance de la semaine en cours s'écrit en jour, les autres en date")
+    @Test("L'échéance imminente s'écrit en jour de la semaine, les autres en date")
     func pilulesDEcheance() throws {
         let f = try fixture()
-        // Vendredi 4 septembre : la séance. `Vendredi` — même semaine.
+        // Vendredi 4 septembre : la séance. `Vendredi` — jour même.
         let vendredi = engagement("Arbitrer", side: .manager, in: f, due: 0)
         #expect(CommitmentsRailModel.duePill(vendredi, now: Self.maintenant) == "Vendredi")
-        // Mercredi 9 septembre : semaine suivante, donc la date.
+        // Mercredi 9 septembre : dans la fenêtre de sept jours, donc le jour.
+        //
+        // La règle a changé à l'intégration de la vague 5 : ce modèle
+        // comparait les **semaines calendaires** et écrivait « 9 sept. » ;
+        // le tableau de la préparation (2b) et la carte d'action du lot 3
+        // appliquaient déjà la fenêtre de sept jours. Le critère du chantier 2
+        // veut qu'un engagement se lise pareil dans 2a et dans 2b : c'est donc
+        // `OneOnOneDateFormat.dueDate` pour les deux.
         let mercredi = engagement("Chiffrer", side: .collaborator, in: f, due: 5)
-        #expect(CommitmentsRailModel.duePill(mercredi, now: Self.maintenant) == "9 sept.")
-        // Vendredi 11 septembre : un « Vendredi » y serait ambigu.
+        #expect(CommitmentsRailModel.duePill(mercredi, now: Self.maintenant) == "Mercredi")
+        #expect(CommitmentsRailModel.duePill(mercredi, now: Self.maintenant)
+                == OneOnOneDateFormat.dueDate(mercredi.dueAt ?? Self.maintenant,
+                                              now: Self.maintenant))
+        // Vendredi 11 septembre : au septième jour, un « Vendredi » y serait
+        // ambigu — deux vendredis porteraient le même nom.
         let vendrediProchain = engagement("Cadrer", side: .collaborator, in: f, due: 7)
         #expect(CommitmentsRailModel.duePill(vendrediProchain, now: Self.maintenant) == "11 sept.")
         let finDuMois = engagement("Mobilité", side: .manager, in: f, due: 26)

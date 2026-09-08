@@ -117,10 +117,18 @@ struct MeetingCommands: Commands {
                 _ = RefonteDemoSeed.seedLot6(in: demoContext)
                 // Lot 7 : les trois captures de `4a-capture-selecteur.png`.
                 _ = RefonteDemoSeed.seedLot7(in: demoContext)
-                // Lot 11 : les deux fils 1:1 et les quatorze séances de la
-                // capture 2a (`seedLot11` commence par `seedOneOnOneThreads`,
-                // le semis du lot 10 resté non câblé). Idempotent lui aussi.
+                // Lots 11 et 12 : les deux fils 1:1 du lot 10 —
+                // `seedOneOnOneThreads`, resté non câblé — semés par **une
+                // seule** ligne de chaque lot, chacun complétant sa part : le
+                // lot 11 les engagements et l'ancienneté de la séance 2a, le
+                // lot 12 les dates de l'histogramme et les résumés de
+                // l'`HISTORIQUE` de 2b. Les deux lots appelaient
+                // `seedOneOnOneThreads` sous leur propre commentaire ; il
+                // n'est câblé qu'ici, et il est idempotent — l'ordre des deux
+                // appels ne change rien (le recalage des dates du lot 12
+                // laisse la séance du 4 septembre où le lot 11 la trouve).
                 _ = RefonteDemoSeed.seedLot11(in: demoContext)
+                _ = RefonteDemoSeed.seedLot12(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false
