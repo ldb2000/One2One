@@ -2,6 +2,59 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Les compteurs d'actions de l'écran de réunion mentaient (2026-09-08)
+
+Branche `fix/refonte-compteurs-actions`, sur `fix/refonte-transcrire-import-mp4`.
+`swift build` propre ; `swift test` complet vert : **2 046 Swift Testing / 257 suites +
+1 057 XCTest (1 ignoré) = 3 103**, exit 0 — soit **+10 tests, +1 suite** sur les 3 093 de la
+section précédente, aucun retiré.
+
+**Le symptôme.** Réunion « Point Planview » du 8 septembre : après suppression et réassignation
+d'actions, le tableau du mode Relire n'affichait plus qu'une action assignée, mais le bandeau
+d'indicateurs annonçait « ACTIONS 3 · 2 non assignées » et la nav latérale « Actions 3 ».
+
+**La cause racine — deux définitions du « nombre d'actions », pas un défaut de rafraîchissement.**
+Les compteurs se calculent bien dans `body`, sur des données observées : rien n'était figé. Mais
+le bandeau (`MeetingKPIBuilder.actions`) et la nav du mode Relire (`ReviewSidebarNav.entrees`)
+comptaient `meeting.tasks` **tel quel**, tandis que le tableau (`ActionsTable`) et le rail
+(`ActionsRail`) filtraient `status == .open`. Une action **abandonnée** ou **cochée** quittait donc
+le tableau tout en restant au bandeau. Reproduit au chiffre près sur conteneur en mémoire : trois
+actions dont deux sans responsable, une assignée, deux abandonnées → relation 3, bandeau « 3 · 2 »,
+nav 3, tableau 1 ligne. `MeetingKPIBuilder` redupliquait au passage la règle de porteur de
+`ActionsRailGrouping.aUnPorteur` — la dérive que le commentaire de cette fonction redoutait
+explicitement — et comptait « non assignées » sur les actions closes, qui n'ont plus de dette.
+
+Second défaut, sans témoin dans les captures mais réel : entre `context.delete(_:)` et le
+`save()`, la relation `meeting.tasks` garde la ligne (vérifié : `isDeleted == true`, toujours
+présente dans le tableau de relation). Tout compteur lu dans cet intervalle annonce une action qui
+n'existe plus.
+
+**Le correctif.** Une seule définition, `Services/Meeting/MeetingActionCounts.swift`, pure et
+testée : *vivante* (pas `isDeleted`), *retenue* (ouverte + faite — le portefeuille, celui
+qu'annonce le bandeau et que remplit sa barre : compter les seules ouvertes ferait tomber
+« ACTIONS » à zéro à mesure qu'on coche), *ouverte* (ce que listent le tableau et le rail),
+*sans porteur* (ouverte et sans responsable, au sens de `aUnPorteur`). Sept surfaces y sont
+branchées : carte ACTIONS du bandeau, nav Relire, badge « n sans responsable » du tableau, lignes
+du tableau, onglet du rail, groupes du rail, `PLAN D'ACTIONS` de l'espace Rapport et
+`CAPTURÉ CETTE SÉANCE`. La suppression du menu `⋯` fait toujours son `save()` et lâche en plus les
+états d'écran qui désignaient la ligne.
+
+`Ressources n doc` n'avait pas le défaut : le retrait d'une pièce sauvegarde déjà, et le compteur
+se lit dans `body`.
+
+**Les gardes.** `Tests/MeetingActionCountsTests.swift` (10 tests) rejoue le scénario rapporté et
+celui du livrable (assigner une action, en supprimer une → 2 · 1), vérifie qu'une ligne supprimée
+ne compte plus **avant** le `save()`, et refuse par lecture des sources un compteur d'actions
+mémorisé en `@State` sous `Views/Meeting/Spaces/**` (Review compris), un décompte stocké dans
+`MeetingScreenModel`/`ReviewState`, et un `meeting.tasks.count` nu dans l'une des sept surfaces.
+Les dix tests échouent sur le code d'avant (19 assertions).
+
+### Prochaine action
+
+Les décisions issues du rapport s'affichent en `--:--` faute de `t` : hors périmètre de ce lot,
+à traiter avec le chaînage source des décisions.
+
+
 ## « Transcrire + Rapport 1:1 » échouait sur un audio importé (2026-09-08)
 
 Branche `fix/refonte-transcrire-import-mp4`, sur `fix/refonte-retours-usage-1`.
