@@ -44,12 +44,11 @@ struct MarkdownNoteEditor: View {
     /// `CollaboratorMentionSource.search` (qui les recevrait sinon).
     @Query(filter: #Predicate<Collaborator> { !$0.isArchived }) private var mentionableCollaborators: [Collaborator]
     /// Collaborateur dont la fiche a été ouverte en cliquant une mention —
-    /// voir `markdownLinks(handler:)` ci-dessous. `CollaboratorDetailView`
-    /// n'a pas d'autre point d'entrée programmatique dans l'app (sa seule
-    /// présentation existante est un `NavigationLink` de la barre latérale,
-    /// non déclenchable depuis ici) : on réutilise la vue elle-même, présentée
-    /// en feuille — même idiome que `NotesSection`/`Sidebar` pour ouvrir un
-    /// contenu détaillé sans quitter le contexte courant.
+    /// voir `markdownLinks(handler:)` ci-dessous. La fiche
+    /// (`CollaboratorFicheView`) n'a pas de point d'entrée programmatique
+    /// depuis un éditeur de texte : on présente la vue elle-même en feuille,
+    /// même idiome que `NotesSection` pour ouvrir un contenu détaillé sans
+    /// quitter le contexte courant.
     @State private var openedCollaborator: Collaborator?
 
     var body: some View {

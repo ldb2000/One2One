@@ -1,20 +1,11 @@
-import SwiftUI
+import Foundation
 
-/// Couleurs et tri pour `Project.status` ("Red", "Yellow", "Green", "Unknown").
-/// Extrait depuis CollaboratorDetailView pour partage avec ProjectsPanel
-/// (sidebar configurable des réunions).
+/// Tri par `Project.status` ("Red", "Yellow", "Green", "Unknown").
+///
+/// Le lot 19 lui retire sa fonction `color(_:)` : ses deux seuls appelants
+/// étaient l'ancienne fiche collaborateur et la sidebar configurable, tous deux
+/// supprimés. Il ne reste que le tri, employé par `ReportTemplating`.
 enum ProjectStatusPalette {
-
-    /// Couleur SwiftUI pour un statut projet. Tout statut inconnu (y compris
-    /// "Unknown") retombe sur `.gray`.
-    static func color(_ status: String) -> Color {
-        switch status {
-        case "Red":     return .red
-        case "Yellow":  return .orange
-        case "Green":   return .green
-        default:        return .gray
-        }
-    }
 
     /// Tri par statut (Red=0, Yellow=1, Green=2, tout autre/Unknown=3) puis,
     /// à statut égal, par nom en ordre alphabétique insensible à la casse.

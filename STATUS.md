@@ -2,6 +2,154 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Lot 19a : retrait du code que la refonte a laissé derrière elle (2026-09-08)
+
+La refonte a remplacé l'écran de réunion sans rien supprimer : la décision **D8** du
+programme a débranché le dashboard et la sidebar configurable dès le lot 1, en renvoyant
+le retrait de leur code au lot 19. Ce lot solde cette dette, et **elle seule** — aucun
+comportement ne change, aucune vue vivante n'est retouchée autrement que dans ses
+commentaires. **2 823 lignes retirées, 146 ajoutées.**
+
+### Comment le code mort a été identifié
+
+Pas à la lecture de la liste du programme, qui nomme trois symboles (`PanelLayoutEntry`,
+`DashboardGridLayout`, `CollaboratorDetailView`) sur les onze fichiers concernés, mais par
+un **point fixe** : pour chaque type déclaré dans `OneToOne/`, compter ses citations dans
+les autres fichiers **hors commentaires et chaînes**, retirer les fichiers dont aucun type
+n'est cité, et **recommencer** — un fichier mort ne compte plus comme référent. Trois
+enseignements, qu'aucune recherche simple ne donnait :
+
+1. **Les commentaires maintenaient le mort en vie.** `OverviewDashboard` est cité par
+   quatre fichiers vivants (`MeetingView`, `MeetingScreenModel`, `ActionsRail`,
+   `ActionsPanel`) — **uniquement dans des commentaires**. Un `grep` sur le nom aurait
+   conclu que la vue servait encore.
+2. **La cascade compte plus que la première passe.** `DashboardCard` n'apparaît mort
+   qu'après le retrait des quatre cartes qui l'employaient ; `MeetingAvatarStack` qu'après
+   celui de `PresenceCard`, son dernier hôte ; `ProjectStatusPalette.color(_:)` qu'après
+   celui de l'ancienne fiche collaborateur **et** de `ProjectsPanel`, ses deux appelants.
+3. **L'analyse par noms de types produit des faux positifs.**
+   `TimedNotesColumn+Capture.swift` en est un : aucun de ses deux types n'est cité
+   ailleurs, mais ses **membres d'extension** (`carteDeCapture`, `estCarteDeCapture`) sont
+   appelés en `TimedNotesColumn.swift:120‑121`. Le fichier est bien vivant, et n'a pas été
+   supprimé. C'est pourquoi le compilateur, et non le script, a le dernier mot.
+
+### Ce qui est parti
+
+**Onze fichiers, 1 853 lignes, supprimés intégralement** — les deux dossiers
+`Views/Meeting/Dashboard/` et `Views/Meeting/Sidebar/` disparaissent :
+
+| Fichier | Lignes | Pourquoi mort |
+| --- | --- | --- |
+| `Sidebar/ActionsPanel.swift` | 645 | monté seulement par `OverviewDashboard` |
+| `ManagerAgendaSidebar.swift` | 326 | plus aucun hôte depuis le lot 1 |
+| `Dashboard/OverviewDashboard.swift` | 255 | débranché par D8 au lot 1 |
+| `Sidebar/ProjectsPanel.swift` | 146 | panneau de la sidebar configurable |
+| `Dashboard/DashboardGridLayout.swift` | 91 | `Layout` du seul dashboard |
+| `Dashboard/PresenceCard.swift` | 82 | carte du dashboard |
+| `Sidebar/CapturePanel.swift` | 74 | panneau de la sidebar configurable |
+| `Sidebar/PanelLayoutEntry.swift` | 66 | modèle de la disposition de la sidebar |
+| `Dashboard/DashboardCard.swift` | 57 | **cascade** : cadre des quatre cartes |
+| `Dashboard/TranscriptionCard.swift` | 57 | carte du dashboard |
+| `Sidebar/RightSidebarPanelID.swift` | 54 | identifiants des panneaux |
+
+**Et cinq retraits partiels :**
+
+- **`CollaboratorDetailView`, 618 lignes** (`Views/DetailsViews.swift` l. 626‑1242).
+  L'ancienne fiche collaborateur, remplacée par `CollaboratorFicheView` aux lots 12 à 14 :
+  plus une seule présentation dans l'application. `ProjectDetailView` et `KeyPointAdder`,
+  ses voisins de fichier, restent — `KeyPointAdder` est employé l. 167.
+- **`SummaryCard` scindée.** La carte est morte avec le dashboard, mais ses deux fonctions
+  statiques ne l'étaient pas : `generate(meeting:settings:)` et `transcriptSource(for:)`
+  sont **les seules définitions** du résumé court et du « texte de la réunion », appelées
+  par `MeetingView`, `MeetingLiveSpace` et `OneSentenceCard`. Elles emménagent dans
+  `Services/Meeting/MeetingSummaryService.swift` (espace de noms `enum`, convention de
+  `Services/`) plutôt que de garder une vue en vie pour ses membres statiques.
+- **`MeetingAvatarStack`, 55 lignes**, morte avec `PresenceCard`. Son fichier hébergeait
+  aussi `AvatarCircle` et `AvatarMini`, bien vivantes (huit appels dans les écrans hors
+  refonte) : seule la pile est retirée, et le fichier prend le nom de ce qu'il contient,
+  `MeetingAvatars.swift`.
+- **`MeetingView.currentSlides`**, 13 lignes : dernier lecteur parti avec `CapturePanel`.
+- **`ProjectStatusPalette.color(_:)`** : ses deux appelants étaient la fiche et
+  `ProjectsPanel`. Seul le tri survit, employé par `ReportTemplating`.
+
+**Un test supprimé** : `Tests/PanelLayoutEntryTests.swift` (80 lignes), qui ne couvrait que
+`PanelLayoutEntry` et `RightSidebarPanelID`.
+
+### Ce qui reste, et pourquoi
+
+- **`ActionsViewMode.kanban` et `.sticky` restent.** Non par oubli : `ActionsListView` —
+  l'écran Actions, hors refonte — emploie les cinq cas, et `ActionsRail.swift:143` fait
+  retomber sur `Liste` une valeur `kanban` mémorisée par l'ancien panneau plutôt que
+  d'afficher un écran vide. Deux tests verrouillent la règle
+  (`ActionsViewModeTests`, `MeetingScreenModelTests.railViewModeRejectsNonRailCases`) ;
+  ils citent `ActionsPanel` dans leurs commentaires, au passé, et restent justes.
+- **`AppSettings.rightSidebarLayoutJSON` garde sa colonne, sans lecteur.** Ses deux
+  lecteurs sont partis (`PanelLayoutEntry`, `OverviewDashboard`) ; la retirer demanderait
+  une version de schéma et une migration pour une chaîne que plus rien ne relit — prix payé
+  par tous les stores existants, gain nul. **Pas de migration**, `CurrentSchema` reste
+  `SchemaV3`. La colonne partira avec la prochaine migration qui a, elle, une raison d'être.
+- **Les commentaires qui nomment le code retiré ont été relus un par un**, pas effacés en
+  masse : ceux qui racontent l'histoire au passé (« l'ancien `ActionsPanel` », « a quitté
+  `ActionsPanel.swift` ») sont justes et restent ; huit qui décrivaient le mort au présent
+  ont été refondus. Deux **mentaient déjà** avant ce lot : `EditableTextField` et
+  `MarkdownNoteEditor` annonçaient présenter `CollaboratorDetailView` en feuille alors
+  qu'ils présentent `CollaboratorFicheView` depuis les lots 12‑14 ; `NotesSection` se
+  disait embarquée dans deux fiches alors qu'il n'en reste qu'une.
+
+### Vérification
+
+`swift build` puis `swift test` : **1 898 tests Swift Testing en 234 suites et 1 047 tests
+XCTest passent**, un seul saut (`AudioImportServiceTests.test_smokeRealFile_ifConfigured`,
+préexistant, attend `ONETOONE_SMOKE_AUDIO`). Aucun test n'a eu à être adapté hors celui qui
+a été supprimé — le signe que ce lot ne change aucun comportement.
+
+**L'échec horaire de `MenuBarStatsTests.test_todayStats_passedOnlyAndNoProject` ne s'est
+pas reproduit** : la suite a tourné à **05:19 CEST**, hors de la fenêtre 0 h–2 h identifiée
+par les lots 8 à 17. Le diagnostic tient donc, et le correctif (injecter l'heure de
+référence) reste dû.
+
+### Écarts assumés
+
+1. **Aucune recette visuelle.** Ce lot ne touche à aucun pixel : les onze fichiers
+   n'étaient montés par aucun écran, et les vues vivantes ne changent que dans leurs
+   commentaires. La recapture des neuf écrans, due depuis la recette des vagues 1‑4, reste
+   due — et n'est pas de ce lot.
+2. **`MeetingScreenModel.newTaskPomodoros` n'est pas retiré.** Le lot 3 l'avait conservé
+   « parce qu'`ActionsPanel` l'emploie encore » (écart assumé n° 8) ; ce panneau vient de
+   partir, et la propriété n'a plus un seul lecteur en production. Elle reste néanmoins :
+   trois tests de `MeetingScreenModelTests` l'écrivent et vérifient sa remise à zéro, et
+   toucher au modèle d'écran dépasse l'intention annoncée de ce lot. **À retirer au 19b**,
+   avec les trois assertions.
+3. **Le dossier `Views/Meeting/Dashboard/` disparaît, `Views/Shared/` reste bancal** :
+   `ProjectStatusPalette` ne contient plus qu'une fonction de tri sans SwiftUI et
+   n'appartient plus à `Views/`. Déplacer le fichier serait une seconde intention ; laissé
+   en place, signalé ici.
+4. **Le plan `docs/superpowers/plans/2026-09-08-refonte-lot-19a-cloture.md` n'existe pas.**
+   Ce lot a été déroulé depuis le périmètre du lot 19 du plan directeur (l. 457) et les
+   consignes de la coordination, l'analyse des appelants ayant été refaite de zéro.
+5. **Du code mort sans lien avec la refonte a été trouvé, et laissé.** Le point fixe signale
+   aussi 22 fichiers morts hors périmètre : `Services/Agent/` (7 fichiers, ~900 lignes,
+   couverts par 6 suites de tests qui les maintiennent seuls en vie), `MailBrowserView`
+   (574 l.), `AnthropicOAuthClient` (264 l.), `RAGChatView` (262 l.), `ManagerCRGenerator`
+   (268 l.), `MickeyIntegration` (244 l.), `ReportThemeCSS` (184 l.),
+   `MailSuggestionService` + `MailSuggestionReviewSheet`, `ManagerActionReviewSheet`,
+   `CollaboratorEntity` / `StartOneToOneIntent` (App Intents), `ExternalServices`,
+   `SessionPillHost`, `CollaboratorTopBarModel`. **Rien n'a été touché** : ce sont des
+   fonctionnalités anciennes, pas des restes de la refonte, et certaines peuvent être des
+   points d'entrée du système (App Intents) que l'analyse statique ne voit pas. À arbitrer
+   dans un lot dédié — le chiffre est de l'ordre de **3 000 lignes**.
+
+### Prochaine action
+
+**Lot 19b**, le reste du périmètre du lot 19 (plan directeur l. 457), qui n'est **pas**
+du code mort et n'a donc pas sa place ici : table complète des raccourcis §1.4
+(`⌘K ⌘M ⌘⇧A ⌘⇧S ⌘⇧N ⌘⇧V ⌘⏎`) dans `MeetingCommands` et l'aide — `⌘⇧A` et `⌘⇧N` sont
+aujourd'hui des boutons d'opacité nulle, jamais vérifiés à l'exécution ; réécriture de
+`docs/architecture.md` (§5 modèles, §8 vues, §9 flux), de `docs/cleanup-report.md` et de la
+section « écran de réunion » de `CLAUDE.md`, aucun des dix-sept lots ne les ayant touchés
+(le plan directeur l. 527 le leur interdisait) ; `BackupService`, qui n'exporte toujours pas
+huit des neuf tables ajoutées au lot 0B (seul `Board` l'est, depuis le lot 16) ;
+`newTaskPomodoros` ci-dessus.
 ## Intégration vague 7 : la pile redevient linéaire (2026-09-08)
 
 Trois branches développées en parallèle sous le sommet de recette

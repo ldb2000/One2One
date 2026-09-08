@@ -244,9 +244,16 @@ final class AppSettings {
     /// `⌘⇧N` global (note au timecode courant), actif par défaut.
     var noteHotkeyEnabled: Bool = true
 
-    /// Layout configuré de la sidebar droite des réunions.
-    /// JSON : `[{"id":"actions","visible":true}, …]`. Vide → defaultLayout
-    /// est appliqué par le helper computed.
+    /// Disposition de l'ancienne sidebar droite des réunions, JSON :
+    /// `[{"id":"actions","visible":true}, …]`.
+    ///
+    /// **Plus personne ne la lit** depuis le lot 19 : la refonte a remplacé la
+    /// sidebar par le rail (`ActionsRail`) et le tiroir Ressources, et ses
+    /// lecteurs (`PanelLayoutEntry`, `OverviewDashboard`) sont partis avec elle.
+    /// La colonne reste : la retirer demanderait une version de schéma et une
+    /// migration pour une chaîne que rien ne relit — le prix serait payé par
+    /// tous les stores existants sans rien apporter. Elle disparaîtra à la
+    /// prochaine migration qui a, elle, une raison d'être.
     var rightSidebarLayoutJSON: String = ""
 
     var captureBlacklist: [String] {

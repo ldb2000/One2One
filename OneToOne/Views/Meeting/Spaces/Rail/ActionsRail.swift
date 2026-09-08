@@ -17,8 +17,8 @@ import SwiftData
 /// sait si la fenêtre peut tenir 330 px sans rogner la colonne fluide sous son
 /// plancher (critère d'acceptation n° 5).
 ///
-/// Remplace `ActionsPanel` dans l'espace Réunion. L'ancien panneau reste dans
-/// le dépôt pour `OverviewDashboard`, retiré au lot 19 (décision D8).
+/// Remplace `ActionsPanel` dans l'espace Réunion. L'ancien panneau, que seul
+/// le dashboard montait encore, a été retiré du dépôt au lot 19 (décision D8).
 struct ActionsRail: View {
 
     @Bindable var meeting: Meeting
