@@ -19,6 +19,7 @@ struct DocumentationTests {
         var documents: [String] = []
         var codeDocumente: [String] = []
         var sections: [String] = []
+        var symbolesExternes: [String] = []
 
         init(texte: String) {
             var bloc = ""
@@ -35,6 +36,8 @@ struct DocumentationTests {
                     codeDocumente.append(String(nette.dropFirst(2)))
                 } else if bloc == "sections", nette.hasPrefix("- ") {
                     sections.append(String(nette.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
+                } else if bloc == "symboles_externes", nette.hasPrefix("- ") {
+                    symbolesExternes.append(String(nette.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
                 }
             }
         }
@@ -67,6 +70,18 @@ struct DocumentationTests {
         FileManager.default.fileExists(atPath: racine.appendingPathComponent(relatif).path)
     }
 
+    /// Le texte hors blocs de code ``` … ``` et hors accents graves (contenu des citations retiré) :
+    /// évite qu'un chemin/symbole cité entre accents graves déclenche une fausse détection.
+    private func horsCitations(dans texte: String) -> String {
+        var horsCode = ""
+        var dansBloc = false
+        for ligne in texte.split(separator: "\n", omittingEmptySubsequences: false) {
+            if ligne.hasPrefix("```") { dansBloc.toggle(); continue }
+            if !dansBloc { horsCode += ligne + "\n" }
+        }
+        return horsCode.replacingOccurrences(of: "`[^`\\n]+`", with: "", options: .regularExpression)
+    }
+
     // MARK: - Tests
 
     @Test("Tout chemin cité dans un document tenu existe")
@@ -87,11 +102,17 @@ struct DocumentationTests {
     @Test("Tout symbole cité dans architecture.md est déclaré dans les sources")
     func symbolesCitesExistent() throws {
         let declares = try typesDeclares()
+        let m = try manifeste()
+        let externes = Set(m.symbolesExternes)
         let motif = try NSRegularExpression(pattern: "^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*$")   // exclut les sigles (MLX, WAV…)
+        // Préfixes de frameworks système : ces symboles ne sont jamais déclarables dans les sources.
+        let motifFramework = try NSRegularExpression(pattern: "^(NS|UI|CG|CF|AV|WK|SC|CT|EK|CN|UN|AX|MLX)[A-Z]")
         var inconnus: [String] = []
         for c in citations(dans: try texte("docs/architecture.md")) {
             let ns = c as NSString
             guard motif.firstMatch(in: c, range: NSRange(location: 0, length: ns.length)) != nil else { continue }
+            guard motifFramework.firstMatch(in: c, range: NSRange(location: 0, length: ns.length)) == nil else { continue }
+            if externes.contains(c) { continue }
             if !declares.contains(c) { inconnus.append(c) }
         }
         #expect(inconnus.isEmpty, "Symboles inconnus : \(Array(Set(inconnus)).sorted())")
@@ -126,7 +147,6 @@ struct DocumentationTests {
         let documentes = Set(citations(dans: section).filter { $0.range(of: "^[A-Z][A-Za-z0-9]+$", options: .regularExpression) != nil })
         let schema = Set(CurrentSchema.models.map { String(describing: $0) })
         #expect(schema.subtracting(documentes).isEmpty, "Modèles du schéma absents de la doc : \(schema.subtracting(documentes).sorted())")
-        #expect(documentes.intersection(schema) == schema)
     }
 
     @Test("Tout ADR référencé existe et tout ADR figure dans decisions.md")
@@ -159,10 +179,20 @@ struct DocumentationTests {
     @Test("Les documents tenus n'emploient que des dates absolues")
     func datesAbsolues() throws {
         let m = try manifeste()
-        let interdits = ["hier", "la semaine dernière", "récemment", "ce matin", "demain matin", "il y a quelques jours"]
+        // Bornes de mot : `\b` évite qu'« hier » matche à l'intérieur de « fichier ».
+        let motif = try NSRegularExpression(
+            pattern: "\\b(hier|récemment|la semaine dernière|ce matin|demain matin|il y a quelques jours)\\b",
+            options: [.caseInsensitive]
+        )
         for doc in m.documents where existe(doc) {
-            let s = try texte(doc).lowercased()
-            for mot in interdits { #expect(!s.contains(mot), "\(doc) contient « \(mot) »") }
+            let texteSansCitations = horsCitations(dans: try texte(doc))
+            for ligne in texteSansCitations.split(separator: "\n", omittingEmptySubsequences: false) {
+                let s = String(ligne)
+                let ns = s as NSString
+                guard let r = motif.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) else { continue }
+                let mot = ns.substring(with: r.range)
+                Issue.record("\(doc) contient « \(mot) » : \(s.trimmingCharacters(in: .whitespaces))")
+            }
         }
     }
 

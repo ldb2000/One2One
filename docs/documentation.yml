@@ -13,6 +13,10 @@ code_documente:
   - Scripts/
   - Package.swift
 
+# Types système, modules SwiftPM et termes d'interface cités dans la doc et qui n'ont pas de
+# déclaration dans les sources ; chaque entrée est un choix conscient.
+symboles_externes:
+
 documents:
   - chemin: docs/README.md
     public: tous
