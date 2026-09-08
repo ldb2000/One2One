@@ -49,6 +49,15 @@ mémorisé en `@State` sous `Views/Meeting/Spaces/**` (Review compris), un déco
 `MeetingScreenModel`/`ReviewState`, et un `meeting.tasks.count` nu dans l'une des sept surfaces.
 Les dix tests échouent sur le code d'avant (19 assertions).
 
+**La recette visuelle, faite.** Instance isolée (`/tmp/recette-kpi`, `CFFIXED_USER_HOME` jetable,
+bundle `…​.recette`), écran 1c, pilotage par `AXUIElementCreateApplication(<pid>)` et `AXPress`
+seuls — aucun clic global, aucun AppleScript, l'instance de l'utilisateur jamais touchée. Départ
+12 · 9. Suppression d'une action non assignée (`⋯ → Supprimer`) → nav « Actions 11 », badge
+« 8 sans responsable » ; assignation d'une autre → « 7 sans responsable » ; retour En séance :
+**ACTIONS 11 · 7 non assignées**, la valeur attendue. Puis abandon d'une action *assignée* — le cas
+exact du retour d'usage — → nav 10, bandeau **ACTIONS 10 · 7**, onglet du rail « Actions 10 » :
+avant correctif, ces trois-là seraient restés à 11. Captures dans `recette/finale/kpi-*.png`.
+
 ### Prochaine action
 
 Les décisions issues du rapport s'affichent en `--:--` faute de `t` : hors périmètre de ce lot,
