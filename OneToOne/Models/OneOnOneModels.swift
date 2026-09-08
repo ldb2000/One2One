@@ -226,6 +226,16 @@ final class Commitment: Confidential {
     /// chaînes dans une colonne JSON, sans identité propre.
     var linkedDecisionIndex: Int?
 
+    /// L'engagement **bloque l'autre personne** du fil : la pilule
+    /// `Bloquant pour lui` en `accent/report` de la capture 2a (spec §3.3
+    /// « carte = texte + pilules (échéance, criticité, confidentialité) »).
+    ///
+    /// Une colonne et non une dérivation (lot 11, valeur par défaut `false`) :
+    /// « est-ce que mon retard empêche l'autre d'avancer ? » ne se déduit ni de
+    /// l'échéance ni du porteur — c'est un fait de l'entretien, dit par la
+    /// personne concernée, et c'est précisément ce que la pilule rapporte.
+    var blocksOther: Bool = false
+
     init(text: String = "",
          ownerSide: OneOnOneSide = .manager,
          dueAt: Date? = nil,

@@ -23,6 +23,24 @@ struct NoteComposer: View {
     let meeting: Meeting
     let screen: MeetingScreenModel
 
+    /// Les pilules à afficher, quand l'écran hôte en impose d'autres que les
+    /// quatre du lot 2 — `/engagement /feedback /privé` en 1:1 côté manager,
+    /// `/promesse /demande /preuve` côté collaborateur
+    /// (`NoteCommandCatalog.commands(for:role:)`, lot 10).
+    ///
+    /// `nil` = les quatre pilules de base : le rendu de **tous** les autres
+    /// types est inchangé.
+    var commands: [NoteCommandCatalog.Entry]?
+
+    /// Le contexte 1:1, quand la ligne saisie peut produire autre chose qu'une
+    /// note (un engagement, un sujet suivi). `nil` = la validation du lot 2,
+    /// mot pour mot.
+    var oneOnOne: OneOnOneComposerContext?
+
+    /// Placeholder du champ, quand l'écran hôte en veut un autre (`Écrire…` de
+    /// la capture 2a). `nil` = celui du lot 2.
+    var placeholder: String?
+
     @Environment(\.one2OneTheme) private var theme
     private var c: One2OneColors { theme.colors }
     @Environment(\.modelContext) private var context
@@ -82,7 +100,7 @@ struct NoteComposer: View {
 
     private var champ: some View {
         NoteComposerField(
-            placeholder: theme == .session ? "" : "Tape",
+            placeholder: placeholder ?? (theme == .session ? "" : "Tape"),
             text: Binding(get: { screen.pendingNoteText },
                           set: { screen.pendingNoteText = $0 }),
             focusToken: screen.noteComposerFocusToken,
@@ -96,14 +114,57 @@ struct NoteComposer: View {
     @ViewBuilder
     private var pilules: some View {
         HStack(spacing: 6) {
-            ForEach(NoteCommandParser.visiblePills, id: \.rawValue) { commande in
-                Button {
-                    inserer(commande)
-                } label: {
-                    Chip(commande.pill, ton: ton(for: commande))
+            if let commands {
+                // Les pilules imposées par l'écran hôte (1:1, lots 11 à 14).
+                // Même rendu, même geste : cliquer insère la commande en tête
+                // du champ et rend le focus.
+                ForEach(commands) { entree in
+                    Button {
+                        insererTexte(entree.pill)
+                    } label: {
+                        Chip(entree.pill, ton: ton(for: entree))
+                    }
+                    .buttonStyle(.plain)
+                    .help(aide(for: entree))
                 }
-                .buttonStyle(.plain)
-                .help(aide(for: commande))
+            } else {
+                ForEach(NoteCommandParser.visiblePills, id: \.rawValue) { commande in
+                    Button {
+                        inserer(commande)
+                    } label: {
+                        Chip(commande.pill, ton: ton(for: commande))
+                    }
+                    .buttonStyle(.plain)
+                    .help(aide(for: commande))
+                }
+            }
+        }
+    }
+
+    /// Ton d'une pilule du catalogue : `/engagement` porte l'accent 1:1,
+    /// `/privé` aussi (c'est la marque de confidentialité de la spec §3.2), le
+    /// reste suit la commande de base.
+    private func ton(for entree: NoteCommandCatalog.Entry) -> ChipTon {
+        switch entree {
+        case .oneOnOne:
+            return .oneOnOne
+        case let .base(commande):
+            return commande == .secret ? .oneOnOne : ton(for: commande)
+        }
+    }
+
+    private func aide(for entree: NoteCommandCatalog.Entry) -> String {
+        switch entree {
+        case .oneOnOne(.engagement):
+            return "Créer un engagement de cette séance"
+        case let .base(commande):
+            switch commande {
+            case .secret:   return "Écrire une note privée — jamais dans un récap ni un rapport"
+            case .feedback: return "Noter un feedback, dans un sens ou dans l'autre"
+            case .promise:  return "Noter une promesse de votre manager"
+            case .request:  return "Poser une demande et la suivre jusqu'à la réponse"
+            case .proof:    return "Citer une preuve de ce que vous avez livré"
+            default:        return aide(for: commande)
             }
         }
     }
@@ -133,17 +194,60 @@ struct NoteComposer: View {
     /// Insère la commande en tête du champ et redonne le focus : cliquer une
     /// pilule doit permettre de continuer à taper, pas ouvrir un dialogue.
     private func inserer(_ commande: NoteCommandParser.Command) {
+        insererTexte(commande.pill)
+    }
+
+    /// Le geste commun aux deux jeux de pilules : la commande passe en tête, le
+    /// texte déjà tapé reste, le focus revient au champ.
+    private func insererTexte(_ pilule: String) {
         let reste = screen.pendingNoteText.trimmingCharacters(in: .whitespaces)
-        let sansCommande = NoteCommandParser.parse(reste).command == nil
+        // Une commande déjà en tête est **remplacée**, jamais empilée : deux
+        // barres obliques de suite ne veulent rien dire, et le parseur ne lit
+        // que la première. `/engagement` n'est pas connu du parseur de base,
+        // d'où le repli sur le préfixe littéral.
+        var sansCommande = NoteCommandParser.parse(reste).command == nil
             ? reste
             : NoteCommandParser.parse(reste).text
-        screen.pendingNoteText = "\(commande.pill) \(sansCommande)"
+        for connue in NoteCommandParser.OneOnOneCommand.allCases
+        where sansCommande.hasPrefix(connue.pill) {
+            sansCommande = String(sansCommande.dropFirst(connue.pill.count))
+                .trimmingCharacters(in: .whitespaces)
+        }
+        screen.pendingNoteText = "\(pilule) \(sansCommande)"
         screen.focusNoteComposer()
     }
 
     /// Valide la ligne : `/action` pose l'intention pour le rail, tout le reste
     /// crée une `MeetingNote` au timecode courant.
     private func valider() {
+        // En 1:1, la ligne peut produire un engagement ou un sujet suivi et pas
+        // seulement une note : les effets vivent dans
+        // `OneOnOneComposerContext`, pas ici (lots 11 à 14).
+        if let oneOnOne {
+            let effet = oneOnOne.apply(screen.pendingNoteText, at: screen.playhead.t,
+                                       to: meeting, in: context)
+            if effet.opensActionComposer {
+                let parsed = NoteCommandParser.parse(screen.pendingNoteText)
+                screen.requestAction(from: ActionFromPhrase.draft(
+                    phrase: parsed.text,
+                    kind: .note,
+                    stableID: meeting.ensuredStableID,
+                    t: screen.playhead.t
+                ))
+            } else if effet.note != nil {
+                NoteIndexingCoordinator.shared.scheduleReindex(meeting: meeting, context: context)
+            } else if effet.commitment == nil, effet.agenda == nil {
+                // Rien n'a été écrit (`/engagement` sans texte, ligne blanche) :
+                // le champ **garde** sa saisie, comme dans le composeur du
+                // lot 2. L'effacer ferait disparaître la commande en cours de
+                // frappe.
+                return
+            }
+            screen.pendingNoteText = ""
+            screen.focusNoteComposer()
+            return
+        }
+
         let parsed = NoteCommandParser.parse(screen.pendingNoteText)
         guard !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let t = screen.playhead.t

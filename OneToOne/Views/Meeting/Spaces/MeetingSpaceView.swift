@@ -113,6 +113,13 @@ struct MeetingSpaceView: View {
     /// Le contenu de l'espace : le poste de pilotage seul en mode Relire, les
     /// deux colonnes — fluide et rail de 330 px — partout ailleurs.
     ///
+    /// Ordre du routage, fixé à l'intégration de la vague 5 : **type Atelier**,
+    /// puis **type 1:1** selon le mode, puis la disposition standard selon le
+    /// mode. Les prédicats sont exclusifs deux à deux (l'atelier veut
+    /// `.workshop`, le 1:1 veut `.oneToOne`, Relire veut `.review` quand les
+    /// deux autres veulent `.live` ou `.prepare`) : l'ordre est donc une
+    /// lecture, pas une priorité qui masquerait un cas.
+    ///
     /// Extrait de `body` à l'intégration de la vague 4 : les points d'entrée
     /// des lots 4 et 6 se posent en modificateurs sur l'espace entier, et le
     /// mode Relire du lot 5 remplace le corps de la vue. Sans ce découpage,
@@ -123,6 +130,17 @@ struct MeetingSpaceView: View {
             WorkshopSpaceView(meeting: meeting,
                               screen: screen,
                               isAssistantOpen: $isAssistantOpen)
+        } else if MeetingSpaceRouting.usesOneOnOneManagerSession(kind: meeting.kind,
+                                                                 mode: screen.mode) {
+            // Lot 11, spec §3.1 et §3.3 : l'écran de séance du 1:1 mené monte
+            // ses **trois** colonnes et rien d'autre — ni bandeau
+            // d'indicateurs, ni rail d'actions, ni présence. Il porte sa propre
+            // barre d'assistant, en pied de colonne gauche.
+            ManagerSessionView(meeting: meeting,
+                               screen: screen,
+                               historique: historique,
+                               isAssistantOpen: $isAssistantOpen,
+                               onManageParticipants: onManageParticipants)
         } else if screen.mode == .review {
             posteDePilotage
         } else {

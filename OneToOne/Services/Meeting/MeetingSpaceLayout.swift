@@ -21,6 +21,15 @@ enum MeetingSpaceLayout {
     /// Épaisseur du filet qui sépare deux colonnes d'une même carte.
     static let hairlineWidth: CGFloat = 1
 
+    /// Colonne gauche de l'écran de séance 1:1 — carte personne, ordre du
+    /// jour, resté en suspens, barre assistant (spec §3.3, capture 2a).
+    static let oneOnOneLeftWidth: CGFloat = 300
+
+    /// Rail des engagements de l'écran de séance 1:1 (spec §3.3). Même valeur
+    /// que `One2OneToken.oneOnOneRailNarrow`, nommée ici parce que c'est cette
+    /// table qui répartit les colonnes.
+    static let oneOnOneRailWidth: CGFloat = 320
+
     /// Répartition des colonnes pour une largeur de fenêtre donnée.
     ///
     /// - Parameters:
@@ -51,6 +60,23 @@ enum MeetingSpaceLayout {
     /// plancher. Sert aux vues qui décident de l'afficher ou de le replier.
     static func showsRail(totalWidth: CGFloat) -> Bool {
         columns(totalWidth: totalWidth, rail: One2OneToken.actionsRailWidth, sideNav: nil).rail > 0
+    }
+
+    /// Répartition des **trois** colonnes de l'écran de séance 1:1
+    /// (spec §3.3 : `300 | 1fr | 320`).
+    ///
+    /// Délègue à `columns(totalWidth:rail:sideNav:)` — la règle « la colonne
+    /// fluide ne descend pas sous 520 px, on retire une colonne fixe plutôt
+    /// que de la rogner » est ainsi écrite **une seule fois** dans le projet.
+    /// La colonne gauche prend la place de la nav latérale, donc elle cède la
+    /// première : le rail porte les engagements de la séance et la clôture,
+    /// la colonne gauche porte du contexte.
+    static func oneOnOneColumns(totalWidth: CGFloat)
+        -> (left: CGFloat, center: CGFloat, rail: CGFloat) {
+        let colonnes = columns(totalWidth: totalWidth,
+                              rail: oneOnOneRailWidth,
+                              sideNav: oneOnOneLeftWidth)
+        return (left: colonnes.sideNav, center: colonnes.fluid, rail: colonnes.rail)
     }
 
     /// Deux colonnes égales séparées par un filet — la carte

@@ -54,6 +54,30 @@ struct MeetingAssistantDock: View {
         return date.formatted(style)
     }
 
+    /// Le contexte que l'assistant interroge, quand ce n'est **pas** la seule
+    /// réunion ouverte.
+    ///
+    /// En 1:1, la question porte sur le **fil** : « Interroger l'historique des
+    /// 1:1 de Laurent » (capture 2a). Le `threadID` voyage avec le placeholder
+    /// pour que la surface sache de quoi elle parle ; le panneau lui-même reste
+    /// celui de la réunion (lot 15 câblera la portée côté chatbot).
+    struct Contexte: Equatable, Sendable {
+        var placeholder: String
+        var threadID: UUID?
+
+        /// Le contexte d'un fil 1:1.
+        @MainActor
+        static func fil(of thread: OneOnOneThread) -> Contexte {
+            let prenom = OneOnOneThreadStore.firstName(of: thread)
+            return Contexte(
+                placeholder: prenom.isEmpty
+                    ? "Interroger l'historique de ce fil"
+                    : "Interroger l'historique des 1:1 de \(prenom)",
+                threadID: thread.ensuredStableID
+            )
+        }
+    }
+
     let meeting: Meeting
     /// Réunions connues, pour dater la seconde suggestion.
     let historique: [Meeting]
@@ -61,7 +85,57 @@ struct MeetingAssistantDock: View {
     /// (`MeetingMenuActions.openAssistant`).
     @Binding var isOpen: Bool
 
+    /// `nil` = la barre de la capture 1a, inchangée : placeholder de réunion et
+    /// deux suggestions. Renseigné, la barre se réduit au placeholder du
+    /// contexte et à `⌘K` — la colonne gauche du 1:1 fait 300 px, deux pilules
+    /// de suggestion n'y tiennent pas.
+    var contexte: Contexte?
+
     var body: some View {
+        if let contexte {
+            barreDeContexte(contexte)
+        } else {
+            barreDeReunion
+        }
+    }
+
+    /// La barre étroite d'un contexte nommé (capture 2a, pied de colonne
+    /// gauche) : l'étincelle, la question, `⌘K`.
+    private func barreDeContexte(_ contexte: Contexte) -> some View {
+        Button {
+            isOpen = true
+        } label: {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(One2OneToken.oneOnOne)
+                Text(contexte.placeholder)
+                    .font(.plexSans(11.5))
+                    .foregroundStyle(One2OneToken.ink3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
+                Text("⌘K")
+                    .font(.plexMono(10))
+                    .foregroundStyle(One2OneToken.ink4)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
+                .fill(One2OneToken.oneOnOneBg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
+                .strokeBorder(One2OneToken.cardBorder, lineWidth: 1)
+        )
+        .help("Poser une question sur tout l'historique de ce fil (⌘K)")
+    }
+
+    private var barreDeReunion: some View {
         HStack(spacing: 8) {
             Button {
                 isOpen = true

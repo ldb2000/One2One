@@ -2,6 +2,185 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 11 : 1:1 manager, écran de séance (2a) (2026-09-07)
+
+Branche `feat/refonte-lot-11-1to1-manager-seance`, sur `fix/refonte-1to1-window-crash` (sommet de
+la pile linéaire). Plan du lot dans
+`docs/superpowers/plans/2026-09-07-refonte-lot-11-1to1-manager-seance.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert, PR ouverte, non mergée.**
+**Recette visuelle différée à la passe de recette dédiée** (consigne du 7 septembre : plusieurs
+agents pilotaient le même bureau et se tuaient mutuellement leurs instances ; une seule passe est
+désormais autorisée à piloter l'interface). Le crochet est prêt, cf. « Pour la passe de recette ».
+
+### L'écran
+
+`kind == .oneToOne` + mode **En séance** → `ManagerSessionView`, grille `300 | 1fr | 320`,
+**sans** rail d'actions, sans bandeau d'indicateurs, sans présence (spec §3.1). Une branche dans
+`MeetingSpaceView.contenu`, gardée par `MeetingSpaceRouting.usesOneOnOneManagerSession`.
+
+L'instant de référence de l'écran est la **date de la séance**, pas `Date()` : « il y a 2 sem. »,
+« Vendredi » et « tenus depuis le dernier 1:1 » parlent de l'entretien qu'on tient, pas du jour où
+on le relit.
+
+| Colonne | Contenu |
+| --- | --- |
+| Gauche 300 | `PersonCard` (avatar 34, nom, `Ingénieur CI/CD · dans l'équipe depuis 3 ans`, `DERNIER 1:1` / `RYTHME`), `ManagerAgendaCard` (avatar 16 px du côté ajoutant, barré si traité ou reporté, `→ 18/09`, composeur `Ajouter un sujet…`, glisser-réordonner), `ManagerPendingTopicsCard`, barre assistant contexte = fil |
+| Centre 1fr | `Notes de l'entretien · liées à l'audio`, pilules `Partagé` / `Privé`, `MoodScale` (5 crans, cran choisi bordé), `① / ② / ③`, bloc privé isolé, `FeedbackCards`, composeur `Écrire… /engagement /feedback /privé` |
+| Droite 320 | `ENGAGEMENTS DE CETTE SÉANCE` (`Moi · n` / `<Prénom> · n`, pilules échéance / charge / criticité / confidentialité), `TENUS DEPUIS LE DERNIER 1:1` (`✓` / `✗ n× reporté`), `CLÔTURER` |
+
+Barre du haut, bloc `.oneToOne` : segment `Mon équipe`, pilule `● Privé — vous deux`,
+`Rapport 1:1 ✓`, et l'en-tête dérivé `<Nom> — entretien du <jour>` en **placeholder** du titre.
+
+### Fichiers
+
+**`Views/Meeting/OneOnOne/Shared/**` — lisibles par les lots 12 à 14, qui ne les modifient pas :**
+`OneOnOneSeniority`, `OneOnOneMoodTone`, `OneOnOneNoteSections`, `CommitmentsRailModel`,
+`PersonCardModel`, `ManagerAgendaModel`, `OneOnOneComposerContext`, `AvatarSide`, `PersonCard`,
+`MoodScale`, `CommitmentRow`, `OneOnOneInlineComposer`.
+
+**`Views/Meeting/OneOnOne/Manager/**` :** `ManagerSessionView`, `ManagerAgendaCard` (+
+`ManagerPendingTopicsCard`), `ManagerNotesColumn`, `FeedbackCards`, `CommitmentsRail`.
+
+**Ailleurs :** `Views/Meeting/Spaces/Notes/TimedNotesColumn+OneOnOne.swift`
+(`OneOnOneNotesSection`, `TimedNotesColumn.swift` **intact**),
+`Services/OneOnOne/OneOnOneDateFormat+Lot11.swift`,
+`Services/Debug/Seed/RefonteDemoSeed+Lot11.swift`.
+
+### Fichiers partagés touchés, à la ligne près
+
+- `Services/Meeting/MeetingSpaceLayout.swift` : deux constantes (`oneOnOneLeftWidth = 300`,
+  `oneOnOneRailWidth = 320`) et `oneOnOneColumns`, qui **délègue** à
+  `columns(totalWidth:rail:sideNav:)` — la règle « la colonne fluide ne descend pas sous 520 px »
+  reste écrite une seule fois.
+- `Services/Meeting/MeetingSpaceRouting.swift` : une fonction.
+- `Views/Meeting/Spaces/MeetingSpaceView.swift` : une branche `else if`.
+- `Views/Meeting/Spaces/Notes/NoteComposer.swift` : trois paramètres optionnels (`commands`,
+  `oneOnOne`, `placeholder`), tous `nil` par défaut — rendu et validation des autres types
+  inchangés. Cliquer une pilule **remplace** la commande en tête au lieu de l'empiler.
+- `Views/Meeting/Spaces/MeetingAssistantDock.swift` : `Contexte` optionnel ; `nil` laisse la barre
+  de la capture 1a mot pour mot.
+- `Views/Meeting/MeetingTopChromeBar.swift` : quatre fonctions statiques et trois insertions
+  localisées.
+- `Models/OneOnOneModels.swift` : `Commitment.blocksOther` (défaut `false`), en fin de type.
+- `Models/OtherModels.swift` : `Collaborator.joinedAt` (optionnelle), en fin de type. Les deux sont
+  des colonnes à valeur par défaut → migration légère, `CurrentSchema` reste `SchemaV3`.
+- `Views/Menus/MeetingCommands.swift` : une ligne (`seedLot11`), qui câble enfin
+  `seedOneOnOneThreads` du lot 10.
+- `OneToOne/OneToOneApp.swift` : le crochet de recette `ONETOONE_SEED_DEMO_SCREEN`.
+- `MeetingView.swift` : **rien**.
+
+### Tests
+
+`swift build` propre (mêmes avertissements préexistants). `swift test` complet :
+**1 041 XCTest (1 ignoré, 0 échec) + 1 453 Swift Testing dans 187 suites, 0 échec** — 2 494 tests,
+soit **+92** par rapport à la référence de 2 402.
+
+Dix suites nouvelles : `OneOnOneSessionLayoutTests` (10), `OneOnOneSeniorityTests` (8),
+`CommitmentsRailModelTests` (13), `OneOnOneNoteSectionsTests` (8),
+`OneOnOneComposerContextTests` (12), `OneOnOneAgendaCardTests` (12), `OneOnOneMoodScaleTests` (8),
+`OneOnOneClosingTests` (5), `OneOnOneTopChromeSessionTests` (5), `RefonteDemoSeedLot11Tests` (11).
+
+### Critères d'acceptation couverts
+
+- **Chantier 2 n° 2** — engagement manqué **côté manager** visible dans le rail avec son compteur
+  de reports : `CommitmentsRailModelTests.engagementManqueDuManager` et
+  `RefonteDemoSeedLot11Tests.lignesDuLedger` (`✗ Retour sur la grille d'astreinte — YP · 2×
+  reporté`, en tête de liste).
+- **Chantier 2 n° 3** — le moral saisi écrit un `MoodEntry` de la séance, **remplace** le relevé
+  existant (la série de six barres garde sa longueur) et le delta change de sens dans la même
+  seconde : `OneOnOneMoodScaleTests`.
+- **Sections de notes par nature** — `OneOnOneNoteSectionsTests` : `③` par `kind: feedback`, `①` la
+  première ligne, `②` tout le reste ; aucune ligne ne peut n'apparaître dans aucune section.
+- **Pilules du composeur par type et par rôle** — `OneOnOneComposerContextTests` : les trois du
+  manager, les trois du collaborateur, les quatre du lot 2 ailleurs, et le rôle qui prime sur le
+  type.
+- **Largeur 1 280 px** — `OneOnOneSessionLayoutTests` : `(300, 660, 320)`, colonne fluide ≥ 520,
+  somme exacte, aucune largeur négative de −100 à 1 920 px.
+- **Aucune zone vide sans invite** — invites testées pour l'ordre du jour vide, le suspens vide, les
+  deux groupes d'engagements vides, le registre vide, les trois sections et les deux cartes de
+  feedback ; sans participant, l'écran propose `Gérer les participants` au lieu de trois colonnes
+  muettes.
+- **Chantier 2 n° 1** (revérifié depuis l'écran qui déclenche l'envoi) — `OneOnOneClosingTests` : la
+  note privée `17:30` ne sort pas du récap collaborateur.
+
+### Points tranchés
+
+1. **Le titre d'un entretien reste éditable.** L'en-tête dérivé
+   `Laurent NOMINÉ — entretien du 4 septembre` est le **placeholder** du champ de titre, pas son
+   remplacement : la barre du haut est le seul point d'entrée de l'application pour renommer une
+   réunion, et le retirer pour un type aurait été une perte de fonction. Conséquence sur la
+   maquette : le jeu de démonstration affiche son titre semé (`1:1 — Laurent · 14`) et non le texte
+   de la capture — cf. écart n° 1.
+2. **`ENGAGEMENTS DE CETTE SÉANCE` n'affiche que les engagements ouverts et non en retard.** Un
+   engagement soldé ou déjà en retard figure dans le registre juste en dessous ; l'afficher deux
+   fois dans la même colonne ferait compter deux paroles là où il n'y en a qu'une. C'est ce que
+   montre la capture (`Moi · 2`, la grille d'astreinte étant dans le registre) et c'est un test du
+   jeu de démonstration qui l'a établi.
+3. **Le registre inclut les retards non soldés, en `✗`.** « Tenus depuis le dernier 1:1 » ne garde
+   pas que les soldés : un engagement jamais fermé disparaîtrait de l'écran, ce qui est l'inverse du
+   critère n° 2.
+4. **La pilule d'échéance dit le jour de la semaine dans la semaine en cours, la date au-delà.**
+   « Vendredi » ne veut dire quelque chose que dans la semaine où il est prononcé — c'est la règle
+   qui rend les quatre pilules de la capture (`Vendredi`, `9 sept.`, `11 sept.`, `30 sept.`)
+   cohérentes entre elles.
+5. **`① COMMENT ÇA VA` prend la première ligne de la séance.** La spec décrit une progression, pas
+   une colonne « section » : `③` se déduit de `kind: feedback`, et la réponse à la question posée
+   est la première chose écrite. Convention assumée, documentée dans `OneOnOneNoteSections`, et
+   c'est celle que montre la capture.
+6. **La bascule `Partagé` / `Privé` ne repeint pas l'historique.** Elle gouverne les lignes
+   **suivantes** ; un changement de défaut qui rendrait publique une note écrite en privé serait le
+   pire défaut possible de cet écran. Réglage de séance, en `@State` : le persister mettrait dans un
+   backup la trace d'un clic d'interface.
+7. **Deux colonnes de données, pas une dérivation.** `Commitment.blocksOther` (`Bloquant pour lui`)
+   et `Collaborator.joinedAt` (l'ancienneté) sont des faits dits par les personnes, pas des
+   calculs : ni l'échéance ni le porteur ne disent si un retard empêche l'autre d'avancer.
+
+### Écarts assumés
+
+1. **Le titre de la 14ᵉ séance du jeu de démonstration n'est pas celui de la capture.** Le semis du
+   lot 10 utilise le titre comme **clef d'idempotence** (`1:1 — Laurent · 14`) : le renommer ferait
+   recréer une quinzième séance au semis suivant. Le lot 11 ne touche donc pas aux titres, et
+   l'en-tête de la capture apparaît en placeholder d'un entretien sans titre. À trancher au lot 12,
+   qui porte l'en-tête de 2b.
+2. **`⌘K` n'est pas encore restreint au fil.** `MeetingAssistantDock.Contexte` transporte le
+   `threadID`, et la barre affiche `Interroger l'historique des 1:1 de Laurent`, mais le panneau
+   ouvert reste `MeetingChatView` à la portée de la réunion. Le câblage de la portée côté chatbot
+   appartient au lot 15.
+3. **Le glisser-réordonner de l'ordre du jour est fait à la main** (`onDrag` / `onDrop` +
+   compactage des rangs) et non avec une `List` : la colonne vit dans une `ScrollView`, et une
+   `List` imbriquée y déclenche le `_NSDetectedLayoutRecursion` que le programme §2.4 demande
+   d'éviter. Pas d'indicateur d'insertion : la ligne saute à sa nouvelle place au dépôt.
+4. **Pas de colonne de transcription en 1:1.** La spec §3.1 retire du type tout ce qui regarde
+   ailleurs que la personne, et la capture montre une colonne de notes pleine largeur. La
+   transcription reste en mode Relire.
+5. **La capture d'écran n'est pas reléguée dans `⋯`.** Le bouton `Capture` de la barre du haut est
+   commun à tous les types ; la spec §3.1 demande de le déplacer pour le 1:1. Un geste dans un
+   fichier partagé, à faire avec le lot 7 (qui réécrit ce bouton).
+6. **`AppSettings.ownerName` porte les initiales de « Moi ».** Il est vide sur une installation
+   neuve : les pastilles affichent alors `?`. Le jeu de démonstration le renseigne ; aucune invite
+   ne le réclame encore à l'écran.
+
+### Pour la passe de recette dédiée
+
+```bash
+swift build -c release
+Scripts/recette-app.sh /tmp/recette-lot-11
+ONETOONE_SEED_DEMO_SCREEN=2a Scripts/recette-run.sh \
+  --app /tmp/recette-lot-11/OneToOne.app --seed --reset
+```
+
+La variable ouvre directement la séance de la capture (Laurent NOMINÉ, 4 septembre) en mode En
+séance. Captures attendues : `recette/lot-11-1920.png` et `lot-11-1280.png`, à comparer à
+`docs/superpowers/specs/refonte-2026-09/ecrans/2a-1to1-manager-seance.png`. Écarts déjà connus : le
+titre de la séance (écart n° 1) et le bouton `Capture` encore dans la barre (écart n° 5).
+
+### Prochaine action
+
+Fusionner dans l'ordre de la pile, puis le **lot 12** (1:1 manager, préparation `2b`), qui lit les
+composants de `Views/Meeting/OneOnOne/Shared/**` sans les modifier et n'écrit que dans
+`Views/Meeting/OneOnOne/ManagerPrep/**`.
+
 ## Refonte de l'écran de réunion — lot 7 : captures Teams / Zoom (4a) (2026-09-07)
 
 Branche `feat/refonte-lot-7-captures`, **sur** `fix/refonte-1to1-window-crash` : la PR
