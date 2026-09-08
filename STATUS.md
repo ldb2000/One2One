@@ -2,6 +2,83 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Lot 19b : recette finale des treize écrans (2026-09-08)
+
+Branche `fix/refonte-recette-finale`, sur `feat/refonte-lot-19c-cloture-suite` (PR #46).
+Recette complète : `docs/superpowers/specs/refonte-2026-09/recette/2026-09-08-recette-finale.md`
+(tableau zone par zone pour les treize écrans, procédure exacte en fin de fichier).
+
+**État : 24 captures dans `recette/finale/`, couvrant les treize écrans. Huit corrections de
+finition. Vingt-et-un écarts assumés confirmés, treize écarts fonctionnels restants.
+`swift build` propre, `swift test` complet vert : 2 009 Swift Testing / 251 suites +
+1 047 XCTest (1 ignoré) = 3 056, exit 0, aucun échec.**
+
+**Quatre écrans vus pour la première fois** : `1b` (mode séance plein écran — le correctif #42
+est confirmé, `⌃⌘F` substitue bien le contenu et `Esc` en sort), `4b` (pastille flottante,
+qui apparaît et disparaît avec le mode séance), `4a` (sélecteur de source, dont la ligne Teams
+dit « Fenêtre ouverte · aucune réunion active » avec Teams ouvert sans réunion) et `3a`
+(tiroir par-dessus la séance, avec une pièce présentée).
+
+### Corrections de finition (vues seules, jetons `One2OneToken`, aucun test modifié)
+
+| Écran(s) | Correction |
+|---|---|
+| 1a, 1c, 3a, 3b | la pilule de source du rail (`04:12 ↗`) se repliait caractère par caractère — un filet vertical de 14 px creusant la carte de 80 px. `lineLimit(1)` + `fixedSize` : elle avait échappé au correctif des primitives `Chip`/`InvitePill`/`Pill` |
+| 2a, 5a | le rail de droite **débordait de 24 px hors du cadre** : le rembourrage de la colonne centrale était appliqué après son cadrage. Il passe avant |
+| 2a | `① COMMENT ÇA VA` était rendu **deux fois** : `MoodScale` le porte déjà, la section de notes ne le répète plus |
+| 6a | les boutons `＋ Planche` / `Dupliquer` collaient la liste tronquée à 260 px et se lisaient comme s'ils recouvraient la vignette |
+| 2a, 2b, 5a, 5b, 6a, 6b | le bouton `Rapport` indisponible passait en blanc sur `report` à 45 % d'opacité, sous 2:1. Il change de registre : `report/bg` + `report/ink` |
+| 5b | même remède pour le bouton primaire accompli (`Ordre du jour prêt · 2 sujets`) |
+| 1a, 3a, 3b, 4a | les initiales d'avatar se centrent dans la **partie visible** de la pastille : on lisait « C̸A CF LC LS NL PY » là où le semis dit « CA CP LD LS NL PY » |
+| 3a, 5a, 5b, 6a | six libellés de 11 px passent de `ink/muted` à `ink/4` (§1.2 : `ink/muted` aux placeholders de 11,5 px et plus, 4,5:1 sous 12 px) |
+
+**Une correction tentée puis annulée** : le recouvrement des décisions en mode séance. Deux
+remèdes (`fixedSize` sur le bloc, puis un `Text` concaténé) n'ont rien changé ; les deux essais
+ont été retirés de la branche plutôt que laissés en place.
+
+### Ce que la passe apprend sur l'outillage
+
+- **`--reset` ne réinitialise pas les réglages.** Les `UserDefaults` d'un bundle atterrissent
+  dans `~/Library/Preferences/com.onetoone.app.recette.plist`, **hors** du home jetable :
+  `cfprefsd` n'honore pas `CFFIXED_USER_HOME`. L'en-tête de `recette-run.sh` affirme le
+  contraire. (Le store, lui, est bien isolé — vérifié par `lsof` à chacun des dix-huit
+  lancements, zéro descripteur sur le store de production.)
+- **Ne jamais tuer une instance de recette par `kill -9`.** macOS traite le lancement suivant
+  comme une reprise après plantage : il rouvre la fenêtre de réunion **sans** le jeton de
+  recette, et l'écran reste sur son indicateur d'attente. Vingt minutes perdues à croire que
+  le semis échouait. Il faut un `terminate()` par pid.
+- **Trois codes de recette sur douze n'ouvrent pas l'écran qu'ils nomment** : `3a`, `3b` et
+  `4a` rendent le cockpit nu. `RecetteScreen` choisit la réunion et le mode, pas l'état
+  d'écran. La séquence manuelle est consignée dans le fichier de recette.
+- **Le poste a un second écran de 1 920 × 1 080** (« 27M2U », origine x = 1 728). La contrainte
+  « 1 728 est le maximum de ce poste » posée par la recette des vagues 1 à 4 ne tient plus.
+  Toutes les fenêtres de recette y ont été placées, pour ne pas recouvrir la fenêtre de travail.
+  `1b-1728.png` mesure donc 1 920 × 1 080 : le nom est celui de la consigne, la taille est
+  celle du plein écran.
+
+### Écarts fonctionnels restants — les trois qui pèsent
+
+1. **En mode séance, le corps d'une décision recouvre la note suivante** : texte illisible, sur
+   l'écran que le correctif #42 vient de rendre atteignable. La rangée est un
+   `HStack(alignment: .firstTextBaseline)` portant une barre de 2 px en `maxHeight: .infinity` ;
+   la cause n'est ni dans le bloc ni dans son conteneur. Lot dédié, avec reproduction hors
+   application comme pour #42.
+2. **`À NE PAS OUBLIER` produit des phrases agrammaticales** (« Vous lui devez Retour sur la
+   grille d'astreinte ») et n'émet que deux de ses trois règles. `ReminderRules` est une
+   fonction pure testée : gabarits et tests à revoir.
+3. **Fiche projet en édition : le point de statut sort noir.** AppKit rend un
+   `Image(systemName:)` dans un label de `Menu` en *template* et écrase `foregroundStyle`. Le
+   corriger demande une image non-template — donc de modifier le test de lecture des sources
+   qui fige ce mécanisme. **Décision demandée.**
+
+Dix autres, avec recommandation, dans le fichier de recette.
+
+### Prochaine action
+
+Trancher les décisions en attente (ci-dessous), puis ouvrir les lots correspondant aux trois
+écarts qui pèsent. La pile est photographiée : plus aucun écran de la spec n'est invérifiable
+sans matériel, hors stylet, endpoint IA et réunion Teams réelle.
+
 ## Lot 19c : clôture — raccourcis, finitions renvoyées, outillage, documentation (2026-09-08)
 
 Branche `feat/refonte-lot-19c-cloture-suite`, sur `feat/refonte-lot-19a-cloture` (PR #45).
@@ -151,14 +228,17 @@ forment une chaîne linéaire, chacune basée sur la précédente. **Fusionner d
 | 25 | #44 | `feat/refonte-lot-18-planche-de-seance` | 18 — atelier : planche de séance |
 | 26 | #45 | `feat/refonte-lot-19a-cloture` | 19a — retrait du dashboard et de la sidebar |
 | 27 | — | `feat/refonte-lot-19c-cloture-suite` | 19c — raccourcis, finitions, outillage, documentation |
+| 28 | — | `fix/refonte-recette-finale` | 19b — recette finale des treize écrans |
 
 Hors pile : #37 (`fix/menubar-stats-test-horaire`, sur `master`) corrige l'échec horaire de
 `MenuBarStatsTests`.
 
 ### Tests
 
-`swift test` complet vert sur le sommet du 19c : 2 009 tests Swift Testing / 251 suites et
-1 047 XCTest (1 ignoré), le 2026-09-08 à 06:20. Un seul échec connu, **horaire** :
+`swift test` complet vert sur le sommet du 19b : 2 009 tests Swift Testing / 251 suites et
+1 047 XCTest (1 ignoré) — **3 056**, exit 0, aucun échec, le 2026-09-08 à 07:46. Le même
+compte qu'au sommet du 19c : la recette finale n'ajoute aucun test et n'en casse aucun. Un
+seul échec connu, **horaire** :
 `MenuBarStatsTests` entre 0 h et 2 h du matin, l'heure de référence n'étant pas injectée —
 corrigé par la PR #37, hors pile. Le `--skip CalendarImportEventTests` historique n'est plus
 nécessaire.
@@ -179,6 +259,10 @@ Aucune ne bloque la fusion de la pile.
 | Conflit `⌘⏎` | « Générer le rapport » (menu, qui l'emporte) contre « valider le composeur » (spec §1.4) | lot 19c |
 | Rail invisible sous 850 px | le composeur d'action devient injoignable | lot 3 |
 | Calques du mode Schéma | mentionnés dans la table §7.1, non faits | lot 17 |
+| Point de statut noir en édition (fiche projet) | le corriger demande une image **non-template**, donc de modifier le test de lecture des sources qui fige `Image(systemName: "circle.fill")`. Autoriser, ou assumer le point noir ? | recette finale, écart (c) n° 10 |
+| Teintes de la pile d'avatars | la maquette colore chaque pastille (`Participant.avatarColor`) ; choisir une rotation **dans** `One2OneToken` est une décision de charte | recette finale, écart (c) n° 2 |
+| Semis : locuteurs et mode de transcription | poser `transcriptionMode = .diarizeFirst` et des locuteurs sur les quatre segments rendrait visibles la bascule `Speakers` **et** les noms de la transcription, tous deux absents des captures | recette finale, écart (c) n° 3 |
+| Chevron des menus de la barre du haut | AppKit le place **avant** le libellé (`⌄ Projet`) ; la maquette le veut après. Le rendre soi-même partout, ou assumer ? | recette finale, écart (c) n° 1 |
 
 ### Dettes
 
@@ -199,10 +283,15 @@ Table complète : `docs/cleanup-report.md` §8 et `docs/architecture.md` §13.
 
 ### Prochaine action
 
-**Recette finale (lot 19b)** : recapturer les douze écrans à 1 280 et 1 920 px avec le binaire
-de la pile complète, écran déverrouillé et sans réunion en cours, puis comparer aux références
-de `docs/superpowers/specs/refonte-2026-09/`. L'outillage est prêt et ne peut plus mentir sur
-la fraîcheur du binaire ni photographier un écran verrouillé.
+**Recette finale (lot 19b) : faite** le 2026-09-08 — 24 captures dans
+`docs/superpowers/specs/refonte-2026-09/recette/finale/`, couvrant les treize écrans de
+référence, huit corrections de finition, treize écarts fonctionnels consignés avec
+recommandation. Section en tête de ce fichier, détail zone par zone dans
+`recette/2026-09-08-recette-finale.md`.
+
+Reste : trancher les décisions ci-dessus, puis ouvrir les lots des trois écarts qui pèsent —
+le recouvrement des décisions en mode séance, les phrases de `ReminderRules`, et le point de
+statut noir de la fiche en édition (qui demande de modifier un test de lecture des sources).
 
 ## Chatbot — persistance de l'historique des conversations (2026-09-06)
 
