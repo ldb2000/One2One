@@ -348,6 +348,13 @@ struct ContentView: View {
             OneToOneQuickPickerWindow.shared.present()
         }
 
+        // Pastille flottante (lot 8, spec §1.4 et §5.4) : `⌘⇧S` capture la source
+        // configurée, `⌘⇧N` ouvre un champ de note au timecode courant. Carbon et non
+        // `.keyboardShortcut` : ils doivent fonctionner alors que Teams est au premier
+        // plan. L'échec d'enregistrement est **publié** — un raccourci silencieusement
+        // mort est indétectable (cf. `SettingsHotkeysSection`).
+        registerSessionPillHotkeys(settings: settings)
+
         // Per-collab
         for (key, serialized) in map where key != "__overlay__" {
             guard let spec = HotkeySpec(serialized: serialized),
@@ -365,6 +372,50 @@ struct ContentView: View {
                     )
                 }
             }
+        }
+    }
+
+    /// Les deux raccourcis globaux de la pastille flottante (lot 8).
+    ///
+    /// Bloc à part de `registerHotkeys()` pour rester lisible, mais appelé par lui :
+    /// `unregisterAll()` a déjà tout rendu au système, et ces deux-là doivent revenir
+    /// dans la même passe — sinon décocher un raccourci de collaborateur désarmerait
+    /// silencieusement `⌘⇧S`.
+    private func registerSessionPillHotkeys(settings: AppSettings?) {
+        let controleur = SessionPillPanelController.shared
+        // Les réglages sont relus à chaque évaluation de la règle d'affichage : le mode
+        // peut changer alors qu'aucune réunion n'est ouverte, et une valeur figée ici
+        // ne serait plus vraie une minute plus tard.
+        controleur.mode = {
+            let liste: [AppSettings] = (try? OneToOneApp.sharedContainer.mainContext
+                .fetch(FetchDescriptor<AppSettings>())) ?? []
+            return liste.canonicalSettings?.sessionPillMode ?? .sessionOnly
+        }
+        controleur.storedCorner = { settings?.sessionPillCorner ?? .bottomTrailing }
+        controleur.persistCorner = { coin in
+            guard let settings, settings.sessionPillCorner != coin else { return }
+            settings.sessionPillCorner = coin
+            try? OneToOneApp.sharedContainer.mainContext.save()
+        }
+
+        let capture = CaptureHotkey.capture
+        if settings?.captureHotkeyEnabled ?? true {
+            let ok = GlobalHotkeyService.shared.register(spec: capture.spec) {
+                SessionPillPanelController.shared.captureShortcut()
+            }
+            CaptureHotkeyFailures.shared.record(capture, succeeded: ok)
+        } else {
+            CaptureHotkeyFailures.shared.forget(capture)
+        }
+
+        let note = CaptureHotkey.note
+        if settings?.noteHotkeyEnabled ?? true {
+            let ok = GlobalHotkeyService.shared.register(spec: note.spec) {
+                SessionPillPanelController.shared.noteShortcut()
+            }
+            CaptureHotkeyFailures.shared.record(note, succeeded: ok)
+        } else {
+            CaptureHotkeyFailures.shared.forget(note)
         }
     }
 

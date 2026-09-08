@@ -165,6 +165,40 @@ enum One2OneToken {
 
     /// Sélecteur de source de capture (spec §5.1, capture `4a`).
     static let capturePopoverWidth: CGFloat = 346
+
+    // MARK: - Pastille flottante (spec §5.4, capture `4b`)
+
+    /// Fond de la pastille : `rgba(20,18,15,.94)` de la spec. Ce n'est **pas**
+    /// `darkBase.opacity(0.94)` : la spec nomme une valeur propre, un cran plus
+    /// sombre que le fond du mode séance, parce que la pastille se pose sur
+    /// l'écran de quelqu'un d'autre et doit s'en détacher.
+    static let pillBackground = Color(hex: 0x14120F).opacity(0.94)
+    /// Ombre portée forte de la spec §5.4 : la pastille flotte au-dessus de
+    /// Teams, sans ombre elle se confond avec le contenu partagé.
+    static let pillShadow = Color.black.opacity(0.45)
+    static let pillShadowRadius: CGFloat = 18
+
+    static let pillWidth: CGFloat = 300
+    static let pillHeight: CGFloat = 40
+    /// Rayon de la pastille (spec §5.4). Supérieur à la moitié de la hauteur :
+    /// la forme est une capsule, le nombre est ici pour être vérifiable.
+    static let pillRadius: CGFloat = 22
+    /// Marge entre la pastille et le bord de l'écran, à la magnétisation.
+    static let pillInset: CGFloat = 16
+
+    /// Mini-panneau de confirmation, `186 px` (spec §5.4).
+    static let pillConfirmationWidth: CGFloat = 186
+    /// Hauteur de la carte de confirmation : en-tête `CAPTURÉ · mm:ss` (12) +
+    /// vignette (52) + ligne d'OCR (14) + bouton d'action (22), trois écarts de
+    /// 6, deux marges internes de 10, et 6 d'écart au-dessus de la carte.
+    /// Tenue ici et non dans la vue : `SessionPillPanelController` doit
+    /// agrandir le panneau d'exactement autant.
+    static let pillConfirmationHeight: CGFloat = 144
+    /// Hauteur du bandeau du champ de note (`✎ Note`, `⌘⏎` pour créer).
+    static let pillNoteHeight: CGFloat = 50
+    /// Vignette de la carte de confirmation, comme dans une note (spec §5.3).
+    static let pillThumbnailWidth: CGFloat = 166
+    static let pillThumbnailHeight: CGFloat = 52
 }
 
 private extension Color {

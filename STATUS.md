@@ -2,6 +2,160 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Refonte de l'écran de réunion — lot 8 : pastille flottante (4b) (2026-09-08)
+
+Branche `feat/refonte-lot-8-pastille`, rebasée sur
+`feat/refonte-lot-12-1to1-manager-prepa` (sommet de l'intégration de la vague 5). Plan
+d'exécution : `docs/superpowers/plans/2026-09-07-refonte-lot-8-pastille.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert — 1 041 XCTest
+(1 ignoré) + 1 729 Swift Testing (215 suites) = 2 770 tests après rebase, contre 2 714
+au sommet du lot 12 : **+ 56 tests**. Aucune recette graphique (consigne du 2026-09-07 :
+un seul agent pilote le bureau) ; la procédure de recette est écrite plus bas.**
+
+⚠️ **Un échec XCTest préexistant et horaire** : `MenuBarStatsTests`
+`test_todayStats_passedOnlyAndNoProject` échoue entre 0 h et 2 h du matin (les réunions
+du test sont posées à `startOfDay + 1 h`). Constaté à **00:33 CEST le 2026-09-08**, seul
+échec de la suite avant comme après rebase, indépendant de ce lot — non corrigé ici
+(une PR = une intention).
+
+### Ce qui a été porté de Teams-Capture (programme §2.5)
+
+Copié **avec ses tests**, jamais lié :
+
+| Élément | Devenu | Ce qu'il apporte |
+| --- | --- | --- |
+| `CaptureDesign/ScreenCorner.swift` + ses 5 tests | `Views/Capture/Pill/ScreenCorner.swift`, `Tests/ScreenCornerTests.swift` | magnétisation aux 4 coins, coin persisté et non la position, borné sur un écran plus petit que la pastille |
+| `CaptureCore/PillMode.swift` (l'idée) | `SessionPillPresentation.swift` | la décision d'affichage est une **fonction pure**, pas un `if` dans le contrôleur |
+| `Pill/PillPanelController.swift` | `SessionPillPanelController.swift` | `NSPanel` `.borderless + .nonactivatingPanel`, `.floating`, `[.canJoinAllSpaces, .fullScreenAuxiliary]`, `isMovableByWindowBackground`, débounce 250 ms sur `didMoveNotification`, garde anti-boucle dans `snap`, **un seul panneau agrandi**, `withObservationTracking` réarmé |
+| `Pill/FloatingPill.swift` | `FloatingPill.swift` | capsule 300 × 40, séparateur, `TimelineView` pour le chrono, point pulsant **réarmé à chaque transition** |
+| `GlobalHotKey.swift` (leçons) | `Services/Capture/CaptureHotkeys.swift` | l'échec d'enregistrement est **publié** et affiché ; le service Carbon de OneToOne (`GlobalHotkeyService`, signature `ONET`) est réutilisé tel quel |
+
+**Propre à OneToOne**, absent de Teams-Capture : `ActiveMeetingRegistry` (Teams-Capture
+n'a qu'une session, OneToOne a des réunions), le chrono depuis `MeetingPlayhead`,
+l'insertion de la vignette dans les notes, `✎ Note` avec son champ et `⌘⏎`,
+`＋ Action depuis la capture`, la première ligne d'OCR qui arrive **après** l'écriture,
+le tracé de zone, et le panneau qui accepte le clavier **le temps d'une note**.
+
+### Ce qui est en place
+
+**La « réunion active » est une notion globale, avec une règle pure.**
+`ActiveMeetingRegistry.activeID(recording:sessions:)` : celle qui **enregistre**
+(`AudioRecorderService.activeMeetingID`) d'abord, sinon la **dernière entrée en séance**.
+Une réunion qui enregistre mais dont aucun écran n'est ouvert ne l'emporte pas : elle ne
+donne aucune prise, et la désigner ferait disparaître la pastille de la séance qu'on a
+sous les yeux. Le registre porte des **poignées** (`ActiveMeetingHandle` : réunion,
+modèle d'écran, coordinateur de capture, contexte) parce que la pastille vit dans un
+`NSPanel`, sans environnement SwiftUI, sans `@Query` et sans le `@StateObject` de
+`MeetingView` qui porte le `ScreenCaptureService`.
+
+**Le critère n° 2 du chantier 4 est testé, pas espéré.** `SessionPillModel` parle à un
+protocole `SessionPillTarget` ; la doublure compte les activations d'application, et le
+compte attendu est **zéro** sur tout le chemin d'une capture. La chaîne réelle
+(`captureNow` → `SlideCapture(t)` → `CaptureNoteInsertion` → confirmation) est testée sur
+une vraie réunion en mémoire avec une source d'images doublée : la capture est écrite au
+`t` du `MeetingPlayhead`, la note porte un `sourceRef {capture}` au même instant, et
+l'ouverture du sélecteur — seul chemin qui ramène dans la fenêtre — n'est jamais
+appelée.
+
+**Un seul panneau, agrandi.** La hauteur est une fonction pure
+(`sessionPillPanelHeight`) et le contrôleur, seul, redimensionne la fenêtre : c'est le
+défaut corrigé dans Teams-Capture (une carte dessinée sous une pastille de 40 px dans une
+fenêtre de 40 px est invisible, coupée par le bord). Confirmation et champ de note se
+**cumulent** — capturer pendant qu'une note est en cours dessine les deux.
+
+**L'OCR arrive après l'écriture.** La carte part sur « Texte en cours d'extraction… »,
+un sondage borné (10 essais de 400 ms, en **parallèle** des 4 s de la carte et non
+avant) la complète dès que Vision a rendu, et le quota épuisé elle cesse de promettre un
+texte à venir (« Aucun texte extrait »). Copier le texte n'aurait rien réglé : il n'existe
+pas encore au moment de la confirmation.
+
+**Une capture impossible se voit.** `SessionPillCaptureResult` distingue « écrite »,
+« aucune source » et « échec » : l'échec s'affiche là où la réussite s'afficherait
+(`CAPTURE IMPOSSIBLE` + le message du service), et l'absence de source ouvre le sélecteur
+**une seule fois** — un raccourci qui réactiverait l'application à chaque frappe est pire
+que rien.
+
+**Le panneau n'accepte le clavier que pendant la saisie d'une note.** Un panneau non
+activant qui devient fenêtre clé au premier clic volerait le focus à Teams ; un champ de
+texte dans une fenêtre qui ne peut pas devenir clé ne reçoit aucune touche, et `✎ Note`
+serait un contrôle mort. D'où `SessionPillPanel.acceptsKey`, basculé exactement pendant
+la saisie.
+
+**`⌘⇧S` et `⌘⇧N` sont globaux**, enregistrés dans `registerHotkeys()` par le service
+Carbon existant, avec deux cases dans les réglages (défaut activées) et un message
+d'échec — « ⌘⇧S est déjà utilisé par une autre application. » — qui **s'efface** au
+premier enregistrement réussi (piège 14 de `One2One-specs.md`). `⌥⌘⇧S`, ou l'entrée
+`Zone…` du menu contextuel de `◫ Capturer`, ouvre le tracé de zone.
+
+**La zone à la souris comble l'écart n° 3 du lot 7.** `RegionSelection` est pure (origine
+haut-gauche comme `NormalizedRect`, refus d'un tracé sous 2 % d'un côté),
+`RegionSelectorWindow` n'est qu'un `NSPanel` `.screenSaver` qui capte la souris, et
+`CaptureSessionCoordinator.startRegionSession` ouvre la session avec `CaptureSource.region`
+et son `crop` — la valeur cesse d'être morte dans le modèle.
+
+**Affichage automatique** : `AppSettings.sessionPillMode` (`toujours` / `séance
+seulement` — défaut / `jamais`). En « séance seulement », la pastille apparaît en plein
+écran de séance, **ou** quand un enregistrement tourne alors que One2One n'est pas au
+premier plan ; enregistrement **et** fenêtre devant, elle se retire (la barre du haut
+porte déjà l'état). Elle disparaît à la clôture de la séance et à l'arrêt de
+l'enregistrement.
+
+### Écarts assumés
+
+1. **Aucune recette graphique.** Consigne du 2026-09-07. La passe dédiée reprendra la
+   comparaison avec `4b-pastille-flottante.png`.
+2. **La zone est capturée sur l'écran principal.** `ScreenCaptureService.SessionConfiguration`
+   ne porte pas d'identifiant d'écran (`windowID == 0` → `DisplayFrameSource()`), donc une
+   zone tracée sur un écran secondaire serait lue sur l'écran principal. Ajouter un
+   `displayID` touche le fichier du lot 7 : hors périmètre.
+3. **La confirmation n'apparaît que si la pastille est visible.** En mode « jamais »,
+   `⌘⇧S` capture et insère quand même (la bande et les notes le montrent), mais la carte
+   de 4 s n'a pas de fenêtre où s'afficher. `⌘⇧N`, lui, ouvre la pastille le temps de la
+   saisie — sinon le champ n'existerait nulle part.
+4. **Le point d'entrée est une ligne dans `MeetingSpaceView`**, comme le lot 4 : c'est le
+   seul endroit qui tienne à la fois la réunion, son modèle d'écran et le coordinateur de
+   capture. `MeetingView` n'est pas touché (test de balayage).
+5. **`MeetingScreenModel` n'a pas gagné de ligne** : l'état de la pastille est un état de
+   **fenêtre**, pas d'écran de réunion, et il vit dans `SessionPillModel`.
+6. **Le sondage de l'OCR plutôt que l'observation SwiftData** : un `NSHostingView` posé
+   dans un `NSPanel` n'a pas d'environnement de conteneur, et compter sur l'observation
+   d'un `@Model` depuis cette fenêtre serait un pari. Le sondage est borné et testé.
+
+### Procédure de recette (pour la passe dédiée)
+
+1. `Scripts/bump-and-build.sh dev`, ouvrir la réunion de démonstration, passer en
+   **mode séance plein écran** (`⌃⌘F`) : la pastille doit apparaître en bas à droite.
+2. Ouvrir Teams **en plein écran** par-dessus : la pastille reste visible (c'est
+   `[.canJoinAllSpaces, .fullScreenAuxiliary]` qui le garantit ; sans lui elle disparaît
+   au partage).
+3. La déplacer vers un autre coin, relâcher : elle s'aimante après ~250 ms, et le coin
+   survit à un redémarrage de l'application.
+4. `⌘⇧S` depuis Teams : la carte `CAPTURÉ · mm:ss` s'affiche 4 s, avec la vignette, la
+   première ligne d'OCR (après une seconde), et `＋ Action depuis la capture`. **Aucune
+   fenêtre One2One ne doit passer devant**, et l'espace ne doit pas changer.
+5. `⌘⇧N`, taper une ligne, `⌘⏎` : la note apparaît dans la colonne au timecode courant.
+   `Esc` referme sans rien créer.
+6. `⌥⌘⇧S` : le voile plein écran, tracer une zone, la capture suivante est recadrée.
+7. Réglages → Pastille flottante : les trois modes, les deux cases, et — en assignant
+   `⌘⇧S` à une autre application — le message d'échec.
+
+### Fichiers partagés touchés
+
+`Views/Meeting/Spaces/MeetingSpaceView.swift` (**une** pose de modificateur),
+`OneToOneApp.swift` (`registerSessionPillHotkeys`, appelé par `registerHotkeys()`),
+`Models/AppSettings.swift` (4 propriétés à valeur par défaut : mode, coin, deux cases —
+migration légère, aucune version de schéma), `Views/SettingsHotkeysSection.swift`
+(section `Pastille flottante`), `Views/DesignSystem/One2OneTokens.swift` (jetons de la
+pastille). `MeetingView.swift`, `MeetingScreenModel.swift` et tous les fichiers du lot 7
+sont **intacts** — `CaptureSessionCoordinator` et `ActionComposerService` sont étendus
+depuis `Views/Capture/Pill/`.
+
+### Prochaine action
+
+Faire relire et fusionner après le lot 12. Puis la passe de recette dédiée déroule la
+procédure ci-dessus (et l'écart n° 1 tombe).
+
 ## Intégration vague 5 : la pile redevient linéaire (2026-09-08)
 
 Les lots **16, 7, 11 et 12** ont été développés **en parallèle** — le lot 16 depuis
