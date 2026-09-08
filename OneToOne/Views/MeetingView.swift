@@ -644,8 +644,12 @@ struct MeetingView: View {
                                                             allMeetings: allMeetings),
                 historique: allMeetings,
                 menuActions: makeMenuActions(),
-                showsSpeakerToggle: settings.transcriptionMode == .diarizeFirst
-                    && !meeting.transcriptSegments.isEmpty,
+                // Spec §2.4 : la bascule suit le **mode de transcription**, et
+                // rien d'autre. La condition `!transcriptSegments.isEmpty` qui
+                // vivait ici la masquait tant qu'aucun segment n'était
+                // diarisé — donc toujours, avant la fin d'une diarisation, et
+                // jamais sur le jeu de recette (écart (c) n° 5).
+                showsSpeakerToggle: settings.transcriptionMode == .diarizeFirst,
                 isSummarizing: isSummarizing,
                 isAssistantOpen: $showAssistant,
                 onSummarize: { Task { await generateShortSummary() } },

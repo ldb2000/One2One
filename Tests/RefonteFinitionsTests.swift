@@ -167,3 +167,54 @@ struct TeinteDesRisquesTests {
         #expect(source.contains("teinte("), "la nav doit déléguer, pas colorier elle-même")
     }
 }
+
+// MARK: - Quatre écarts de vue (écarts (c) n° 5, 8, 9, 10)
+
+/// Les quatre écarts que la recette des vagues 1–4 a renvoyés au lot 19 et qui
+/// se corrigent dans une vue. Vérifiés en relisant la source : ce sont des
+/// conditions d'affichage, pas des règles calculables.
+@Suite("Finitions du lot 19c — quatre écarts de vue")
+struct EcartsDeVueTests {
+
+    @Test("la bascule Speakers ne dépend que du mode de transcription (n° 5)")
+    func basculeSpeakers() {
+        let source = RefonteSource.lire("OneToOne/Views/MeetingView.swift")
+        #expect(source.contains("showsSpeakerToggle: settings.transcriptionMode == .diarizeFirst"))
+        #expect(!source.contains("&& !meeting.transcriptSegments.isEmpty"),
+                "la bascule ne doit plus attendre qu'un segment soit diarisé")
+    }
+
+    @Test("Citer et Envoyer sont offerts par vignette, pas seulement à l'écran (n° 8)")
+    func citerEtEnvoyerParVignette() {
+        let chemin = "OneToOne/Views/Meeting/Resources/ResourceTile.swift"
+        let source = RefonteSource.lire(chemin)
+        // Le prédicat de citabilité, celui que le menu contextuel employait déjà.
+        #expect(source.contains("item.isPinnable && !item.isOrphan"))
+        // Un seul site de déclaration pour chaque bouton.
+        #expect(RefonteSource.occurrences("bouton(\"Citer\"", dans: chemin) == 1)
+        #expect(RefonteSource.occurrences("bouton(\"Envoyer\"", dans: chemin) == 1)
+        // Et la branche qui les réservait à la pièce présentée est partie.
+        #expect(!source.contains("la seule à porter les trois actions"))
+        #expect(source.contains("Spec §4.1"), "la raison du changement est dans le code")
+    }
+
+    @Test("le point de statut est une Image, rendue dans un label de menu (n° 9)")
+    func pointDeStatutEnEdition() {
+        let source = RefonteSource.lire("OneToOne/Views/Project/ProjectCardPanel.swift")
+        #expect(source.contains("Image(systemName: \"circle.fill\")"),
+                "un Circle() dans un label de Menu n'est pas rendu par AppKit")
+    }
+
+    @Test("la mention de visibilité du pied reste hors édition (n° 10)")
+    func mentionDeVisibiliteToujoursVisible() {
+        let chemin = "OneToOne/Views/Project/ProjectCardPanel.swift"
+        let source = RefonteSource.lire(chemin)
+        // Le pied est scindé : la mention d'un côté, les boutons de l'autre.
+        #expect(source.contains("private var footerNoticeRow"))
+        #expect(source.contains("private var footerActions"))
+        // Seuls les boutons dépendent de l'édition.
+        #expect(source.contains("if isEditing { footerActions }"))
+        #expect(RefonteSource.occurrences("footerNoticeRow", dans: chemin) >= 2,
+                "la mention est déclarée puis rendue")
+    }
+}
