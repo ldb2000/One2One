@@ -516,6 +516,43 @@ struct ContentView: View {
     }
 }
 
+/// Enveloppe de taille du contenu de la fenêtre `1to1-meeting`.
+///
+/// **Pourquoi elle existe.** Le contenu racine d'une fenêtre SwiftUI qui ne
+/// borne pas sa taille oblige le `NSHostingView` racine à *mesurer toute la
+/// hiérarchie* pour en déduire `contentMinSize`/`contentMaxSize`
+/// (`updateWindowContentSizeExtremaIfNecessary`) — et cela **pendant** la passe
+/// Auto Layout de la fenêtre, depuis `NSHostingView.updateConstraints()`. Cette
+/// mesure réinvalide le graphe de vues, qui remarque aussitôt la fenêtre
+/// « needs update constraints » : la passe se relance sans fin et AppKit lève
+/// `NSGenericException` — « The window has been marked as needing another
+/// Update Constraints in Window pass, but it has already had more […] passes
+/// than there are views in the window ». L'écran de réunion est devenu
+/// sensible à cette boucle quand la barre du haut est passée sur une ligne
+/// (spec §2.1 : titre `flex:1; min-width:0`, donc `maxWidth: .infinity` +
+/// `layoutPriority`) ; la fenêtre principale y échappe parce que son contenu
+/// est un `NavigationSplitView`, qui borne lui-même ses colonnes.
+///
+/// Déclarer l'enveloppe rend les extrema **constants** : la fenêtre n'a plus
+/// besoin de mesurer l'écran de réunion pour connaître ses limites, et la passe
+/// de contraintes converge. C'est déjà ce que fait la fenêtre de préparation
+/// (`PrepWindowView`, `600 × 480`) ; la fenêtre de réunion était la seule des
+/// trois scènes à ne rien déclarer.
+enum MeetingWindowSizing {
+    /// Plancher de largeur. Il ne peut pas descendre sous
+    /// `MeetingSpaceLayout.fluidMinimum + One2OneToken.actionsRailWidth` :
+    /// en dessous, `MeetingSpaceLayout.columns` sacrifie le rail d'actions,
+    /// que la spec §1.1 veut permanent. Vérifié par
+    /// `MeetingWindowSizingTests`.
+    static let minWidth: CGFloat = 960
+    /// Plancher de hauteur : barre du haut (38) + barre d'espaces (34) + les
+    /// deux colonnes de l'espace Réunion sans qu'elles soient réduites à rien.
+    static let minHeight: CGFloat = 640
+    /// Taille d'ouverture par défaut, celle des captures de la spec.
+    static let idealWidth: CGFloat = 1_280
+    static let idealHeight: CGFloat = 800
+}
+
 /// Contenu de la fenêtre `1to1-meeting`. Résout le token vers un `Meeting`
 /// via `stableID`, présente `MeetingView` avec `autoStartRecording`.
 struct OneToOneMeetingWindowContent: View {
@@ -529,9 +566,18 @@ struct OneToOneMeetingWindowContent: View {
                 MeetingView(meeting: resolved, autoStartRecording: token?.autoStartRecording ?? false)
             } else {
                 ProgressView()
-                    .frame(minWidth: 600, minHeight: 400)
             }
         }
+        // ⚠️ Ne pas retirer : sans enveloppe déclarée, l'ouverture de cette
+        // fenêtre boucle sur la passe Auto Layout et l'application meurt
+        // (cf. `MeetingWindowSizing`). Le plancher doit rester une constante :
+        // le déduire du contenu ramènerait la boucle.
+        .frame(minWidth: MeetingWindowSizing.minWidth,
+               idealWidth: MeetingWindowSizing.idealWidth,
+               maxWidth: .infinity,
+               minHeight: MeetingWindowSizing.minHeight,
+               idealHeight: MeetingWindowSizing.idealHeight,
+               maxHeight: .infinity)
         .onAppear { resolveIfNeeded() }
         .onChange(of: token) { _, _ in resolveIfNeeded() }
     }

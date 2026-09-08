@@ -2,6 +2,69 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Crash à l'ouverture de la fenêtre de réunion dédiée — corrigé (2026-09-07)
+
+Branche `fix/refonte-1to1-window-crash`, **au sommet de la vague 4** — sur
+`feat/refonte-lot-9-fiche-projet` depuis l'intégration (elle était sur le lot 3 quand le
+correctif a été écrit). Il est indispensable à toute recette en bundle release, d'où sa
+place en dernier maillon : les lots 4, 5, 6, 9, 10a et 10b l'ont donc tous en amont.
+
+**Symptôme.** En **bundle release**, ouvrir une réunion dans la fenêtre dédiée
+(`WindowGroup "1to1-meeting"`) tuait l'application ~3 s après l'ouverture :
+`NSGenericException` — « The window has been marked as needing another Update Constraints
+in Window pass, but it has already had more […] passes than there are views in the
+window » — depuis `NSHostingView.updateConstraints()` →
+`updateWindowContentSizeExtremaIfNecessary` (pile complète dans les cinq
+`~/Library/Logs/DiagnosticReports/OneToOne-2026-09-07-13*.ips`). Pas un plantage
+d'affichage : une **boucle de passes Auto Layout**.
+
+**Établi.** `master` (`a3c44f2`) **ne crashe pas** (fenêtre ouverte, application vivante,
+release + bundle). La bissection (9 pas, harnais de reproduction en bundle isolé) désigne
+`6cc892b` « feat(reunion): barre du haut sur une ligne de 38 px » (lot 1a) comme premier
+commit fautif ; `f74ad86` et tout le lot 0A/0B sont sains.
+
+**Cause racine.** La fenêtre de réunion était la seule des trois scènes à ne pas déclarer
+d'enveloppe de taille pour son contenu racine. Le `NSHostingView` racine doit alors
+**mesurer toute la hiérarchie de l'écran de réunion** pour en déduire
+`contentMinSize`/`contentMaxSize`, et il le fait *pendant* la passe de contraintes de la
+fenêtre ; la mesure réinvalide le graphe, qui remarque la fenêtre « needs update
+constraints », et la passe se relance jusqu'à épuisement du budget d'AppKit. La barre du
+haut sur une ligne a rendu cette mesure instable : son titre est `flex:1` (spec §2.1),
+donc `maxWidth: .infinity` + `layoutPriority(1)` — avant `6cc892b`, le titre était borné
+(`maxWidth: 460` + `fixedSize`).
+
+**Expériences discriminantes** (lot 3, release, fenêtre dédiée) : titre borné à 460 px →
+**pas de crash** ; `maxWidth: .infinity` avec `fixedSize` → crash ; `TextField` SwiftUI à
+la place du champ AppKit → crash ; simple `Text` → crash. Ce n'est donc pas le champ
+AppKit `EditableTextField`, c'est la mesure non bornée de la racine de fenêtre. Enveloppe
+déclarée sur la racine → **pas de crash**.
+
+**Correctif** (`OneToOne/OneToOneApp.swift`, 1 fichier) : `MeetingWindowSizing`
+(960 × 640 de plancher, 1 280 × 800 à l'ouverture) et
+`.frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:)` sur le contenu de
+`OneToOneMeetingWindowContent` — la même chose que `PrepWindowView` fait depuis toujours
+(600 × 480). Le `.frame(minWidth: 600, minHeight: 400)` du `ProgressView` d'attente
+disparaît : c'est l'enveloppe qui gouverne, et un plancher qui changeait au moment où le
+contenu se résolvait faisait partie du problème. **Aucune vue de la refonte n'est touchée**
+(barre du haut, espaces, rail : inchangés).
+
+**Tests.** `Tests/MeetingWindowSizingTests.swift` (4 tests) : le plancher de largeur garde
+le rail d'actions affiché (`MeetingSpaceLayout.showsRail`, colonne fluide ≥ 520), le
+plancher de hauteur laisse la place aux deux barres, l'ideal ne descend pas sous le
+plancher, et une garde de non-régression vérifie que la fenêtre **applique** l'enveloppe
+(retirer le `.frame` fait échouer ce test — vérifié). La passe Auto Layout elle-même n'est
+pas observable depuis `swift test`, d'où cette garde.
+
+**Vérifié.** `swift build` propre ; `swift test` complet **1 039 XCTest (1 ignoré, 0 échec)
++ 896 Swift Testing (131 suites, 0 échec)**, soit +4 par rapport au sommet du lot 3.
+Reproduction avant/après en bundle release, dans un `HOME`/`CFFIXED_USER_HOME` jetable
+(jamais le store de production) : avant → mort à ~3 s avec l'exception au journal ;
+après → fenêtre `1:1 — Debug` ouverte et application vivante à 15 s.
+
+**Reste à faire.** Le même défaut guette toute future scène dont le contenu racine ne
+borne pas sa taille. Les recettes visuelles des lots 4, 5, 6, 9 et 10 sont maintenant
+possibles en bundle release : elles doivent être rejouées depuis ce sommet.
+
 ## Intégration vague 4 : la pile redevient linéaire (2026-09-07)
 
 Les lots **4, 5, 6, 10a, 10b et 9** ont été développés **en parallèle** — les cinq premiers
@@ -9,11 +72,13 @@ depuis `feat/refonte-lot-3-rail-actions`, le lot 9 depuis
 `feat/refonte-lot-1b-espaces-kpi-assistant`. Ils sont désormais **empilés** dans cet ordre :
 
 ```
-0A/0B → 1a → 1b → 2 → 3 → 4 → 5 → 6 → 10a → 10b → 9
-#19–#24              #27  #28  #30  #26   #29   #25
+0A/0B → 1a → 1b → 2 → 3 → 4 → 5 → 6 → 10a → 10b → 9 → fix fenêtre
+#19–#24              #27  #28  #30  #26   #29   #25   #31
 ```
 
-Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 → #25`.
+Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 →
+#25 → #31` — la PR #31 (correctif du crash Auto Layout de la fenêtre dédiée) est rebasée
+au sommet, sur le lot 9.
 
 ### Conflits résolus, maillon par maillon
 
@@ -73,8 +138,9 @@ Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 �
 
 ### Prochaine action
 
-Faire relire les six PR dans l'ordre de fusion ci-dessus. Les recettes visuelles restent dues
-(lots 4, 5, 6, 10) ; cette passe d'intégration n'en a lancé aucune.
+Faire relire les sept PR dans l'ordre de fusion ci-dessus. Les recettes visuelles restent
+dues (lots 4, 5, 6, 10) ; cette passe d'intégration n'en a lancé aucune — elles sont
+désormais faisables en bundle release, le correctif de la PR #31 étant au sommet.
 
 ## Refonte de l'écran de réunion — lot 9 : fiche projet en panneau (3b) (2026-09-07)
 
