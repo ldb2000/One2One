@@ -186,52 +186,12 @@ final class MeetingPlayhead {
             : String(format: "%02d:%02d", m, s)
     }
 
-    // MARK: - Registre
+    // MARK: - Marqueurs
 
-    /// Nombre de têtes de lecture retenues simultanément.
-    ///
-    /// Le registre garde des références **fortes**, bornées en LRU. Un cache
-    /// faible se viderait aussitôt : `MeetingView` est une `struct` qui ne peut
-    /// retenir l'instance sans initialiseur explicite, et ce fichier est
-    /// réécrit en parallèle par le lot 0A. Quatre réunions ouvertes couvrent
-    /// l'usage réel (une fenêtre principale plus quelques fenêtres détachées) ;
-    /// l'éviction met le lecteur en pause pour ne pas laisser un fichier jouer
-    /// sans surface pour l'arrêter.
-    static let registryCapacity = 4
-
-    private static var registry: [(id: UUID, playhead: MeetingPlayhead)] = []
-
-    /// Nombre d'entrées actuellement retenues (diagnostic et tests).
-    static var registryCount: Int { registry.count }
-
-    /// La tête de lecture de `meeting`, créée à la demande. Deux appels pour la
-    /// même réunion rendent la même instance : c'est ce qui fait que toutes les
-    /// surfaces partagent une position.
-    static func `for`(meeting: Meeting) -> MeetingPlayhead {
-        let id = meeting.ensuredStableID
-        if let index = registry.firstIndex(where: { $0.id == id }) {
-            let entry = registry.remove(at: index)
-            registry.append(entry)          // le plus récemment utilisé en queue
-            return entry.playhead
-        }
-        let playhead = MeetingPlayhead(meetingStableID: id)
-        if let startedAt = meeting.recordingStartedAt,
-           AudioRecorderService.shared.isRecording(for: id) {
-            playhead.beginRecording(startedAt: startedAt)
-        }
-        registry.append((id: id, playhead: playhead))
-        while registry.count > registryCapacity {
-            let evincee = registry.removeFirst()
-            evincee.playhead.player.pause()
-        }
-        return playhead
-    }
-
-    /// Vide le registre. Réservé aux tests : en production, l'éviction LRU
-    /// suffit.
-    static func resetRegistryForTesting() {
-        for entry in registry { entry.playhead.player.pause() }
-        registry.removeAll()
+    /// Pose un marqueur sur la frise. Le tableau reste trié (`didSet`), donc
+    /// l'ordre d'appel n'a pas d'importance.
+    func addMarker(at t: Double, kind: Marker.Kind, label: String = "") {
+        markers.append(Marker(t: t, kind: kind, label: label))
     }
 }
 

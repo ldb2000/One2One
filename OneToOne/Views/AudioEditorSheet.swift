@@ -45,6 +45,11 @@ func formatAudioTime(_ s: Double) -> String {
 struct AudioEditorSheet: View {
     let meeting: Meeting
     let mode: AudioEditMode
+    /// La tête de lecture **de la réunion**, fournie par l'écran qui présente
+    /// la feuille. Elle n'est plus cherchée dans un registre global (lot 1) :
+    /// c'est `MeetingScreenModel` qui la possède, et la frise doit partager
+    /// exactement son lecteur — sinon deux positions coexistent.
+    let playhead: MeetingPlayhead
     let onFinish: (_ trimmedOrSplit: Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -89,7 +94,7 @@ struct AudioEditorSheet: View {
                     url: url,
                     markerSeconds: $markerSeconds,
                     mode: waveformMode,
-                    player: MeetingPlayhead.for(meeting: meeting).player
+                    player: playhead.player
                 )
             } else {
                 Text("Fichier audio introuvable.").foregroundStyle(.red)

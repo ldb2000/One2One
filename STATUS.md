@@ -2,6 +2,158 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Refonte de l'écran de réunion — lot 0A : socle visuel et état d'écran (2026-09-07)
+
+Branche `feat/refonte-lot-0a-socle-visuel`, partie de `origin/master` (`a3c44f2`). Premier lot
+du programme `docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md` (§5) ; plan
+d'exécution dans `docs/superpowers/plans/2026-09-07-refonte-lot-0a-socle-visuel.md`. Lot
+**invisible** par construction : rien ne change à l'écran, et aucune vue existante n'utilise
+encore les primitives livrées. Le lot 0B tourne en parallèle sur les modèles et les services ;
+aucun fichier commun.
+
+### Créés
+
+- **`OneToOne/Views/DesignSystem/One2OneTokens.swift`** : `enum One2OneToken`, copie de
+  `Teams-Capture/Sources/CaptureDesign/Tokens.swift` (règle du programme : copier, jamais
+  lier), complétée de la **palette `dark/*` complète** du mode séance (`darkBase #1c1a17`,
+  `darkTranscript #191714`, `darkCard #221f1b`, `darkCardActive #232019`, `darkPill #2f2b26`,
+  `darkInk1…4`, `darkAction #9ab6f0`, **`darkReport #e8b0aa`**, `darkWarn #e8c48a`) et des
+  **largeurs fixes** de la spec §1.2 (330 / 320 / 356 / 190 / 52 / 78 / 430 / 396 / 400), plus
+  rayons et densités. `Color(hex:)` y est **privé au fichier** : c'est ce qui rend vérifiable
+  la règle « seul ce fichier nomme une couleur de la refonte ». `AppTheme`, `MeetingTheme` et
+  `FicheTokens` restent en place pour les écrans non refondus.
+- **`OneToOne/Views/DesignSystem/ContrastRatio.swift`** : luminance relative et ratio WCAG 2.1
+  (fonctions pures, `NSColor.usingColorSpace(.sRGB)`, aucune session graphique). Rend `nil`
+  sur une couleur inconvertible plutôt qu'un contraste imaginaire.
+- **`OneToOne/Views/DesignSystem/One2OneTypography.swift`** : `PlexWeight`, `PlexFont`,
+  `Font.plexSans/plexMono`, `View.sectionLabel()`. Copie de `Typography.swift` de
+  Teams-Capture — **noms PostScript abrégés** `IBMPlexSans-Medm` / `-SmBld`, jamais
+  `-Medium` / `-SemiBold`, jamais `.weight()` par-dessus — augmentée de l'enregistrement des
+  fontes embarquées par `CTFontManagerRegisterFontsForURL` en portée `.process`
+  (`static let` = une fois par process), déclenché à la fois par `PlexFont.isInstalled` et
+  explicitement au lancement. Localisation calquée sur `MermaidResourceLocator` :
+  `Bundle.module`, puis `Contents/Resources/OneToOne_OneToOne.bundle` du `.app` packagé.
+  Repli `Font.system` conservé.
+- **`OneToOne/Resources/Fonts/`** : IBM Plex Sans 400/500/600 et Plex Mono 500/600 en `.ttf`
+  (v3.005, téléchargés du dépôt officiel `IBM/plex`, ~950 Ko au total) + `OFL.txt` (texte de
+  la SIL Open Font License 1.1 copié à côté des fichiers). Vérifié : les cinq fichiers
+  portent bien les noms PostScript **abrégés** — c'est la condition de tout le reste, une
+  version ≥ 6 de Plex utiliserait les noms longs et casserait la résolution en silence.
+  `.process("Resources")` aplatit `Fonts/` à la racine du bundle (constaté dans
+  `.build/debug/OneToOne_OneToOne.bundle`), d'où la double recherche.
+- **`OneToOne/Views/DesignSystem/One2OneTheme.swift`** : `One2OneTheme` (`.paper` / `.session`),
+  `One2OneColors` (couleurs résolues : fond, canevas, carte, carte active, pilule, quatre
+  encres, quatre accents, deux filets), clé et accesseur `EnvironmentValues.one2OneTheme`
+  (défaut `.paper`) et modificateur `View.one2OneTheme(_:)`. Le mode séance est un thème
+  **local** : le `.preferredColorScheme(.light)` épinglé sur les trois `WindowGroup` de
+  `OneToOneApp` n'est pas touché.
+- **`OneToOne/Views/DesignSystem/Components/Refonte/`** : les dix primitives, un `#Preview`
+  chacune (papier et séance quand la primitive suit le thème) — `SectionLabel`, `MonoMeta`,
+  `TimecodeLabel` (+ `format(_:)` pure), `Chip` (+ `ChipTon`), `Pill`, `InvitePill`
+  (+ `Etat`), `RefonteCard`, `AvatarStack` (+ `layout(noms:maxVisibles:)` pure), `ProgressBar`
+  (+ `clamp(_:)` pure), `SegmentedMode` (générique).
+- **`OneToOne/Views/Meeting/MeetingScreenModel.swift`** : `@Observable` `@MainActor`. `space`
+  (`meeting`/`report`/`resources`) et `mode` (`prepare`/`live`/`review`) **mémorisés par
+  réunion** dans `UserDefaults` (clés `onetoone.meetingScreen.{space,mode}.<stableID>`,
+  `UserDefaults` injectable) ; brouillon d'action, `showSpeakers`, `showPlayback`, `follow`,
+  `newAdhocName`, `suggestedTagNames` non persistés. `attach(meetingID:)` idempotent (relire
+  sur un second `.onAppear` écraserait le choix que l'utilisateur vient de faire) ; aucune
+  écriture avant rattachement.
+
+### Modifiés
+
+- **`OneToOne/Views/MeetingView.swift`** : treize `@State` retirés au profit de
+  `@State private var screen = MeetingScreenModel()`, rattaché en tête de `.onAppear`.
+  `addTask()` appelle `screen.resetActionDraft()` (six remises à zéro en une).
+  `activeSection` **reste** un `@State` (les espaces arrivent au lot 1). Les chemins
+  `adoptPendingLiveNotes()` / `discardEmptyNoteIfNeeded()` ne sont pas touchés.
+- **`OverviewDashboard.swift`**, **`ActionsPanel.swift`** : les huit `@Binding` du brouillon
+  d'action, qui traversaient `OverviewDashboard` sans qu'elle en lise un seul, deviennent un
+  `MeetingScreenModel` en paramètre.
+- **`MeetingTopChromeBar.swift`** (`suggestedTagNames`), **`ManageParticipantsSheet.swift`**
+  (`newAdhocName`) : mêmes remplacements pour leur unique `@Binding` traversant.
+  `@Observable` n'ayant pas de projection `$`, les six endroits qui exigent un vrai `Binding`
+  (`EditableTextField`, `Toggle`, `TextField`, `iconToggle`, `MeetingTagEditor`) en
+  construisent un à la main.
+- **`OneToOne/OneToOneApp.swift`** : `PlexFont.ensureRegistered()` en première ligne de
+  `init()`. Un enregistrement tardif ferait clignoter la typographie.
+
+### Tests
+
+`swift build` propre (mêmes avertissements préexistants). `swift test` complet **vert** :
+**1 037 XCTest (1 ignoré, 0 échec) + 663 Swift Testing en 100 suites (0 échec)**, soit
+1 700 tests contre 1 655 avant le lot (+45, +5 suites) et **aucune régression**. Les suites
+que le programme §8 désigne comme garde-fous de `MeetingView` (`NoteFactoryTests`,
+`PendingEditorTextTests`, `MeetingScreenRegistryTests`) sont vertes.
+
+- `Tests/One2OneTokensTests.swift` (8 tests) : calibrage de la mesure (noir sur blanc = 21:1),
+  **25 paires texte/fond** employées sous 12 px vérifiées à ≥ 4,5:1 (13 en palette claire,
+  12 en palette séance), largeurs fixes et rayons de la spec §1.2.
+- `Tests/One2OneTypographyTests.swift` (6 tests) : les cinq fichiers présents dans le bundle,
+  les cinq noms PostScript qui résolvent après enregistrement, le piège des noms longs
+  (`IBMPlexSans-SemiBold` et `-Medium` ne résolvent **pas**), la disposition du `.app`
+  packagé, le repli sur un nom inconnu.
+- `Tests/One2OneThemeTests.swift` (5 tests) : défaut d'environnement `.paper`, résolution des
+  deux palettes sur leurs jetons, contraste du libellé mono ≥ 4,5:1 dans les deux thèmes,
+  stabilité des `rawValue`.
+- `Tests/One2OnePrimitivesTests.swift` (15 tests) : `mm:ss` toujours (62:03 au-delà d'une
+  heure), tronqué et non arrondi, `00:00` sur négatif / `nan` / `infinity` ; états de
+  `InvitePill` et tons de `Chip` lisibles sur leur propre fond ; `AvatarStack` — six exactement
+  n'affiche pas « +0 », neuf affiche six + « +3 », pile vide muette, géométrie 19 / −6 ;
+  `ProgressBar.clamp` bornée, `nan` → 0.
+- `Tests/MeetingScreenModelTests.swift` (11 tests) : défauts `meeting`/`live`, mémorisation
+  par réunion, cloisonnement entre deux réunions, repli sur valeur mémorisée illisible,
+  idempotence d'`attach`, **changer de mode ne touche pas au brouillon** (critère du lot 1,
+  figé avant la vue), brouillon non persisté, `resetActionDraft` qui garde le destinataire,
+  défauts des bascules identiques aux `@State` retirés, rien d'écrit avant rattachement.
+
+### Écarts assumés
+
+1. **Constat sur la table §1.2 : `ok/deep` (`#2f7d4e`) sur `ok/bg` (`#e8f3ec`) mesure
+   4,43:1**, soit 0,07 sous le seuil de 4,5:1 que la spec impose sous 12 px. `accent/ok` ne
+   publie que deux encres et celle-ci est la plus profonde : il n'y a pas de couple conforme
+   dans la table. Le jeton n'a **pas** été retouché (la table fait foi) ; la mesure est figée
+   par un test dédié (`okDeepOnOkBackgroundIsJustBelowThreshold`) pour que l'écart soit connu
+   et qu'un futur assombrissement soit une décision explicite. `InvitePill.Etat.renseignee` et
+   `ChipTon.ok` emploient ce couple, conformément à la capture 1a (pilule « Sylvain » verte),
+   et leurs tests attendent 4,4 en renvoyant à ce constat. **À trancher avec la spec.**
+2. L'énumération s'appelle **`One2OneToken`** et non `Token` comme dans Teams-Capture :
+   `Token` est trop générique dans un module unique de cette taille, et le nom suit celui du
+   fichier imposé par le programme (`One2OneTokens.swift`).
+3. **`newAdhocName` et `suggestedTagNames` ont rejoint le modèle** en plus de la liste du
+   programme : ce sont les seuls `@Binding` traversants de `ManageParticipantsSheet` et
+   `MeetingTopChromeBar`, les deux vues que le lot devait justement libérer. De même,
+   `showNewTaskDueDate` et `didApplyActionDefaults` (ex-`didSetActionDefaults`) ont suivi le
+   reste du brouillon d'action, dont ils sont indissociables.
+4. **`AvatarStack`** et **`RefonteCard`** : noms retenus pour ne pas heurter
+   `MeetingAvatarStack` ni les cartes de dashboard existantes, que ce lot ne remplace pas.
+5. **`One2OneTheme.session.ok` retombe sur `dark/accent action`** : la palette `dark/*` de la
+   spec §1.2 ne publie pas d'encre « tenu », le vert de la palette claire n'est pas lisible sur
+   `#1c1a17`, et la capture 1b utilise déjà le bleu clair comme teinte positive (bouton
+   `＋ Action`). Les deux filets du thème séance sont des opacités de blanc, nommées dans le
+   système de conception et non dans une vue.
+6. **Recette à l'écran non faite.** `Scripts/bump-and-build.sh dev` incrémente le numéro de
+   build, installe dans `~/Applications` et lance l'app : le faire depuis un worktree
+   remplacerait la copie de développement par un build de branche et polluerait la branche
+   d'un changement de version. Le lot étant invisible et le vrai risque étant « les fontes ne
+   voyagent pas dans le `.app` », ce risque est couvert par un test qui monte la disposition
+   réelle du bundle packagé (`Contents/Resources/OneToOne_OneToOne.bundle`, ligne 93 du
+   script) dans un dossier temporaire. **Reste à vérifier de visu au lot 1** : le composeur
+   d'action du rail, la bascule « Afficher speakers », le dépliage de la barre de lecture,
+   l'ajout d'un participant ad hoc et l'affichage des thèmes proposés — les cinq chemins que
+   la migration a touchés.
+7. Le test « les cinq noms PostScript résolvent » ne distingue pas, sur ce poste, une
+   résolution par le bundle d'une résolution par les Plex `.otf` déjà installés dans
+   `~/Library/Fonts`. C'est `bundledFontFilesArePresent` + `packagedLayoutIsFound` qui
+   couvrent le bundle.
+
+### Prochaine action
+
+**Lot 1** — chantier 1 socle : barre du haut une ligne 38 px, trois espaces, sélecteur de
+mode, bandeau 4 KPI (programme §5, écran `1a-cockpit.png` partie haute). Il consomme
+`One2OneToken`, les primitives et `MeetingScreenModel.space/mode` de ce lot, et le schéma V3
+du lot 0B. C'est lui qui câble les primitives : à sa fin, la recette à l'écran devient
+comparable à la capture de référence.
 ## Refonte de l'écran de réunion — lot 0B : schéma V3, tête de lecture, confidentialité (2026-09-07)
 
 Branche `feat/refonte-lot-0b-socle-donnees`, sur `master` (`a3c44f2`). Premier lot de données du

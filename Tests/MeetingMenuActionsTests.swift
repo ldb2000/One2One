@@ -19,7 +19,8 @@ final class MeetingMenuActionsTests: XCTestCase {
             retranscribe: {}, generateReport: {}, toggleCustomPrompt: {},
             importCalendar: {}, importExistingWAV: {}, editAudio: {}, revealWAV: {}, deleteMeeting: {},
             exportMarkdown: {}, exportPDF: {}, exportMail: { _ in }, exportOutlook: { _ in },
-            exportAppleNotes: { _ in })
+            exportAppleNotes: { _ in },
+            openAssistant: {}, addPlayheadMarker: {})
     }
 
     func testExportsRequireReport() {
@@ -128,5 +129,29 @@ final class MeetingMenuActionsTests: XCTestCase {
     func testIsNoteFollowsKind() {
         XCTAssertTrue(make(kind: .note).isNote)
         XCTAssertFalse(make(kind: .oneToOne).isNote)
+    }
+
+    // MARK: - ⌘K et ⌘M (lot 1, spec §1.4)
+
+    /// « `⌘K` — Assistant, contexte = réunion courante » : l'assistant est une
+    /// surface, pas un onglet. Il répond même sur une note et même sans audio,
+    /// sinon il ne serait pas « partout » comme la spec §1.1 l'exige.
+    func testAssistantIsAlwaysAvailable() {
+        XCTAssertTrue(make().isEnabled(.assistant))
+        XCTAssertTrue(make(kind: .note).isEnabled(.assistant))
+        XCTAssertTrue(make(isRecording: true).isEnabled(.assistant))
+        XCTAssertTrue(make(isGeneratingReport: true).isEnabled(.assistant))
+    }
+
+    /// « `⌘M` — Marqueur sur l'axe temps à l'instant courant » : sans axe
+    /// temps, un marqueur n'a pas d'ancre. Il faut donc un enregistrement en
+    /// cours ou un audio relisible.
+    func testMarkerRequiresATimeAxis() {
+        XCTAssertFalse(make(hasPlayableAudio: false).isEnabled(.marker))
+        XCTAssertTrue(make(hasPlayableAudio: true).isEnabled(.marker))
+        XCTAssertTrue(make(isRecording: true).isEnabled(.marker))
+        // Une note n'a pas d'audio : pas de marqueur, comme les huit autres
+        // items d'audio et de rapport.
+        XCTAssertFalse(make(kind: .note, hasPlayableAudio: true).isEnabled(.marker))
     }
 }

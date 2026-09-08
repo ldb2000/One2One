@@ -85,24 +85,20 @@ struct MeetingView: View {
     /// haut, à la barre d'enregistrement et à la frise de l'éditeur audio.
     /// Résolue par le registre à chaque lecture : il retient l'instance, la
     /// vue n'a rien à retenir.
-    private var playhead: MeetingPlayhead { MeetingPlayhead.for(meeting: meeting) }
+    private var playhead: MeetingPlayhead { screen.playhead }
     private var player: AudioPlayerService { playhead.player }
     @StateObject private var captureService = ScreenCaptureService()
 
     // MARK: - Local state
 
-    @State private var newTaskTitle = ""
-    @State private var selectedCollaborator: Collaborator?
-    @State private var showNewTaskDueDate = false
-    @State private var newTaskDueDate: Date? = nil
-    @State private var newTaskAudience: ActionAudience = .moi
-    @State private var newTaskUrgent = false
-    @State private var newTaskImportant = false
-    @State private var newTaskPomodoros = 0
-    @State private var didSetActionDefaults = false
-    @State private var newAdhocName = ""
+    /// L'état d'écran de cette réunion : espace, moment, brouillon d'action,
+    /// bascules d'affichage. Remplace treize `@State` dont huit descendaient en
+    /// `@Binding` sur deux niveaux (`OverviewDashboard` → `ActionsPanel`), cf.
+    /// `MeetingScreenModel`. Rattaché à la réunion dans `.onAppear`.
+    @State private var screen = MeetingScreenModel()
     @State private var showDetailsSheet = false
-    @State private var activeSection: MeetingSection = .overview
+    /// L'assistant est ouvert (barre d'invocation ou `⌘K`, spec §1.4).
+    @State private var showAssistant = false
     @State private var isGeneratingReport = false
     @State private var isGenerating: Bool = false
     @State private var reportEditMode: Bool = false
@@ -131,7 +127,6 @@ struct MeetingView: View {
     @State private var reportElapsedSeconds: Int = 0
     @State private var reportActivity = AIReportProgress()
     @State private var saveDebounceTask: Task<Void, Never>?
-    @State private var showPlayback: Bool = false
     @State private var didAutoStart = false
     @State private var audioEditMode: AudioEditMode?
     @State private var showDeleteConfirm = false
@@ -143,10 +138,6 @@ struct MeetingView: View {
     /// plus).
     @State private var isBeingDeleted = false
     @State private var showParticipantsSheet = false
-    @State private var isEditingLayout = false
-    /// Thèmes proposés par l'IA (chips « fantômes ») — éphémères, non persistés :
-    /// régénérés à chaque rapport ou à la demande, jamais appliqués d'office.
-    @State private var suggestedTagNames: [String] = []
     @State private var isSuggestingTags = false
     @Environment(\.dismiss) private var dismiss
     // MARK: - Manager report sheet
@@ -170,38 +161,11 @@ struct MeetingView: View {
     @State private var mgrElaborationFallbackReason: String = ""
 
     // Speaker view toggle + rename popover state
-    @State private var showSpeakersView: Bool = true
     @State private var renamingSpeakerID: Int?
     @State private var segmentToDelete: TranscriptSegment?
     @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
-
-    /// Onglet actif du panneau principal de la réunion.
-    enum MeetingSection: String, CaseIterable, Identifiable {
-        case overview = "Vue d'ensemble"
-        case preparation = "Préparation"
-        case liveNotes = "Notes live"
-        case transcript = "Transcription"
-        case report = "Rapport"
-        case documents = "Documents"
-        case chat = "Chat"
-        var id: String { rawValue }
-
-        /// Libellé affiché. Pour une note, « Notes live » n'a pas de sens :
-        /// l'onglet du corps s'appelle simplement « Note ».
-        func label(for kind: MeetingKind) -> String {
-            if self == .liveNotes && kind == .note { return "Note" }
-            return rawValue
-        }
-    }
-
-    /// Onglets visibles pour un kind donné. Une note n'a ni préparation, ni
-    /// transcription, ni rapport, ni vue d'ensemble, ni chat : seulement son
-    /// corps et ses pièces jointes.
-    static func visibleSections(for kind: MeetingKind) -> [MeetingSection] {
-        kind == .note ? [.liveNotes, .documents] : MeetingSection.allCases
-    }
 
     /// Vrai si l'enregistrement en cours est celui **de cette réunion**.
     /// `AudioRecorderService` est un singleton observé par toutes les fenêtres :
@@ -223,23 +187,21 @@ struct MeetingView: View {
                 meeting: meeting,
                 recorder: recorder,
                 stt: stt,
-                player: player,
                 captureService: captureService,
+                playhead: playhead,
                 isRecordingThisMeeting: isRecordingThisMeeting,
                 isGeneratingReport: isGeneratingReport,
-                reportProgressChars: reportProgressChars,
                 reportElapsedSeconds: reportElapsedSeconds,
                 reportStatus: reportActivity.label,
                 reportWaitWarning: reportActivity.warning(),
-                capturedSlidesCount: currentSlides.count,
                 actions: makeMenuActions(),
-                onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); showPlayback = true } },
+                capturedSlidesCount: currentSlides.count,
+                onTogglePlay: { if let wav = meeting.wavFileURL { togglePlay(url: wav); screen.showPlayback = true } },
                 onShowCaptureSetup: { showCaptureSetup = true },
                 onShowSlides: { showSlidesList = true },
-                onBack: isPushed ? { dismiss() } : nil,
-                suggestedTagNames: $suggestedTagNames,
-                isSuggestingTags: isSuggestingTags,
-                onRequestTagSuggestions: { Task { await suggestTags() } }
+                onOpenProject: { showDetailsSheet = true },
+                onCreateMeeting: createMeeting,
+                onBack: isPushed ? { dismiss() } : nil
             )
             .confirmationDialog("Supprimer la réunion ?", isPresented: $showDeleteConfirm) {
                 Button("Supprimer", role: .destructive) { deleteMeeting() }
@@ -271,7 +233,7 @@ struct MeetingView: View {
                 player: player,
                 captureService: captureService,
                 hasWav: meeting.wavFileURL != nil && fileExists(meeting.wavFileURL!),
-                showPlayback: showPlayback,
+                showPlayback: screen.showPlayback,
                 onSnapshot: { captureService.snapshot() },
                 onStopCapture: { captureService.stop() },
                 onResumeCapture: { captureService.resume() },
@@ -300,7 +262,7 @@ struct MeetingView: View {
             )
             .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
             .animation(.easeInOut(duration: 0.15), value: captureService.hasOpenSession)
-            .animation(.easeInOut(duration: 0.15), value: showPlayback)
+            .animation(.easeInOut(duration: 0.15), value: screen.showPlayback)
 
             // Le drapeau vit sur le singleton : sans `isRecordingThisMeeting`
             // le bandeau s'afficherait dans *toutes* les fenêtres réunion, et
@@ -353,7 +315,7 @@ struct MeetingView: View {
             )
         }
         .sheet(item: $audioEditMode) { mode in
-            AudioEditorSheet(meeting: meeting, mode: mode) { _ in }
+            AudioEditorSheet(meeting: meeting, mode: mode, playhead: playhead) { _ in }
         }
         .sheet(isPresented: $showDetailsSheet) {
             MeetingDetailsBlock(
@@ -361,7 +323,10 @@ struct MeetingView: View {
                 projects: projects,
                 calendarImportError: $calendarImportError,
                 saveContext: saveContext,
-                onClose: { showDetailsSheet = false }
+                onClose: { showDetailsSheet = false },
+                screen: screen,
+                isSuggestingTags: isSuggestingTags,
+                onRequestTagSuggestions: { Task { await suggestTags() } }
             )
         }
         .sheet(isPresented: $showParticipantsSheet) {
@@ -369,7 +334,7 @@ struct MeetingView: View {
                 meeting: meeting, settings: settings,
                 availableCollaborators: availableCollaborators,
                 collaboratorsCount: allCollaborators.count,
-                newAdhocName: $newAdhocName,
+                screen: screen,
                 addParticipant: addParticipant,
                 removeParticipant: removeParticipant,
                 removeAllParticipants: removeAllParticipants,
@@ -400,6 +365,8 @@ struct MeetingView: View {
             }
         }
         .onAppear {
+            screen.attach(meetingID: meeting.ensuredStableID)
+            screen.attachPlayhead(meeting: meeting)
             MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
             // Reprise unique des notes markdown en notes horodatées (lot 0B).
             // Idempotent : le drapeau `notesMigrated` fait de ce `onAppear`,
@@ -562,7 +529,13 @@ struct MeetingView: View {
             },
             exportMail: { opts in ExportService().exportMeetingMail(meeting: meeting, options: opts) },
             exportOutlook: { opts in ExportService().exportMeetingOutlook(meeting: meeting, options: opts) },
-            exportAppleNotes: { opts in ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts) }
+            exportAppleNotes: { opts in ExportService().exportMeetingToAppleNotes(meeting: meeting, options: opts) },
+            // `⌘K` : l'assistant se pose sur la réunion courante. La surface
+            // arrive avec la branche 1b (`MeetingAssistantDock`) ; le
+            // raccourci est déclaré ici pour que le menu ne mente pas.
+            openAssistant: { showAssistant = true },
+            // `⌘M` : marqueur au `t` courant de la tête de lecture partagée.
+            addPlayheadMarker: { playhead.addMarker(at: playhead.t, kind: .note) }
         )
     }
 
@@ -584,37 +557,131 @@ struct MeetingView: View {
 
     private var mainPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // En-tête éditorial + bloc « Détails de la réunion » retirés du dashboard :
-            // titre & type dans le chrome, participants dans la carte Présence / la modale.
-            // Le projet associé et le prompt spécifique vivent dans la modale Détails
-            // (ouverte via le menu « … »).
-            MeetingTabsUnderline(
-                selection: $activeSection,
-                sections: Self.visibleSections(for: meeting.kind),
+            // Les sept onglets ont cédé la place aux trois espaces de la spec
+            // §1.1 et au sous-mode temporel du §2.2. `OverviewDashboard` et
+            // `MeetingChatView` ne sont plus instanciés depuis ici (décision
+            // D8 du programme : leur code n'est retiré qu'au lot 19) ; la
+            // préparation est devenue le mode Préparer, le chat la barre
+            // d'assistant.
+            MeetingSpacesBar(
+                screen: screen,
                 kind: meeting.kind,
-                attachmentsCount: meeting.attachments.count,
                 hasReport: !meeting.summary.isEmpty,
-                date: meeting.date,
-                isEditingLayout: $isEditingLayout
+                documentsCount: meeting.attachments.count,
+                date: meeting.date
             )
-            sectionContent
-                .padding(.horizontal, 28)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
+            spaceContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear {
-            let visible = Self.visibleSections(for: meeting.kind)
-            if !visible.contains(activeSection) {
-                activeSection = visible[0]
+        .background(One2OneToken.bgCanvas)
+        .onAppear { normalizeSpace() }
+        .onChange(of: meeting.kind) { _, _ in normalizeSpace() }
+    }
+
+    /// Écarte un espace ou un mode que le type courant ne propose pas.
+    /// Remplace les deux `onChange` qui remettaient `activeSection` sur le
+    /// premier onglet visible.
+    private func normalizeSpace() {
+        let repli = MeetingSpaceRouting.fallback(space: screen.space,
+                                                 mode: screen.mode,
+                                                 for: meeting.kind)
+        if screen.space != repli.space { screen.space = repli.space }
+        if screen.mode != repli.mode { screen.mode = repli.mode }
+    }
+
+    /// Contenu de l'espace actif. Aucun état ici : c'est du routage.
+    @ViewBuilder
+    private var spaceContent: some View {
+        switch screen.space {
+        case .meeting:
+            meetingSpace
+        case .report:
+            reportView
+        case .resources:
+            MeetingResourcesSpace(
+                meeting: meeting,
+                mode: screen.mode,
+                isImporting: isImportingAttachment,
+                attachmentError: attachmentError,
+                onImport: { fileImportTarget = .documents },
+                onDrop: { providers in Task { await handleFileDrop(providers) } },
+                onShowSlides: { showSlidesList = true },
+                onReindex: { att in
+                    Task { try? await MeetingAttachmentService.reindexAttachment(att, context: context) }
+                },
+                onDelete: { att in context.delete(att); saveContext() }
+            )
+        }
+    }
+
+    /// L'espace `Réunion`. Contenu provisoire du lot 1 : le bandeau KPI, la
+    /// carte notes ↔ transcription et la barre d'assistant arrivent avec la
+    /// branche 1b ; les colonnes définitives, aux lots 2 et 3.
+    ///
+    /// Une note (`MeetingKind.note`) garde **exactement** son éditeur markdown
+    /// et son `liveNotesEditorID` : les chemins `adoptPendingLiveNotes()` /
+    /// `discardEmptyNoteIfNeeded()` dépendent de l'ordre de démontage SwiftUI,
+    /// et le programme §2.4 interdit d'y toucher.
+    @ViewBuilder
+    private var meetingSpace: some View {
+        if meeting.kind == .note {
+            liveNotesEditor
+        } else {
+            switch screen.mode {
+            case .prepare:
+                MeetingPrepTab(meeting: meeting)
+                    .onAppear {
+                        PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
+                    }
+            case .live, .review:
+                GeometryReader { geo in
+                    let colonnes = MeetingSpaceLayout.evenSplit(width: geo.size.width)
+                    HStack(spacing: 0) {
+                        liveNotesEditor
+                            .frame(width: colonnes.0)
+                        Rectangle()
+                            .fill(One2OneToken.hair)
+                            .frame(width: MeetingSpaceLayout.hairlineWidth)
+                        transcriptView
+                            .frame(width: colonnes.1)
+                    }
+                }
             }
         }
-        .onChange(of: meeting.kind) { _, newKind in
-            let visible = Self.visibleSections(for: newKind)
-            if !visible.contains(activeSection) {
-                activeSection = visible[0]
-            }
-        }
+    }
+
+    /// L'éditeur markdown du corps de la réunion, inchangé depuis l'onglet
+    /// « Notes live ». Son `editorID` reste propre à la réunion.
+    private var liveNotesEditor: some View {
+        MarkdownNoteEditor(
+            text: Binding(
+                get: { meeting.liveNotes },
+                set: {
+                    meeting.liveNotes = $0
+                    saveContext()
+                    NoteIndexingCoordinator.shared.scheduleReindex(meeting: meeting, context: context)
+                }
+            ),
+            editorID: liveNotesEditorID
+        )
+    }
+
+    /// Crée une réunion et l'ouvre dans sa propre fenêtre.
+    ///
+    /// C'est le `+` de l'ancienne deuxième ligne de la barre du haut, devenu
+    /// une entrée du menu de type (spec §2.1). Le projet est repris de la
+    /// réunion courante : on enchaîne presque toujours sur le même dossier.
+    /// L'ouverture passe par `QuickLaunchRouter`, comme tous les autres
+    /// chemins qui présentent une réunion hors de la liste.
+    private func createMeeting() {
+        let nouvelle = Meeting(title: "", date: Date(), notes: "")
+        nouvelle.project = meeting.project
+        context.insert(nouvelle)
+        saveContext()
+        QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
+            meetingID: nouvelle.ensuredStableID,
+            autoStartRecording: false
+        )
     }
 
     private func togglePlay(url: URL) {
@@ -699,7 +766,10 @@ struct MeetingView: View {
                         transcript: result.text,
                         liveNotes: self.meeting.liveNotes
                     )
-                    self.activeSection = .transcript
+                    // Fin de transcription : on revient à la séance, où la
+                    // transcription est affichée à côté des notes.
+                    self.screen.space = .meeting
+                    self.screen.mode = .live
                     self.saveContext()
                     TeamsAutoRecordCoordinator.shared.transcriptionDidFinish(
                         meetingID: self.meeting.ensuredStableID,
@@ -728,121 +798,6 @@ struct MeetingView: View {
                 print("[MeetingView] retranscribe FAILED: \(error.localizedDescription)")
                 throw error
             }
-        }
-    }
-
-    @ViewBuilder
-    private var sectionContent: some View {
-        switch activeSection {
-        case .overview:
-            OverviewDashboard(
-                meeting: meeting, settings: settings, allCollaborators: allCollaborators,
-                currentSlides: currentSlides, isEditing: $isEditingLayout,
-                newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
-                showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
-                newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
-                newTaskImportant: $newTaskImportant, newTaskPomodoros: $newTaskPomodoros,
-                onAddTask: addTask,
-                onDeleteTask: { task in context.delete(task); saveContext() },
-                onToggleTaskCompletion: { task in task.isCompleted.toggle(); saveContext() },
-                onShowSlides: { showSlidesList = true },
-                onShowCaptureSetup: { showCaptureSetup = true },
-                onManageParticipants: { showParticipantsSheet = true },
-                onExpandTranscript: { activeSection = .transcript },
-                saveContext: saveContext)
-        case .preparation:
-            MeetingPrepTab(meeting: meeting)
-                .onAppear {
-                    PrepCarryoverService.drainStandingIntoMeeting(meeting, in: context)
-                }
-        case .liveNotes:
-            MarkdownNoteEditor(
-                text: Binding(
-                    get: { meeting.liveNotes },
-                    set: {
-                        meeting.liveNotes = $0
-                        saveContext()
-                        NoteIndexingCoordinator.shared.scheduleReindex(meeting: meeting, context: context)
-                    }
-                ),
-                editorID: liveNotesEditorID
-            )
-        case .transcript:
-            transcriptView
-        case .report:
-            reportView
-        case .documents:
-            documentsView
-        case .chat:
-            MeetingChatView(meeting: meeting)
-        }
-    }
-
-    private var documentsView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("\(meeting.attachments.count) document(s)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                if isImportingAttachment {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Import + indexation…").font(.caption)
-                    }
-                }
-                Button(action: { fileImportTarget = .documents }) {
-                    Label("Importer", systemImage: "doc.badge.plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isImportingAttachment)
-            }
-            .padding()
-
-            if let err = attachmentError {
-                Text(err).font(.caption).foregroundColor(.red).padding(.horizontal).padding(.bottom, 8)
-            }
-
-            Divider()
-
-            ZStack {
-                List {
-                    ForEach(meeting.attachments.sorted(by: { $0.importedAt > $1.importedAt })) { att in
-                        attachmentRow(att)
-                    }
-                }
-
-                if isDraggingDoc {
-                    VStack(spacing: 12) {
-                        Image(systemName: "tray.and.arrow.down")
-                            .font(.system(size: 40))
-                        Text("Déposer ici pour importer")
-                            .font(.headline)
-                    }
-                    .foregroundColor(.accentColor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.accentColor.opacity(0.1))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [10]))
-                            .padding(20)
-                    )
-                }
-
-                if meeting.attachments.isEmpty && !isDraggingDoc {
-                    ContentUnavailableView(
-                        "Aucun document",
-                        systemImage: "doc.on.doc",
-                        description: Text("Importez des documents ou déposez-les ici.")
-                    )
-                }
-            }
-        }
-        .onDrop(of: [.fileURL], isTargeted: $isDraggingDoc) { providers in
-            Task {
-                await handleFileDrop(providers)
-            }
-            return true
         }
     }
 
@@ -923,71 +878,6 @@ struct MeetingView: View {
                 .padding(.vertical)
             }
             .frame(width: 300, height: 400)
-        }
-    }
-
-    private func attachmentRow(_ att: MeetingAttachment) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon(for: att.kind))
-                .foregroundColor(.accentColor)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(att.fileName).font(.body.weight(.medium))
-                HStack(spacing: 6) {
-                    Text(att.kind.uppercased())
-                        .font(.caption2)
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.18))
-                        .cornerRadius(4)
-                    Text("\(att.chunks.count) chunks indexés")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    if !att.extractedText.isEmpty {
-                        Text("\(att.extractedText.count) car.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            Spacer()
-            Menu {
-                Button("Re-indexer") {
-                    Task {
-                        try? await MeetingAttachmentService.reindexAttachment(att, context: context)
-                    }
-                }
-                if att.kind == "slides" {
-                    Button("Voir les slides") {
-                        showSlidesList = true
-                    }
-                }
-                Button("Ouvrir") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: att.filePath))
-                }
-                Divider()
-                Button("Supprimer", role: .destructive) {
-                    context.delete(att)
-                    saveContext()
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle").foregroundColor(.secondary)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func icon(for kind: String) -> String {
-        switch kind {
-        case "pdf":      return "doc.richtext"
-        case "pptx":     return "rectangle.on.rectangle.angled"
-        case "docx":     return "doc.text"
-        case "xlsx":     return "tablecells"
-        case "image":    return "photo"
-        case "slides":   return "camera.viewfinder"
-        case "markdown", "text": return "text.alignleft"
-        default:          return "doc"
         }
     }
 
@@ -1117,7 +1007,7 @@ struct MeetingView: View {
                         transcriptToolbar
                     }
                     if settings.transcriptionMode == .diarizeFirst
-                        && showSpeakersView && !meeting.transcriptSegments.isEmpty {
+                        && screen.showSpeakers && !meeting.transcriptSegments.isEmpty {
                         transcriptSegmentsView
                     } else if !meeting.mergedTranscript.isEmpty {
                         MeetingHighlightableTextView(
@@ -1388,7 +1278,7 @@ struct MeetingView: View {
 
     /// Crée un `Collaborator` adhoc (réutilisable) et l'ajoute à la réunion.
     private func addAdhocParticipant() {
-        let name = newAdhocName.trimmingCharacters(in: .whitespaces)
+        let name = screen.newAdhocName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
 
         if let existing = allCollaborators.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
@@ -1400,7 +1290,7 @@ struct MeetingView: View {
             context.insert(c)
             addParticipant(c)
         }
-        newAdhocName = ""
+        screen.newAdhocName = ""
     }
 
     private func importCalendarEvent(_ event: CalendarMeetingEvent) {
@@ -1837,7 +1727,8 @@ struct MeetingView: View {
                 transcript: result.text,
                 liveNotes: meeting.liveNotes
             )
-            activeSection = .transcript
+            screen.space = .meeting
+            screen.mode = .live
             saveContext()
             // Les deux branches ci-dessus (finalisation live et re-STT batch)
             // convergent ici : un seul compte rendu par transcription tentée.
@@ -2047,7 +1938,7 @@ struct MeetingView: View {
                     self.apply(report: report, createRevision: false)
                     self.meeting.reportGenerationDurationSeconds = Date().timeIntervalSince(generationStart)
                     self.saveContext()
-                    self.activeSection = .report
+                    self.screen.space = .report
                     TeamsAutoRecordCoordinator.shared.reportDidFinish(
                         meetingID: self.meeting.ensuredStableID, succeeded: true)
                 }
@@ -2107,7 +1998,7 @@ struct MeetingView: View {
 
         // Un thème déjà posé sur la réunion n'est pas re-proposé.
         let linked = Set(meeting.tags.map { MeetingTag.normalizedKey($0.name) })
-        suggestedTagNames = names.filter { !linked.contains(MeetingTag.normalizedKey($0)) }
+        screen.suggestedTagNames = names.filter { !linked.contains(MeetingTag.normalizedKey($0)) }
     }
 
     /// Retourne un bloc texte avec les extraits pertinents des réunions précédentes.
@@ -2207,43 +2098,38 @@ struct MeetingView: View {
         }
 
         saveContext()
-        activeSection = .report
+        screen.space = .report
     }
 
     // MARK: - Tasks
 
     private func addTask() {
         let t = ActionTask(
-            title: newTaskTitle,
-            dueDate: showNewTaskDueDate ? (newTaskDueDate ?? Date()) : nil
+            title: screen.newTaskTitle,
+            dueDate: screen.showNewTaskDueDate ? (screen.newTaskDueDate ?? Date()) : nil
         )
         t.meeting = meeting
         t.project = meeting.project
-        t.destinataire = newTaskAudience
-        t.collaborator = newTaskAudience == .collaborateur ? selectedCollaborator : nil
-        t.isUrgent = newTaskUrgent
-        t.isImportant = newTaskImportant
-        t.pomodoros = newTaskPomodoros
+        t.destinataire = screen.newTaskAudience
+        t.collaborator = screen.newTaskAudience == .collaborateur ? screen.selectedCollaborator : nil
+        t.isUrgent = screen.newTaskUrgent
+        t.isImportant = screen.newTaskImportant
+        t.pomodoros = screen.newTaskPomodoros
         context.insert(t)
-        newTaskTitle = ""
-        newTaskDueDate = nil
-        showNewTaskDueDate = false
-        newTaskUrgent = false
-        newTaskImportant = false
-        newTaskPomodoros = 0
+        screen.resetActionDraft()
         saveContext()
     }
 
     /// Défaut malin du destinataire à la 1re apparition : en 1:1, on pré-remplit
     /// « Collaborateur » avec le partenaire ; sinon « Moi ». Une seule fois.
     private func applyActionDraftDefaultsIfNeeded() {
-        guard !didSetActionDefaults else { return }
-        didSetActionDefaults = true
+        guard !screen.didApplyActionDefaults else { return }
+        screen.didApplyActionDefaults = true
         if meeting.kind == .oneToOne, let partner = meeting.participants.first {
-            newTaskAudience = .collaborateur
-            selectedCollaborator = partner
+            screen.newTaskAudience = .collaborateur
+            screen.selectedCollaborator = partner
         } else {
-            newTaskAudience = .moi
+            screen.newTaskAudience = .moi
         }
     }
 
@@ -2379,7 +2265,9 @@ struct MeetingView: View {
     @ViewBuilder
     private var transcriptToolbar: some View {
         HStack(spacing: 12) {
-            Toggle("Afficher speakers", isOn: $showSpeakersView)
+            Toggle("Afficher speakers",
+                   isOn: Binding(get: { screen.showSpeakers },
+                                 set: { screen.showSpeakers = $0 }))
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .disabled(meeting.transcriptSegments.isEmpty)

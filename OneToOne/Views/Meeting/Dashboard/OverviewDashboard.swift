@@ -9,14 +9,10 @@ struct OverviewDashboard: View {
     let allCollaborators: [Collaborator]
     let currentSlides: [SlideCapture]
     @Binding var isEditing: Bool
-    @Binding var newTaskTitle: String
-    @Binding var selectedCollaborator: Collaborator?
-    @Binding var showNewTaskDueDate: Bool
-    @Binding var newTaskDueDate: Date?
-    @Binding var newTaskAudience: ActionAudience
-    @Binding var newTaskUrgent: Bool
-    @Binding var newTaskImportant: Bool
-    @Binding var newTaskPomodoros: Int
+    /// L'état d'écran de la réunion. Remplace huit `@Binding` qui traversaient
+    /// cette vue sans qu'elle en lise un seul, uniquement pour atteindre
+    /// `ActionsPanel`.
+    let screen: MeetingScreenModel
     let onAddTask: () -> Void
     let onDeleteTask: (ActionTask) -> Void
     let onToggleTaskCompletion: (ActionTask) -> Void
@@ -140,10 +136,7 @@ struct OverviewDashboard: View {
         case .actions:
             DashboardCard(title: "Actions", systemImage: "checklist", isEditing: isEditing) { EmptyView() } content: {
                 ActionsPanel(meeting: meeting, settings: settings, allCollaborators: allCollaborators,
-                             newTaskTitle: $newTaskTitle, selectedCollaborator: $selectedCollaborator,
-                             showNewTaskDueDate: $showNewTaskDueDate, newTaskDueDate: $newTaskDueDate,
-                             newTaskAudience: $newTaskAudience, newTaskUrgent: $newTaskUrgent,
-                             newTaskImportant: $newTaskImportant, newTaskPomodoros: $newTaskPomodoros,
+                             screen: screen,
                              onAddTask: onAddTask, onDeleteTask: onDeleteTask,
                              onToggleTaskCompletion: onToggleTaskCompletion, saveContext: saveContext)
                     // Borne la hauteur pour éviter la récursion de layout (ScrollView imbriqués) sur macOS.

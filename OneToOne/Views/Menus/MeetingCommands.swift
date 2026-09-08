@@ -37,6 +37,16 @@ struct MeetingCommands: Commands {
                 .disabled(!isEnabled(.pause))
 
             Divider()
+            // Spec §1.4 : ⌘K ouvre l'assistant sur la réunion courante, ⌘M
+            // pose un marqueur sur l'axe temps à l'instant courant.
+            Button("Assistant…") { menu?.openAssistant() }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(!isEnabled(.assistant))
+            Button("Poser un marqueur") { menu?.addPlayheadMarker() }
+                .keyboardShortcut("m", modifiers: .command)
+                .disabled(!isEnabled(.marker))
+
+            Divider()
             Button("Générer le rapport") { menu?.generateReport() }
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!isEnabled(.generateReport))

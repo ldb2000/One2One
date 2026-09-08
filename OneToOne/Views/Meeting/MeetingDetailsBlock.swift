@@ -14,6 +14,15 @@ struct MeetingDetailsBlock: View {
     let saveContext: () -> Void
     /// Ferme la modale.
     let onClose: () -> Void
+    /// L'état d'écran de la réunion. Porte les thèmes proposés par l'IA, en
+    /// attente d'acceptation : ils vivaient sur la **deuxième ligne** de la
+    /// barre du haut, que la spec §2.1 supprime — la barre est sur une ligne,
+    /// et les thèmes ont besoin de toute la largeur pour passer à la ligne.
+    let screen: MeetingScreenModel
+    /// Une suggestion de thèmes est en cours.
+    let isSuggestingTags: Bool
+    /// Relance manuellement la suggestion de thèmes.
+    let onRequestTagSuggestions: () -> Void
 
     @Environment(\.modelContext) private var context
     @State private var showCreateProjectSheet = false
@@ -31,6 +40,17 @@ struct MeetingDetailsBlock: View {
             // Type édité dans le chrome ; participants via la carte Présence / la modale.
             // Ce panneau ne porte plus que le projet associé et le prompt spécifique.
             typeProjectRow
+            VStack(alignment: .leading, spacing: 6) {
+                Text("THÈMES")
+                    .font(MeetingTheme.sectionLabel).tracking(1.2).foregroundColor(.secondary)
+                MeetingTagEditor(
+                    meeting: meeting,
+                    suggestions: Binding(get: { screen.suggestedTagNames },
+                                         set: { screen.suggestedTagNames = $0 }),
+                    isSuggesting: isSuggestingTags,
+                    onRequestSuggestions: onRequestTagSuggestions
+                )
+            }
             VStack(alignment: .leading, spacing: 6) {
                 Text("PROMPT SPÉCIFIQUE (RAPPORT)")
                     .font(MeetingTheme.sectionLabel).tracking(1.2).foregroundColor(.secondary)
@@ -50,7 +70,7 @@ struct MeetingDetailsBlock: View {
             Spacer()
         }
         .padding(20)
-        .frame(width: 520, height: 440)
+        .frame(width: 520, height: 540)
         .background(MeetingTheme.canvasCream)
     }
 
