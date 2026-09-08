@@ -136,4 +136,106 @@ struct MeetingPrepareBuilderTests {
         #expect(ctx.carriedActions.first?.title == "Préparer gitlab.rb et valider les flux")
         #expect(ctx.carriedActions.first?.fromTitle == "1er sept.")
     }
+
+    // MARK: - Reprise de la fiche projet (lot 9)
+
+    /// Spec §4.3 : « reprise automatiquement en préparation de la prochaine
+    /// réunion ». Le mode Préparer résume la fiche — statut, budget, jalons
+    /// proches, risques élevés — et propose de l'ouvrir.
+    @Test("Sans projet, il n'y a pas de fiche à reprendre")
+    func noProjectMeansNoCard() throws {
+        let context = ModelContext(try makeContainer())
+        let reunion = Meeting(title: "Réunion libre", date: Date())
+        context.insert(reunion)
+
+        let ctx = MeetingPrepareBuilder.build(meeting: reunion, allMeetings: [reunion])
+        #expect(ctx.projectCard == nil)
+        #expect(ctx.nearMilestones.isEmpty)
+        #expect(ctx.highRisks.isEmpty)
+    }
+
+    @Test("La fiche du projet est reprise avec son statut et son budget")
+    func cardIsCarried() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject("S/D — Modernisation CI/CD")
+        projet.status = "Yellow"
+        projet.budgetCons = 40_000
+        projet.budgetInit = 61_000
+        context.insert(projet)
+        let reunion = Meeting(title: "Point", date: Date())
+        context.insert(reunion)
+        reunion.project = projet
+
+        let ctx = MeetingPrepareBuilder.build(meeting: reunion, allMeetings: [reunion])
+        let carte = try #require(ctx.projectCard)
+        #expect(carte.statusLabel == "À surveiller")
+        #expect(carte.budget?.total == 61_000)
+    }
+
+    /// La fenêtre est de trente jours : au-delà, un jalon n'est pas un sujet de
+    /// la prochaine réunion.
+    @Test("Les jalons repris sont ceux des trente prochains jours, plus les bloqués")
+    func nearMilestonesWindow() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject("Projet")
+        context.insert(projet)
+        let maintenant = Date(timeIntervalSince1970: 1_757_000_000)
+        let reunion = Meeting(title: "Point", date: maintenant)
+        context.insert(reunion)
+        reunion.project = projet
+
+        let jour = 86_400.0
+        let gabarits: [(String, Double?, MilestoneState)] = [
+            ("Dans 10 jours", 10 * jour, .planned),
+            ("Dans 29 jours", 29 * jour, .planned),
+            ("Dans 31 jours", 31 * jour, .planned),
+            ("Passé mais fait", -5 * jour, .done),
+            ("Fait dans 3 jours", 3 * jour, .done),
+            ("Bloqué sans date", nil, .late),
+            ("Sans date ni blocage", nil, .planned)
+        ]
+        for (index, gabarit) in gabarits.enumerated() {
+            let jalon = ProjectMilestone(label: gabarit.0,
+                                         dueAt: gabarit.1.map { maintenant.addingTimeInterval($0) },
+                                         state: gabarit.2,
+                                         order: index)
+            context.insert(jalon)
+            jalon.project = projet
+        }
+
+        let ctx = MeetingPrepareBuilder.build(meeting: reunion,
+                                              allMeetings: [reunion],
+                                              now: maintenant)
+        #expect(MeetingPrepareBuilder.nearMilestoneWindowDays == 30)
+        #expect(ctx.nearMilestones.map(\.label)
+                == ["Dans 10 jours", "Dans 29 jours", "Bloqué sans date"])
+    }
+
+    /// Seuls les risques « Critique » et « Élevé » remontent : un risque
+    /// modéré n'est pas un sujet d'ordre du jour.
+    @Test("Les risques repris sont les critiques et les élevés, non résolus")
+    func highRisksOnly() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject("Projet")
+        context.insert(projet)
+        let reunion = Meeting(title: "Point", date: Date())
+        context.insert(reunion)
+        reunion.project = projet
+
+        for (titre, gravite) in [("Critique ouvert", "Critique"),
+                                 ("Élevé ouvert", "Élevé"),
+                                 ("Modéré ouvert", "Modéré"),
+                                 ("Faible ouvert", "Faible")] {
+            let alerte = ProjectAlert(title: titre, severity: gravite)
+            context.insert(alerte)
+            alerte.project = projet
+        }
+        let resolue = ProjectAlert(title: "Critique réglé", severity: "Critique")
+        resolue.isResolved = true
+        context.insert(resolue)
+        resolue.project = projet
+
+        let ctx = MeetingPrepareBuilder.build(meeting: reunion, allMeetings: [reunion])
+        #expect(ctx.highRisks.map(\.title) == ["Critique ouvert", "Élevé ouvert"])
+    }
 }

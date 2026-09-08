@@ -107,6 +107,9 @@ struct ContentView: View {
     @EnvironmentObject private var router: QuickLaunchRouter
     @State private var didRunDataRepair = false
     @State private var showMeetingPicker: Bool = false
+    /// `.onAppear` peut se déclencher plusieurs fois : le semis de recette ne
+    /// doit pas rouvrir la réunion à chaque fois.
+    @State private var didSeedRefonteDemo = false
 
     var body: some View {
         NavigationSplitView {
@@ -141,6 +144,7 @@ struct ContentView: View {
             registerHotkeys()
             maybeRunAutoCleanup()
             runRAGIndexingSweep()
+            maybeSeedRefonteDemo()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -183,6 +187,34 @@ struct ContentView: View {
                                          router: router,
                                          context: context)
         }
+    }
+
+    /// Nom de la variable d'environnement qui déclenche le semis du jeu de
+    /// démonstration de la refonte au démarrage. Posée par
+    /// `Scripts/recette-run.sh --seed`.
+    static let seedDemoEnvironmentKey = "ONETOONE_SEED_DEMO"
+
+    /// Sème et ouvre la réunion de démonstration quand la variable
+    /// `ONETOONE_SEED_DEMO` vaut `1`.
+    ///
+    /// Pourquoi une variable d'environnement et non un réglage : la recette
+    /// visuelle doit être reproductible sans clic. Le semis est déjà
+    /// disponible dans le menu **Réunion** ; ici il est simplement automatique
+    /// pour un lancement de recette, dans un `HOME` jetable
+    /// (cf. `Scripts/recette-run.sh`).
+    ///
+    /// Aucune garde `#if DEBUG` : le bundle de recette est un **build
+    /// release** — c'est justement celui qu'on veut regarder. La garde utile
+    /// est ailleurs : sans la variable, rien ne se passe, et
+    /// `RefonteDemoSeed.seed` est idempotent.
+    @MainActor
+    private func maybeSeedRefonteDemo() {
+        guard ProcessInfo.processInfo.environment[Self.seedDemoEnvironmentKey] == "1",
+              !didSeedRefonteDemo else { return }
+        didSeedRefonteDemo = true
+        let reunion = RefonteDemoSeed.seed(in: context)
+        router.pendingToken = OneToOneLaunchToken(meetingID: reunion.ensuredStableID,
+                                                  autoStartRecording: false)
     }
 
     /// Lance, si activé dans les réglages et au plus une fois par 24 h, un job

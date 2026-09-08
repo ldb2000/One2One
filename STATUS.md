@@ -2,6 +2,327 @@
 
 Dernière mise à jour : 2026-09-07 CEST
 
+## Intégration vague 4 : la pile redevient linéaire (2026-09-07)
+
+Les lots **4, 5, 6, 10a, 10b et 9** ont été développés **en parallèle** — les cinq premiers
+depuis `feat/refonte-lot-3-rail-actions`, le lot 9 depuis
+`feat/refonte-lot-1b-espaces-kpi-assistant`. Ils sont désormais **empilés** dans cet ordre :
+
+```
+0A/0B → 1a → 1b → 2 → 3 → 4 → 5 → 6 → 10a → 10b → 9
+#19–#24              #27  #28  #30  #26   #29   #25
+```
+
+Ordre de fusion : `#19 → #20 → #21 → #22 → #23 → #24 → #27 → #28 → #30 → #26 → #29 → #25`.
+
+### Conflits résolus, maillon par maillon
+
+| Maillon | Fichier | Résolution |
+| --- | --- | --- |
+| **4** (#27) | — | déjà sur le lot 3, aucun conflit |
+| **5** (#28) | `MeetingScreenModel.swift` | union : `session` (4) **et** `review` (5) |
+| | `MeetingSpaceView.swift` | `body` éclaté en `contenu` (`if .review` du lot 5) + le modificateur `.sessionFullscreen` du lot 4 posé dessus, `estEligible: screen.mode == .live` |
+| | `STATUS.md` | sections 5 puis 4 |
+| **6** (#30) | `MeetingScreenModel.swift` | union : `session`, `review`, `resources` |
+| | `MeetingSpaceView.swift` | `@Environment(\.modelContext)` **rétabli** (le lot 5 l'avait retiré, le tiroir en a besoin), `.onDrop` + `.overlay { tiroirRessources }` posés sur `contenu` — le tiroir s'ouvre donc aussi depuis le mode Relire ; `onShowCaptures` (5) **et** `onImportResources` (6) |
+| | `MeetingView.swift` | `onShowCaptures` du lot 5 mène au tiroir filtre `Captures` : le lot 6 a supprimé `showSlidesList` et son popover |
+| | `Menus/MeetingCommands.swift` | union : `⌃⌘F` (4), `⌘⇧V` et `Ressources…` (6) ; **un seul** item de démonstration, qui appelle `seedLot5` puis `seedLot6` (tous deux partent de `seed`, idempotent) |
+| | `Menus/MeetingMenuActions.swift` | union de `MeetingMenuItem`, des closures et de `isEnabled` |
+| | `Tests/SessionNoChromeTests.swift` | le constructeur du lot 4 fournit `pasteResource`/`openResources` |
+| | `STATUS.md` | recomposé section par section (une résolution avait laissé le bloc « Tests » du lot 6 dans la section du lot 5) |
+| **10a** (#26) | `MeetingScreenModel.swift` | union : + `oneOnOne` |
+| **10b** (#29) | `STATUS.md` | section du lot 10 en tête |
+| | `Maintenance/StorageStatsService.swift` | union automatique : `documents/` (6) **et** `annual/` (10) |
+| **9** (#25) | `MeetingScreenModel.swift` | union : + `showProjectCard` — cinq propriétés d'état, aucune perdue, aucune dupliquée |
+| | `MeetingView.swift` | `onShowSlides` (6, tiroir) **et** `onOpenProject` (9, fiche en panneau) |
+| | `Services/Debug/RefonteDemoSeed.swift` | union ; le `tags` du lot 5 devient **`tagsLot5`** — le semis de base porte désormais un `tags`, les thèmes du *projet* de la fiche 3b |
+| | `Tests/MeetingScreenModelTests.swift` | les trois tests de la fiche ajoutés en fin de suite, ceux des lots 2 et 3 intacts |
+| | `STATUS.md` | section du lot 9 en tête |
+
+### Chiffres
+
+`swift build` propre à chaque maillon (avertissements préexistants seuls : `PyannoteDiarizer`,
+`MLXEmbeddingEngine`, `AudioCompressionService`, `MeetingTagSuggester`, `AppDelegate`).
+`swift test` **complet vert** à chaque maillon :
+
+| Maillon | XCTest | Swift Testing | Total | Seul, avant intégration |
+| --- | --- | --- | --- | --- |
+| lot 3 (référence) | — | — | **1 931** | — |
+| 4 | 1 039 | 974 | **2 013** | 2 013 |
+| 5 | 1 039 | 1 048 | **2 087** | 2 005 |
+| 6 | 1 041 | 1 132 | **2 173** | 2 017 |
+| 10a | 1 041 | 1 207 | **2 248** | — |
+| 10b | 1 041 | 1 277 | **2 318** | 2 076 |
+| 9 | 1 041 | 1 357 | **2 398** | 1 881 (base 1b) |
+
+`MeetingView.swift` : **2 051 lignes** (2 045 après l'intégration 2 + 3, + le câblage des lots
+5, 6 et 9 ; aucune logique nouvelle).
+
+### Points tranchés
+
+1. **Le tiroir Ressources s'ouvre en mode Relire.** L'`overlay` du lot 6 est posé sur
+   `contenu`, en amont de la bifurcation `.review` : le poste de pilotage garde donc son
+   entrée `Documents n/＋`, et le tiroir se superpose à lui comme à la séance.
+2. **Le plein écran n'est offert qu'en mode En séance** (`estEligible: screen.mode == .live`) :
+   le poste de pilotage relit une réunion terminée, un écran de séance n'y a pas de sens.
+3. **`RefonteDemoSeed.seedOneOnOneThreads` (lot 10) n'est pas câblé au menu.** Il ne complète
+   pas la réunion de `1a-cockpit.png` : il sème **deux fils 1:1 et dix séances** propres. Le
+   lot 10 avait choisi de ne pas le mettre derrière l'item « Charger le jeu de démonstration
+   (refonte) », et l'y ajouter changerait ce que cet item produit — décision laissée à la
+   relecture. Il reste appelé par `RefonteDemoSeedLot10Tests`, vert.
+
+### Prochaine action
+
+Faire relire les six PR dans l'ordre de fusion ci-dessus. Les recettes visuelles restent dues
+(lots 4, 5, 6, 10) ; cette passe d'intégration n'en a lancé aucune.
+
+## Refonte de l'écran de réunion — lot 9 : fiche projet en panneau (3b) (2026-09-07)
+
+Branche `feat/refonte-lot-9-fiche-projet`, **empilée** sur
+`feat/refonte-lot-1b-espaces-kpi-assistant` (PR #22), elle-même sur `…-lot-1a-chrome` (#21),
+sur 0B (#20) et 0A (#19). La PR **contient donc les lots 0A, 0B, 1a et 1b** tant que #19–#22
+ne sont pas fusionnées. Plan d'exécution :
+`docs/superpowers/plans/2026-09-07-refonte-lot-9-fiche-projet.md`.
+
+**État : livré, `swift build` propre, `swift test` complet vert (1 881 tests), recette
+visuelle faite à 1 280 px, PR ouverte, non mergée.** Trois constats à lire avant tout :
+un **crash préexistant** de l'écran de réunion en bundle `.app` (§ Recette ci-dessous),
+une **pollution du store de production** par le semis de démonstration, et le correctif
+d'isolation qui l'empêche de se reproduire.
+
+### ⚠️ À traiter : le store de production contient des lignes de démonstration
+
+Le premier lancement de recette a ouvert le **vrai** store — `HOME` ne suffit pas à isoler
+une application en bundle, cf. § Recette. Le semis y a écrit, à 13:19 le 2026-09-07 :
+
+| Ligne | Repère |
+| --- | --- |
+| 1 projet | `S/D — Modernisation CI/CD`, code **`P25_110_1`** (le code a été dédoublonné à l'ouverture) |
+| 1 réunion | `[P25_110] Partage statut final et chiffrage reste à faire`, **4 sept. 2025** 9:15 |
+| 12 actions, 5 risques, 4 segments | rattachés à cette réunion |
+| 3 jalons, 3 interlocuteurs | rattachés au projet `P25_110_1` |
+| 6 collaborateurs | Pierre-Yves Nallet, Nathalie Lefèvre, Cédric Payet, Lucas Sylvain, Camille Aubert, **Laurent Deberti** (créé faute de correspondance avec « DE BERTI Laurent ») |
+
+**Aucune donnée réelle n'a été modifiée** : le vrai projet `P25_110`
+(`S/D - Modernisation Chaine CI/CD`, Z_PK 52) est intact — budgets vides, périmètre vide,
+tags vides, aucun jalon, aucun interlocuteur. Le semis n'a pas reconnu l'homonyme
+(tiret contre cadratin, « Chaine » contre « Chaîne ») et a donc **créé** un projet séparé
+au lieu d'écraser le vôtre.
+
+**Rien n'a été supprimé** : effacer des lignes d'un store de production de 32 Mo n'est pas
+une décision que je prends seul. La suppression se fait proprement depuis l'application :
+la réunion par `Réunion ▸ Supprimer la réunion…` (elle emporte actions, risques et
+segments), puis le projet `P25_110_1` (il emporte jalons et interlocuteurs), puis les six
+collaborateurs s'ils ne servent à rien d'autre. Dis-moi si tu préfères que je le fasse.
+
+### Ce qui est en place
+
+**La fiche projet s'ouvre en panneau de 430 px** (spec §4.3, capture `3b-fiche-projet.png`) —
+`ProjectCardPanel` glisse depuis la droite, ombre `-8px 0 24px rgba(0,0,0,.07)`, la colonne
+principale passe à **55 % d'opacité et reste consultable** (aucun `allowsHitTesting(false)` :
+la spec insiste). `Esc` — via `onExitCommand`, pour que la touche marche depuis un champ — et
+`✕` ferment, avec confirmation si le brouillon porte des modifications. Contenu : en-tête
+(`FICHE PROJET`, nom, `P25_110 · 9 réunions · dernière mise à jour aujourd'hui par vous`,
+bascule `Édition`, `✕`), cartes `STATUT` (menu à trois valeurs, point coloré) et
+`BUDGET CONSOMMÉ` (barre teintée par ratio), `JALONS` avec ligne d'ajout pointillée
+`Nouveau jalon… date · statut`, `PÉRIMÈTRE & CONTEXTE` avec chips de thèmes et chip `＋`,
+`RISQUES · n` et `INTERLOCUTEURS` sur deux colonnes, encart de l'assistant, pied
+`Visible par toute l'équipe projet…` + `Annuler` / `Enregistrer`.
+
+**`ProjectDetailView` n'est pas remplacée** : elle reste l'écran projet complet (portfolio,
+mails, pièces jointes). Le panneau est un point d'édition contextuel, ouvert en réunion.
+
+**Trois règles pures, testées avant toute vue** (programme §7) —
+`ProjectCardBuilder` (mapping `Green/Yellow/Red/Unknown` ↔ `ok/watch/risk`, budget
+`budgetCons / (budgetRev ?? budgetInit)`, teinte par ratio, tri des jalons, jalon en retard
+rendu « bloqué », risques `ProjectAlert` du plus grave au plus faible) ;
+`ProjectCardDraft` (instantané éditable détaché du modèle, réconciliation par identité) ;
+`ProjectCardSuggestions` (prompt, JSON strict, acceptation ligne à ligne).
+
+**Critère d'acceptation n° 4 du chantier 3 tenu structurellement.** « Aucune modification de
+la fiche projet n'est écrite sans validation humaine explicite » : le panneau édite une
+`struct`, et `Project` ne bouge qu'à l'appel de `ProjectCardDraft.apply(to:in:)`. Deux tests
+le prouvent — `draftEditsNeverReachTheModel` modifie le brouillon de bout en bout et vérifie
+que le modèle n'a rien vu ; `suggestingAndAcceptingNeverWriteToTheModel` fait la même chose
+côté assistant, avec un `AIClientProtocol` factice.
+
+**L'assistant propose, il n'écrit jamais.** Trois garde-fous : rien n'est **demandé** sans
+endpoint IA configuré ni sans matière (pas d'encart, pas d'erreur, pas d'appel — deux tests
+comptent les appels du client factice) ; rien n'est **levé** (JSON malformé, champ inconnu,
+réponse bavarde, client en échec → liste vide) ; rien n'est **deviné** (un jalon inconnu ou un
+montant illisible fait rendre `false` à `accept`, et la feuille garde la ligne avec la mention
+« Proposition inapplicable en l'état »). La feuille `ProjectCardSuggestionsSheet` montre le
+diff `ENREGISTRÉ → PROPOSÉ` avec la citation, `Accepter` / `Ignorer` par ligne.
+
+**Enregistrement optimiste** — `UndoBanner` est une primitive du système de conception, pas un
+bout de la fiche : les lots 6, 10 et 15 en auront besoin, et une seconde bannière écrite
+ailleurs finirait par ne plus durer cinq secondes. `task` plutôt qu'un `Timer`, pour que
+l'expiration ne survienne jamais après la fermeture de la vue.
+
+**Reprise en préparation** — le pied du panneau promet « reprise automatiquement en
+préparation de la prochaine réunion » : le mode Préparer tient la promesse avec une section
+`FICHE PROJET` (statut, budget, jalons proches, risques élevés) et un lien `Ouvrir la fiche`.
+`MeetingPrepareBuilder` gagne trois sorties pures ; la fenêtre est de **trente jours**, et
+**tous** les jalons bloqués remontent, datés ou non — un jalon bloqué sans date est
+précisément celui qu'on oublie.
+
+**Déclencheur** — le segment projet du fil d'Ariane gagne le chevron `⌄` de la capture et
+ouvre la fiche au lieu de la feuille « Détails », qui reste dans le menu `⋯`.
+`MeetingScreenModel.showProjectCard` est ajouté **en fin de type**, **non mémorisé** : un
+panneau ouvert est un geste, pas un réglage.
+
+**Outillage de recette** — `Scripts/recette-app.sh` empaquette un `.app` depuis
+`.build/<config>` du dossier courant sans incrémenter le numéro de build ni installer quoi que
+ce soit ; `Scripts/recette-run.sh` le lance avec un `HOME` jetable, `--seed` posant
+`ONETOONE_SEED_DEMO=1` que `ContentView` lit au démarrage pour semer et ouvrir la réunion de
+démonstration sans clic de menu. Documenté au §7 étape 6 du plan directeur — qui rejoint le
+suivi git au passage, il en était encore absent alors que tous les lots s'y réfèrent.
+
+### Créés
+
+`OneToOne/Services/Project/` : `ProjectCardBuilder`, `ProjectCardDraft`,
+`ProjectCardSuggestions`. `OneToOne/Views/Project/` : `ProjectCardPanel`,
+`ProjectCardSuggestionsSheet`. `OneToOne/Views/DesignSystem/Components/Refonte/UndoBanner`.
+`Scripts/recette-app.sh`, `Scripts/recette-run.sh`.
+`Tests/` : `ProjectCardBuilderTests`, `ProjectCardDraftTests`, `ProjectCardSuggestionsTests`,
+`ProjectCardPanelTests`, `UndoBannerTests`.
+
+### Modifiés
+
+`One2OneTokens` (+4 jetons : ombre de panneau ×3, dépoli 55 %), `MeetingScreenModel`
+(`showProjectCard`, en fin de type), `MeetingTopChromeBar` (segment projet seulement),
+`MeetingView` (`onOpenProject` + overlay en fin de `mainPanel`), `MeetingSpaceView` (une ligne :
+le rappel d'ouverture), `MeetingPrepareSpace` (section `FICHE PROJET`),
+`MeetingPrepareBuilder`, `RefonteDemoSeed` (budget 40 000 / 61 000, périmètre, 4 thèmes,
+3 jalons, 3 interlocuteurs), `OneToOneApp` (lecture de `ONETOONE_SEED_DEMO`).
+**Aucune nouvelle version de schéma, aucune colonne ajoutée, aucune dépendance nouvelle.**
+
+### Tests
+
+`swift build` propre. `swift test` complet **vert** : **1 039 XCTest (1 ignoré, 0 échec) +
+842 Swift Testing en 120 suites (0 échec)**, soit **1 881 tests** contre 1 801 après le lot 1
+(**+80, +5 suites**), aucune régression.
+
+Nouvelles suites : `ProjectCardBuilderTests` (20), `ProjectCardSuggestionsTests` (23),
+`ProjectCardDraftTests` (10), `ProjectCardPanelTests` (9), `UndoBannerTests` (5). Ajouts :
+3 dans `MeetingScreenModelTests`, 4 dans `MeetingPrepareBuilderTests`, 3 dans
+`RefonteDemoSeedTests`, 2 dans `One2OneTokensTests`, 1 dans `MeetingTopChromeBarTests`.
+Aucun test ne touche MLX, le réseau ni une session graphique.
+
+### Recette visuelle
+
+`docs/superpowers/specs/refonte-2026-09/recette/lot-9-1280.png` — fenêtre de 1 280 × 800 pt
+(image 2 562 × 1 600, écran Retina), fiche projet **ouverte**, hors édition. Obtenue avec
+`Scripts/recette-app.sh` puis `Scripts/recette-run.sh`, sur un store isolé ne contenant que
+le jeu de démonstration.
+
+**Ce qui correspond à `3b-fiche-projet.png`** : le segment projet bordé bleu avec son
+chevron ; `FICHE PROJET`, le nom, `P25_110 · 1 réunion · dernière mise à jour le 4 sept. par
+vous` ; les cartes `STATUT ● À surveiller` et `BUDGET CONSOMMÉ 40 000 € / 61 000 €` avec sa
+barre ; les trois jalons avec point vert daté « 30 sept. », point orange `bloqué` en rouge,
+cercle vide « 15 nov. » ; `PÉRIMÈTRE & CONTEXTE` + `éditer`, le texte encadré, les chips
+`GitLab Nexus PostgreSQL Cléva` ; `RISQUES · 5` et `INTERLOCUTEURS` sur deux colonnes ; la
+colonne principale visiblement atténuée ; le panneau à 430 px exactement.
+
+**Écarts avec la maquette relevés sur la capture** :
+
+1. **La barre de budget est verte**, la maquette la dessine orange (cf. écarts assumés n° 1).
+2. **La maquette montre le mode Édition actif** (`＋ ajouter`, ligne `Nouveau jalon…`, chip
+   `＋`, `＋ Ajouter un risque`, `＋ Ajouter`, pied `Annuler` / `Enregistrer`) ; la capture
+   est en **lecture**, où la spec veut que tout cela disparaisse. Le passage en édition n'a
+   pas pu être capturé : le clic sur la pilule `Édition` n'a pas abouti par script — AX ne
+   résout pas correctement le survol d'un `overlay` SwiftUI — puis la session s'est
+   verrouillée. **À vérifier à la main.**
+3. **Pas d'encart de l'assistant** : le home de recette repart de zéro, donc aucun endpoint
+   IA n'est configuré. C'est le comportement attendu (« sans endpoint : encart absent, pas
+   d'erreur ») et la capture en est la démonstration, mais elle ne montre pas l'encart.
+
+**Capture à 1 920 px non faite** : la session s'est verrouillée en cours de recette
+(`ioreg -n Root -d1 -r` → `"CGSSessionScreenIsLocked"=Yes`, `IOConsoleLocked = Yes`), les
+fenêtres ne sont plus adressables et `screencapture` ne rend plus qu'une image noire. Comme
+au lot 1 : rien de faux n'a été déposé.
+
+**Deux défauts trouvés par la recette et corrigés** : la chip « PostgreSQL » se repliait en
+« PostgreS / QL » (colonne adaptative trop étroite, `fixedSize` ajouté) et le compteur des
+risques s'écrivait `RISQUES 5` au lieu de `RISQUES · 5`.
+
+### 🐛 Crash préexistant de l'écran de réunion en bundle `.app`
+
+**Trouvé par cette recette, présent sur la branche de base, hors périmètre du lot 9.**
+
+Ouvrir une réunion dans la **fenêtre dédiée** (`WindowGroup "1to1-meeting"`, celle
+qu'ouvrent le semis de démonstration, `QuickLaunchRouter` et la pastille) fait **crasher
+l'application** en build release empaqueté :
+
+```
+EXC_BREAKPOINT / +[NSApplication _crashOnException:]
+-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]
+-[NSView setNeedsUpdateConstraints:]
+SwiftUI.NSHostingView.setNeedsUpdate()
+SwiftUI.NSHostingView.updateWindowContentSizeExtremaIfNecessary()
+SwiftUI.NSHostingView.updateConstraints()
+```
+
+C'est la ré-entrance Auto Layout de la famille `_NSDetectedLayoutRecursion` que le programme
+§2.4 point 4 signale déjà. **Vérification faite** : la même manipulation, sur
+`origin/feat/refonte-lot-1b-espaces-kpi-assistant` recompilée en release et empaquetée avec
+les mêmes scripts, crashe **à l'identique** (journaux `OneToOne-2026-09-07-1324*.ips` et
+`-1330*.ips`). Le lot 9 n'y est pour rien — les lots 0A à 1b n'ont jamais été lancés en
+bundle, la session étant verrouillée à ce moment-là.
+
+**Contournement utilisé pour la recette** : ouvrir la réunion depuis la liste `Réunions` de
+la fenêtre principale, où la navigation se fait **en place**. Ce chemin ne crashe pas — c'est
+lui qui a produit la capture. `NSApplicationCrashOnExceptions = false` dans les préférences
+n'y change rien.
+
+**Prochaine action recommandée** : un lot de correction dédié. La piste la plus probable est
+une contrainte de taille minimale que la hiérarchie de `MeetingView` renégocie pendant la
+passe de contraintes de la fenêtre — candidats : le `.fixedSize()` du fil d'Ariane dans
+`MeetingTopChromeBar`, la `ScrollView` non bornée d'un espace, ou `MeetingSpaceLayout` qui
+calcule ses colonnes depuis un `GeometryReader`.
+
+### Écarts assumés
+
+1. **La barre de budget de la capture est orange, la règle chiffrée dit vert.**
+   40 000 / 61 000 = 65,6 %, et la spec écrit deux fois « < 70 % ok ». C'est la **règle** qui
+   est implémentée, pas la teinte de la maquette : elle est chiffrée, l'autre non. Le test
+   `budgetOfCapture` fige ce choix et le commente. À trancher si la maquette fait foi ici.
+2. **L'overlay du panneau vit dans `MeetingView.mainPanel`, pas dans `MeetingSpaceView`.**
+   Le périmètre du lot désignait `MeetingSpaceView` ; mais celle-ci ne connaît que l'espace
+   Réunion, et la spec §4.3 veut que le panneau se superpose à **n'importe quel** espace. Le
+   diff dans `MeetingView` est de six lignes, hors des zones des lots 2 et 3
+   (`transcriptView`, `ActionsPanel`).
+3. **Budget éditable en champs inline, là où la maquette montre du texte statique** malgré la
+   bascule `Édition` active. Le périmètre du lot demandait explicitement « en édition, champs
+   inline » ; les champs sont stylés à plat pour rester proches de la capture.
+4. **Réordonner les jalons passe par deux chevrons, pas par un glisser-déposer.** Le panneau
+   n'est pas une `List` : un `onMove` maison sur une `VStack` réclamerait un suivi de geste
+   dont le comportement dériverait du reste de l'application.
+5. **Un avertissement de compilation nouveau, de classe préexistante** :
+   `ProjectCardSuggestions.swift:239` capture `AppSettings` (non `Sendable`) dans la closure
+   `@Sendable` du timeout. C'est **exactement** le motif de `MeetingTagSuggester`, qui porte le
+   même avertissement depuis son écriture ; le supprimer demanderait de changer la signature de
+   `AIClientProtocol`, partagée par quatre services — hors périmètre d'un lot.
+6. **Le `＋` des thèmes n'a pas de disposition en flot** : `LazyVGrid` adaptatif au lieu d'un
+   `FlowLayout`. Les thèmes d'une fiche tiennent sur une à deux lignes ; un layout maison
+   serait à écrire pour tout le programme, pas pour ce lot.
+7. **Le plan directeur rejoint le suivi git dans cette PR.**
+   `docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md` était encore hors suivi
+   alors que tous les lots s'y réfèrent, et le lot 9 devait en amender le §7 étape 6. Le
+   dossier `docs/superpowers/specs/refonte-2026-09/` (spec et treize captures) reste, lui,
+   hors suivi : ce n'est pas au lot 9 d'en décider.
+
+### Prochaine action
+
+1. **Trancher la teinte de la barre de budget** : règle chiffrée (vert à 65,6 %) ou maquette
+   (orange) ?
+2. **Décider du sort des lignes de démonstration dans le store de production** (liste et
+   procédure ci-dessus).
+3. **Ouvrir un lot de correction du crash de la fenêtre de réunion** : il bloque toute
+   recette visuelle des lots ≥ 1 par le chemin normal, et il touchera l'usage réel (le semis,
+   `QuickLaunchRouter` et la pastille passent tous par cette fenêtre).
+4. Vérifier à la main le mode Édition de la fiche et capturer 1 920 px, session déverrouillée.
+
 ## Refonte de l'écran de réunion — lot 10 : socle 1:1 (2026-09-07)
 
 Deux branches empilées sur le lot 3, plan du lot dans

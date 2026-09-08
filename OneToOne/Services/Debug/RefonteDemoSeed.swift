@@ -273,11 +273,49 @@ enum RefonteDemoSeed {
         return reunion
     }
 
+    // MARK: - Fiche projet (capture `3b-fiche-projet.png`)
+
+    /// Le périmètre et le contexte de la capture 3b.
+    static let scopeText = """
+    Refonte de la chaîne CI/CD : GitLab auto-hébergé, Nexus, base PostgreSQL \
+    dédiée, isolation de la partie data. Le partenaire Cléva porte la migration ; \
+    accompagnement par notre équipe archi.
+    """
+
+    /// Les quatre thèmes de la fiche, dans l'ordre des chips de la capture.
+    static let tags = ["GitLab", "Nexus", "PostgreSQL", "Cléva"]
+
+    /// Les trois jalons de la capture : point vert daté, point orange bloqué,
+    /// cercle vide daté.
+    static let milestones: [(libelle: String, echeance: Date?, etat: MilestoneState)] = [
+        ("Migration AP finalisée",
+         Date(timeIntervalSince1970: 1_759_190_400),   // 30 sept. 2025
+         .done),
+        ("Migration Marine — chiffrage à valider", nil, .late),
+        ("Bascule Jenkins → GitLab CI",
+         Date(timeIntervalSince1970: 1_763_164_800),   // 15 nov. 2025
+         .planned)
+    ]
+
+    /// Les trois interlocuteurs de la capture.
+    static let contacts: [(nom: String, role: String)] = [
+        ("Olivier Freund", "partenaire, décideur"),
+        ("Claire-Amélie F.-D.", "architecte"),
+        ("Alexis / Jeff", "périmètre Digital")
+    ]
+
+    /// Budget consommé et budget initial de la capture (`40 000 € / 61 000 €`).
+    static let budgetSpent: Double = 40_000
+    static let budgetTotal: Double = 61_000
+
     private static func seedProject(in context: ModelContext) -> Project {
         let nom = projectName
         if let existant = (try? context.fetch(
             FetchDescriptor<Project>(predicate: #Predicate { $0.name == nom })
         ))?.first {
+            // Un projet homonyme peut être un vrai projet du portfolio : on ne
+            // lui plaque ni budget, ni jalons, ni interlocuteurs de
+            // démonstration. Le semis n'écrase jamais des données réelles.
             return existant
         }
         let projet = Project(code: "P25_110",
@@ -286,7 +324,27 @@ enum RefonteDemoSeed {
                              sponsor: "Olivier Freund",
                              phase: "Réalisation",
                              status: "Yellow")
+        projet.budgetCons = budgetSpent
+        projet.budgetInit = budgetTotal
+        projet.scopeText = scopeText
+        projet.tags = tags
         context.insert(projet)
+
+        for (index, gabarit) in milestones.enumerated() {
+            let jalon = ProjectMilestone(label: gabarit.libelle,
+                                         dueAt: gabarit.echeance,
+                                         state: gabarit.etat,
+                                         order: index)
+            context.insert(jalon)
+            jalon.project = projet
+        }
+
+        for (index, gabarit) in contacts.enumerated() {
+            let contact = ProjectContact(name: gabarit.nom, role: gabarit.role, order: index)
+            context.insert(contact)
+            contact.project = projet
+        }
+
         return projet
     }
 

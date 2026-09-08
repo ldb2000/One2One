@@ -368,4 +368,17 @@ final class MeetingScreenModel {
     /// L'état d'écran du 1:1 (filtre d'engagements, confirmation d'escalade).
     /// Tout le reste du domaine vit dans `Services/OneOnOne/`.
     var oneOnOne = OneOnOneScreenState()
+
+    // MARK: - Fiche projet (lot 9)
+
+    /// La fiche projet est ouverte en panneau de 430 px sur la droite
+    /// (spec §4.3). Déclenchée par le segment projet du fil d'Ariane et par le
+    /// mode Préparer, elle se superpose à n'importe quel espace et à n'importe
+    /// quel mode : c'est pourquoi elle vit ici et non dans une vue d'espace.
+    ///
+    /// **Non mémorisée**, contrairement à l'espace et au mode : un panneau
+    /// ouvert est un geste, pas un réglage. Retrouver la fiche ouverte en
+    /// rouvrant la réunion masquerait la colonne principale sans que personne
+    /// ne l'ait demandé.
+    var showProjectCard = false
 }

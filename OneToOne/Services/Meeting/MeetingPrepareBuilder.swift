@@ -28,6 +28,21 @@ struct MeetingPrepareContext: Equatable, Sendable {
     /// Trois au plus, de la plus récente à la plus ancienne.
     var lastPoints: [LastPoint] = []
     var alertTitles: [String] = []
+
+    // MARK: - Reprise de la fiche projet (lot 9)
+
+    /// La fiche du projet, telle que le panneau l'affiche. `nil` sans projet :
+    /// une réunion libre n'a pas de fiche à reprendre.
+    ///
+    /// Spec §4.3 : « reprise automatiquement en préparation de la prochaine
+    /// réunion » — c'est ce que promet le pied du panneau, et une promesse
+    /// d'interface non tenue est un défaut.
+    var projectCard: ProjectCardState?
+    /// Les jalons dont l'échéance tombe dans les trente jours, plus ceux qui
+    /// sont bloqués.
+    var nearMilestones: [ProjectCardState.Milestone] = []
+    /// Les risques critiques et élevés, non résolus.
+    var highRisks: [ProjectCardState.Risk] = []
 }
 
 /// Assemble le contenu du mode Préparer. Aucune écriture : le versement des
@@ -39,13 +54,49 @@ enum MeetingPrepareBuilder {
     /// (spec §5 lot 1 : « 3 dernières réunions du même projet »).
     static let lastPointsCount = 3
 
+    /// Fenêtre des jalons « proches » reprise en préparation. Trente jours :
+    /// au-delà, un jalon n'est pas un sujet de la prochaine réunion, et le
+    /// résumé cesserait d'être un résumé.
+    static let nearMilestoneWindowDays = 30
+
     @MainActor
-    static func build(meeting: Meeting, allMeetings: [Meeting]) -> MeetingPrepareContext {
-        MeetingPrepareContext(
+    static func build(meeting: Meeting,
+                      allMeetings: [Meeting],
+                      now: Date = Date()) -> MeetingPrepareContext {
+        let carte = meeting.project.map {
+            ProjectCardBuilder.build(project: $0, meetings: allMeetings, now: now)
+        }
+        return MeetingPrepareContext(
             carriedActions: carriedActions(meeting: meeting),
             lastPoints: lastPoints(meeting: meeting, allMeetings: allMeetings),
-            alertTitles: alertTitles(meeting: meeting)
+            alertTitles: alertTitles(meeting: meeting),
+            projectCard: carte,
+            nearMilestones: nearMilestones(carte?.milestones ?? [], now: now),
+            highRisks: highRisks(carte?.risks ?? [])
         )
+    }
+
+    /// Les jalons à remettre sur la table : ceux dont l'échéance tombe dans les
+    /// trente prochains jours, et **tous** les bloqués, datés ou non — un jalon
+    /// bloqué sans date est précisément celui qu'on oublie.
+    ///
+    /// Un jalon fait est écarté même s'il tombe dans la fenêtre : il n'y a rien
+    /// à préparer sur un jalon franchi.
+    static func nearMilestones(_ jalons: [ProjectCardState.Milestone],
+                               now: Date) -> [ProjectCardState.Milestone] {
+        let limite = now.addingTimeInterval(Double(nearMilestoneWindowDays) * 86_400)
+        return jalons.filter { jalon in
+            guard jalon.state != .done else { return false }
+            if jalon.isBlocked { return true }
+            guard let echeance = jalon.dueAt else { return false }
+            return echeance <= limite
+        }
+    }
+
+    /// Les risques qui méritent un point d'ordre du jour : critiques et élevés.
+    /// Un risque modéré est suivi, pas débattu.
+    static func highRisks(_ risques: [ProjectCardState.Risk]) -> [ProjectCardState.Risk] {
+        risques.filter { $0.level == .critique || $0.level == .eleve }
     }
 
     /// Les actions de cette réunion qui viennent d'une réunion antérieure et
