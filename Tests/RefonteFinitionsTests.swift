@@ -218,3 +218,52 @@ struct EcartsDeVueTests {
                 "la mention est déclarée puis rendue")
     }
 }
+
+// MARK: - Ellipsis (écart (a) « troncatures sans ellipsis »)
+
+/// Un libellé qui se coupe doit dire qu'il est coupé (spec §1.2). La recette
+/// des vagues 1–4 a relevé « Chiffrage du reste à faire non », « Facturation de
+/// 40k sans livra », « Claire-Amélie F.· » : des noms et des titres coupés net.
+///
+/// La cause racine était dans `EditableTextField` (cf. `ChampDeTitreTests`) ;
+/// restaient les `Text` de noms propres et de titres variables rendus dans une
+/// largeur contrainte, sans `lineLimit`. Ce test les tient.
+///
+/// **Ne sont pas dans la liste, à dessein** : les libellés que la maquette
+/// laisse passer à la ligne (`ReviewSidebarNav`, où le nom de projet et les
+/// titres d'alerte portent un `fixedSize(vertical: true)` délibéré dans la nav
+/// de 190 px), les invites d'état de `CapturesStrip` (des phrases, mieux
+/// servies par un retour à la ligne), et les vues des dossiers tenus par les
+/// lots concurrents (`Session/**`, `Workshop/**`, `OneOnOne/CollaboratorPrep/**`).
+@Suite("Finitions du lot 19c — ellipsis")
+struct EllipsisTests {
+
+    /// Chaque fichier corrigé, avec le nombre d'ellipsis qu'il doit porter.
+    private static let attendus: [(String, Int)] = [
+        ("OneToOne/Views/Meeting/Spaces/MeetingSpacesBar.swift", 1),
+        ("OneToOne/Views/Meeting/Spaces/Rail/ActionsRail.swift", 1),
+        ("OneToOne/Views/Meeting/Spaces/Transcript/TranscriptSpeakerTools.swift", 3),
+        ("OneToOne/Views/Meeting/OneOnOne/Manager/CommitmentsRail.swift", 1),
+        ("OneToOne/Views/Meeting/ManageParticipantsSheet.swift", 3),
+        ("OneToOne/Views/Meeting/MeetingTagEditor.swift", 2),
+    ]
+
+    @Test("chaque libellé contraint corrigé porte lineLimit(1) et truncationMode(.tail)")
+    func ellipsisPosees() {
+        for (chemin, compte) in Self.attendus {
+            #expect(!RefonteSource.lire(chemin).isEmpty, "source introuvable : \(chemin)")
+            #expect(RefonteSource.occurrences(".truncationMode(.tail)", dans: chemin) == compte,
+                    "\(chemin) : \(compte) ellipsis attendues")
+        }
+    }
+
+    @Test("aucun lineLimit(1) sans ellipsis dans les fichiers corrigés")
+    func pasDeCoupeMuette() {
+        for (chemin, _) in Self.attendus {
+            let uneLigne = RefonteSource.occurrences(".lineLimit(1)", dans: chemin)
+            let ellipsis = RefonteSource.occurrences(".truncationMode(.tail)", dans: chemin)
+            #expect(ellipsis >= uneLigne,
+                    "\(chemin) : \(uneLigne) lineLimit(1) pour \(ellipsis) truncationMode")
+        }
+    }
+}

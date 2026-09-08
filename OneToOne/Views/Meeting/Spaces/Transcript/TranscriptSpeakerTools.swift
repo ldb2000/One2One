@@ -148,6 +148,8 @@ struct TranscriptSpeakerBadge: View {
                     Text(locuteur.name)
                         .font(.plexSans(11.5, .semibold))
                         .foregroundStyle(One2OneToken.ink1)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if let m = meta, m.auto {
                         MonoMeta("\(Int(m.confidence * 100))%")
                     }
@@ -167,6 +169,8 @@ struct TranscriptSpeakerBadge: View {
                 Text("\(suggere.name) ? (\(Int(m.confidence * 100))%)")
                     .font(.plexSans(11.5, .medium))
                     .foregroundStyle(One2OneToken.warnInk)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Button {
                     TranscriptSpeakerTools.assignSpeaker(
                         speakerID: segment.speakerID, to: suggere, in: meeting,
@@ -310,6 +314,8 @@ struct TranscriptSpeakerPicker: View {
                 Text(collaborateur.name)
                     .font(.plexSans(11.5, dansLaReunion ? .semibold : .regular))
                     .foregroundStyle(One2OneToken.ink2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if collaborateur.voicePrint != nil {
                     Image(systemName: "waveform")
                         .font(.system(size: 9))
