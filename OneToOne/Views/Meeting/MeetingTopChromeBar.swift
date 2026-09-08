@@ -531,8 +531,15 @@ struct MeetingTopChromeBar: View {
     /// gagnants hors d'atteinte. Ne garder que l'une des deux ramène l'un des
     /// deux défauts de recette (lot 16 à 1 616 px, vague 1–4 à 1 280 px).
     private var titleField: some View {
-        EditableTextField(placeholder: Self.titlePlaceholder(for: meeting), text: $meeting.title)
-            .font(.plexSans(13, .semibold))
+        // Écart (c) n° 3 : un titre, pas un champ. Le style `plain` retire le
+        // bezel permanent et la fonte est passée en `NSFont` — un
+        // `NSViewRepresentable` ignore le `.font()` de l'environnement, et le
+        // `.font(.plexSans(13, .semibold))` qui vivait ici n'avait aucun effet.
+        // L'édition en place, elle, ne change pas.
+        EditableTextField(placeholder: Self.titlePlaceholder(for: meeting),
+                          text: $meeting.title,
+                          style: .plain,
+                          font: .plexSans(13, .semibold))
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(-1)
     }

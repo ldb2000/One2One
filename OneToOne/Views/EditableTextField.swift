@@ -501,22 +501,62 @@ struct MarkdownToolbar: View {
 /// détail d'un NavigationSplitView. Contourne le bug SwiftUI macOS où un TextField
 /// natif ne reçoit jamais les événements clavier dans la colonne détail.
 struct EditableTextField: NSViewRepresentable {
+    /// Apparence du champ.
+    ///
+    /// `bezeled` est le champ historique des écrans de réglages et de
+    /// l'éditeur markdown — vingt-cinq usages, inchangés. `plain` est le texte
+    /// plat qu'un titre exige (spec §2.1) : la barre du haut portait un champ
+    /// bezelé permanent là où la maquette dessine un titre éditable en place
+    /// (écart (c) n° 3 de la recette des vagues 1–4).
+    enum Style: Sendable { case bezeled, plain }
+
     var placeholder: String
     @Binding var text: String
     var isSecure: Bool = false
+    var style: Style = .bezeled
+    /// Fonte imposée au champ. `nil` = fonte système, comme avant. Nécessaire
+    /// parce qu'un `NSViewRepresentable` ignore le `.font()` de
+    /// l'environnement SwiftUI : `Font.plexSans` posé par-dessus n'a jamais
+    /// eu d'effet ici. Employer `NSFont.plexSans`.
+    var font: NSFont? = nil
+
+    /// Toute la configuration hors liaison au délégué : une fonction sur un
+    /// `NSTextField`, donc testable sans contexte SwiftUI (programme §7 :
+    /// « toute règle est une fonction pure testée avant sa vue »).
+    func configure(_ field: NSTextField) {
+        field.placeholderString = placeholder
+        field.stringValue = text
+        switch style {
+        case .bezeled:
+            // La séquence historique, à la ligne près. `isBezeled = true`
+            // remet `isBordered` à faux de lui-même (les deux sont exclusifs
+            // sur `NSTextField`) et le cell dessine le fond : ne rien poser de
+            // plus, sous peine de changer le rendu des vingt-cinq usages.
+            field.isBordered = true
+            field.isBezeled = true
+            field.bezelStyle = .roundedBezel
+        case .plain:
+            field.isBordered = false
+            field.isBezeled = false
+            field.drawsBackground = false
+            field.focusRingType = .none
+        }
+        field.font = font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        // `lineBreakMode` seul ne suffit pas : sans `usesSingleLineMode`,
+        // AppKit l'ignore et coupe le texte **sans ellipsis**. C'est la cause
+        // de l'écart (c) n° 11 (« la fiche projet en édition tronque ses
+        // libellés sans ellipsis »), qui n'était pas dans les vues mais ici.
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.cell?.truncatesLastVisibleLine = true
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
 
     func makeNSView(context: Context) -> NSTextField {
         let field: NSTextField = isSecure ? NSSecureTextField() : NSTextField()
-        field.placeholderString = placeholder
-        field.stringValue = text
-        field.isBordered = true
-        field.isBezeled = true
-        field.bezelStyle = .roundedBezel
+        configure(field)
         field.delegate = context.coordinator
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
-        field.lineBreakMode = .byTruncatingTail
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
 
