@@ -17,6 +17,12 @@ struct MeetingSpacesBar: View {
     static let height: CGFloat = 34
     /// Épaisseur du soulignement de l'espace actif (spec §2.2).
     static let underlineHeight: CGFloat = 2
+    /// Taille du libellé d'un espace (`Réunion`, `Rapport`, `Ressources`) et du
+    /// sélecteur de mode : titre de carte de §1.2, 11,5 → 12 px.
+    static let spaceLabelSize: CGFloat = 12
+    static let modeLabelSize: CGFloat = 12
+    /// La date, en Plex Mono 10 comme tout timecode de §1.2.
+    static let dateSize: CGFloat = 10
 
     /// Titre et complément d'un espace dans la barre.
     ///
@@ -96,11 +102,18 @@ struct MeetingSpacesBar: View {
                 SegmentedMode(
                     selection: Binding(get: { screen.mode }, set: { screen.mode = $0 }),
                     options: modes,
+                    // §1.2 : 12 px / 500. Le mode de l'écran se lit comme un
+                    // titre de carte, pas comme le filtre d'un panneau
+                    // (retour d'usage du 2026-09-08).
+                    taille: Self.modeLabelSize,
                     libelle: \.label
                 )
             }
+            // La date est une **métadonnée horaire** : Plex Mono 10, comme les
+            // timecodes de §1.2. En sans 10,5 elle rivalisait avec le libellé
+            // du mode juste à sa gauche.
             Text(Self.formatDate(date))
-                .font(.plexSans(10.5))
+                .font(.plexMono(Self.dateSize))
                 .foregroundStyle(One2OneToken.ink4)
         }
         .padding(.horizontal, MeetingTopChromeBar.paddingHorizontal)
@@ -123,7 +136,7 @@ struct MeetingSpacesBar: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 5) {
                     Text(libelle.titre)
-                        .font(.plexSans(12, actif ? .semibold : .regular))
+                        .font(.plexSans(Self.spaceLabelSize, actif ? .semibold : .regular))
                         .foregroundStyle(actif ? One2OneToken.ink1 : One2OneToken.ink3)
                         .lineLimit(1)
                         .truncationMode(.tail)

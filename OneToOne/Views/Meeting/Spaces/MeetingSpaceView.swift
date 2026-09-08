@@ -242,8 +242,7 @@ struct MeetingSpaceView: View {
                         ActionsRail(meeting: meeting,
                                     screen: screen,
                                     allCollaborators: allCollaborators,
-                                    onSeek: { screen.playhead.seek(to: $0) },
-                                    reduit: screen.mode == .prepare)
+                                    onSeek: { screen.playhead.seek(to: $0) })
                             .frame(width: colonnes.rail)
                     }
                 }

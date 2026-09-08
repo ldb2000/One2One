@@ -4,13 +4,20 @@ import SwiftData
 /// Le rail d'actions **permanent** de 330 px (spec §2.5, capture
 /// `1a-cockpit.png`, colonne de droite).
 ///
-/// « Trois onglets : `Actions n` / `Risques n` / `Historique`. Vues d'actions :
-/// **Liste** · **Calendrier** · **Eisenhower** (Kanban et Post-it supprimés du
-/// contexte réunion). » Le composeur du pied est **toujours** visible, y
-/// compris sur les onglets Risques et Historique : c'est la seule surface qui
-/// promette qu'une intention dite en séance ne se perd pas, et la faire
-/// disparaître à chaque changement d'onglet en ferait une surface
-/// conditionnelle.
+/// « Trois onglets : `Actions n` / `Risques n` / `Historique`. » Le composeur
+/// du pied est **toujours** visible, y compris sur les onglets Risques et
+/// Historique : c'est la seule surface qui promette qu'une intention dite en
+/// séance ne se perd pas, et la faire disparaître à chaque changement d'onglet
+/// en ferait une surface conditionnelle.
+///
+/// **Le rail n'affiche que la liste** — retour d'usage du 2026-09-08, qui
+/// **amende la décision D10**. La rangée `Liste / Calendrier / Eisenhower` que
+/// montre la capture `1a-cockpit.png` a été retirée : en séance, on lit une
+/// liste et on assigne, on ne consulte pas une matrice d'Eisenhower dans 330 px.
+/// Ce qui a servi à la construire reste en place et sert ailleurs :
+/// `ActionsViewMode.railCases` et la persistance `MeetingScreenModel.railViewMode`
+/// (les cinq vues de `ActionsListView`), et le rendu compact de `CalendarBoard`
+/// et `EisenhowerBoard` (le mode Relire les affiche en colonne principale).
 ///
 /// Le rail ne connaît ni sa largeur ni sa place : `MeetingSpaceView` la lui
 /// donne, calculée par `MeetingSpaceLayout.columns` — c'est le seul endroit qui
@@ -21,14 +28,16 @@ import SwiftData
 /// le dashboard montait encore, a été retiré du dépôt au lot 19 (décision D8).
 struct ActionsRail: View {
 
+    /// Le libellé d'un onglet : titre de carte de §1.2 (600 · 11,5 → 12 px).
+    static let tabLabelSize: CGFloat = 11.5
+    /// Le compteur qui le suit : pilule de §1.2 (500 · 10 → 10,5 px).
+    static let tabCountSize: CGFloat = 10.5
+
     @Bindable var meeting: Meeting
     let screen: MeetingScreenModel
     let allCollaborators: [Collaborator]
     /// Replace la tête de lecture sur la source d'une action.
     let onSeek: ((Double) -> Void)?
-    /// Rail « réduit » du mode Préparer (spec §2.2) : le sélecteur de vue
-    /// disparaît, on ne prépare pas une séance en matrice d'Eisenhower.
-    var reduit: Bool = false
 
     @Environment(\.modelContext) private var context
 
@@ -50,9 +59,6 @@ struct ActionsRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             onglets
-            if screen.railTab == .actions && !reduit {
-                selecteurDeVue
-            }
             Divider().overlay(One2OneToken.hair)
             ScrollView {
                 corps
@@ -90,13 +96,13 @@ struct ActionsRail: View {
         } label: {
             HStack(spacing: 5) {
                 Text(onglet.label)
-                    .font(.plexSans(11.5, actif ? .semibold : .regular))
+                    .font(.plexSans(Self.tabLabelSize, actif ? .semibold : .regular))
                     .foregroundStyle(actif ? One2OneToken.ink1 : One2OneToken.ink4)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if let compte = compteur(onglet), compte > 0 {
                     Text("\(compte)")
-                        .font(.plexSans(10.5, .medium))
+                        .font(.plexSans(Self.tabCountSize, .medium))
                         .foregroundStyle(onglet == .risques ? One2OneToken.report : One2OneToken.ink4)
                 }
             }
@@ -121,52 +127,24 @@ struct ActionsRail: View {
         }
     }
 
-    // MARK: - Sélecteur de vue
-
-    private var selecteurDeVue: some View {
-        HStack(spacing: 0) {
-            SegmentedMode(selection: Binding(get: { screen.railViewMode },
-                                             set: { screen.railViewMode = $0 }),
-                          options: ActionsViewMode.railCases,
-                          libelle: { $0.label })
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 8)
-    }
-
     // MARK: - Corps
 
     @ViewBuilder
     private var corps: some View {
         switch screen.railTab {
         case .actions:
-            switch reduit ? .liste : screen.railViewMode {
-            case .liste, .kanban, .sticky:
-                // Kanban et Post-it n'existent pas dans le rail (spec §2.5) ;
-                // une valeur mémorisée d'un ancien réglage retombe sur Liste
-                // plutôt que sur un écran vide.
-                ActionsRailList(meeting: meeting,
-                                allCollaborators: allCollaborators,
-                                onSeek: onSeek,
-                                onToggle: basculer,
-                                onSave: enregistrer)
-            case .calendar:
-                CalendarBoard(tasks: actionsOuvertes, onToggle: basculer, compact: true)
-                    .padding(10)
-            case .eisenhower:
-                EisenhowerBoard(tasks: actionsOuvertes, onToggle: basculer, compact: true)
-                    .padding(10)
-            }
+            // Une seule vue, sans sélecteur : le rail est une liste (D10
+            // amendée le 2026-09-08).
+            ActionsRailList(meeting: meeting,
+                            allCollaborators: allCollaborators,
+                            onSeek: onSeek,
+                            onToggle: basculer,
+                            onSave: enregistrer)
         case .risques:
             ActionsRailRisks(meeting: meeting, onSave: enregistrer)
         case .historique:
             ActionsRailHistory(meeting: meeting)
         }
-    }
-
-    private var actionsOuvertes: [ActionTask] {
-        meeting.tasks.filter { $0.status == .open }
     }
 
     // MARK: - Actions
@@ -181,11 +159,14 @@ struct ActionsRail: View {
         try? context.save()
     }
 
-    /// L'action neuve doit être visible : si le rail était sur un autre onglet
-    /// ou une autre vue, on revient là où elle apparaît. Sans cela, `⌘⏎`
-    /// donnerait l'impression de n'avoir rien fait.
+    /// L'action neuve doit être visible : si le rail était sur l'onglet Risques
+    /// ou Historique, on revient sur Actions. Sans cela, `⌘⏎` donnerait
+    /// l'impression de n'avoir rien fait.
+    ///
+    /// Ne touche plus à `screen.railViewMode` : le rail ne s'en sert pas, et le
+    /// remettre sur Liste depuis ici changerait la vue mémorisée d'un écran
+    /// qu'on ne regarde même pas.
     private func apresCreation(_ task: ActionTask) {
         if screen.railTab != .actions { screen.railTab = .actions }
-        if screen.railViewMode != .liste { screen.railViewMode = .liste }
     }
 }
