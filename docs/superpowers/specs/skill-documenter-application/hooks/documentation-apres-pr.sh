@@ -21,10 +21,29 @@ dossiers=$(awk '/^code_documente:/{f=1;next} /^[^ ]/{f=0} f && /^[[:space:]]*-[[
 [ -n "$dossiers" ] || exit 0
 changes=$(git -C "$racine" diff --name-only "origin/$base...HEAD" 2>/dev/null || git -C "$racine" diff --name-only "$base...HEAD" 2>/dev/null)
 touches=""
+# Ancrage au préfixe de chemin depuis la racine du dépôt (pas de sous-chaîne libre) :
+# une entrée dossier ("Scripts/") matche un préfixe ("Scripts/x.sh") ; une entrée fichier
+# ("Package.swift") exige une égalité stricte (pour ne pas matcher "Package.swift.bak" ni
+# "Prototypes/BlockEditorProbe/Package.swift").
 while IFS= read -r d; do
   [ -n "$d" ] || continue
-  m=$(printf '%s\n' "$changes" | grep -F "$d" | head -5)
-  [ -n "$m" ] && touches="$touches$m"$'\n'
+  compte=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$d" in
+      */)
+        case "$f" in
+          "$d"*) touches="$touches$f"$'\n'; compte=$((compte + 1)) ;;
+        esac
+        ;;
+      *)
+        case "$f" in
+          "$d") touches="$touches$f"$'\n'; compte=$((compte + 1)) ;;
+        esac
+        ;;
+    esac
+    [ "$compte" -ge 5 ] && break
+  done <<< "$changes"
 done <<< "$dossiers"
 [ -n "$touches" ] || exit 0
 liste=$(printf '%s' "$touches" | sort -u | tr '\n' ' ')
