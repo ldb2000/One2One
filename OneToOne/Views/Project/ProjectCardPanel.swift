@@ -59,16 +59,11 @@ struct ProjectCardPanel: View {
         }
     }
 
-    /// Point d'un risque. Critique et élevé partagent `accent/report` : la
-    /// spec §1.2 réserve cette teinte aux « risques critiques », et un risque
-    /// élevé n'est pas un risque modéré.
-    static func color(for level: MeetingKPI.Level) -> Color {
-        switch level {
-        case .critique, .eleve: return One2OneToken.report
-        case .modere:           return One2OneToken.warn
-        case .faible:           return One2OneToken.ink4
-        }
-    }
+    /// Point d'un risque. Cette fiche avait la bonne palette avant les autres
+    /// écrans ; elle est désormais la table unique
+    /// `MeetingKPI.Level.teinte` (`Views/DesignSystem/RiskLevelTint.swift`),
+    /// que le bandeau et le rail lisent aussi.
+    static func color(for level: MeetingKPI.Level) -> Color { level.teinte }
 
     static func color(for tone: BudgetTone) -> Color {
         switch tone {

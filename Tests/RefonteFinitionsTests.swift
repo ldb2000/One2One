@@ -118,3 +118,52 @@ struct ChampDeTitreTests {
         }
     }
 }
+
+// MARK: - Teinte d'un niveau de risque (écart (c) n° 6)
+
+/// Écart (c) n° 6 : « les niveaux de risque bas sortent en bleu (`action`) et
+/// gris (`ink/4`) sur les points du bandeau, du bloc `ALERTES` et de la fiche
+/// projet. La maquette n'emploie que `report` et `warn`. »
+///
+/// Deux tables divergeaient : `MeetingKPIBand.teinte` donnait `warn` à l'élevé
+/// et le **bleu des actions** au modéré, tandis que `ProjectCardPanel` avait
+/// déjà la palette de la maquette. Il n'en reste qu'une.
+@Suite("Finitions du lot 19c — teinte d'un niveau de risque")
+struct TeinteDesRisquesTests {
+
+    @Test("critique et élevé sont report, modéré est warn, faible est neutre")
+    func palette() {
+        #expect(MeetingKPI.Level.critique.teinte == One2OneToken.report)
+        #expect(MeetingKPI.Level.eleve.teinte == One2OneToken.report)
+        #expect(MeetingKPI.Level.modere.teinte == One2OneToken.warn)
+        #expect(MeetingKPI.Level.faible.teinte == One2OneToken.ink4)
+    }
+
+    @Test("aucun niveau ne sort en bleu : accent/action est la couleur des actions")
+    func aucunBleu() {
+        for niveau in [MeetingKPI.Level.critique, .eleve, .modere, .faible] {
+            #expect(niveau.teinte != One2OneToken.action)
+        }
+    }
+
+    @Test("les quatre écrans lisent la même table")
+    func uneSeuleTable() {
+        for niveau in [MeetingKPI.Level.critique, .eleve, .modere, .faible] {
+            #expect(MeetingKPIBand.teinte(niveau) == niveau.teinte)
+            #expect(ProjectCardPanel.color(for: niveau) == niveau.teinte)
+        }
+        // Le rail et la nav Relire passent par la sévérité brute d'un
+        // `ProjectAlert` : la chaîne complète doit rendre la même couleur.
+        for severite in ["critique", "eleve", "modere", "faible", "n'importe quoi"] {
+            let niveau = MeetingKPIBuilder.level(fromSeverity: severite)
+            #expect(ActionsRailRisks.teinte(severite) == niveau.teinte)
+        }
+    }
+
+    @Test("la nav du mode Relire n'a pas sa propre table")
+    func navRelireDelegue() {
+        let source = RefonteSource.lire(
+            "OneToOne/Views/Meeting/Spaces/Review/ReviewSidebarNav.swift")
+        #expect(source.contains("teinte("), "la nav doit déléguer, pas colorier elle-même")
+    }
+}
