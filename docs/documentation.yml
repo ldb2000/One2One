@@ -26,8 +26,6 @@ symboles_externes:
   - OneToOne
   - OneToOneTests
   - SpeechVAD
-  - ReportTemplating
-  - ExternalServices
 
 documents:
   - chemin: docs/README.md

@@ -70,7 +70,7 @@ graph TD
     subgraph UI["Couche UI — Views (225 fichiers)"]
         SIDEBAR[Sidebar / Dashboard]
         MEETING["Écran de réunion : 3 espaces x 3 modes<br/>MeetingScreenModel + Views/Meeting/**"]
-        TOKENS[DesignSystem: One2OneTokens / Typography]
+        TOKENS[DesignSystem: One2OneToken / Typography]
         DETAILS[DetailsViews / Collaborator]
         SETTINGS[SettingsView]
         CHATBOT[ChatbotView]
@@ -117,7 +117,7 @@ les modèles ne connaissent ni les vues ni les services.
 **Conventions transverses :**
 
 - Beaucoup de services sont des **`enum` sans cas** servant de *namespace* de fonctions
-  statiques pures (ex. `TurnMerger`, `CollaboratorMatcher`, `ReportTemplating`,
+  statiques pures (ex. `TurnMerger`, `CollaboratorMatcher`, `TemplateVariableResolver`,
   `ProjectMatchService`). Les services à état (audio, capture, notifications, queue) sont
   des **`class` singletons `@MainActor`** exposés via `.shared`.
 - Les **commentaires et libellés UI sont en français** ; le code et les noms de symboles
@@ -378,7 +378,7 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
 - **`ReportTemplate`** (modèle) + **`BuiltInTemplates`** — 10 templates intégrés en dur
   (1:1, manager, copil, codir, atelier, restitution…), *seedés* idempotemment en base et
   préservant les éditions utilisateur.
-- **`ReportTemplating`** — résolution des variables `{{…}}` (`TemplateVariableResolver`) +
+- **`ReportTemplating.swift`** — résolution des variables `{{…}}` (`TemplateVariableResolver`) +
   construction de contexte (`HistoryContextBuilder`, `ProjectsContextBuilder`).
   Variables alimentées par `TranscriptTextBuilder` / `TranscriptHighlightsBuilder`.
 - **Rendu HTML** (`Services/Report/`) : `MarkdownToHTMLRenderer` (CommonMark+GFM + directives
@@ -427,7 +427,7 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
 - **`OneToOneQuickPickerWindow`** — `NSPanel` flottant de recherche/lancement 1:1 (hotkey).
 - **`SpotlightIndexService`** — indexation CoreSpotlight (Projects, Collaborators, entries).
 - **`ContactPhotoService`** — synchro photos depuis Contacts (par email/nom).
-- **`MickeyIntegration` / `ExternalServices` (`MickeyService`, `RemindersService`)** —
+- **`MickeyIntegration` / `ExternalServices.swift` (`MickeyService`, `RemindersService`)** —
   intégration inter-app Mickey (URL scheme + App Group) et Rappels (EventKit).
 - **`ScreenCaptureService`** (+ `OCRService` Vision, `SlideDetector`) — capture de slides
   (ScreenCaptureKit), détection auto par hash perceptuel, OCR, indexation.
@@ -601,7 +601,7 @@ personnalisable et la barre latérale droite configurable que la refonte a rempl
 3. Transcription (`TranscriptionService`) : mode `diarizeFirst` → `PyannoteDiarizer` +
    `TurnMerger` + `STTEngine`, puis `SpeakerMatcher` attribue les locuteurs ; persistance en
    `TranscriptSegment`.
-4. Génération du rapport (`AIReportService` + `ReportTemplate` + `ReportTemplating`) ; boucle
+4. Génération du rapport (`AIReportService` + `ReportTemplate` + `ReportTemplating.swift`) ; boucle
    critique-révision (`ReportRevision`) ; extraction d'actions/alertes → `ActionTask` /
    `ProjectAlert`.
 5. Rendu HTML (`ReportHTMLBuilder`) et export (`ExportService`).
@@ -763,7 +763,7 @@ bloquants**) :
   seule intention ne pouvait pas retirer : `Services/Agent/`, `MailBrowserView`,
   `AnthropicOAuthClient`, `RAGChatView`, `ManagerCRGenerator`, `MickeyIntegration`,
   `ReportThemeCSS`, `MailSuggestionService`, `ManagerActionReviewSheet`,
-  `CollaboratorEntity`/`StartOneToOneIntent`, `ExternalServices`, `SessionPillHostModifier`,
+  `CollaboratorEntity`/`StartOneToOneIntent`, `ExternalServices.swift`, `SessionPillHostModifier`,
   `CollaboratorTopBarModel`. Un lot dédié, à arbitrer.
 - **`AppSettings.rightSidebarLayoutJSON`** — colonne sans lecteur depuis le lot 19a ; elle
   partira avec la prochaine version de schéma, pas avant (une suppression de colonne casse la
