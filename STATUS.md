@@ -2,6 +2,37 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Intégration vague 7 : la pile redevient linéaire (2026-09-08)
+
+Trois branches développées en parallèle sous le sommet de recette
+`fix/refonte-recette-vagues-1-4` (PR #36), remises en pile linéaire :
+`#36 → 14 (#43) → 42 → 18 (#44)`.
+
+| Maillon | Branche | Base après intégration | `swift test` |
+| --- | --- | --- | --- |
+| 1 | `feat/refonte-lot-14-1to1-collab-prepa` (#43) | `fix/refonte-recette-vagues-1-4` | 1 923 ST + 1 054 XCT = **2 977**, vert (05:17 CEST) |
+
+### Maillon 1 — lot 14 sur la recette
+
+Rebase `--onto origin/fix/refonte-recette-vagues-1-4 origin/feat/refonte-lot-13-1to1-collab-seance`.
+**Un seul conflit : `STATUS.md`** — union, la section du lot 14 en tête de celle de
+l'intégration de la vague 6. Tout le code s'est recousu seul, et la lecture le confirme
+plutôt que le rebase :
+
+- `MeetingSpaceRouting.swift` — la recette n'y avait pas touché ; les cinq prédicats de
+  1:1 (11, 12, 13, 14) cohabitent, `initialMode` couvre les deux types de tête-à-tête.
+- `MeetingSpaceView.contenu` — l'ordre voulu est en place : Atelier en séance → 1:1 mené
+  (séance, préparation) → 1:1 subi (séance, préparation) → Relire → standard. Les
+  prédicats restent exclusifs deux à deux (`RefonteVague5IntegrationTests.routageExclusif`).
+- `RecetteScreen` — onze codes, `1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a`.
+- `OneToOneApp.ouvrirEcranDeRecette` et `MeetingCommands` — mêmes semis, chacun appelé une
+  fois : lots 5, 6, 7, 11, 12, 13 puis `seedWorkshopComplete` pour l'atelier.
+
+`Scripts/recette-run.sh` a été **corrigé au passage** : sa liste `SCREENS` et sa table
+d'en-tête ignoraient `5a` et `5b`, ajoutés aux lots 13 et 14 sans que le script suive.
+Aucun test ne lisait ce fichier — c'est la recette manuelle qui aurait buté sur
+« code inconnu ».
+
 ## Refonte de l'écran de réunion — lot 14 : 1:1 collaborateur, préparation en 2 minutes (5b) (2026-09-08)
 
 Branche `feat/refonte-lot-14-1to1-collab-prepa`, **rebasée sur
@@ -177,9 +208,9 @@ après le rebase sur le lot 13 rebasé, et c'est le **seul** échec. Non corrig�
 
 ### Prochaine action
 
-Vague 6 (lots 8, 13, 15, 17) : à l'intégration, rebaser cette branche sur le lot 13 rebasé — la
-règle est dans l'en-tête de la PR — puis fusionner dans l'ordre de la pile. La recette visuelle de
-`5a` et `5b` se fait dans la passe dédiée.
+Fait à l'intégration de la vague 7 (section en tête) : la branche est rebasée sur le sommet de
+recette `fix/refonte-recette-vagues-1-4`, qui contient déjà le lot 13. Reste à fusionner dans
+l'ordre de la pile. La recette visuelle de `5a` et `5b` se fait dans la passe dédiée.
 
 ## Intégration vague 6 : la pile redevient linéaire (2026-09-08)
 
