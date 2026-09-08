@@ -1,6 +1,107 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-06 CEST
+Dernière mise à jour : 2026-09-07 CEST
+
+## Refonte de l'écran de réunion — lot 0B : schéma V3, tête de lecture, confidentialité (2026-09-07)
+
+Branche `feat/refonte-lot-0b-socle-donnees`, sur `master` (`a3c44f2`). Premier lot de données du
+programme `docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md` (§5 « Lot 0B ») ;
+plan du lot dans `docs/superpowers/plans/2026-09-07-refonte-lot-0b-socle-donnees.md`. Le lot 0A
+tourne en parallèle sur le socle visuel — `MeetingView.swift` n'est touché ici qu'en trois
+endroits (le lecteur audio, `recordingStartedAt`, l'appel d'import des notes).
+
+**État : livré, `swift test` complet vert, PR ouverte, non mergée.**
+
+### Ce qui est en place
+
+- **`Models/SchemaVersions.swift`** : `SchemaV3` (3.0.0), `CurrentSchema` pointe dessus,
+  `schemas` à trois versions. `stages` reste **vide** : V2→V3 n'ajoute que des tables et des
+  colonnes à valeur par défaut, donc lightweight migration automatique — même convention que
+  V1→V2, raisonnement documenté dans le plan de migration.
+- **Neuf `@Model` nouveaux** (tables vides, coût nul) : `MeetingNote` (D1 — notes horodatées
+  adressables : `t`, `text`, `kindRaw` parmi note/décision/risque/feedback/promesse/demande/preuve,
+  `visibilityRaw`, `authorSideRaw`, `sourceRef`, `orderIndex`), `Board` (D5/D6 — scène et vignette
+  **sur disque**, la base ne garde que les chemins), `ProjectMilestone` et `ProjectContact`
+  (fiche projet ; les risques restent les `ProjectAlert` existants), et le domaine 1:1 (D3) :
+  `OneOnOneThread` + `Commitment`, `OneOnOneAgendaItem`, `MoodEntry`, `OneOnOneObjective` en
+  cascade depuis le fil. Tous avec `stableID: UUID?` + `ensuredStableID`, énums en `…Raw`.
+- **Colonnes ajoutées** : `ActionTask` (`priorityRaw`/`statusRaw` en **miroirs requêtables** de
+  `isUrgent`/`isCompleted` qui restent la source de vérité, `dropped` n'existant que dans la
+  colonne ; `effortMinutes`, trois colonnes de source, `deferralCount`, `carriedFromMeeting`),
+  `MeetingAttachment` (`scopeRaw`, `mimeType`, `byteCount`, `addedByName`, `pinnedAtT`,
+  `citationCount`), `SlideCapture` (`t` sur l'axe **audio**, `sourceRaw`, `triggerRaw`),
+  `Project` (`scopeText`, `tagsJSON` + façade `tags`, relations `milestones`/`contacts`),
+  `Meeting` (`recordingStartedAt`, `notesMigrated`, relations `timedNotes`/`boards`).
+- **`MeetingKind.workshop`** (« Atelier »), mappé vers le gabarit `.workshop` dans
+  `compatibleTemplates` et `AIReportService.defaultTemplate`. Les six valeurs brutes historiques
+  sont inchangées (test de garde).
+- **`Models/SourceRef.swift`** : `SourceRef {kind, stableID, t}` + protocole `SourceRefCarrying`
+  portant l'accesseur `sourceRef` au-dessus de trois colonnes plates (requêtables par
+  `#Predicate`, contrairement à un JSON), adopté par `ActionTask` et `MeetingNote`.
+- **`Services/Live/MeetingPlayhead.swift`** : `@Observable @MainActor`, une instance par réunion,
+  propriétaire de l'**unique** `AudioPlayerService` (il était instancié deux fois, sans position
+  commune). `t` depuis `recordingStartedAt` en séance (horloge injectable) ou depuis le lecteur en
+  relecture, `duration`, `isPlaying`, `follow`, `markers` triés, `seek` borné,
+  `marker(at:tolerance:)`, `mmss`. `MeetingView` et `AudioWaveformEditor`
+  (via `AudioEditorSheet`) le consomment ; comportement visible inchangé.
+- **`Services/ConfidentialityFilter.swift`** : `Audience`, `Visibility`, protocole `Confidential`
+  (adopté par `MeetingNote`, `Commitment`, `OneOnOneAgendaItem`), `isExportable(_:for:)` en table
+  exhaustive sans `default`, `isIndexable` et `audience(for kind:)`.
+- **`Services/MeetingNoteStore.swift`** : fonctions pures (`sorted`, `filtered`, `grouped`,
+  `exportable`, `indexable`, `markdown`, `contextBlock`, `defaultVisibility`) et
+  `importLiveNotesIfNeeded` — reprise unique de `liveNotes` en une note `t = 0` (drapeau
+  `notesMigrated`, `liveNotes` **conservé**), branchée au `onAppear` de `MeetingView`.
+- **Les cinq lecteurs de texte filtrés** : prompt de rapport
+  (`AIReportService.assembleTemplatePrompt`, couture extraite pour être vérifiable sans réseau),
+  HTML (`ReportHTMLBuilder`, bloc « Notes de séance »), export markdown (`ExportService`),
+  index RAG (`RAGIndexer.sourceText`, couture pure sans embedding — filtrage **à l'écriture** de
+  l'index), contexte des deux chats (`MeetingChatView.makePrompt`,
+  `ChatbotView.meetingNotesContext`). `Meeting.textualContent` déclare les notes horodatées et
+  `NoteFactory.isDiscardableEmptyNote` les retient.
+
+### Tests
+
+`swift build` propre (mêmes avertissements préexistants). `swift test` complet :
+**1 037 XCTest (1 ignoré, 0 échec) + 664 Swift Testing dans 102 suites, 0 échec** — soit
++46 tests et +7 suites par rapport à la référence du 2026-09-06 (618 / 95). Nouvelles suites :
+`SchemaV3MigrationTests` (6), `MeetingPlayheadTests` (9), `MeetingNoteStoreTests` (12),
+`ConfidentialityFilterTests` (6) + `SourceRefTests` (3) + `NotePriveeHorsDesCinqFluxTests` (8),
+`MeetingKindWorkshopTests` (2).
+
+**Migration vérifiée sur une copie du store de production** (32 Mo, hors suite de tests, script
+temporaire supprimé) : ouverture avec `CurrentSchema` + `OneToOneMigrationPlan` sans erreur, les
+neuf tables `ZMEETINGNOTE`/`ZBOARD`/`ZCOMMITMENT`/`ZONEONONE*`/`ZMOODENTRY`/`ZPROJECTMILESTONE`/
+`ZPROJECTCONTACT` créées, comptages **identiques** avant/après (189 réunions, 420 actions,
+63 projets, 34 pièces jointes, 372 collaborateurs, 3 793 chunks) et tous les nouveaux champs à
+leur défaut.
+
+### Écarts assumés
+
+1. **Registre du playhead à références fortes, borné LRU à 4** au lieu du cache faible prévu au
+   plan : un cache faible se viderait aussitôt, `MeetingView` étant une `struct` qui ne peut
+   retenir l'instance sans initialiseur explicite — et ce fichier est réécrit en parallèle par le
+   lot 0A. L'éviction met le lecteur en pause. À revoir au lot 1, quand `MeetingScreenModel`
+   pourra porter la tête de lecture.
+2. **Test de migration sans snapshot *nested* de V2** : les types Swift sont partagés entre
+   `SchemaV1/V2/V3` (aucun snapshot nested n'a jamais été écrit dans ce dépôt, cf. l'en-tête de
+   `SchemaVersions.swift`), donc écrire le store avec `SchemaV2` crée déjà les colonnes de V3. La
+   suite vérifie ce qui reste vérifiable (réouverture sans perte, défauts sur des lignes créées
+   avant les champs) ; la preuve réelle est la vérification sur la copie du store de production
+   ci-dessus.
+3. **`BackupService` n'exporte pas les neuf nouvelles tables** : ses DTO sont manuels et le lot
+   aurait dérivé. Sans conséquence aujourd'hui (tables vides) ; à traiter au lot où elles se
+   remplissent (lot 9 pour la fiche projet, lot 10 pour le 1:1, lot 16 pour les planches), en
+   même temps que `StorageStatsService`/`OrphanCleanupService` pour les dossiers `boards/`.
+4. **Aucune vue ne lit encore les nouvelles données** : c'est le propos du lot (socle). Rien n'est
+   donc visible à l'écran, aucune recette visuelle n'a été faite.
+5. `MoodEntry` et `OneOnOneObjective` bornent leur valeur à la construction **et** exposent
+   `clampedValue`/`clampedProgress` : la colonne brute reste lisible pour une restauration.
+
+### Prochaine action
+
+**Lot 1** — chantier 1 socle : barre du haut sur une ligne, trois espaces, sélecteur de mode,
+bandeau KPI (`docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md` §5, lot 1). Il
+dépend des lots 0A et 0B, tous deux livrés. Fusionner d'abord les deux PR de socle.
 
 ## Chatbot — persistance de l'historique des conversations (2026-09-06)
 

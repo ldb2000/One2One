@@ -40,6 +40,13 @@ enum ReportHTMLBuilder {
             meeting: meeting
         )
 
+        // Notes prises en séance, **filtrées par l'audience du type de réunion**
+        // (spec §3.2, §8). Une ligne privée n'atteint jamais le HTML — d'où
+        // l'aperçu, le PDF et le mail. La règle vient de
+        // `ConfidentialityFilter`, jamais réécrite ici.
+        let notesHTML = renderNotesBlock(meeting: meeting)
+        if !notesHTML.isEmpty { assembled += notesHTML }
+
         if includeTranscript {
             let tx = meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             if !tx.isEmpty {
@@ -410,6 +417,22 @@ enum ReportHTMLBuilder {
 
     /// Rend le bloc "Relevé de décisions" : un `<h2>` suivi d'une table
     /// numérotée (D1, D2, …) une ligne par décision.
+    /// Bloc « Notes de séance » : une ligne par note exportable, avec son
+    /// timecode. Chaîne vide quand rien ne sort — un titre suivi d'une liste
+    /// vide donnerait à croire que la séance n'a rien produit.
+    private static func renderNotesBlock(meeting: Meeting) -> String {
+        let audience = ConfidentialityFilter.audience(for: meeting.kind)
+        let notes = MeetingNoteStore.exportable(meeting.timedNotes, for: audience)
+        guard !notes.isEmpty else { return "" }
+        var html = "<h2>Notes de séance</h2>\n<ul>\n"
+        for note in notes {
+            let nature = note.kind == .note ? "" : " <em>(\(escape(note.kind.label)))</em>"
+            html += "<li><code>\(MeetingPlayhead.mmss(note.t))</code>\(nature) \(escape(note.text))</li>\n"
+        }
+        html += "</ul>\n"
+        return html
+    }
+
     private static func renderDecisionsBlock(_ decisions: [String]) -> String {
         var rows = ""
         for (idx, d) in decisions.enumerated() {

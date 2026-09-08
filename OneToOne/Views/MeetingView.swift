@@ -80,7 +80,13 @@ struct MeetingView: View {
     @StateObject private var recorder = AudioRecorderService.shared
     @ObservedObject private var liveService = LiveTranscriptionService.shared
     @StateObject private var stt = TranscriptionService.shared
-    @StateObject private var player = AudioPlayerService()
+    /// Tête de lecture **partagée** de la réunion (lot 0B) : c'est elle qui
+    /// possède l'unique `AudioPlayerService`, désormais commun à la barre du
+    /// haut, à la barre d'enregistrement et à la frise de l'éditeur audio.
+    /// Résolue par le registre à chaque lecture : il retient l'instance, la
+    /// vue n'a rien à retenir.
+    private var playhead: MeetingPlayhead { MeetingPlayhead.for(meeting: meeting) }
+    private var player: AudioPlayerService { playhead.player }
     @StateObject private var captureService = ScreenCaptureService()
 
     // MARK: - Local state
@@ -395,6 +401,10 @@ struct MeetingView: View {
         }
         .onAppear {
             MeetingScreenRegistry.shared.screenAppeared(meeting.persistentModelID)
+            // Reprise unique des notes markdown en notes horodatées (lot 0B).
+            // Idempotent : le drapeau `notesMigrated` fait de ce `onAppear`,
+            // rejoué à chaque remontage, un no-op après la première fois.
+            MeetingNoteStore.importLiveNotesIfNeeded(meeting, in: context)
             applyActionDraftDefaultsIfNeeded()
             consumeTeamsRequestIfAny()
             guard autoStartRecording, !didAutoStart, !recorder.isRecording else { return }
@@ -616,6 +626,7 @@ struct MeetingView: View {
                 return
             }
         }
+        playhead.beginPlayback()
         player.toggle()
     }
 
@@ -1024,7 +1035,7 @@ struct MeetingView: View {
                 return !(meeting.participants.first?.standingPrepNotes.isEmpty ?? true)
             case .project:
                 return !(meeting.project?.standingPrepNotes.isEmpty ?? true)
-            case .global, .work, .note:
+            case .global, .work, .note, .workshop:
                 return false
             }
         }()
@@ -1559,6 +1570,15 @@ struct MeetingView: View {
                 // et dans l'onglet « Transcription » — pas de bascule d'onglet.
             }
             meeting.wavFilePath = url.path
+            // Origine de l'axe temps partagé (notes horodatées, captures,
+            // frise). Posée une seule fois : un enregistrement complémentaire
+            // ne doit pas décaler les notes déjà prises.
+            if meeting.recordingStartedAt == nil {
+                meeting.recordingStartedAt = Date()
+            }
+            if let startedAt = meeting.recordingStartedAt {
+                playhead.beginRecording(startedAt: startedAt)
+            }
             saveContext()
         } catch {
             recorder.lastError = error.localizedDescription
@@ -2107,7 +2127,7 @@ struct MeetingView: View {
         case .manager:
             scope.collaboratorPID = meeting.participants.first?.persistentModelID
             guard scope.collaboratorPID != nil else { return "" }
-        case .global, .work, .note:
+        case .global, .work, .note, .workshop:
             return ""  // pas d'enrichissement historique hors scope clair
         }
 
@@ -2493,7 +2513,8 @@ struct MeetingView: View {
         }
         let wasPlaying = player.isPlaying
         if wasPlaying { player.pause() }
-        player.seek(to: seg.startSeconds)
+        playhead.beginPlayback()
+        playhead.seek(to: seg.startSeconds)
         player.play()
         print("[MeetingView] play segment from \(seg.startSeconds)s (was playing: \(wasPlaying))")
     }

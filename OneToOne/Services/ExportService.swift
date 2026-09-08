@@ -76,6 +76,16 @@ class ExportService {
             }
             md += "\n"
         }
+        // Notes horodatées, **filtrées par l'audience du type de réunion**
+        // (spec §3.2, §8) : une ligne privée ne quitte jamais l'app par un
+        // export. La règle vient de `ConfidentialityFilter`.
+        let notesBlock = MeetingNoteStore.contextBlock(
+            for: meeting,
+            audience: ConfidentialityFilter.audience(for: meeting.kind)
+        )
+        if !notesBlock.isEmpty {
+            md += "## Notes de séance\n\n\(notesBlock)\n\n"
+        }
         if !meeting.liveNotes.isEmpty {
             md += "## Notes live\n\n\(meeting.liveNotes)\n"
         }

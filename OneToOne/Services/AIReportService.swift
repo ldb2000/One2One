@@ -100,6 +100,32 @@ struct AIReportService {
         onMarkdownReady: (@MainActor (String) async throws -> Void)? = nil
     ) async throws -> MeetingReportData {
         let template = meeting.reportTemplate ?? defaultTemplate(for: meeting.kind, in: context)
+        let finalPrompt = assembleTemplatePrompt(meeting: meeting,
+                                                 in: context,
+                                                 template: template,
+                                                 additionalContext: additionalContext)
+
+        let markdown = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress, onActivity: onActivity)
+
+        return try await completeReport(markdown: markdown, onMarkdownReady: onMarkdownReady) {
+            await extractStructured(markdown: markdown, meeting: meeting, settings: settings, onActivity: onActivity)
+        }
+    }
+
+    /// Assemble le prompt de génération d'une réunion : gabarit résolu,
+    /// historique, contextes projet/équipe, passages marqués, **notes
+    /// horodatées filtrées par l'audience du gabarit**, documents joints et
+    /// schéma de sections.
+    ///
+    /// Extrait de `generate(meeting:…)` pour être vérifiable sans réseau :
+    /// c'est ici que se joue la confidentialité du rapport, et
+    /// `Tests/ConfidentialityFilterTests.swift` l'appelle directement.
+    @MainActor
+    static func assembleTemplatePrompt(meeting: Meeting,
+                                       in context: ModelContext,
+                                       template: ReportTemplate? = nil,
+                                       additionalContext: String = "") -> String {
+        let template = template ?? meeting.reportTemplate ?? defaultTemplate(for: meeting.kind, in: context)
         let history = template.map { HistoryContextBuilder.build(for: meeting, template: $0, in: context) } ?? ""
         let preamble = template?.preamble ?? "Tu es l'assistant de synthèse de OneToOne."
         let body = template?.promptBody ?? ""
@@ -156,6 +182,18 @@ struct AIReportService {
             }
         }
 
+        // Notes horodatées de la séance, **filtrées par l'audience du type de
+        // réunion** : une ligne privée n'entre jamais dans le prompt (spec
+        // §3.2 et §8, critère chantier 2 n° 1). La règle est celle de
+        // `ConfidentialityFilter`, jamais réécrite ici.
+        let notesBlock = MeetingNoteStore.contextBlock(
+            for: meeting,
+            audience: ConfidentialityFilter.audience(for: meeting.kind)
+        )
+        if !notesBlock.isEmpty {
+            historyAppendix += "\n\nNotes prises en séance (horodatées) :\n\(notesBlock)\n"
+        }
+
         // 3. Documents joints (extraction script).
         let attachmentsBlock = buildAttachmentsBlock(
             for: meeting,
@@ -183,12 +221,8 @@ struct AIReportService {
         uniquement le markdown du rapport.
         """
 
-        reportLog.info("generate(meeting): template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count) attachmentsChars=\(attachmentsBlock.count)")
-        let markdown = try await AIClient.send(prompt: finalPrompt, settings: settings, onProgress: onProgress, onActivity: onActivity)
-
-        return try await completeReport(markdown: markdown, onMarkdownReady: onMarkdownReady) {
-            await extractStructured(markdown: markdown, meeting: meeting, settings: settings, onActivity: onActivity)
-        }
+        reportLog.info("assembleTemplatePrompt: template=\(template?.name ?? "default", privacy: .public) historyChars=\(history.count) notesChars=\(notesBlock.count) attachmentsChars=\(attachmentsBlock.count)")
+        return finalPrompt
     }
 
     /// Publie le markdown terminé avant toute extraction. Une annulation de la
@@ -428,6 +462,7 @@ struct AIReportService {
         case .project:   templateKind = .copil
         case .work:      templateKind = .general
         case .note:      templateKind = .general
+        case .workshop:  templateKind = .workshop
         }
         let raw = templateKind.rawValue
         let descriptor = FetchDescriptor<ReportTemplate>(
