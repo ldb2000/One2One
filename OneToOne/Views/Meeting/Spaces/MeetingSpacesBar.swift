@@ -125,6 +125,8 @@ struct MeetingSpacesBar: View {
                     Text(libelle.titre)
                         .font(.plexSans(12, actif ? .semibold : .regular))
                         .foregroundStyle(actif ? One2OneToken.ink1 : One2OneToken.ink3)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if !libelle.complement.isEmpty {
                         Text(libelle.complement)
                             .font(.plexSans(10.5))

@@ -57,6 +57,8 @@ struct CommitmentsRail: View {
                         Text(groupe.title)
                             .font(.plexSans(12, .semibold))
                             .foregroundStyle(One2OneToken.ink1)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         Spacer(minLength: 0)
                         Button {
                             coteDuBrouillon = groupe.side

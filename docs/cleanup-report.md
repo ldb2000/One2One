@@ -122,3 +122,40 @@ manuellement, par ordre de valeur :
 *Méthode : cartographie (36 lots) → vérification adversariale du code mort (30 lots, grep
 repo-wide) → application (39 lots) → build + tests. Toute suppression validée par compilation ;
 toute simplification validée par les 69 tests.*
+
+---
+
+## 8. Refonte de l'écran de réunion — retraits et dette (2026-09-08)
+
+Vingt lots, du 0A au 19c. Ce que la refonte a **retiré**, et ce qu'elle laisse.
+
+### Supprimé au lot 19a (décision D8 du plan directeur)
+
+`OverviewDashboard`, `PanelLayoutEntry`, `DashboardGridLayout`, `MeetingTabsUnderline`,
+`CollaboratorDetailView` — le dashboard personnalisable et la barre latérale droite
+configurable de l'écran de réunion. La spec impose « trois espaces, pas sept onglets » ; les
+quatre cartes du bandeau d'indicateurs reprennent l'information des panneaux
+Présence / Actions / Résumé.
+
+### Retiré au lot 19c
+
+| Objet | Pourquoi |
+|---|---|
+| `MeetingScreenModel.newTaskPomodoros` | sans lecteur depuis que le rail de 330 px a remplacé l'ancien panneau d'action (lot 3) ; son remplaçant est `newTaskEffortMinutes`, le champ du modèle cible |
+| le `⌘⇧S` de `CapturesStrip` | troisième déclaration de la même combinaison ; le menu « Réunion » et le raccourci système `CaptureHotkeys` la portent déjà, et le second l'emporte de toute façon |
+| les deux tables de teinte de risque | `MeetingKPIBand.teinte` et `ProjectCardPanel.color(for:)` divergeaient ; il n'en reste qu'une, `MeetingKPI.Level.teinte` |
+
+### Dette restante, mesurée
+
+| Objet | Volume | Pourquoi elle reste |
+|---|---|---|
+| `Services/Agent/`, `MailBrowserView`, `AnthropicOAuthClient`, `RAGChatView`, `ManagerCRGenerator`, `MickeyIntegration`, `ReportThemeCSS`, `MailSuggestionService`, `ManagerActionReviewSheet`, `CollaboratorEntity`/`StartOneToOneIntent`, `ExternalServices`, `SessionPillHost`, `CollaboratorTopBarModel` | ~3 000 l., 22 fichiers | hors intention de la refonte (« une PR = une intention ») : un lot dédié, à arbitrer |
+| `AppSettings.rightSidebarLayoutJSON` | 1 colonne | sans lecteur depuis le lot 19a, mais supprimer une colonne casse la lightweight migration : elle partira avec la prochaine version de schéma |
+| `ActionsViewMode.kanban` / `.sticky` | 2 cas | encore servis par `ActionsListView`, hors écran de réunion |
+| `MeetingSlidesPopover` | 1 vue | sans appelant depuis le lot 6 |
+| `CaptureSource.region` | 1 cas | dans le modèle, jamais écrit (lot 7 : « Zone à la souris » n'est pas sélectionnable) |
+| `EngagementLedger` vs `Commitment` | 2 mécanismes | double vérité assumée : les nouveaux fils n'écrivent que la table, l'ancien reste **lu** en Historique — convertir compterait deux fois |
+| `ReportOptionalBlocks.escape` | 1 fonction | duplique `ReportHTMLBuilder.escape` |
+| `Views/Shared/ProjectStatusPalette` | 1 fichier | mal rangé (ce sont des jetons, ils iraient dans `DesignSystem/`) ; le déplacer serait une seconde intention |
+| trois doublons de raccourci | 3 lignes | `⌘K`, `⌘M`, `⌃⌘F` sont redéclarés dans `Views/Meeting/Session/**`, chacun avec son commentaire justificatif ; inscrits comme exceptions nommées dans `MeetingShortcutsTests`, donc toute occurrence **nouvelle** casse le test |
+

@@ -100,6 +100,63 @@ React/Slate, sous AGPL-3.0) — seules la conception et les bibliothèques MIT q
 Le module vit dans `OneToOne/Markdown/` : TextKit 1, **le markdown reste la source de vérité**
 (pas de modèle de blocs). Voir `STATUS.md` pour l'état et les défauts connus.
 
+## Écran de réunion (refonte 2026-09)
+
+Spec `docs/superpowers/specs/refonte-2026-09/specs-one2one.md` (branche
+`docs/refonte-reunion-programme`, jamais fusionnée dans la pile), plan directeur
+`docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md` (décisions **D0–D11** au §4),
+bilan `docs/adr/2026-09-08-refonte-ecran-reunion-bilan.md`, comptes rendus de session
+`docs/superpowers/specs/refonte-2026-09/journal-des-lots.md`.
+
+**Structure.** Trois espaces (`Réunion`, `Rapport`, `Ressources`) × trois modes (`Préparer`,
+`En séance`, `Relire`), routés par la fonction pure `Services/Meeting/MeetingSpaceRouting.swift`.
+Les vues vivent sous `Views/Meeting/` : `Spaces/**` (bandeau d'indicateurs, notes ↔
+transcription, rail d'actions de 330 px, poste de pilotage), `Session/**` (séance plein écran),
+`Resources/**` (tiroir de 396 px), `Capture/**`, `OneOnOne/**` (deux rôles), `Workshop/**`
+(planches Excalidraw derrière `workshopEnabled`), plus `Views/Project/ProjectCardPanel.swift`
+(fiche de 430 px). Voir `docs/architecture.md` §8.
+
+**Règles.**
+- **Rien ne s'ajoute dans `MeetingView.swift`** — on en retire. C'est un routeur.
+- Aucune couleur hors `One2OneToken`, aucune fonte hors `Font.plexSans` / `.plexMono` ou leur
+  pendant `NSFont` — un `NSViewRepresentable` ignore le `.font()` de l'environnement SwiftUI
+  (c'est ce qui a fait sortir le titre de réunion en fonte système pendant quatre lots).
+- L'état d'écran est dans `MeetingScreenModel` (`@Observable`), jamais en `@Binding`
+  traversant plus d'un niveau.
+- Toute règle métier est une **fonction pure testée avant sa vue** : `MeetingSpaceRouting`,
+  `MeetingKPIBuilder`, `MeetingKPI.Level.teinte`, `ReminderRules`, `CommitmentsRailModel`…
+- Les raccourcis de réunion sont déclarés **une fois**, dans `Views/Menus/MeetingShortcut.swift` ;
+  `Tests/MeetingShortcutsTests.swift` refuse un second déclarant non nommé.
+- Les semis de recette sont des extensions de `RefonteDemoSeed`, **idempotentes** ; la table
+  des écrans photographiables est `Services/Debug/RecetteScreen.swift`.
+
+**Protocole de recette visuelle, et ses cinq pièges.**
+
+```bash
+swift build -c release
+Scripts/recette-app.sh /tmp/recette         # refuse un binaire périmé (--force pour outrepasser)
+Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --screen 1a
+```
+
+1. **Isolation du store** : `HOME` **ne suffit pas** — `NSHomeDirectory()` l'ignore pour une
+   application en bundle. C'est `CFFIXED_USER_HOME` qui compte. `recette-run.sh` pose les deux
+   et **tue le processus** si le store n'apparaît pas dans le home jetable ; un semis dans le
+   store de production s'est déjà produit (2026-09-07).
+2. **Ciblage par pid, jamais par nom** : redimensionner avec
+   `AXUIElementCreateApplication(<mon pid>)`, capturer avec `screencapture -l <numéro de
+   fenêtre>`. **Jamais AppleScript** — `first process whose unix id is …` résout mal le
+   processus quand deux instances partagent le `CFBundleIdentifier`, et une fenêtre de
+   production a été redimensionnée ainsi. Le bundle de recette porte pour cela un
+   `CFBundleIdentifier` suffixé `.recette`.
+3. **Verrou d'écran** : `ioreg -n Root -d1 -r | grep -q 'CGSSessionScreenIsLocked"=Yes'`
+   — **sans espaces** autour du `=`. Verrouillé, toute capture est noire et le
+   redimensionnement échoue en silence ; le script refuse.
+4. **Teams** : le script refuse si une fenêtre `MSTeams` ou `zoom.us` porte un titre de
+   réunion ou d'appel (`Scripts/window-titles.swift`, `CGWindowListCopyWindowInfo`).
+5. **Binaire périmé** : l'erreur la plus coûteuse de la refonte — deux heures d'observations
+   fausses sur un bundle construit depuis un binaire d'il y a trois lots. Le script compare
+   le `md5` copié et l'horodatage des sources.
+
 ## Règles de travail
 
 1. Lire `STATUS.md` avant de commencer.

@@ -108,11 +108,13 @@ final class MeetingScreenModel {
     var newTaskAudience: ActionAudience = .moi
     var newTaskUrgent = false
     var newTaskImportant = false
-    var newTaskPomodoros = 0
     /// Charge par défaut du composeur du rail, en minutes (`30min` de la
-    /// capture 1a). Distincte de `newTaskPomodoros`, que l'ancien panneau
-    /// continue d'employer : `effortMinutes` est le champ du modèle cible
-    /// (programme §3), les pomodoros restent une commodité de saisie.
+    /// capture 1a) : `ActionTask.effortMinutes`, le champ du modèle cible
+    /// (programme §3).
+    ///
+    /// Le `newTaskPomodoros` qui vivait à côté est parti au lot 19c : l'ancien
+    /// panneau d'action qui l'écrivait a disparu avec le rail de 330 px du
+    /// lot 3, et plus aucune vue ne le lisait.
     var newTaskEffortMinutes: Int? = 30
     /// Le défaut malin du destinataire n'est appliqué qu'une fois par écran
     /// (cf. `MeetingView.applyActionDraftDefaultsIfNeeded`).
@@ -275,7 +277,6 @@ final class MeetingScreenModel {
         showNewTaskDueDate = false
         newTaskUrgent = false
         newTaskImportant = false
-        newTaskPomodoros = 0
     }
 
     // MARK: - Lot 2 : notes ↔ transcription

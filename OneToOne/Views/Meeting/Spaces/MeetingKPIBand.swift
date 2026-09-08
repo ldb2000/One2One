@@ -141,17 +141,11 @@ struct MeetingKPIBand: View {
         }
     }
 
-    /// Teinte d'un point de risque. Aucune couleur hors `One2OneToken` :
-    /// `report` pour le critique, `warn` pour l'élevé, `action` pour le
-    /// modéré, `ink/4` pour le faible.
-    static func teinte(_ niveau: MeetingKPI.Level) -> Color {
-        switch niveau {
-        case .critique: return One2OneToken.report
-        case .eleve:    return One2OneToken.warn
-        case .modere:   return One2OneToken.action
-        case .faible:   return One2OneToken.ink4
-        }
-    }
+    /// Teinte d'un point de risque. Table unique :
+    /// `MeetingKPI.Level.teinte` (`Views/DesignSystem/RiskLevelTint.swift`).
+    /// Celle qui vivait ici donnait `warn` à l'élevé et le **bleu des
+    /// actions** au modéré — écart (c) n° 6 de la recette des vagues 1–4.
+    static func teinte(_ niveau: MeetingKPI.Level) -> Color { niveau.teinte }
 
     // MARK: - Fabrique de carte
 

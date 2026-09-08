@@ -16,13 +16,37 @@
 #
 # Usage
 #   swift build -c release          # ou debug, cf. --config
-#   Scripts/recette-app.sh [dossier-de-sortie] [--config debug|release]
+#   Scripts/recette-app.sh [dossier-de-sortie] [--config debug|release] [--force]
 #
 #   dossier-de-sortie   défaut : "${TMPDIR}/onetoone-recette"
 #   --config            défaut : release
+#   --force             empaquette même si le binaire est plus vieux que les
+#                       sources (cf. « Fraîcheur » ci-dessous)
 #
 # Sortie
 #   <dossier-de-sortie>/OneToOne.app, à lancer avec Scripts/recette-run.sh.
+#   Son `CFBundleIdentifier` porte le suffixe `.recette` et son `CFBundleName`
+#   est « OneToOne (recette) » : aucun outil système ne peut alors le confondre
+#   avec l'application de l'utilisateur — c'est ainsi qu'une fenêtre de
+#   production a été redimensionnée pendant la recette des vagues 1-4.
+#
+# Fraîcheur du binaire (écart (c) n° 12 de cette recette)
+#   Le premier bundle de la session du 7 septembre 2026 venait d'un
+#   `.build/release/OneToOne` antérieur au build en cours : il lui manquait
+#   trois lots, ce qui a produit deux heures d'observations fausses avant que
+#   la comparaison des chaînes du binaire ne le révèle. Le script refuse
+#   maintenant, affiche le `md5` de ce qu'il copie, et vérifie que la copie
+#   correspond à la source.
+#
+# Vérification (manuelle, une minute — aucun test SwiftPM n'exécute un script)
+#   1. swift build -c release && Scripts/recette-app.sh /tmp/rec
+#      → « Binaire : md5 … », « Identité de recette : com.onetoone.app.recette »
+#   2. touch OneToOne/OneToOneApp.swift && Scripts/recette-app.sh /tmp/rec
+#      → « ✗ Binaire périmé : 1 fichier(s) source plus récent(s) », code 1
+#   3. Scripts/recette-app.sh /tmp/rec --force
+#      → « ⚠️  Binaire périmé … empaquetage forcé », code 0
+#   4. /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+#        /tmp/rec/OneToOne.app/Contents/Info.plist   → …app.recette
 #
 # Cf. Scripts/bump-and-build.sh (dont la partie empaquetage est reprise) et
 # CLAUDE.md § « MLX / Metal — default.metallib requis ».
@@ -32,6 +56,7 @@ set -e
 APP_NAME="OneToOne"
 CONFIGURATION="release"
 OUT_DIR=""
+FORCE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -43,8 +68,12 @@ while [ $# -gt 0 ]; do
             CONFIGURATION="${1#*=}"
             shift
             ;;
+        --force)
+            FORCE=1
+            shift
+            ;;
         -h|--help)
-            sed -n '2,30p' "$0"
+            sed -n '2,58p' "$0"
             exit 0
             ;;
         *)
@@ -83,16 +112,82 @@ if [ ! -f "${INFO_PLIST}" ]; then
     exit 1
 fi
 
+# ----------------------------------------------------------------------
+# Fraîcheur du binaire — écart (c) n° 12 de la recette des vagues 1-4. Un
+# bundle empaqueté depuis un binaire antérieur au build en cours ne se voit
+# pas : l'application démarre, les écrans s'affichent, et ce sont ceux d'il y
+# a trois lots. Deux heures d'observations ont été perdues ainsi.
+# ----------------------------------------------------------------------
+PLUS_RECENT="$(find OneToOne -name '*.swift' -newer "${BINARY}" 2>/dev/null | head -1)"
+if [ -n "${PLUS_RECENT}" ]; then
+    NB="$(find OneToOne -name '*.swift' -newer "${BINARY}" 2>/dev/null | wc -l | tr -d ' ')"
+    if [ -n "${FORCE}" ]; then
+        echo "⚠️  Binaire périmé : ${NB} source(s) plus récente(s), dont"
+        echo "    ${PLUS_RECENT}"
+        echo "    — empaquetage forcé par --force."
+    else
+        echo "✗ Binaire périmé : ${NB} fichier(s) source plus récent(s) que"
+        echo "  ${BINARY}"
+        echo "  Le premier : ${PLUS_RECENT}"
+        echo ""
+        echo "  Reconstruis d'abord :"
+        echo "      swift build$( [ "${CONFIGURATION}" = release ] && echo ' -c release' )"
+        echo "  ou passe --force si tu empaquettes sciemment un binaire ancien."
+        exit 1
+    fi
+fi
+
 echo "→ Empaquetage de recette (${CONFIGURATION}) dans ${APP}"
 mkdir -p "${OUT_DIR}"
 rm -rf "${APP}"
 mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 
 cp "${BINARY}" "${APP}/Contents/MacOS/${APP_NAME}"
+
+# Ce qu'on vient réellement de copier, dit à voix haute — et vérifié : une
+# copie tronquée par un disque plein donnerait un bundle qui démarre mal sans
+# qu'on sache pourquoi.
+MD5_SOURCE="$(md5 -q "${BINARY}")"
+MD5_BUNDLE="$(md5 -q "${APP}/Contents/MacOS/${APP_NAME}")"
+if [ "${MD5_SOURCE}" != "${MD5_BUNDLE}" ]; then
+    echo "✗ La copie du binaire ne correspond pas à la source :"
+    echo "  source ${MD5_SOURCE}"
+    echo "  bundle ${MD5_BUNDLE}"
+    exit 1
+fi
+echo "→ Binaire : md5 ${MD5_SOURCE}"
+echo "            $(du -h "${BINARY}" | cut -f1), modifié le $(date -r "${BINARY}" '+%Y-%m-%d %H:%M:%S')"
+
 # `Info.plist` copié **tel quel** : aucun bump de CFBundleVersion, c'est la
-# différence avec bump-and-build.sh.
+# différence avec bump-and-build.sh. Deux clés sont ensuite réécrites, et
+# elles seules.
 cp "${INFO_PLIST}" "${APP}/Contents/Info.plist"
 printf "APPL????" > "${APP}/Contents/PkgInfo"
+
+# ----------------------------------------------------------------------
+# Identité distincte du bundle de recette — écart (c) n° 7. Deux instances
+# qui partagent le même `CFBundleIdentifier` se confondent dans les outils
+# système : le 7 septembre 2026, une fenêtre de production a été
+# redimensionnée à la place de celle de la recette. Un suffixe suffit à
+# rendre la confusion impossible.
+# ----------------------------------------------------------------------
+BASE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${APP}/Contents/Info.plist" 2>/dev/null)"
+if [ -n "${BASE_ID}" ]; then
+    case "${BASE_ID}" in
+        *.recette) RECETTE_ID="${BASE_ID}" ;;
+        *)         RECETTE_ID="${BASE_ID}.recette" ;;
+    esac
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${RECETTE_ID}" \
+        "${APP}/Contents/Info.plist" >/dev/null
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName OneToOne (recette)" \
+        "${APP}/Contents/Info.plist" >/dev/null 2>&1 \
+        || /usr/libexec/PlistBuddy -c "Add :CFBundleName string OneToOne (recette)" \
+            "${APP}/Contents/Info.plist" >/dev/null
+    echo "→ Identité de recette : ${RECETTE_ID} · « OneToOne (recette) »"
+else
+    echo "⚠️  CFBundleIdentifier illisible : le bundle de recette gardera"
+    echo "    l'identité de l'application. Cible tes fenêtres par pid."
+fi
 
 # Bundle de ressources SwiftPM : fontes IBM Plex, sample_projects.json…
 if [ -d "${RESOURCE_BUNDLE}" ]; then

@@ -63,6 +63,8 @@ struct ManageParticipantsSheet: View {
                 Text("Gérer les participants").font(.title2.bold())
                 Text("\(meeting.title) · \(meeting.date.formatted(date: .abbreviated, time: .shortened))")
                     .font(.subheadline).foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             Spacer()
             Button { onClose() } label: { Image(systemName: "xmark") }
@@ -133,7 +135,8 @@ struct ManageParticipantsSheet: View {
                         Button { addParticipant(c) } label: {
                             HStack(spacing: 12) {
                                 AvatarMini(collaborator: c, tint: settings.meetingCollaboratorColor)
-                                Text(c.name); Spacer()
+                                Text(c.name).lineLimit(1).truncationMode(.tail)
+                                Spacer()
                                 Image(systemName: "plus.circle").foregroundColor(.secondary)
                             }.padding(.horizontal, 20).padding(.vertical, 10).contentShape(Rectangle())
                         }.buttonStyle(.plain)
@@ -148,7 +151,7 @@ struct ManageParticipantsSheet: View {
         HStack(spacing: 12) {
             AvatarCircle(collaborator: c, size: 34, tint: settings.meetingParticipantColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.name).font(.body)
+                Text(c.name).font(.body).lineLimit(1).truncationMode(.tail)
                 Text(c.isAdhoc ? "Invité" : "Collaborateur").font(.caption).foregroundColor(.secondary)
             }
             Spacer()

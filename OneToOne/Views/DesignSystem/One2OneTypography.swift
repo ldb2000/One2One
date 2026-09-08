@@ -39,6 +39,16 @@ enum PlexWeight: Sendable {
         case .semibold: .semibold
         }
     }
+
+    /// Même retombée, côté AppKit : `NSFont` a son propre type de graisse, et
+    /// les `NSViewRepresentable` en ont besoin (cf. `NSFont.plexSans`).
+    var appKitWeight: NSFont.Weight {
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        }
+    }
 }
 
 /// Résolution des fontes Plex : enregistrement des fichiers embarqués, puis
@@ -167,6 +177,31 @@ extension Font {
         PlexFont.isInstalled(weight.monoPostScriptName)
             ? .custom(weight.monoPostScriptName, fixedSize: size)
             : .system(size: size, weight: weight.systemWeight, design: .monospaced)
+    }
+}
+
+extension NSFont {
+    /// Pendant AppKit de `Font.plexSans`, pour les `NSViewRepresentable`.
+    ///
+    /// Un `NSTextField` ne lit pas le `.font()` de l'environnement SwiftUI : le
+    /// titre de la barre du haut portait un `.font(.plexSans(13, .semibold))`
+    /// sans effet, et sortait en fonte système (écart (c) n° 3 de la recette
+    /// des vagues 1–4). Mêmes règles que côté SwiftUI : repli explicite sur la
+    /// fonte système si Plex ne résout pas, et jamais de graisse synthétisée
+    /// par-dessus — elle est déjà dans le fichier de fonte.
+    static func plexSans(_ size: CGFloat, _ weight: PlexWeight = .regular) -> NSFont {
+        guard PlexFont.isInstalled(weight.sansPostScriptName),
+              let fonte = NSFont(name: weight.sansPostScriptName, size: size)
+        else { return .systemFont(ofSize: size, weight: weight.appKitWeight) }
+        return fonte
+    }
+
+    /// Plex Mono, mêmes règles. Sert aux timecodes et aux libellés de section.
+    static func plexMono(_ size: CGFloat, _ weight: PlexWeight = .medium) -> NSFont {
+        guard PlexFont.isInstalled(weight.monoPostScriptName),
+              let fonte = NSFont(name: weight.monoPostScriptName, size: size)
+        else { return .monospacedSystemFont(ofSize: size, weight: weight.appKitWeight) }
+        return fonte
     }
 }
 

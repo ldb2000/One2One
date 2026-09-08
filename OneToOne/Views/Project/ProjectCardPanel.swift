@@ -59,16 +59,11 @@ struct ProjectCardPanel: View {
         }
     }
 
-    /// Point d'un risque. Critique et élevé partagent `accent/report` : la
-    /// spec §1.2 réserve cette teinte aux « risques critiques », et un risque
-    /// élevé n'est pas un risque modéré.
-    static func color(for level: MeetingKPI.Level) -> Color {
-        switch level {
-        case .critique, .eleve: return One2OneToken.report
-        case .modere:           return One2OneToken.warn
-        case .faible:           return One2OneToken.ink4
-        }
-    }
+    /// Point d'un risque. Cette fiche avait la bonne palette avant les autres
+    /// écrans ; elle est désormais la table unique
+    /// `MeetingKPI.Level.teinte` (`Views/DesignSystem/RiskLevelTint.swift`),
+    /// que le bandeau et le rail lisent aussi.
+    static func color(for level: MeetingKPI.Level) -> Color { level.teinte }
 
     static func color(for tone: BudgetTone) -> Color {
         switch tone {
@@ -136,10 +131,17 @@ struct ProjectCardPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
-            if isEditing {
-                Divider().overlay(One2OneToken.hair)
-                footer
+            // Spec §4.3 : la mention de visibilité fait partie de la fiche,
+            // pas de son mode édition — elle dit ce que devient ce qu'on lit,
+            // ce qui intéresse d'abord le lecteur (écart (c) n° 10). Seuls les
+            // deux boutons dépendent de l'édition.
+            Divider().overlay(One2OneToken.hair)
+            VStack(alignment: .leading, spacing: 8) {
+                footerNoticeRow
+                if isEditing { footerActions }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
         }
         .frame(width: Self.width)
         .background(One2OneToken.surface)
@@ -269,9 +271,14 @@ struct ProjectCardPanel: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(Self.color(for: draft.status))
-                        .frame(width: 7, height: 7)
+                    // Un `Circle()` dans le `label:` d'un `Menu` n'est pas
+                    // rendu par AppKit : seuls le texte et les `Image` le
+                    // sont. Le point disparaissait donc en édition, et le
+                    // chevron remontait à gauche (écart (c) n° 9). En symbole,
+                    // il survit — et l'ordre libellé / chevron est conservé.
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 7))
+                        .foregroundStyle(Self.color(for: draft.status))
                     Text(draft.status.label)
                         .font(.plexSans(12, .medium))
                         .foregroundStyle(One2OneToken.ink1)
@@ -846,40 +853,45 @@ struct ProjectCardPanel: View {
 
     // MARK: - Pied
 
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .bottom, spacing: 10) {
-                Text(Self.footerNotice)
-                    .font(.plexSans(11.5))
-                    .foregroundStyle(One2OneToken.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button("Annuler") { discardDraft() }
-                    .buttonStyle(.plain)
-                    .font(.plexSans(11, .medium))
-                    .foregroundStyle(One2OneToken.ink2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                            .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
-                    )
-                Button("Enregistrer") { save() }
-                    .buttonStyle(.plain)
-                    .font(.plexSans(11, .medium))
-                    .foregroundStyle(One2OneToken.onFilledButton)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
-                            .fill(One2OneToken.action)
-                    )
-                    .disabled(!hasChanges)
-                    .opacity(hasChanges ? 1 : 0.5)
-            }
+    /// La mention de visibilité, toujours rendue (spec §4.3, écart (c) n° 10).
+    /// Elle dit ce que devient ce qu'on lit : c'est d'abord au lecteur qu'elle
+    /// sert, et elle n'existait qu'en édition.
+    private var footerNoticeRow: some View {
+        Text(Self.footerNotice)
+            .font(.plexSans(11.5))
+            .foregroundStyle(One2OneToken.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Les deux boutons du pied, eux, n'ont de sens qu'en édition : il n'y a
+    /// rien à annuler ni à enregistrer en lecture.
+    private var footerActions: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            Spacer(minLength: 8)
+            Button("Annuler") { discardDraft() }
+                .buttonStyle(.plain)
+                .font(.plexSans(11, .medium))
+                .foregroundStyle(One2OneToken.ink2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                        .strokeBorder(One2OneToken.strongBorder, lineWidth: 1)
+                )
+            Button("Enregistrer") { save() }
+                .buttonStyle(.plain)
+                .font(.plexSans(11, .medium))
+                .foregroundStyle(One2OneToken.onFilledButton)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                        .fill(One2OneToken.action)
+                )
+                .disabled(!hasChanges)
+                .opacity(hasChanges ? 1 : 0.5)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
     }
 
     private func inlineAction(_ titre: String, _ action: @escaping () -> Void) -> some View {

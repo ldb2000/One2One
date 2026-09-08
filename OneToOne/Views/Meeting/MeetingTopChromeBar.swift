@@ -256,6 +256,8 @@ struct MeetingTopChromeBar: View {
     @State private var timecodeDraft: String?
     /// L'aperçu `Mon récap` d'un 1:1 subi est ouvert (lot 13).
     @State private var showsMyRecap = false
+    /// La feuille « Raccourcis » est ouverte (lot 19c, spec §1.4).
+    @State private var showsShortcuts = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -529,8 +531,15 @@ struct MeetingTopChromeBar: View {
     /// gagnants hors d'atteinte. Ne garder que l'une des deux ramène l'un des
     /// deux défauts de recette (lot 16 à 1 616 px, vague 1–4 à 1 280 px).
     private var titleField: some View {
-        EditableTextField(placeholder: Self.titlePlaceholder(for: meeting), text: $meeting.title)
-            .font(.plexSans(13, .semibold))
+        // Écart (c) n° 3 : un titre, pas un champ. Le style `plain` retire le
+        // bezel permanent et la fonte est passée en `NSFont` — un
+        // `NSViewRepresentable` ignore le `.font()` de l'environnement, et le
+        // `.font(.plexSans(13, .semibold))` qui vivait ici n'avait aucun effet.
+        // L'édition en place, elle, ne change pas.
+        EditableTextField(placeholder: Self.titlePlaceholder(for: meeting),
+                          text: $meeting.title,
+                          style: .plain,
+                          font: .plexSans(13, .semibold))
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(-1)
     }
@@ -1141,6 +1150,14 @@ struct MeetingTopChromeBar: View {
             }
 
             Divider()
+            // Spec §1.4 : la table des raccourcis doit être consultable. Elle
+            // vit ici parce que `⋯` est le seul menu de l'écran qui ne dépend
+            // ni du type de réunion ni de l'état de l'audio.
+            Button { showsShortcuts = true } label: {
+                Label("Raccourcis clavier…", systemImage: "keyboard")
+            }
+
+            Divider()
             Button(role: .destructive, action: actions.deleteMeeting) {
                 Label("Supprimer la réunion…", systemImage: "trash")
             }
@@ -1152,5 +1169,8 @@ struct MeetingTopChromeBar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: Self.moreButtonWidth)
+        .sheet(isPresented: $showsShortcuts) {
+            MeetingShortcutsSheet()
+        }
     }
 }

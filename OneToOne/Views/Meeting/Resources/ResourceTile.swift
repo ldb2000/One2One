@@ -94,15 +94,23 @@ struct ResourceTile: View {
                 bouton("Ouvrir", plein: false) { actions.open(item) }
             } else if item.isOrphan {
                 bouton("Relier…", plein: false) { actions.relink(item) }
-            } else if isPresented {
-                // La pièce à l'écran est la seule à porter les trois actions :
-                // c'est d'elle qu'on parle, donc c'est elle qu'on cite et
-                // qu'on envoie.
-                bouton("À l'écran", plein: true) { }
-                bouton("Citer", plein: false) { actions.cite(item) }
-                bouton("Envoyer", plein: false) { actions.send(item) }
-            } else if item.isPresentable {
-                bouton("Présenter", plein: false) { actions.present(item) }
+            } else {
+                // L'état de présentation, qui reste exclusif : une pièce est à
+                // l'écran, ou candidate à y passer.
+                if isPresented {
+                    bouton("À l'écran", plein: true) { }
+                } else if item.isPresentable {
+                    bouton("Présenter", plein: false) { actions.present(item) }
+                }
+                // Spec §4.1 : `Citer` et `Envoyer` sont listés **par
+                // vignette**. Ils étaient réservés à la pièce présentée, si
+                // bien qu'il fallait mettre un document à l'écran pour le citer
+                // (écart (c) n° 8). Même prédicat que le menu contextuel, qui
+                // les offrait déjà plus largement.
+                if item.isPinnable && !item.isOrphan {
+                    bouton("Citer", plein: false) { actions.cite(item) }
+                    bouton("Envoyer", plein: false) { actions.send(item) }
+                }
             }
         }
         .padding(.top, 1)

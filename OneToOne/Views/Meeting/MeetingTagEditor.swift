@@ -52,7 +52,7 @@ struct MeetingTagEditor: View {
     private func linkedChip(_ tag: MeetingTag) -> some View {
         let color = Color(hex: tag.colorHex) ?? .secondary
         return HStack(spacing: 3) {
-            Text(tag.name).font(.caption2)
+            Text(tag.name).font(.caption2).lineLimit(1).truncationMode(.tail)
             Button {
                 unlink(tag)
             } label: {
@@ -160,6 +160,7 @@ struct MeetingTagEditor: View {
                                         .fill(Color(hex: tag.colorHex) ?? .secondary)
                                         .frame(width: 8, height: 8)
                                     Text(tag.name).font(.caption)
+                                        .lineLimit(1).truncationMode(.tail)
                                     Spacer(minLength: 8)
                                     Text("\(tag.meetings.count)")
                                         .font(.caption2).foregroundStyle(.tertiary)

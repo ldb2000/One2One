@@ -92,6 +92,8 @@ struct ActionsRail: View {
                 Text(onglet.label)
                     .font(.plexSans(11.5, actif ? .semibold : .regular))
                     .foregroundStyle(actif ? One2OneToken.ink1 : One2OneToken.ink4)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if let compte = compteur(onglet), compte > 0 {
                     Text("\(compte)")
                         .font(.plexSans(10.5, .medium))
