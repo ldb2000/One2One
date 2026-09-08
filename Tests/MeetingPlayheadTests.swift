@@ -209,25 +209,27 @@ struct MeetingPlayheadReadOnlyTests {
 
     @Test("En enregistrement, un battement fait avancer t sans aucune vue")
     func battementEnEnregistrement() async throws {
-        // Horloge partagée avec le battement, qui tourne sur le `MainActor` :
-        // ce test l'est aussi, il n'y a donc pas de course.
+        // Horloge injectée, et attente **par condition** : la suite tourne en
+        // parallèle et le `MainActor` peut rester saturé plusieurs secondes,
+        // pendant lesquelles un `Task.sleep` de durée fixe ne prouve rien.
         var maintenant = Date(timeIntervalSince1970: 1_000)
         let playhead = MeetingPlayhead(meetingStableID: UUID(),
                                        now: { maintenant },
                                        recordingTick: .milliseconds(10))
         playhead.beginRecording(startedAt: Date(timeIntervalSince1970: 1_000))
         #expect(playhead.t == 0)
+        #expect(playhead.isTickingForTesting, "beginRecording n'a pas armé le battement")
 
         maintenant = Date(timeIntervalSince1970: 1_252)
-        try await Task.sleep(for: .milliseconds(250))
+        for _ in 0..<400 where playhead.t != 252 {
+            try await Task.sleep(for: .milliseconds(25))
+        }
         #expect(playhead.t == 252, "le battement n'a pas avancé la position")
         #expect(playhead.duration == 252)
 
         // `stop()` arrête le battement : une réunion close ne doit pas
         // continuer à faire courir son axe.
         playhead.stop()
-        maintenant = Date(timeIntervalSince1970: 1_500)
-        try await Task.sleep(for: .milliseconds(250))
-        #expect(playhead.t == 252, "le battement tourne encore après stop()")
+        #expect(!playhead.isTickingForTesting, "le battement tourne encore après stop()")
     }
 }

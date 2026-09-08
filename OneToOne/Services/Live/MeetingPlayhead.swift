@@ -253,6 +253,10 @@ final class MeetingPlayhead {
         ticker = nil
     }
 
+    /// Le battement est armé. **Tests seulement** : sans ce regard, prouver que
+    /// `stop()` l'arrête demanderait d'attendre qu'il ne se passe rien.
+    var isTickingForTesting: Bool { ticker != nil }
+
     // MARK: - Déplacement
 
     /// Place la position à `seconds`, bornée à `0…duration`. En relecture, le
