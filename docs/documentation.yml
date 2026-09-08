@@ -1,0 +1,50 @@
+# Manifeste de documentation — lu par le skill documenter-application et par
+# Tests/DocumentationTests.swift. Sous-ensemble YAML : clés simples, listes de chaînes,
+# listes d'objets à clés `chemin`, `public`, `role`, `sections`.
+langue: fr
+branche_principale: master
+tests: swift test --filter DocumentationTests
+
+code_documente:
+  - OneToOne/Models/
+  - OneToOne/Services/
+  - OneToOne/Views/Meeting/
+  - OneToOne/Views/Project/
+  - Scripts/
+  - Package.swift
+
+documents:
+  - chemin: docs/README.md
+    public: tous
+    role: index — une ligne par document, public visé
+  - chemin: docs/architecture.md
+    public: développeur
+    sections:
+      - "1. Présentation"
+      - "2. Stack technique"
+      - "3. Vue d'ensemble en couches"
+      - "4. Point d'entrée & cycle de vie"
+      - "5. Modèle de données (SwiftData)"
+      - "6. Couche Services"
+      - "7. Module Markdown WYSIWYG (`OneToOne/Markdown/`)"
+      - "8. Couche Views"
+      - "9. Flux clés (bout en bout)"
+      - "10. Intégrations système & permissions"
+      - "11. Build, packaging & exécution"
+      - "12. Tests"
+      - "13. Observations architecturales & dette technique"
+  - chemin: docs/decisions.md
+    public: développeur
+    role: registre généré par Scripts/generer-decisions.py depuis docs/adr/*.md
+  - chemin: docs/glossaire.md
+    public: développeur
+    role: termes métier français ↔ symboles Swift
+
+verites:
+  modeles_persistes: OneToOne/Models/SchemaVersions.swift
+  adr: docs/adr/
+
+hors_perimetre:
+  - CLAUDE.md
+  - docs/superpowers/
+  - docs/mesures/
