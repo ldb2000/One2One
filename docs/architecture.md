@@ -692,6 +692,9 @@ publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec
 - **Info.plist** est injecté au link via `-sectcreate __TEXT __info_plist` (voir
   `Package.swift`).
 - **Ressources** : `OneToOne/Resources/` (icône, `sample_projects.json`).
+- **Registre des décisions** : `Scripts/generer-decisions.py` régénère `docs/decisions.md`
+  depuis les en-têtes de `docs/adr/*.md` (date, titre, statut) ; le skill
+  `documenter-application` le relance à chaque ADR ajouté.
 
 ---
 
@@ -727,6 +730,8 @@ d'une déclaration de raccourci (`MeetingShortcutsTests`, `Tests/RefonteFinition
   `Tests/RefonteFinitionsTests.swift`, `MeetingMenuActionsTests`, `SessionNoChromeTests`,
   `ActionsRailGroupingTests`, `CaptureStripModelTests`, `BoardStoreTests`,
   `OneOnOneBackupTests`, `SchemaV3MigrationTests`, `RefonteVague5IntegrationTests`.
+- **Documentation** : `Tests/DocumentationTests.swift` — vérifie contre `docs/documentation.yml`
+  que tout chemin, symbole ou ADR cité dans un document tenu existe dans les sources.
 
 Lancer : `swift test`. Un seul échec connu, **horaire** : `MenuBarStatsTests` entre 0 h et
 2 h du matin, l'heure de référence n'étant pas injectée.
