@@ -16,6 +16,8 @@
 - Une section = un sujet ; titre stable (listé dans le manifeste) ; on corrige en place.
 - Chaque sous-système cite ses fichiers (chemins cliquables) et le test qui le garde.
 - Un chemin cité existe. Un symbole cité a une déclaration. Un ADR cité existe.
+- Une citation `Foo.swift` sans dossier ou un symbole dénudé de ses accents graves n'est pas
+  une correction : citer le chemin depuis la racine ou le symbole déclaré.
 - Pas de duplication entre documents : on renvoie (`voir §5`).
 - Diagramme (Mermaid) seulement s'il montre un mécanisme ; jamais pour lister.
 

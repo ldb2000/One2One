@@ -7,17 +7,18 @@ description: Utiliser quand le code documenté d'un projet a changé et que /doc
 
 ## Principe
 
-La documentation doit être **vraie**, pas exhaustive : réalignée **par section** ; des tests la
+La documentation est **vraie**, pas exhaustive : réalignée **par section** ; des tests la
 rendent fausse bruyamment.
 
 ## La règle de placement
 
 | Le fait | Sa place |
 | --- | --- |
-| Un service | section Services |
+| Un service utilisé par un seul écran | la section de cet écran |
+| Un service partagé | section Services |
 | Une vue | section Vues |
 | Une décision et ses conséquences | un ADR |
-| Un changement (quoi, quand) | le journal — jamais la documentation |
+| Un changement (quoi, quand) | le journal, jamais la documentation |
 
 ## Ce qu'est une section
 
@@ -31,7 +32,7 @@ relie** (`voir §n` — jamais `STATUS.md`, un journal, une PR).
    proposer, s'arrêter.
 2. **Calculer l'écart, sans écrire** : `git diff --name-only <branche_principale>...HEAD` croisé
    avec les sections concernées, symboles orphelins, modèles persistés changés, décision sans
-   ADR. Lister avant toute modification.
+   ADR.
 3. **Mettre à jour par section**, à sa place (table ci-dessus). Vérifier chemin et symbole avant
    de l'écrire.
 4. **Relire le document entier**, pas seulement la section touchée.
@@ -43,7 +44,7 @@ relie** (`voir §n` — jamais `STATUS.md`, un journal, une PR).
 
 ## Garde-fous
 
-- Pas de régénération ; une section se corrige en place, elle ne se supprime pas.
+- Pas de régénération ; une section se corrige en place, ne se supprime pas.
 - `CLAUDE.md`, `docs/superpowers/`, un ADR validé, la documentation utilisateur : hors périmètre.
 - Chemin ou symbole cité sans vérification → interdit.
 
@@ -51,11 +52,11 @@ relie** (`voir §n` — jamais `STATUS.md`, un journal, une PR).
 
 | Faute | Correction |
 | --- | --- |
-| Service documenté en section Vues, par proximité | Un service va en Services |
-| Narration façon journal des modifications | Décrire l'état présent, pas l'histoire |
-| Ligne de « mise à jour » en pied de document | Journal des modifications interdit ici |
+| Service partagé rangé dans la section d'un écran | Un service partagé va en Services |
+| Narration façon journal | Décrire l'état présent, pas l'histoire |
+| Ligne de « mise à jour » en pied | Journal des modifications interdit ici |
 | Renvoi « Voir `STATUS.md` » | Renvoyer vers une section ou un ADR |
-| Même explication écrite dans deux documents | Renvoyer (`voir §n`), ne pas dupliquer |
-| Paragraphe de 14 lignes pour un compteur | Quatre éléments, pas le détail d'une PR |
-| Incohérence laissée entre deux sections | Relire le document entier après modification |
+| Même explication dans deux documents | Renvoyer (`voir §n`), ne pas dupliquer |
+| Paragraphe de 14 lignes pour un compteur | Quatre éléments, pas une PR |
+| Incohérence entre deux sections | Relire le document entier |
 | Index absent, non signalé | Proposer l'index : une ligne par document, public visé |
