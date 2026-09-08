@@ -40,6 +40,7 @@ struct RefonteTypographieTests {
     private static let perimetres = [
         "OneToOne/Views/Meeting/Spaces",
         "OneToOne/Views/Meeting/MeetingTopChromeBar.swift",
+        "OneToOne/Views/Meeting/Chrome",
     ]
 
     private func sources() throws -> [(nom: String, texte: String)] {
@@ -66,7 +67,7 @@ struct RefonteTypographieTests {
 
     // MARK: - Le périmètre est bien celui qu'on croit lire
 
-    @Test("Les deux périmètres typographiques sont trouvés")
+    @Test("Les trois périmètres typographiques sont trouvés")
     func sourcesAreFound() throws {
         let noms = try sources().map(\.nom)
         // Si ce test tombe, c'est qu'un dossier a bougé — et alors les deux
@@ -75,6 +76,7 @@ struct RefonteTypographieTests {
         #expect(noms.contains("MeetingSpacesBar.swift"))
         #expect(noms.contains("MeetingTopChromeBar.swift"))
         #expect(noms.contains("MeetingEmptyInvite.swift"))
+        #expect(noms.contains("StyledMenuPopover.swift"))
         #expect(noms.count >= 30)
     }
 
@@ -152,4 +154,14 @@ struct RefonteTypographieTests {
         #expect(ActionsRail.tabCountSize <= 10.5)
     }
 
+    @Test("Le bouton Rapport porte un libellé de corps, pas de pilule")
+    func reportButtonLabelSize() {
+        // Retour d'usage : `Transcrire + Rapport` et `Rapport ✓ (m:ss)` sont
+        // l'action principale de la barre. À 10,5 px ils se lisaient comme une
+        // pilule d'état ; la capture `1a-cockpit.png` les montre à 12 px.
+        #expect(MeetingTopChromeBar.reportLabelSize == 12)
+        // Les pilules-menus de la barre (`Architecture ⌄`, `Auto ⌄`) suivent la
+        // même mesure : ce sont des commandes, pas des métadonnées.
+        #expect(MeetingTopChromeBar.menuPillLabelSize == 12)
+    }
 }

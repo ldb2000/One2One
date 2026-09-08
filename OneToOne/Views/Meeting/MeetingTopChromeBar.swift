@@ -28,6 +28,17 @@ struct MeetingTopChromeBar: View {
     /// Largeur du bouton `⋯`, fixée par la spec §2.1.
     static let moreButtonWidth: CGFloat = 28
 
+    /// Le libellé du bouton `Rapport` (`Transcrire + Rapport`,
+    /// `Rapport ✓ (m:ss)`) : c'est l'action principale de la barre, et la
+    /// capture `1a-cockpit.png` la montre au corps de §1.2 — 12 px, pas les
+    /// 10,5 d'une pilule d'état. Le `fixedSize` de `controlsGroup` garantit
+    /// qu'elle ne s'écrase pas pour autant à 1 280 px : c'est le titre qui cède.
+    static let reportLabelSize: CGFloat = 12
+    /// Les deux pilules-menus (`Architecture ⌄`, `Auto ⌄`) : des commandes,
+    /// donc la même mesure que le bouton `Rapport` — c'est ce que montrent
+    /// `Projet ⌄` et `Global ⌄` sur la capture.
+    static let menuPillLabelSize: CGFloat = 12
+
     /// Le chevron du segment projet (capture `3b-fiche-projet.png`). Il dit que
     /// le segment ouvre quelque chose : sans lui, un cadre `accent/action`
     /// ressemble à une sélection, pas à un bouton.
@@ -252,6 +263,10 @@ struct MeetingTopChromeBar: View {
 
     /// Affiche le popover de choix du type de rapport avant génération.
     @State private var showReportTypePicker = false
+    /// Les deux menus de la barre, en popovers stylés et non en `NSMenu`
+    /// (défaut n° 3 des retours d'usage du 2026-09-08).
+    @State private var showTypePicker = false
+    @State private var showTemplatePicker = false
     /// Saisie de timecode en cours dans la pilule audio ; `nil` = affichage.
     @State private var timecodeDraft: String?
     /// L'aperçu `Mon récap` d'un 1:1 subi est ouvert (lot 13).
@@ -885,29 +900,43 @@ struct MeetingTopChromeBar: View {
 
     /// Les sept types de la spec §2.1, plus la création de réunion : le `+` de
     /// l'ancienne deuxième ligne est devenu une entrée de ce menu.
+    ///
+    /// **Un popover stylé, pas un `Menu`** (défaut n° 3 des retours d'usage du
+    /// 2026-09-08) : les lignes d'un `NSMenu` sont dessinées par AppKit, en
+    /// fonte système, et aucun `.font(.plexSans(…))` ne les atteint —
+    /// cf. `StyledMenuPopover`.
     private var typeMenu: some View {
-        Menu {
-            Picker("Type de réunion", selection: Binding(
-                get: { meeting.kind },
-                set: { meeting.kind = $0; try? modelContext.save() }
-            )) {
-                ForEach(typesOfferts) { k in
-                    Label(k.label, systemImage: k.sfSymbol).tag(k)
-                }
-            }
-            Divider()
-            Button {
-                onCreateMeeting()
-            } label: {
-                Label("Nouvelle réunion…", systemImage: "plus")
-            }
-        } label: {
+        Button { showTypePicker = true } label: {
             chromeMenuLabel(meeting.kind.label)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .fixedSize()
         .help("Type de réunion — recharge la disposition de l'espace Réunion, jamais le contenu")
+        .popover(isPresented: $showTypePicker, arrowEdge: .bottom) {
+            StyledMenuPopover(titre: "Type de réunion",
+                              items: typePickerItems,
+                              fermer: { showTypePicker = false })
+        }
+    }
+
+    /// Les lignes du menu de type : les types offerts, puis `Nouvelle réunion…`
+    /// détachée par un filet — c'est une commande, pas un type.
+    private var typePickerItems: [StyledMenuPopover.Item] {
+        var items = typesOfferts.map { k in
+            StyledMenuPopover.Item(id: "kind-\(k.rawValue)",
+                                   libelle: k.label,
+                                   symbole: k.sfSymbol,
+                                   selectionnee: meeting.kind == k) {
+                meeting.kind = k
+                try? modelContext.save()
+            }
+        }
+        items.append(StyledMenuPopover.Item(id: "kind-new",
+                                            libelle: "Nouvelle réunion…",
+                                            symbole: "plus",
+                                            separateurAvant: true,
+                                            action: onCreateMeeting))
+        return items
     }
 
     /// Libellé commun des deux menus de la barre : `<texte> ⌄` dans un cadre
@@ -915,7 +944,7 @@ struct MeetingTopChromeBar: View {
     private func chromeMenuLabel(_ texte: String) -> some View {
         HStack(spacing: 4) {
             Text(texte)
-                .font(.plexSans(10.5, .medium))
+                .font(.plexSans(Self.menuPillLabelSize, .medium))
                 .foregroundStyle(One2OneToken.ink2)
                 .lineLimit(1)
             Image(systemName: "chevron.down")
@@ -956,9 +985,9 @@ struct MeetingTopChromeBar: View {
                     }
                 } else if stt.isTranscribing {
                     ProgressView().controlSize(.small).tint(One2OneToken.onFilledButton)
-                    Text("Transcription…").font(.plexSans(10.5, .medium))
+                    Text("Transcription…").font(.plexSans(Self.reportLabelSize, .medium))
                 } else {
-                    Text(reportLabel).font(.plexSans(10.5, .semibold))
+                    Text(reportLabel).font(.plexSans(Self.reportLabelSize, .medium))
                 }
             }
             // Indisponible, le bouton ne s'éclaircit plus : il **change de
@@ -1052,26 +1081,48 @@ struct MeetingTopChromeBar: View {
 
     // MARK: - Menu de template
 
+    /// Même remède que `typeMenu` : un popover stylé. C'est ce menu que la
+    /// capture du retour d'usage montrait en fonte système, ouvert sur
+    /// `Auto (selon type) / Global / 1:1 Collaborateur…`.
     private var templatePickerButton: some View {
-        Menu {
-            Button("Auto (selon type)") {
+        Button { showTemplatePicker = true } label: {
+            chromeMenuLabel(meeting.reportTemplate?.name ?? "Auto")
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Template de rapport — modifie la structure du compte-rendu généré")
+        .popover(isPresented: $showTemplatePicker, arrowEdge: .bottom) {
+            StyledMenuPopover(titre: "Template de rapport",
+                              items: templatePickerItems,
+                              fermer: { showTemplatePicker = false })
+        }
+    }
+
+    /// `Auto (selon type)` en tête, un filet, puis les templates compatibles —
+    /// l'ordre du menu natif qu'il remplace.
+    private var templatePickerItems: [StyledMenuPopover.Item] {
+        var items = [
+            StyledMenuPopover.Item(id: "template-auto",
+                                   libelle: "Auto (selon type)",
+                                   symbole: "wand.and.stars",
+                                   selectionnee: meeting.reportTemplate == nil) {
                 meeting.reportTemplate = nil
                 try? modelContext.save()
             }
-            Divider()
-            ForEach(compatibleTemplates) { t in
-                Button(t.name) {
-                    meeting.reportTemplate = t
-                    try? modelContext.save()
-                }
-            }
-        } label: {
-            chromeMenuLabel(meeting.reportTemplate?.name ?? "Auto")
+        ]
+        for (index, t) in compatibleTemplates.enumerated() {
+            items.append(StyledMenuPopover.Item(
+                id: "template-\(t.persistentModelID.hashValue)",
+                libelle: t.name,
+                symbole: "doc.text",
+                selectionnee: meeting.reportTemplate?.persistentModelID == t.persistentModelID,
+                separateurAvant: index == 0
+            ) {
+                meeting.reportTemplate = t
+                try? modelContext.save()
+            })
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Template de rapport — modifie la structure du compte-rendu généré")
+        return items
     }
 
     /// Templates non archivés proposés dans le sélecteur, triés par priorité :
