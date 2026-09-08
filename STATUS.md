@@ -10,7 +10,8 @@ Trois branches développées en parallèle sous le sommet de recette
 
 | Maillon | Branche | Base après intégration | `swift test` |
 | --- | --- | --- | --- |
-| 1 | `feat/refonte-lot-14-1to1-collab-prepa` (#43) | `fix/refonte-recette-vagues-1-4` | 1 923 ST + 1 054 XCT = **2 977**, vert (05:17 CEST) |
+| 1 | `feat/refonte-lot-14-1to1-collab-prepa` (#43) | `fix/refonte-recette-vagues-1-4` | 1 923 ST + 1 054 XCT = **2 977**, vert (05:13 CEST) |
+| 2 | `fix/refonte-session-fullscreen-content` (#42) | lot 14 | 1 930 ST + 1 054 XCT = **2 984**, vert (05:18 CEST) |
 
 ### Maillon 1 — lot 14 sur la recette
 
@@ -33,9 +34,36 @@ d'en-tête ignoraient `5a` et `5b`, ajoutés aux lots 13 et 14 sans que le scrip
 Aucun test ne lisait ce fichier — c'est la recette manuelle qui aurait buté sur
 « code inconnu ».
 
+### Maillon 2 — le correctif du plein écran sur le lot 14
+
+Rebase `--onto lot14 origin/feat/refonte-lot-12-1to1-manager-prepa`. **Un seul conflit :
+`STATUS.md`** — union, la section du correctif au-dessus de celle du lot 14. Le code du
+correctif s'est appliqué tel quel, et pour une bonne raison : `Views/Meeting/Session/**`
+est **identique** entre le lot 12 et le sommet de recette (différence vide), donc la
+finition visuelle de la recette n'a jamais touché `SessionFullscreenView` ni
+`SessionStatusBar` — il n'y avait rien à réconcilier, contrairement à ce que la consigne
+d'intégration redoutait. Vérifié après coup :
+
+- `.sessionFullscreenHost()` posé **deux fois** dans `OneToOneApp` (fenêtre principale et
+  scène `1to1-meeting`) — c'est ce que compte `SessionFullscreenRootTests.windowRootsHostTheMode`.
+- `SessionWindowSwapper` n'existe plus que dans le test qui interdit son retour, et la
+  seule occurrence de `contentView =` dans `Session/**` est une ligne de commentaire
+  (`///`), que le test écarte. Les deux assertions de `noAppKitViewSwapLeft` tiennent.
+- `SessionNoChromeTests`, `SessionThemeTests`, `SessionFullscreenTests` et
+  `SessionFullscreenRootTests` verts ensemble.
+
+**Un plantage non reproductible** est survenu au premier `swift test` du maillon, *après*
+la dernière suite (`ScreenCaptureService` verte) : `SwiftData/BackingData.swift:835: Fatal
+error: This model instance was destroyed by calling ModelContext.reset`, signal 5, sans
+qu'aucun test n'échoue. Aucun `reset()` n'existe dans le dépôt : c'est la destruction d'un
+conteneur en mémoire à la fin du processus pendant qu'une instance de `Meeting` est encore
+retenue. Relance immédiate **verte, sans le moindre message** — flottement de fin de
+processus, indépendant du correctif, à ressortir s'il revient.
+
 ## Correctif : le mode séance plein écran (écran 1b) est enfin affiché (2026-09-08)
 
-Branche `fix/refonte-session-fullscreen-content`, sur le lot 12 (#33). Corrige
+Branche `fix/refonte-session-fullscreen-content`, **rebasée à l'intégration de la vague 7 sur le
+lot 14** (#43), lui-même sur le sommet de recette — elle était partie du lot 12 (#33). Corrige
 l'écart fonctionnel n° 1 de la recette des vagues 1 à 4 (PR #36) : « le plein
 écran s'active mais le contenu n'est pas substitué — le cockpit clair reste
 affiché, `Clore la séance` absent de l'arbre d'accessibilité ».
