@@ -89,7 +89,7 @@ graph TD
     end
 
     subgraph MODEL["Couche Modèle — SwiftData"]
-        SCHEMA[("CurrentSchema = SchemaV3 — 37 @Model")]
+        SCHEMA[("CurrentSchema = SchemaV3 — 35 @Model")]
     end
 
     subgraph MD["Module Markdown WYSIWYG (13 fichiers, autonome)"]
@@ -166,7 +166,7 @@ bootstrap de l'agenda calendrier, synchro des photos de contacts, génération d
 ## 5. Modèle de données (SwiftData)
 
 Le schéma courant est **`SchemaV3`** (`typealias CurrentSchema = SchemaV3`,
-`Models/SchemaVersions.swift`), qui déclare **37 types `@Model`**. Trois versions se
+`Models/SchemaVersions.swift`), qui déclare **35 types `@Model`**. Trois versions se
 succèdent, toutes par **lightweight migration** automatique de SwiftData (ajout de champs
 optionnels ou à valeur par défaut ; aucun champ supprimé, renommé ni rendu obligatoire), donc
 sans `MigrationStage` custom — `OneToOneMigrationPlan` les enchaîne :
@@ -177,7 +177,7 @@ sans `MigrationStage` custom — `OneToOneMigrationPlan` les enchaîne :
 | `SchemaV2` | 2026-09-06 | `ChatSession`, `ChatMessageEntity` (persistance de l'historique du chatbot) |
 | `SchemaV3` | 2026-09-07 | les neuf tables du modèle cible de la refonte (lot 0B) : `MeetingNote`, `Board`, `ProjectMilestone`, `ProjectContact`, `OneOnOneThread`, `Commitment`, `OneOnOneAgendaItem`, `MoodEntry`, `OneOnOneObjective` — plus des colonnes à valeur par défaut sur `ActionTask`, `MeetingAttachment`, `SlideCapture`, `Project` et `Meeting` |
 
-Vérifié par `Tests/SchemaV3MigrationTests.swift`. Le modèle `Interview` a été **supprimé** au
+Vérifié par `Tests/SchemaV3MigrationTests.swift`. Le modèle « Interview » a été **supprimé** au
 2026-08-11 (ADR `2026-08-11-suppression-du-modele-interview.md`) : les entretiens sont des
 `Meeting` d'un `kind` donné.
 
@@ -188,10 +188,8 @@ erDiagram
     Project ||--o{ ActionTask : tasks
     Project ||--o{ ProjectAlert : alerts
     Project ||--o{ ProjectAttachment : attachments
-    Project ||--o{ ProjectInfoEntry : infoEntries
-    Project ||--o{ ProjectCollaboratorEntry : collaboratorEntries
     Project ||--o{ ProjectMail : mails
-    Project ||--o{ Note : notes
+    Project ||--o{ AgendaProjectRule : agendaRules
     Project }o--|| Entity : entity
     Project }o--o| Collaborator : projectManager
     Project }o--o| Collaborator : technicalArchitect
@@ -199,7 +197,6 @@ erDiagram
     Project ||--o{ ProjectMilestone : milestones
     Project ||--o{ ProjectContact : contacts
 
-    Collaborator ||--o{ Note : notes
     Collaborator }o--o{ Meeting : participants
     Collaborator ||--o{ OneOnOneThread : threads
 
@@ -218,6 +215,7 @@ erDiagram
     Meeting ||--o{ TranscriptSegment : transcriptSegments
     Meeting ||--o{ ReportRevision : reportRevisions
     Meeting }o--o| ReportTemplate : reportTemplate
+    Meeting }o--o{ MeetingTag : tags
 
     ActionTask ||--o{ ActionComment : comments
     MeetingAttachment ||--o{ SlideCapture : slides
@@ -228,9 +226,9 @@ erDiagram
 
 | Domaine | Modèles |
 |---|---|
-| Projets | `Project`, `ProjectInfoEntry`, `ProjectCollaboratorEntry`, `ProjectAttachment`, `Entity` |
+| Projets | `Project`, `ProjectAttachment`, `Entity`, `AgendaProjectRule` (règle titre agenda → projet) |
 | Personnes | `Collaborator` (empreinte vocale `voicePrint`) |
-| Réunions | `Meeting`, `MeetingAttachment`, `SlideCapture`, `TranscriptChunk` (RAG), `TranscriptSegment` (diarisation) |
+| Réunions | `Meeting`, `MeetingTag` (thème libre, many-to-many), `MeetingAttachment`, `SlideCapture`, `TranscriptChunk` (RAG), `TranscriptSegment` (diarisation) |
 | Réunion, modèle cible (lot 0B) | `MeetingNote` — une ligne de note **adressable** : `t` sur l'axe temps, `kind`, `visibility` (trois niveaux, spec §3.2), `sourceRef` en trois colonnes plates (décision D1). `Board` — une planche d'atelier ; scène et vignette sur disque sous `recordings/<uuid>/boards/`, jamais en base (D6) |
 | Fiche projet (lot 9) | `ProjectMilestone`, `ProjectContact` |
 | 1:1 (lot 10, décision D3) | `OneOnOneThread` — un fil par collaborateur et par rôle, créé paresseusement au premier 1:1, `myRole` déduit du type (D4) ; `Commitment` (engagement réciproque), `OneOnOneAgendaItem` (ordre du jour, demandes), `MoodEntry`, `OneOnOneObjective` |
@@ -239,7 +237,7 @@ erDiagram
 | Manager | `ManagerReportItem`, `ManagerMeetingReport` |
 | Rapports | `ReportTemplate`, `ReportRevision` (boucle écrivain/critique) |
 | Mail / RAG | `ProjectMail`, `ProjectMailAttachment`, `MailIndexSuggestion` (suggestion en attente de validation), `MailScanRecord` (trace de dédup du scan) |
-| Divers | `Note`, `NoteAttachment`, `SavedPrompt`, `AppSettings` |
+| Divers | `SavedPrompt`, `AppSettings` |
 
 ### Conventions de modélisation
 
@@ -423,14 +421,15 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
   `OneToOneShortcuts`) — exposition à Shortcuts.app / Spotlight.
 - **`GlobalHotkeyService`** + **`HotkeySpec`** — raccourcis clavier globaux (Carbon
   EventManager) ; spec sérialisable type `⌃⌥⌘A`.
-- **`MenuBarController`** + **`MenuBarStats`** — UI barre de menus (prochaine réunion,
+- **`MenuBarController`** + **`MenuBarStats.swift`** (`TodayStatsCalculator`, `MenubarBadgeText`)
+  — UI barre de menus (prochaine réunion,
   actions urgentes, popovers de recherche/note/action rapides).
 - **`OneToOneQuickPickerWindow`** — `NSPanel` flottant de recherche/lancement 1:1 (hotkey).
 - **`SpotlightIndexService`** — indexation CoreSpotlight (Projects, Collaborators, entries).
 - **`ContactPhotoService`** — synchro photos depuis Contacts (par email/nom).
 - **`MickeyIntegration` / `ExternalServices` (`MickeyService`, `RemindersService`)** —
   intégration inter-app Mickey (URL scheme + App Group) et Rappels (EventKit).
-- **`ScreenCaptureService`** (+ `OCRService` Vision, `PerceptualHasher`) — capture de slides
+- **`ScreenCaptureService`** (+ `OCRService` Vision, `SlideDetector`) — capture de slides
   (ScreenCaptureKit), détection auto par hash perceptuel, OCR, indexation.
 
 **Scan automatique des mails** — `MailAutoIndexService` (singleton `@MainActor`, boucle
@@ -509,8 +508,8 @@ graph TD
   `EditorTextView` (`NSTextView` + toggle des cases à cocher), `ShortcutDetector`
   (raccourcis frappés → attributs), `StyleRenderer` (rendu visuel des attributs `md*`).
 - **Markdown** : `MarkdownParser` (CommonMark+GFM → `NSAttributedString`),
-  `MarkdownSerializer` (aller-retour inverse), `Escaping`.
-- **Model** : `MarkdownAttributeKeys` (clés `NSAttributedString.Key` custom, `BlockType`,
+  `MarkdownSerializer` (aller-retour inverse), `MarkdownEscaping`.
+- **Model** : `MarkdownAttributeKeys.swift` (clés `NSAttributedString.Key` custom, `BlockType`,
   `ListInfo`).
 
 > À ne pas confondre avec les rendus markdown **secondaires** : `Views/MarkdownText.swift`
@@ -531,23 +530,25 @@ graph TD
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
 - **Réunion** (`Views/Meeting/`) : voir la section dédiée ci-dessous — c'est le chantier de
   la refonte 2026-09, et de loin le plus gros sous-arbre de `Views/`.
-- **Préparation** : `MeetingPrepTab`, `MeetingPrepContextPanel`, `PrepWindow`.
-- **Manager** : `ManagerTrackingView`, `ManagerAgendaSidebar`, `ManagerClassificationSheet`,
+- **Préparation** : `MeetingPrepTab`, `MeetingPrepContextPanel`, `PrepWindow.swift`
+  (`PrepWindowView`, `PrepWindowToken`).
+- **Manager** : `ManagerTrackingView`, `ManagerClassificationSheet`,
   `ManagerActionReviewSheet`, `ManagerCategoriesEditor`.
 - **Audio** : `AudioEditorSheet`, `AudioWaveformEditor`.
 - **IA / RAG** : `ChatbotView`, `ChatbotTemplateGallery`, `RAGChatView`.
 - **Calendrier / Mail** : `CalendarEventImportSheet`, `CalendarMeetingPicker`,
   `MailBrowserView`, `AgendaInspectorPanel`, `WeekStripView`.
-- **Capture écran** : `ScreenCaptureConfigView`, `RectSelectorOverlay`.
+- **Capture écran** : `CaptureSourcePopover`, `RegionSelectorWindow`.
 - **Réglages** (`SettingsView` + `Views/Settings/`) : maintenance, éditeur/liste de templates,
   section hotkeys.
 - **Menubar** (`Views/Menubar/`) : popovers recherche / note / action / urgent.
 - **Partagé** (`Views/Shared/`, `Views/Layouts/`) : `AddCollaboratorSheet`, `OwnerPickerMenu`,
-  `ProjectStatusPalette`, `FlowLayout`, `ColorHex`, `MeetingHeatmapView`.
-- **Jetons de conception** (`Views/DesignSystem/`) : `One2OneTokens` (la **seule** source de
-  couleurs, de rayons et de largeurs), `One2OneTypography` (`Font.plexSans` / `plexMono` et
+  `ProjectStatusPalette`, `FlowLayout`, `ColorHex.swift`, `MeetingHeatmapView`.
+- **Jetons de conception** (`Views/DesignSystem/`) : `One2OneToken` (la **seule** source de
+  couleurs, de rayons et de largeurs), `One2OneTypography.swift` (`Font.plexSans` / `plexMono` et
   leurs pendants `NSFont`, IBM Plex embarquée avec repli système — décision D2),
-  `RiskLevelTint` (teinte d'un niveau de risque, table unique), `One2OneTheme`.
+  `RiskLevelTint.swift` (teinte d'un niveau de risque, table unique — `MeetingKPI.Level.teinte`),
+  `One2OneTheme`.
 
 ### L'écran de réunion (refonte 2026-09)
 
@@ -558,12 +559,12 @@ l'espace, le mode, la tête de lecture, le tiroir de ressources, la fiche projet
 d'action et les filtres de notes. La règle du programme de refonte (§7) tient : **rien ne
 s'ajoute dans `MeetingView.swift`, on en retire**.
 
-- **Trois espaces** (spec §1.1), `MeetingScreenModel.Space` : `Réunion`, `Rapport`,
-  `Ressources` — ils ont remplacé sept onglets. Barre :
+- **Trois espaces** (spec §1.1), `MeetingScreenModel.Space` : Réunion, Rapport,
+  Ressources — ils ont remplacé sept onglets. Barre :
   `Spaces/MeetingSpacesBar.swift`, masquée dans l'espace Réunion en mode Relire, où la nav
   latérale de 190 px la remplace (décision D0).
-- **Trois modes** temporels (spec §2.2), `MeetingScreenModel.Mode` : `Préparer`,
-  `En séance`, `Relire`. Le routage espace × mode × type est une fonction pure :
+- **Trois modes** temporels (spec §2.2), `MeetingScreenModel.Mode` : Préparer,
+  En séance, Relire. Le routage espace × mode × type est une fonction pure :
   `Services/Meeting/MeetingSpaceRouting.swift`.
 - `Spaces/**` — bandeau de quatre indicateurs (`MeetingKPIBand`, alimenté par
   `MeetingKPIBuilder`), colonne notes ↔ transcription (`Notes/`, `Transcript/`), rail
@@ -586,8 +587,8 @@ s'ajoute dans `MeetingView.swift`, on en retire**.
   combinaison), `MeetingCommands` (menus natifs), `MeetingMenuActions` (source unique des
   actions secondaires, partagée avec le menu `⋯`), `MeetingShortcutsSheet` (l'aide).
 
-**Retirés au lot 19a** (décision D8) : `OverviewDashboard`, `PanelLayoutEntry`,
-`DashboardGridLayout`, `MeetingTabsUnderline`, `CollaboratorDetailView` — le dashboard
+**Retirés au lot 19a** (décision D8) : OverviewDashboard, PanelLayoutEntry,
+DashboardGridLayout, MeetingTabsUnderline, CollaboratorDetailView — le dashboard
 personnalisable et la barre latérale droite configurable que la refonte a remplacés.
 
 ---
@@ -631,12 +632,12 @@ et les objectifs. `ReminderRules` en déduit ce qu'il faut rappeler à la prépa
 dérivés de l'ancien `EngagementLedger` restent lus en « Historique » et ne sont pas convertis :
 ils compteraient deux fois.
 
-**A‴. Captures et pastille** (lots 7 et 8, décision D7). `CaptureCoordinator` observe la source
+**A‴. Captures et pastille** (lots 7 et 8, décision D7). `CaptureSessionCoordinator` observe la source
 choisie (`CaptureSourcePopover`) : `detectsAutomatically` déclenche sur différence d'image
 (`SlideDetector`), `periodicCapture` arme l'écriture au prochain tick stable. Chaque
 `SlideCapture` porte le `t` de l'**axe audio**, pas celui de la session, pour rester alignée
 sur la transcription. En mode séance, la pastille flottante (`Views/Capture/Pill/**`) offre les
-mêmes gestes hors de la fenêtre, par raccourcis système (`CaptureHotkeys` : `⌘⇧S`, `⌘⇧N`).
+mêmes gestes hors de la fenêtre, par raccourcis système (`CaptureHotkey` : `⌘⇧S`, `⌘⇧N`).
 
 **A⁗. Atelier** (lots 16 à 18, décision D6). Un `Board` par planche ; sa scène JSON et sa
 vignette PNG vivent sur disque sous `recordings/<uuid>/boards/`, jamais en base — seul le
@@ -683,7 +684,7 @@ publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec
 ## 11. Build, packaging & exécution
 
 - **Build dev** : `swift build` (Debug) — `run.sh` lance `swift run -c release OneToOne`.
-- **Packaging** : `Scripts/bump-and-build.sh [dev|prod]` — bumpe `CFBundleVersion` (= nombre
+- **Packaging** : `Scripts/bump-and-build.sh` (`dev` ou `prod`) — bumpe `CFBundleVersion` (= nombre
   de commits), build SwiftPM, **empaquette le binaire dans un bundle `.app`** (le projet n'a
   pas de cible app Xcode), embarque le bundle de ressources SwiftPM, **récupère et embarque
   le `default.metallib` MLX** (sinon crash GPU), signe ad-hoc, installe dans
@@ -700,7 +701,7 @@ publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec
 Testing et XCTest. Couverture orientée **logique pure et services** — les vues SwiftUI ne sont
 pas montées, mais quelques suites **relisent les sources** (`#filePath`) pour vérifier ce qui
 ne se teste pas autrement : un modifieur de mise en page, l'absence d'une condition, l'unicité
-d'une déclaration de raccourci (`MeetingShortcutsTests`, `RefonteFinitionsTests`,
+d'une déclaration de raccourci (`MeetingShortcutsTests`, `Tests/RefonteFinitionsTests.swift`,
 `ReviewStateTests`) :
 
 - **STT / diarisation** : `TurnMergerTests`, `CanonicalizeClustersTests`,
@@ -722,8 +723,8 @@ d'une déclaration de raccourci (`MeetingShortcutsTests`, `RefonteFinitionsTests
   `SpotlightCollaboratorIndexTests`, `PrepCarryoverServiceTests`,
   `PrepCheckboxCompatTests`, `SentenceContextExtractorTests`, `SwiftDataTests`.
 - **Écran de réunion (refonte)** : `MeetingScreenModelTests` (état d'écran),
-  `MeetingSpaceRoutingTests`, `ReviewStateTests`, `MeetingShortcutsTests` (table §1.4),
-  `RefonteFinitionsTests`, `MeetingMenuActionsTests`, `SessionNoChromeTests`,
+  `ReviewStateTests`, `MeetingShortcutsTests` (table §1.4),
+  `Tests/RefonteFinitionsTests.swift`, `MeetingMenuActionsTests`, `SessionNoChromeTests`,
   `ActionsRailGroupingTests`, `CaptureStripModelTests`, `BoardStoreTests`,
   `OneOnOneBackupTests`, `SchemaV3MigrationTests`, `RefonteVague5IntegrationTests`.
 
@@ -742,8 +743,8 @@ bloquants**) :
   - `Project` (40+ propriétés ; doublon `chefDeProjet: String` vs `projectManager: Collaborator?`).
   - Vues monolithiques : `MeetingView` (~2 050 l. — un **routeur** depuis la refonte, mais
     encore le plus gros fichier de `Views/` : il porte le routage d'espace, la fabrique de
-    `MeetingMenuActions` et six présentations), `DetailsViews` (~2 670 l.),
-    `Sidebar` (~1 890 l., regroupe sidebar + dashboard + helpers), `SettingsView` (~1 200 l.).
+    `MeetingMenuActions` et six présentations), `DetailsViews.swift` (~2 670 l.),
+    `Sidebar.swift` (~1 890 l., regroupe sidebar + dashboard + helpers), `SettingsView` (~1 200 l.).
     → candidats à un découpage par responsabilité.
 - **Duplication** : palette de couleurs navy/cream dupliquée entre `ReportThemeCSS` et
   `ReportHTMLBuilder.inlineForOutlook` ; plusieurs `DateFormatter` recréés à chaque accès au
@@ -762,7 +763,7 @@ bloquants**) :
   seule intention ne pouvait pas retirer : `Services/Agent/`, `MailBrowserView`,
   `AnthropicOAuthClient`, `RAGChatView`, `ManagerCRGenerator`, `MickeyIntegration`,
   `ReportThemeCSS`, `MailSuggestionService`, `ManagerActionReviewSheet`,
-  `CollaboratorEntity`/`StartOneToOneIntent`, `ExternalServices`, `SessionPillHost`,
+  `CollaboratorEntity`/`StartOneToOneIntent`, `ExternalServices`, `SessionPillHostModifier`,
   `CollaboratorTopBarModel`. Un lot dédié, à arbitrer.
 - **`AppSettings.rightSidebarLayoutJSON`** — colonne sans lecteur depuis le lot 19a ; elle
   partira avec la prochaine version de schéma, pas avant (une suppression de colonne casse la
@@ -772,8 +773,8 @@ bloquants**) :
   table, l'ancien mécanisme reste **lu** en Historique. `ReportOptionalBlocks.escape`
   duplique `ReportHTMLBuilder.escape`.
 - **Atteignable mais orphelin** — `ActionsViewMode.kanban` / `.sticky` (encore servis par
-  `ActionsListView`, hors écran de réunion), `MeetingSlidesPopover` (sans appelant depuis le
-  lot 6), `CaptureSource.region` (dans le modèle, jamais écrit).
+  `ActionsListView`, hors écran de réunion), `CaptureSource.region` (dans le modèle, jamais
+  écrit). Le popover MeetingSlidesPopover qu'évoquait cette liste a depuis été retiré.
 - **`Commitment.linkedAction` n'est pas sauvegardée** — `ActionTask` n'expose pas d'identité
   stable et relier par titre créerait de faux liens entre deux actions homonymes.
 - **Recette visuelle** — les douze écrans restent à recapturer avec le binaire de la pile
@@ -787,5 +788,5 @@ bloquants**) :
 ---
 
 *Dernière mise à jour : 2026-09-08 (lot 19c : §5, §8, §9, §12 et §13 remis en accord avec le
-code — le document annonçait encore `SchemaV1`, le modèle `Interview`, sept onglets de réunion
+code — le document annonçait encore `SchemaV1`, le modèle « Interview », sept onglets de réunion
 et 42 fichiers de tests).*

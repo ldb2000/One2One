@@ -16,6 +16,18 @@ code_documente:
 # Types système, modules SwiftPM et termes d'interface cités dans la doc et qui n'ont pas de
 # déclaration dans les sources ; chaque entrée est un choix conscient.
 symboles_externes:
+  - ModelContainer
+  - WindowGroup
+  - NavigationSplitView
+  - String
+  - Array
+  - DateFormatter
+  - MigrationStage
+  - OneToOne
+  - OneToOneTests
+  - SpeechVAD
+  - ReportTemplating
+  - ExternalServices
 
 documents:
   - chemin: docs/README.md
@@ -39,7 +51,8 @@ documents:
       - "13. Observations architecturales & dette technique"
   - chemin: docs/decisions.md
     public: développeur
-    role: registre généré par Scripts/generer-decisions.py depuis docs/adr/*.md
+    role: registre généré depuis docs/adr/*.md
+    genere_par: Scripts/generer-decisions.py
   - chemin: docs/glossaire.md
     public: développeur
     role: termes métier français ↔ symboles Swift
