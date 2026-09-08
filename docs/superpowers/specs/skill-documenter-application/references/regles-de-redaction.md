@@ -21,6 +21,6 @@
 
 ## Vérification avant commit
 1. `test -e <chemin>` pour chaque chemin ajouté.
-2. `grep -rn "\b\(struct\|class\|enum\|actor\|protocol\)\s\+<Symbole>\b" <sources>` pour chaque symbole ajouté.
+2. `grep -rn "\b\(struct\|class\|enum\|actor\|protocol\|typealias\)\s\+<Symbole>\b" <sources>` pour chaque symbole ajouté.
 3. La commande `tests` du manifeste est verte.
 4. L'index référence le document.
