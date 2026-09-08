@@ -89,11 +89,13 @@ struct MeetingCommands: Commands {
             Divider()
             // Recette de la refonte : sème la réunion de la capture
             // `1a-cockpit.png` (6 participants, 12 actions dont 9 non
-            // assignées, 3 décisions, 5 risques). Idempotent — cliquer deux
-            // fois ne duplique rien.
+            // assignées, 3 décisions, 5 risques), complétée de ce que
+            // `1c-poste-de-pilotage.png` ajoute (décisions horodatées à
+            // porteur, thèmes, fil du projet). Idempotent — cliquer deux fois
+            // ne duplique rien.
             Button("Charger le jeu de démonstration (refonte)") {
                 guard let demoContext else { return }
-                let reunion = RefonteDemoSeed.seed(in: demoContext)
+                let reunion = RefonteDemoSeed.seedLot5(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false

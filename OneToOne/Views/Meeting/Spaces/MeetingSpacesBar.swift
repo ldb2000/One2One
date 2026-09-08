@@ -41,6 +41,23 @@ struct MeetingSpacesBar: View {
         }
     }
 
+    /// La barre est-elle masquée pour ce couple espace/mode ?
+    ///
+    /// Le **poste de pilotage** (espace Réunion, mode Relire) remplace la barre
+    /// d'espaces par sa nav latérale de 190 px : c'est la décision D0 du
+    /// programme, et la capture `1c-poste-de-pilotage.png` ne montre aucune
+    /// barre. Le sélecteur de mode déménage dans l'en-tête de sa colonne
+    /// principale (`ReviewHeader`).
+    ///
+    /// Le masquage est **borné à l'espace Réunion**, et c'est le point qui
+    /// compte : en mode Relire, l'espace Rapport et l'espace Ressources n'ont
+    /// pas de nav latérale, et sans barre on s'y retrouverait sans rien pour en
+    /// sortir.
+    static func estMasquee(space: MeetingScreenModel.Space,
+                           mode: MeetingScreenModel.Mode) -> Bool {
+        space == .meeting && mode == .review
+    }
+
     /// `4 sept. 2026 · 9:15` — la forme de la capture. Le point médian sépare
     /// la date de l'heure ; `locale` est un paramètre pour que le test ne
     /// dépende pas des réglages du poste.
@@ -61,6 +78,14 @@ struct MeetingSpacesBar: View {
     @Namespace private var underlineNS
 
     var body: some View {
+        if Self.estMasquee(space: screen.space, mode: screen.mode) {
+            EmptyView()
+        } else {
+            barre
+        }
+    }
+
+    private var barre: some View {
         HStack(spacing: 22) {
             ForEach(MeetingSpaceRouting.spaces(for: kind), id: \.self) { space in
                 spaceTab(space)

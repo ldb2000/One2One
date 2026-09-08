@@ -349,4 +349,9 @@ final class MeetingScreenModel {
     /// parallèles ajoutent tous « en fin de type », et c'est ce geste qui a
     /// produit six conflits à l'intégration des lots 2 et 3.
     var session = SessionFullscreenState()
+
+    // MARK: - Lot 5 : poste de pilotage
+
+    /// L'état d'écran du mode Relire (`ReviewState`, spec §2.7).
+    var review = ReviewState()
 }

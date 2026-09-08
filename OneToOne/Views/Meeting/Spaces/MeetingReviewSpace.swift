@@ -1,200 +1,149 @@
 import SwiftUI
+import SwiftData
 
-/// Le mode Relire de l'espace Réunion : « Résumé + décisions + tableau
-/// d'actions ; transcription repliée » (spec §2.2).
+/// Le mode Relire de l'espace Réunion : le **poste de pilotage** de la capture
+/// `1c-poste-de-pilotage.png` (spec §2.7, décision D0 du programme).
 ///
-/// C'est la disposition que la décision **D0** identifie au « poste de
-/// pilotage » de la capture `1c-poste-de-pilotage.png` : le contenu de 1c —
-/// une phrase, les décisions prises, le tableau d'actions, pas de
-/// transcription — est exactement la définition du mode Relire.
+/// « Les onglets deviennent un rail latéral, l'écran devient un tableau de bord
+/// tabulaire dense, l'audio est une frise en pied d'écran commune à tout
+/// l'écran. » La disposition est donc : nav latérale de 190 px à gauche
+/// (qui **remplace** la barre d'espaces dans ce mode), colonne principale
+/// fluide à droite — en-tête, `EN UNE PHRASE` et `DÉCISIONS PRISES` côte à
+/// côte, tableau d'actions —, barre d'assistant puis frise audio en pied.
 ///
-/// **Contenu provisoire** : la nav latérale de 190 px, le tableau dense à sept
-/// colonnes et la frise audio pleine largeur arrivent au lot 5 ; la liste
-/// d'actions est ici celle qui existe déjà, injectée par `MeetingView`.
-struct MeetingReviewSpace<Actions: View>: View {
-    let meeting: Meeting
-    let kpi: MeetingKPI
-    /// Vrai pendant la génération du résumé.
+/// Rien n'est monté deux fois : la vue ne fabrique aucune carte elle-même, elle
+/// assemble `ReviewSidebarNav`, `ReviewHeader`, `OneSentenceCard`,
+/// `DecisionsCard`, `ActionsTable`, `MeetingAssistantDock` et
+/// `ReviewAudioTimeline`. Le contenu provisoire du lot 1 — trois cartes locales
+/// et une liste d'actions injectée par `MeetingView` — a disparu.
+struct MeetingReviewSpace: View {
+
+    @Bindable var meeting: Meeting
+    let screen: MeetingScreenModel
+    let settings: AppSettings
+    /// Les collaborateurs, pour les sélecteurs de responsable du tableau.
+    let allCollaborators: [Collaborator]
+    /// Réunions connues : le bloc projet de la nav et les suggestions de
+    /// l'assistant.
+    let historique: [Meeting]
+    /// Les actions secondaires de la réunion (export, édition audio, rapport).
+    let menuActions: MeetingMenuActions
+    /// Vrai pendant la génération du résumé court.
     let isSummarizing: Bool
-    /// Lance la génération du résumé en une phrase.
+    /// Le panneau d'assistant est ouvert (partagé avec `⌘K`).
+    @Binding var isAssistantOpen: Bool
+
     let onSummarize: () -> Void
-    /// Repasse en mode En séance, où la transcription est dépliée.
-    let onShowTranscript: () -> Void
-    @ViewBuilder let actions: Actions
+    let onOpenMeeting: (PersistentIdentifier) -> Void
+    let onToggleAction: (PersistentIdentifier) -> Void
+    /// Ouvre la galerie de captures, ou sa configuration s'il n'y en a aucune.
+    let onShowCaptures: () -> Void
+
+    @Environment(\.modelContext) private var context
+
+    /// Les captures de la réunion : elles vivent sous les pièces jointes de
+    /// type `slides`, pas directement sur la réunion.
+    private var capturesCount: Int {
+        meeting.attachments.flatMap(\.slides).count
+    }
 
     var body: some View {
-        ScrollView {
+        HStack(alignment: .top, spacing: 0) {
+            ReviewSidebarNav(meeting: meeting,
+                             screen: screen,
+                             historique: historique,
+                             onOpenMeeting: onOpenMeeting,
+                             onOpenAssistant: { isAssistantOpen = true })
+            Rectangle()
+                .fill(One2OneToken.cardBorder)
+                .frame(width: MeetingSpaceLayout.hairlineWidth)
+            colonnePrincipale
+        }
+        .background(One2OneToken.bgCanvas)
+    }
+
+    // MARK: - Colonne principale
+
+    private var colonnePrincipale: some View {
+        VStack(spacing: 0) {
+            ReviewHeader(meeting: meeting,
+                         screen: screen,
+                         menuActions: menuActions,
+                         capturesCount: capturesCount,
+                         onShowCaptures: onShowCaptures)
+            corps
+            MeetingAssistantDock(meeting: meeting,
+                                 historique: historique,
+                                 isOpen: $isAssistantOpen)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
+            ReviewAudioTimeline(meeting: meeting,
+                                screen: screen,
+                                menuActions: menuActions)
+        }
+        // `min-width: 0` de la spec §1.2 : sans cela l'ellipsis du titre et des
+        // intitulés d'action ne fonctionne pas, et la colonne pousse la nav
+        // hors de l'écran.
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Le corps défilant. Les ancres portent les sections de la nav latérale :
+    /// cliquer `Notes` ou `Actions` amène la carte correspondante sous les
+    /// yeux, au lieu de changer d'écran.
+    private var corps: some View {
+        ScrollViewReader { defilement in
+            ScrollView {
+                VStack(alignment: .leading, spacing: One2OneToken.cardGap) {
+                    hautDeColonne
+                        .id(ReviewState.Section.synthese)
+                    ActionsTable(meeting: meeting,
+                                 screen: screen,
+                                 allCollaborators: allCollaborators,
+                                 onSeek: { screen.playhead.seek(to: $0) },
+                                 onToggle: { onToggleAction($0.persistentModelID) },
+                                 onSave: { try? context.save() })
+                        .id(ReviewState.Section.actions)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+            }
+            .onChange(of: screen.review.section) { _, section in
+                // Deux ancres seulement : `Notes` et `Transcription` ne
+                // défilent pas, elles ramènent en mode En séance
+                // (`Section.changeDeMode`), et les autres entrées changent
+                // d'espace ou ouvrent le dock.
+                let cible: ReviewState.Section = (section == .actions) ? .actions : .synthese
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    defilement.scrollTo(cible, anchor: .top)
+                }
+            }
+        }
+    }
+
+    /// `EN UNE PHRASE` et `DÉCISIONS PRISES` côte à côte, comme la capture. En
+    /// dessous de 900 px, elles s'empilent : deux cartes de 430 px dans une
+    /// colonne fluide de 520 px (le plancher du critère n° 5) ne laisseraient
+    /// lire ni l'une ni l'autre.
+    private var hautDeColonne: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: One2OneToken.cardGap) {
+                OneSentenceCard(meeting: meeting,
+                                settings: settings,
+                                isSummarizing: isSummarizing,
+                                onSummarize: onSummarize)
+                    .frame(minWidth: 420)
+                DecisionsCard(meeting: meeting,
+                              onSeek: { screen.playhead.seek(to: $0) })
+                    .frame(minWidth: 340)
+            }
             VStack(alignment: .leading, spacing: One2OneToken.cardGap) {
-                enUnePhrase
-                decisionsPrises
-                actionsSection
-                transcriptionRepliee
-            }
-            .padding(14)
-        }
-    }
-
-    // MARK: - En une phrase
-
-    private var enUnePhrase: some View {
-        carte {
-            HStack(spacing: 7) {
-                Text("EN UNE PHRASE").sectionLabel()
-                if !meeting.shortSummary.isEmpty {
-                    Chip("généré", ton: .action)
-                }
-                Spacer(minLength: 0)
-                if isSummarizing {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            if meeting.shortSummary.isEmpty {
-                MeetingEmptyInvite(
-                    titre: "Pas encore de résumé",
-                    invite: "Une phrase suffit à retrouver cette réunion dans six mois — générez-la depuis la transcription.",
-                    libelleAction: isSummarizing ? nil : "Résumer",
-                    action: isSummarizing ? nil : onSummarize
-                )
-            } else {
-                Text(meeting.shortSummary)
-                    .font(.plexSans(12.5))
-                    .foregroundStyle(One2OneToken.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !meeting.tags.isEmpty {
-                    HStack(spacing: 5) {
-                        ForEach(meeting.tags) { tag in
-                            Chip(tag.name, ton: .neutre)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                }
+                OneSentenceCard(meeting: meeting,
+                                settings: settings,
+                                isSummarizing: isSummarizing,
+                                onSummarize: onSummarize)
+                DecisionsCard(meeting: meeting,
+                              onSeek: { screen.playhead.seek(to: $0) })
             }
         }
-    }
-
-    // MARK: - Décisions prises
-
-    private var decisionsPrises: some View {
-        carte {
-            HStack(spacing: 7) {
-                Text("DÉCISIONS PRISES").sectionLabel()
-                MonoMeta("\(kpi.decisions.count)", emphase: kpi.decisions.count > 0)
-                Spacer(minLength: 0)
-            }
-            if meeting.decisions.isEmpty {
-                MeetingEmptyInvite(
-                    titre: "Aucune décision consignée",
-                    invite: "Tapez /décision dans les notes pendant la séance, ou ajoutez-les depuis le rapport."
-                )
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(meeting.decisions.enumerated()), id: \.offset) { index, texte in
-                        HStack(alignment: .top, spacing: 8) {
-                            // Barre gauche `accent/report` : la marque des
-                            // décisions dans toute la refonte (spec §2.4).
-                            Rectangle()
-                                .fill(One2OneToken.report)
-                                .frame(width: 2)
-                            Text(texte)
-                                .font(.plexSans(12.5))
-                                .foregroundStyle(One2OneToken.ink2)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, One2OneToken.tableRowPaddingV)
-                        if index < meeting.decisions.count - 1 {
-                            Rectangle().fill(One2OneToken.hair).frame(height: 1)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Actions
-
-    private var actionsSection: some View {
-        carte {
-            HStack(spacing: 7) {
-                Text("ACTIONS").sectionLabel()
-                MonoMeta("\(kpi.actions.total)", emphase: kpi.actions.total > 0)
-                if kpi.actions.unassigned > 0 {
-                    Text("\(kpi.actions.unassigned) sans responsable")
-                        .font(.plexSans(11.5))
-                        .foregroundStyle(One2OneToken.report)
-                }
-                Spacer(minLength: 0)
-            }
-            if kpi.actions.total == 0 {
-                MeetingEmptyInvite(
-                    titre: "Aucune action",
-                    invite: "Le composeur en pied de liste crée une action ; /action dans les notes en crée une horodatée."
-                )
-            }
-            // La liste existante reste affichée même vide : c'est elle qui
-            // porte le composeur, et le retirer priverait l'invite de sa
-            // suite. Le tableau dense à sept colonnes arrive au lot 5.
-            actions
-                .frame(minHeight: 220)
-        }
-    }
-
-    // MARK: - Transcription repliée
-
-    /// « Transcription repliée » (spec §2.2) : elle n'est pas absente, elle est
-    /// à un clic — sinon relire une réunion sans pouvoir vérifier une phrase
-    /// serait un cul-de-sac.
-    private var transcriptionRepliee: some View {
-        carte {
-            HStack(spacing: 7) {
-                Text("TRANSCRIPTION").sectionLabel()
-                if meeting.rawTranscript.isEmpty {
-                    MonoMeta("aucune")
-                } else {
-                    MonoMeta("\(meeting.transcriptSegments.count) segments")
-                }
-                Spacer(minLength: 0)
-                if !meeting.rawTranscript.isEmpty {
-                    Button(action: onShowTranscript) {
-                        Text("Déplier en séance")
-                            .font(.plexSans(10.5, .medium))
-                            .foregroundStyle(One2OneToken.actionInk)
-                            .padding(.horizontal, 9)
-                            .frame(height: 22)
-                            .background(
-                                RoundedRectangle(cornerRadius: One2OneToken.radiusPill)
-                                    .fill(One2OneToken.actionBg)
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            if meeting.rawTranscript.isEmpty {
-                MeetingEmptyInvite(
-                    titre: "Aucune transcription",
-                    invite: "Enregistrez la séance, ou importez un WAV existant depuis le menu ⋯ → Importer."
-                )
-            }
-        }
-    }
-
-    // MARK: - Fabrique de carte
-
-    @ViewBuilder
-    private func carte<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            content()
-        }
-        .padding(One2OneToken.cardPaddingMax)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
-                .fill(One2OneToken.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
-                .strokeBorder(One2OneToken.cardBorder, lineWidth: 1)
-        )
     }
 }

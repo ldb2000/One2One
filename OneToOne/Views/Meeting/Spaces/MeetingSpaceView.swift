@@ -12,9 +12,14 @@ import SwiftData
 ///
 /// **C'est ici, et nulle part ailleurs, que le rail est monté.** Le lot 1
 /// l'avait esquissé dans `MeetingPrepareSpace` ; deux montages produiraient
-/// deux rails dans le même écran, ou aucun selon le mode. Le mode Relire fait
-/// exception : la capture `1c-poste-de-pilotage.png` n'a pas de rail — les
-/// actions y sont un tableau dense de la colonne principale (lot 5).
+/// deux rails dans le même écran, ou aucun selon le mode.
+///
+/// Le mode **Relire** est l'exception, et elle est entière : le poste de
+/// pilotage (`1c-poste-de-pilotage.png`, lot 5) prend toute la surface — sa nav
+/// latérale de 190 px remplace la barre d'espaces, ses actions sont un tableau
+/// dense de la colonne principale, et il monte lui-même son dock d'assistant et
+/// sa frise audio. Il n'y a donc ni bandeau d'indicateurs, ni rail, ni
+/// `colonneFluide` dans ce mode.
 struct MeetingSpaceView: View {
     @Bindable var meeting: Meeting
     let screen: MeetingScreenModel
@@ -23,6 +28,10 @@ struct MeetingSpaceView: View {
     let prepareContext: MeetingPrepareContext
     /// Réunions connues, pour les suggestions de l'assistant.
     let historique: [Meeting]
+    /// Les actions secondaires de la réunion (export, édition audio, rapport),
+    /// que l'en-tête et la frise du mode Relire réemploient. Source de vérité
+    /// unique déjà partagée par le menu `⋯` et les menus natifs.
+    let menuActions: MeetingMenuActions
     /// Vrai si la transcription montre des locuteurs (mode diarisation).
     let showsSpeakerToggle: Bool
     /// Vrai pendant la génération du résumé.
@@ -40,6 +49,8 @@ struct MeetingSpaceView: View {
     let onDiarize: () -> Void
     let onReidentify: () -> Void
     let onAddToManagerReport: (NSRange, String, String) -> Void
+    /// Ouvre la galerie de captures, ou sa configuration s'il n'y en a aucune.
+    let onShowCaptures: () -> Void
 
     /// Les collaborateurs, pour les sélecteurs de responsable du rail.
     /// Interrogés ici plutôt que passés en paramètre : c'est la vue qui monte
@@ -47,46 +58,75 @@ struct MeetingSpaceView: View {
     /// programme §8 interdit.
     @Query(sort: \Collaborator.name) private var allCollaborators: [Collaborator]
 
-    @Environment(\.modelContext) private var context
-
-    /// La largeur souhaitée du rail, `nil` quand il n'y en a pas.
-    private var largeurDuRail: CGFloat? {
-        screen.mode == .review ? nil : One2OneToken.actionsRailWidth
+    var body: some View {
+        contenu
+            // Le point d'entrée du mode séance plein écran (lot 4, spec §2.6) :
+            // une seule pose dans l'application. Il substitue le contenu de la
+            // fenêtre, la barre du haut de `MeetingView` comprise — d'où sa
+            // place ici et non dans une colonne. `estEligible` le réserve au
+            // mode En séance : le poste de pilotage du lot 5 n'a pas de plein
+            // écran, et l'offrir depuis Relire ouvrirait un écran de séance
+            // sur une réunion terminée.
+            .sessionFullscreen(meeting: meeting,
+                               screen: screen,
+                               settings: settings,
+                               estEligible: screen.mode == .live,
+                               onOpenMeeting: onOpenMeeting,
+                               onDiarize: onDiarize,
+                               onReidentify: onReidentify)
     }
 
-    var body: some View {
-        GeometryReader { geo in
-            let colonnes = MeetingSpaceLayout.columns(totalWidth: geo.size.width,
-                                                      rail: largeurDuRail,
-                                                      sideNav: nil)
-            HStack(alignment: .top, spacing: 0) {
-                colonneFluide
-                    .frame(width: colonnes.fluid)
-                if colonnes.rail > 0 {
-                    Rectangle()
-                        .fill(One2OneToken.hair)
-                        .frame(width: MeetingSpaceLayout.hairlineWidth)
-                    ActionsRail(meeting: meeting,
-                                screen: screen,
-                                allCollaborators: allCollaborators,
-                                onSeek: { screen.playhead.seek(to: $0) },
-                                reduit: screen.mode == .prepare)
-                        .frame(width: colonnes.rail - MeetingSpaceLayout.hairlineWidth)
+    /// Le contenu de l'espace : le poste de pilotage seul en mode Relire, les
+    /// deux colonnes — fluide et rail de 330 px — partout ailleurs.
+    ///
+    /// Extrait de `body` à l'intégration de la vague 4 : les points d'entrée
+    /// des lots 4 et 6 se posent en modificateurs sur l'espace entier, et le
+    /// mode Relire du lot 5 remplace le corps de la vue. Sans ce découpage,
+    /// il faudrait répéter chaque modificateur dans les deux branches.
+    @ViewBuilder
+    private var contenu: some View {
+        if screen.mode == .review {
+            posteDePilotage
+        } else {
+            GeometryReader { geo in
+                let colonnes = MeetingSpaceLayout.columns(totalWidth: geo.size.width,
+                                                          rail: One2OneToken.actionsRailWidth,
+                                                          sideNav: nil)
+                HStack(alignment: .top, spacing: 0) {
+                    colonneFluide
+                        .frame(width: colonnes.fluid)
+                    if colonnes.rail > 0 {
+                        Rectangle()
+                            .fill(One2OneToken.hair)
+                            .frame(width: MeetingSpaceLayout.hairlineWidth)
+                        ActionsRail(meeting: meeting,
+                                    screen: screen,
+                                    allCollaborators: allCollaborators,
+                                    onSeek: { screen.playhead.seek(to: $0) },
+                                    reduit: screen.mode == .prepare)
+                            .frame(width: colonnes.rail - MeetingSpaceLayout.hairlineWidth)
+                    }
                 }
             }
+            .background(One2OneToken.bgCanvas)
         }
-        .background(One2OneToken.bgCanvas)
-        // Le point d'entrée du mode séance plein écran (lot 4, spec §2.6) :
-        // une seule pose dans l'application. Il substitue le contenu de la
-        // fenêtre, la barre du haut de `MeetingView` comprise — d'où sa place
-        // ici et non dans une colonne.
-        .sessionFullscreen(meeting: meeting,
+    }
+
+    /// Le mode Relire prend toute la surface : il porte sa propre navigation,
+    /// son en-tête, son dock et sa frise (lot 5, capture 1c).
+    private var posteDePilotage: some View {
+        MeetingReviewSpace(meeting: meeting,
                            screen: screen,
                            settings: settings,
-                           estEligible: screen.mode == .live,
+                           allCollaborators: allCollaborators,
+                           historique: historique,
+                           menuActions: menuActions,
+                           isSummarizing: isSummarizing,
+                           isAssistantOpen: $isAssistantOpen,
+                           onSummarize: onSummarize,
                            onOpenMeeting: onOpenMeeting,
-                           onDiarize: onDiarize,
-                           onReidentify: onReidentify)
+                           onToggleAction: onToggleAction,
+                           onShowCaptures: onShowCaptures)
     }
 
     /// La colonne de gauche : indicateurs, contenu du mode, assistant.
@@ -94,8 +134,9 @@ struct MeetingSpaceView: View {
         VStack(spacing: One2OneToken.cardGap) {
             // Le bandeau n'a pas de sens en préparation : rien n'a encore été
             // dit, et la spec §2.2 ne le mentionne que pour En séance
-            // (« KPI condensés en bandeau ») et Relire.
-            if screen.mode != .prepare {
+            // (« KPI condensés en bandeau »). Le mode Relire ne passe plus
+            // ici : il a ses propres cartes.
+            if screen.mode == .live {
                 MeetingKPIBand(
                     kpi: kpi,
                     onManageParticipants: onManageParticipants,
@@ -136,21 +177,10 @@ struct MeetingSpaceView: View {
                              onAddToManagerReport: onAddToManagerReport)
                 .padding(.horizontal, 14)
         case .review:
-            MeetingReviewSpace(meeting: meeting,
-                               kpi: kpi,
-                               isSummarizing: isSummarizing,
-                               onSummarize: onSummarize,
-                               onShowTranscript: { screen.mode = .live },
-                               actions: {
-                                   // Sans rail en mode Relire, c'est la même
-                                   // liste éditable qui sert — le tableau
-                                   // dense de la capture 1c arrive au lot 5.
-                                   ActionsRailList(meeting: meeting,
-                                                   allCollaborators: allCollaborators,
-                                                   onSeek: { screen.playhead.seek(to: $0) },
-                                                   onToggle: { onToggleAction($0.id) },
-                                                   onSave: { try? context.save() })
-                               })
+            // Inatteignable : le mode Relire est routé en amont, hors de la
+            // colonne fluide. `MeetingScreenModel.Mode` étant exhaustive, le
+            // compilateur exige tout de même le cas.
+            EmptyView()
         }
     }
 }

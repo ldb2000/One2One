@@ -16,7 +16,46 @@ struct AudioTimelineStrip: View {
     let meeting: Meeting
     let screen: MeetingScreenModel
 
+    /// Bande d'étiquettes au-dessus des marqueurs (spec §2.7, capture
+    /// `1c-poste-de-pilotage.png` : `04:12`, `DÉCISION`, `15:20`).
+    ///
+    /// Défaut `false` : la frise de 22 px du mode En séance (lot 2) ne change
+    /// pas d'un pixel. C'est le poste de pilotage qui l'allume, sa frise étant
+    /// pleine largeur et en pied d'écran.
+    var labelled: Bool = false
+
     @State private var peaks: [Float] = []
+
+    /// Hauteur totale de la frise, bande d'étiquettes comprise.
+    static func hauteur(labelled: Bool) -> CGFloat {
+        AudioTimelineGeometry.height + 12
+            + (labelled ? TimelineLabelLayout.hauteur : 0)
+    }
+
+    /// Les marqueurs à étiqueter, dans l'ordre du temps.
+    ///
+    /// Une décision porte le mot `DÉCISION` (c'est ce qu'on cherche en
+    /// relisant), les notes et les risques leur timecode. Les captures et les
+    /// planches sont **écartées** : leur carré se lit déjà, et une étiquette
+    /// par vignette saturerait la frise.
+    static func candidats(_ markers: [MeetingPlayhead.Marker]) -> [TimelineLabelLayout.Candidat] {
+        markers
+            .sorted { $0.t < $1.t }
+            .compactMap { repere in
+                switch repere.kind {
+                case .decision:
+                    return TimelineLabelLayout.Candidat(t: repere.t,
+                                                        texte: "DÉCISION",
+                                                        estDecision: true)
+                case .note, .risk:
+                    return TimelineLabelLayout.Candidat(t: repere.t,
+                                                        texte: TimecodeLabel.format(repere.t),
+                                                        estDecision: false)
+                case .capture, .board:
+                    return nil
+                }
+            }
+    }
 
     private var playhead: MeetingPlayhead { screen.playhead }
 
@@ -42,7 +81,7 @@ struct AudioTimelineStrip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .frame(height: AudioTimelineGeometry.height + 12)
+        .frame(height: Self.hauteur(labelled: labelled))
         .overlay(alignment: .top) {
             Rectangle().fill(One2OneToken.hair).frame(height: 1)
         }
@@ -51,6 +90,45 @@ struct AudioTimelineStrip: View {
     private var piste: some View {
         GeometryReader { geo in
             let largeur = geo.size.width
+            VStack(spacing: 0) {
+                if labelled {
+                    etiquettes(largeur: largeur)
+                }
+                pisteSeule(largeur: largeur)
+            }
+        }
+        .frame(height: labelled
+               ? AudioTimelineGeometry.height + TimelineLabelLayout.hauteur
+               : AudioTimelineGeometry.height)
+    }
+
+    /// La bande d'étiquettes du mode `labelled`, alignée sur les marqueurs.
+    private func etiquettes(largeur: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            ForEach(TimelineLabelLayout.placer(Self.candidats(playhead.markers),
+                                                duration: duration,
+                                                width: largeur)) { etiquette in
+                Text(etiquette.texte)
+                    .font(.plexMono(9.5, .medium))
+                    .foregroundStyle(etiquette.estDecision
+                                     ? One2OneToken.reportInk
+                                     : One2OneToken.actionInk)
+                    .frame(width: etiquette.largeur)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(etiquette.estDecision
+                                  ? One2OneToken.reportBg
+                                  : One2OneToken.actionBg)
+                    )
+                    .offset(x: etiquette.centre - etiquette.largeur / 2)
+            }
+        }
+        .frame(width: largeur, height: TimelineLabelLayout.hauteur, alignment: .leading)
+    }
+
+    private func pisteSeule(largeur: CGFloat) -> some View {
+        Group {
             ZStack(alignment: .leading) {
                 Canvas { ctx, size in dessiner(ctx: ctx, size: size) }
                 if !hasAudio {
@@ -73,7 +151,6 @@ struct AudioTimelineStrip: View {
                 await chargerOnde(largeur: largeur)
             }
         }
-        .frame(height: AudioTimelineGeometry.height)
     }
 
     /// Identité de la tâche de chargement : le fichier **et** la largeur. Sans
