@@ -10,11 +10,25 @@ struct SegmentedMode<Valeur: Hashable>: View {
     @Binding var selection: Valeur
     let options: [Valeur]
     let libelle: (Valeur) -> String
+    /// Taille du libellé. Par défaut la **pilule** de §1.2 (10 → 10,5 px), qui
+    /// est ce que sont les sélecteurs internes à un panneau — filtre du tiroir
+    /// Ressources, vues du tableau d'actions.
+    ///
+    /// La barre d'espaces demande 11,5 → 12 px : `Préparer / En séance / Relire`
+    /// n'y est pas un filtre mais le **mode de l'écran**, et la capture
+    /// `1a-cockpit.png` le montre à la taille d'un titre de carte. Rendu à
+    /// 10,5 px, il se lisait comme un réglage secondaire (retour d'usage du
+    /// 2026-09-08).
+    let taille: CGFloat
     @Environment(\.one2OneTheme) private var theme
 
-    init(selection: Binding<Valeur>, options: [Valeur], libelle: @escaping (Valeur) -> String) {
+    init(selection: Binding<Valeur>,
+         options: [Valeur],
+         taille: CGFloat = 10.5,
+         libelle: @escaping (Valeur) -> String) {
         self._selection = selection
         self.options = options
+        self.taille = taille
         self.libelle = libelle
     }
 
@@ -26,7 +40,7 @@ struct SegmentedMode<Valeur: Hashable>: View {
                     selection = option
                 } label: {
                     Text(libelle(option))
-                        .font(.plexSans(10.5, .medium))
+                        .font(.plexSans(taille, .medium))
                         .foregroundStyle(actif ? theme.colors.card : theme.colors.ink3)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 3)

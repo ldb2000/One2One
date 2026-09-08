@@ -15,6 +15,11 @@ import SwiftUI
 /// zone vide ») autrement qu'à la vigilance.
 struct MeetingEmptyInvite: View {
 
+    /// Titre et corps de l'invite, aux tailles de §1.2 (titre de carte 600 ·
+    /// 12 px, corps 400 · 12 px).
+    static let titreSize: CGFloat = 12
+    static let inviteSize: CGFloat = 12
+
     /// Les textes d'invite, par espace et par mode.
     enum Catalogue {
 
@@ -95,11 +100,15 @@ struct MeetingEmptyInvite: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            // §1.2 : titre de carte 600 · 12 px, corps 400 · 12 px. L'invite
+            // était en 11,5 — une demi-taille sous le corps, ce qui la faisait
+            // lire comme une légende alors qu'elle porte la seule consigne de
+            // l'écran (retour d'usage du 2026-09-08).
             Text(titre)
-                .font(.plexSans(12, .semibold))
+                .font(.plexSans(Self.titreSize, .semibold))
                 .foregroundStyle(One2OneToken.ink2)
             Text(invite)
-                .font(.plexSans(11.5))
+                .font(.plexSans(Self.inviteSize))
                 .foregroundStyle(One2OneToken.inkMuted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

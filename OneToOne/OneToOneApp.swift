@@ -80,8 +80,17 @@ struct OneToOneApp: App {
                 // la fenêtre, barre du haut comprise. La racine est donc le
                 // seul endroit qui puisse le monter (cf. `sessionFullscreenHost`).
                 .sessionFullscreenHost()
+                // ⚠️ La fenêtre principale **ne reçoit pas** l'enveloppe de
+                // taille de la fenêtre de réunion : son contenu est un
+                // `NavigationSplitView`, qui borne lui-même ses colonnes, et un
+                // plancher constant l'empêcherait de rouvrir plus petite que ce
+                // plancher. Sa taille est celle que l'utilisateur lui a laissée
+                // (cf. `MainWindowSizing`).
+                .background(MainWindowFrameRestorer())
         }
         .modelContainer(container)
+        .defaultSize(width: MainWindowSizing.defaultWidth,
+                     height: MainWindowSizing.defaultHeight)
         .commands { MeetingCommands() }
 
         WindowGroup(id: "1to1-meeting", for: OneToOneLaunchToken.self) { $token in
@@ -120,6 +129,14 @@ struct ContentView: View {
         NavigationSplitView {
             MainSidebarView()
                 .focusSection()
+                // La barre latérale de la spec §1.2 fait **190 px**. Sans
+                // largeur déclarée, SwiftUI la ramène à ~147 px et les entrées
+                // s'y coupent (« Tableau d… », « Suivi man… ») : c'est l'autre
+                // moitié de la capture du défaut n° 1. Sa position de séparateur
+                // est enregistrée sous la même clé instable que le cadre de la
+                // fenêtre — elle ne peut donc pas être restaurée, et c'est cette
+                // largeur idéale qui sert de repli.
+                .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 320)
         } detail: {
             DashboardView()
                 .focusSection()
@@ -683,6 +700,120 @@ enum MeetingWindowSizing {
     /// Taille d'ouverture par défaut, celle des captures de la spec.
     static let idealWidth: CGFloat = 1_280
     static let idealHeight: CGFloat = 800
+}
+
+/// La taille de la **fenêtre principale** : pourquoi elle avait cessé d'être
+/// restaurée, et pourquoi ce n'est pas celle de la fenêtre de réunion (retour
+/// d'usage du 2026-09-08).
+///
+/// La fenêtre s'ouvrait à ~1 660 × 540, barre latérale écrasée. Deux causes,
+/// enchaînées, et il fallait corriger les deux.
+///
+/// **1. Le cadre enregistré était devenu introuvable.** SwiftUI enregistre le
+/// cadre d'une fenêtre de `WindowGroup` sous un nom qu'il **dérive du type de la
+/// vue racine**. Le nom réellement écrit dans les préférences est :
+///
+/// ```
+/// NSWindow Frame SwiftUI.ModifiedContent<…OneToOne.ContentView…,
+///   OneToOne.(unknown context at $1030392a8).SessionFullscreenHostModifier>-1-AppWindow-1
+/// ```
+///
+/// `$1030392a8` est une **adresse**. Le modificateur de l'hôte du mode séance
+/// est un type `private`, dont le nom manglé n'est pas symbolique : il porte
+/// l'adresse de son contexte, que l'ASLR change à chaque lancement. Deux clés
+/// pour la même chaîne de vues ont été relevées dans le même fichier de
+/// préférences, différant par cette seule adresse. Autrement dit : depuis que le
+/// correctif #42 a inséré un type privé dans la chaîne, **chaque lancement
+/// cherche son cadre sous une clé que le lancement précédent n'a pas écrite**.
+/// Avant #42 la chaîne ne portait que des types publics (`ContentView`,
+/// `_PreferenceWritingModifier`, `_EnvironmentKeyWritingModifier`), le nom était
+/// stable, et la restauration marchait — c'est exactement ce que l'utilisateur
+/// décrit : « avant la refonte elle rouvrait à sa taille sauvegardée ».
+///
+/// **2. Le repli était pathologique.** Sans cadre à restaurer, la fenêtre se
+/// dimensionne sur son contenu — et l'hôte enveloppait ce contenu dans un
+/// `ZStack`, qui mesure ses enfants et porte la taille du résultat. Le
+/// `NavigationSplitView` cessait d'être la racine de la fenêtre, laquelle
+/// prenait la taille *idéale mesurée* du tableau de bord et de sa carte de
+/// 52 semaines : large et courte, 1 660 × 540. L'hôte pose désormais une
+/// **surimpression** (cf. `SessionFullscreenHost`), qui laisse le contenu porter
+/// sa taille.
+///
+/// D'où les deux constantes ci-dessous : une clé de préférence **écrite à la
+/// main**, donc stable quoi qu'on ajoute plus tard à la scène, et une taille de
+/// premier lancement — 1 280 × 800, celle des captures de la spec ; sous cela la
+/// barre latérale de 190 px et le tableau de bord ne tiennent pas ensemble.
+enum MainWindowSizing {
+    static let defaultWidth: CGFloat = 1_280
+    static let defaultHeight: CGFloat = 800
+    /// Clé du cadre enregistré. **Ne pas la changer** : c'est sous elle que la
+    /// taille des utilisateurs actuels est écrite.
+    static let frameKey = "OneToOne.mainWindowFrame"
+}
+
+/// Enregistre et restaure le cadre de la fenêtre principale, sous une clé de
+/// notre choix.
+///
+/// **Pourquoi pas le nom d'enregistrement de cadre d'AppKit.** C'était le
+/// premier essai, et la
+/// recette l'a démenti : SwiftUI **repose** son propre nom d'enregistrement
+/// après le passage de `viewDidMoveToWindow`. Le nom écrit à la main était
+/// remplacé, la clé instable revenait, et rien n'était restauré — le défaut
+/// intact. Se disputer la propriété du nom avec SwiftUI, à chaque mise à jour de
+/// vue, n'a pas de vainqueur prévisible.
+///
+/// On fait donc le travail nous-mêmes : lecture au moment où la vue rejoint sa
+/// fenêtre, écriture à chaque déplacement et à chaque redimensionnement.
+/// Vingt lignes, une clé constante, aucune dépendance à ce que SwiftUI décide de
+/// nommer. Sa clé instable continue d'être écrite à côté — sans lecteur, elle ne
+/// gêne personne.
+///
+/// L'ordre tient : SwiftUI donne sa taille à la fenêtre à la création — donc la
+/// taille de `defaultSize`, faute de cadre trouvé sous **sa** clé — et
+/// `viewDidMoveToWindow` passe après. La restauration est bien le dernier mot.
+private struct MainWindowFrameRestorer: NSViewRepresentable {
+
+    func makeNSView(context: Context) -> NSView { Restorer() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class Restorer: NSView {
+
+        private var observations: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observations.forEach(NotificationCenter.default.removeObserver)
+            observations = []
+            guard let window else { return }
+            restaurer(window)
+            for nom in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+                observations.append(NotificationCenter.default.addObserver(
+                    forName: nom, object: window, queue: .main
+                ) { notification in
+                    guard let fenetre = notification.object as? NSWindow else { return }
+                    // Jamais en plein écran : le cadre y est celui de l'écran,
+                    // et le restaurer rouvrirait l'application à la taille de
+                    // l'écran sans en avoir la barre de titre.
+                    guard !fenetre.styleMask.contains(.fullScreen) else { return }
+                    UserDefaults.standard.set(NSStringFromRect(fenetre.frame),
+                                              forKey: MainWindowSizing.frameKey)
+                })
+            }
+        }
+
+        /// Applique le cadre enregistré, borné à l'écran courant : un cadre
+        /// enregistré sur un second écran débranché depuis laisserait la fenêtre
+        /// hors de vue, sans rien pour l'attraper.
+        private func restaurer(_ window: NSWindow) {
+            guard let chaine = UserDefaults.standard.string(forKey: MainWindowSizing.frameKey)
+            else { return }
+            let cadre = NSRectFromString(chaine)
+            guard cadre.width >= 1, cadre.height >= 1 else { return }
+            let visible = NSScreen.screens.contains { $0.visibleFrame.intersects(cadre) }
+            guard visible else { return }
+            window.setFrame(cadre, display: false)
+        }
+    }
 }
 
 /// Contenu de la fenêtre `1to1-meeting`. Résout le token vers un `Meeting`

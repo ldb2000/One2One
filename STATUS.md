@@ -2,6 +2,78 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Retours d'usage sur la refonte — fenêtre principale, rail, menus stylés (2026-09-08)
+
+Branche `fix/refonte-retours-usage-1`, sur `fix/refonte-recette-finale`. Trois défauts relevés
+à l'usage réel, un commit chacun. `swift build` propre, `swift test` complet vert :
+**2 022 Swift Testing / 253 suites + 1 047 XCTest (1 ignoré) = 3 069**, exit 0 (référence 3 056 ;
++13 tests, +2 suites, aucun test retiré — aucun ne vérifiait le sélecteur du rail).
+
+**1. La fenêtre principale ne rouvrait plus à sa taille** (~1 660 × 540, barre latérale écrasée).
+La cause est instructive et vaut d'être retenue : **SwiftUI enregistre le cadre d'une fenêtre de
+`WindowGroup` sous un nom dérivé du type de sa vue racine**, et ce nom porte l'**adresse** du
+contexte des types `private` de la chaîne :
+
+```
+NSWindow Frame SwiftUI.ModifiedContent<…OneToOne.ContentView…,
+  OneToOne.(unknown context at $1030392a8).SessionFullscreenHostModifier>-1-AppWindow-1
+```
+
+L'ASLR change cette adresse à chaque lancement : depuis que le correctif #42 a inséré son
+modificateur `private` dans la chaîne, chaque lancement cherchait son cadre sous une clé que le
+précédent n'avait pas écrite. Deux clés ne différant que par cette adresse ont été relevées dans
+le même `com.onetoone.app.recette.plist`. **Renommer l'enregistrement ne suffit pas** —
+SwiftUI repose son propre nom après `viewDidMoveToWindow`, essayé et démenti en recette. Le
+cadre est donc lu et écrit à la main, sous `MainWindowSizing.frameKey`, borné aux écrans
+présents et jamais en plein écran.
+
+Sans cadre à restaurer, le repli était en plus pathologique : l'hôte du mode séance enveloppait
+le contenu dans un `ZStack`, qui porte la taille mesurée de ses enfants, donc le
+`NavigationSplitView` cessait d'être la racine de la fenêtre et celle-ci prenait la taille idéale
+du tableau de bord — large et courte. L'hôte pose maintenant une **surimpression**. La barre
+latérale, dont le séparateur suit la même clé instable, déclare enfin la largeur de §1.2
+(idéale 190, entre 170 et 320) : ses entrées ne se coupent plus.
+
+**2. Le rail d'actions n'affiche que la liste.** La rangée `Liste / Calendrier / Eisenhower` est
+retirée — décision produit, qui **amende D10** (justification dans l'ADR de bilan, § « D10
+amendée »). Rien de ce qui la servait n'est supprimé : `ActionsViewMode.railCases`, la
+persistance `railViewMode` et le rendu compact de `CalendarBoard`/`EisenhowerBoard` servent à
+`ActionsListView` et au mode Relire. Typographie mesurée au pixel contre `1a-cockpit.png` :
+l'essentiel y était déjà (onglets 11,5/600, pilules 10,5/500, libellés mono 9,5/600) ; quatre
+écarts corrigés — invite d'état vide 11,5 → **12/400**, `Préparer / En séance / Relire`
+10,5 → **12/500**, date de la barre d'espaces en **Plex Mono 10**, libellé du bouton `Rapport` et
+des deux pilules-menus 10,5 → **12** (la référence les mesure à 12). Les tailles sont sorties en
+constantes, et `RefonteTypographieTests` refuse désormais tout style de fonte système dans
+`Spaces/**`, `Chrome/**` et `MeetingTopChromeBar` — `.font(.system(size:))` n'y est accepté que
+posé sur un `Image(`.
+
+**3. Les deux menus de la barre sortaient en fonte système.** `Menu { … }` ouvre un `NSMenu`,
+dessiné par AppKit : aucun `.font(.plexSans(…))` ne l'atteint, et cela ne se voit sur aucune
+capture tant que le menu est fermé — la recette finale a photographié treize écrans sans jamais
+les ouvrir. Le menu de type et le menu de template sont des **popovers SwiftUI**
+(`Views/Meeting/Chrome/StyledMenuPopover.swift`, 260 px, `surface`, `cardBorder`, `radiusPanel`,
+lignes `plexSans(12)`, ligne active sur `actionBg`), sur le modèle du sélecteur de source 4a. Le
+menu `⋯` **reste** natif : sous-menus, rôle destructif, raccourcis.
+
+**Recette** (instance isolée `/tmp/recette-retours`, bundle `.recette`, ciblage par pid, aucun
+vol de focus — le popover a été ouvert par `AXPress`, pas par un clic synthétique) :
+
+- `recette/finale/1a-1280-retours.png` — cockpit à 1 280 × 800 : rail sans sélecteur de vue,
+  popover de template ouvert et stylé, `Rapport` et les deux pilules-menus à 12 px sans écrasement.
+- `recette/finale/fenetre-principale-restauree-1520x940.png` — la fenêtre principale après
+  relance : 1 520 × 940 au même point, entrées de barre latérale entières.
+
+**Ce que la recette a appris sur l'outillage** : `recette-app.sh` juge le binaire périmé sur les
+**dates de modification**, alors que SwiftPM ne relie pas quand le contenu n'a pas changé. Un
+`touch` sur une source suffit à faire refuser l'empaquetage d'un binaire pourtant à jour. Vérifier
+par le contenu (`strings` sur un symbole neuf) avant de songer à `--force`.
+
+### Prochaine action
+
+Faire relire la PR `fix(refonte): retours d'usage — fenêtre principale, rail, menus stylés`
+(base `fix/refonte-recette-finale`). Reste à trancher : la même clé de préférence instable touche
+tout ce que SwiftUI enregistre pour cette scène (largeur de colonne comprise) — à surveiller si
+un modificateur est ajouté à la fenêtre de réunion.
 ## Gel au démarrage de l'enregistrement (2026-09-08)
 
 Branche `fix/refonte-gel-enregistrement`, sur `fix/refonte-recette-finale`.

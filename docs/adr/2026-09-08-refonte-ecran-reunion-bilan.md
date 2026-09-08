@@ -35,8 +35,27 @@ le vérifier — puis ce que la refonte a assumé de ne pas reproduire, et ce qu
 | **D7** | Le changement de partage se détecte par **différence d'image** | `CaptureCoordinator` repris de Teams-Capture : `detectsAutomatically` sur `SlideDetector`, `periodicCapture` armant l'écriture au prochain tick stable. Le titre de fenêtre ne sert qu'à repérer la réunion active | `Views/Meeting/Capture/**`, `Services/Capture/**` |
 | **D8** | Le dashboard personnalisable est **retiré**, son code supprimé au lot 19 | Débranché au lot 1, supprimé au lot 19a : `OverviewDashboard`, `PanelLayoutEntry`, `DashboardGridLayout`, `MeetingTabsUnderline`, `CollaboratorDetailView`. La colonne `AppSettings.rightSidebarLayoutJSON` survit sans lecteur (une suppression de colonne casserait la lightweight migration) | `docs/cleanup-report.md` §8 |
 | **D9** | `escalated` **exclu** du récap collaborateur, inclus dans un export « Escalade » explicite, sans trace d'accès | `ConfidentialityFilter` est **la** règle de sortie, écrite une fois ; gabarit `d11_escalade` pour l'unique audience `.hr` ; confirmation à la première utilisation par réunion | `Services/ConfidentialityFilter.swift` |
-| **D10** | Calendrier et Eisenhower **restent dans le rail** de 330 px, en rendu compact | La capture `1a` fait foi | `Views/Meeting/Spaces/Rail/**` |
+| **D10** | ~~Calendrier et Eisenhower **restent dans le rail** de 330 px, en rendu compact~~ — **amendée le 2026-09-08** : le rail n'affiche que la liste | Le sélecteur `Liste / Calendrier / Eisenhower` a été retiré du rail sur retour d'usage (voir « D10 amendée » ci-dessous) | `Views/Meeting/Spaces/Rail/ActionsRail.swift` |
 | **D11** | Édition des planches **mono-utilisateur**, pilule de présence masquée | La spec le prévoit (« sinon masquée ») | `Views/Meeting/Workshop/**` |
+
+### D10 amendée — le rail n'affiche que la liste (2026-09-08)
+
+La décision d'origine tenait à un seul argument : « la capture `1a` fait foi », et la capture
+montre bien la rangée `Liste / Calendrier / Eisenhower` sous les onglets du rail. À l'usage,
+la rangée ne servait pas. Trois raisons, dans l'ordre où elles se sont imposées :
+
+- **330 px ne sont pas une matrice.** Un quadrant d'Eisenhower compact tombe à 54 px de haut et
+  une cellule de calendrier à 32 px avec **une** action visible : on y voit qu'il y a des
+  actions, pas lesquelles. Le rendu compact était honnête, la surface ne l'était pas.
+- **Ce n'est pas le geste de la séance.** En séance on lit une liste et on assigne ; on trie par
+  urgence et importance après, sur l'écran Actions plein, qui garde ses cinq vues.
+- **La rangée coûtait 34 px** sur la seule colonne où la hauteur manque, et un niveau de
+  navigation de plus sous un premier niveau (`Actions / Risques / Historique`) qui, lui, sert.
+
+Ce qui reste, et ce n'est pas du code mort : `ActionsViewMode.railCases` et la persistance
+`MeetingScreenModel.railViewMode` (les cinq vues de `ActionsListView` s'en servent), le rendu
+compact de `CalendarBoard` et `EisenhowerBoard` et ses tests (`ActionsBoardsCompactTests`).
+Le rail est le seul appelant qui disparaisse.
 
 ## Écarts assumés avec les captures
 

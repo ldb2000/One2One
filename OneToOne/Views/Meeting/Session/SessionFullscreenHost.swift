@@ -39,24 +39,35 @@ private struct SessionFullscreenHostModifier: ViewModifier {
         .pour(seanceAffichee: presentateur.estAffiche(dans: fenetre))
     }
 
-    /// `ZStack` et non `if/else` : démonter le contenu de la fenêtre
-    /// détruirait le `@State` de `MeetingView` — dont le `MeetingScreenModel`
-    /// que le mode séance est justement en train de lire — et ferait partir le
-    /// `onDisappear` de `MeetingSpaceView`, qui referme le mode. Le contenu
-    /// reste donc monté, entièrement recouvert par la surface opaque du mode
-    /// (`dark/base`), et retiré de l'arbre d'accessibilité : « aucun chrome »
-    /// (spec §2.6) vaut aussi pour VoiceOver, et c'est ce que la recette
-    /// vérifie.
+    /// Une **surimpression** et non un `if/else` : démonter le contenu de la
+    /// fenêtre détruirait le `@State` de `MeetingView` — dont le
+    /// `MeetingScreenModel` que le mode séance est justement en train de lire —
+    /// et ferait partir le `onDisappear` de `MeetingSpaceView`, qui referme le
+    /// mode. Le contenu reste donc monté, entièrement recouvert par la surface
+    /// opaque du mode (`dark/base`), et retiré de l'arbre d'accessibilité :
+    /// « aucun chrome » (spec §2.6) vaut aussi pour VoiceOver, et c'est ce que
+    /// la recette vérifie.
+    ///
+    /// ⚠️ **Ni `ZStack`, ni aucun conteneur autour de `content`** — c'était le
+    /// premier état de ce correctif, et le défaut n° 1 des retours d'usage du
+    /// 2026-09-08. Un `ZStack` mesure ses enfants et porte lui-même la taille
+    /// du résultat : le `NavigationSplitView` de `ContentView` cessait d'être la
+    /// racine de la fenêtre principale, qui s'ouvrait alors à la taille idéale
+    /// mesurée de son contenu — 1 660 × 540, très large et courte, barre
+    /// latérale écrasée — au lieu de rouvrir à sa taille sauvegardée.
+    /// `.overlay` laisse `content` porter sa taille : la fenêtre reste dimensionnée
+    /// comme si ce modificateur n'existait pas (cf. `MainWindowSizing`).
     func body(content: Content) -> some View {
-        ZStack {
-            content
-                .accessibilityHidden(racine == .seance)
-            if racine == .seance, let vue = presentateur.vue {
-                vue()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        content
+            .accessibilityHidden(racine == .seance)
+            .overlay {
+                if racine == .seance, let vue = presentateur.vue {
+                    vue()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea()
+                }
             }
-        }
-        .background(SessionWindowReader { fenetre = $0 })
+            .background(SessionWindowReader { fenetre = $0 })
     }
 }
 
