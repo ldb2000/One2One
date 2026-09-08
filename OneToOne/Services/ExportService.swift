@@ -172,6 +172,17 @@ class ExportService {
         }
     }
 
+    /// Ouvre une composition Mail avec un corps HTML **déjà construit**.
+    ///
+    /// Façade du lot 10 pour le récap 1:1 (`OneOnOneRecapActions.sendRecap`) :
+    /// son corps ne vient pas d'un gabarit de rapport et ses destinataires ne
+    /// sont pas les participants de la réunion, mais la seule personne du fil.
+    /// Passer par `composeMeetingMail` obligerait à y injecter deux exceptions.
+    @discardableResult
+    func composeMail(subject: String, html: String, recipients: [String]) -> Bool {
+        runMailCompose(subject: subject, html: html, attachments: [], recipients: recipients)
+    }
+
     private func isLikelyEmail(_ s: String) -> Bool {
         guard !s.isEmpty else { return false }
         guard let at = s.firstIndex(of: "@") else { return false }

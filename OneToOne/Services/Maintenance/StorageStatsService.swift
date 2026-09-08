@@ -15,9 +15,14 @@ final class StorageStatsService {
         var attachmentCount: Int = 0
         var slidesBytes: Int64 = 0
         var slidesCount: Int = 0
+        /// Récaps 1:1 versés dans `recordings/annual/<année>/<personne>/`
+        /// (lot 10). Une ligne de plus, pour qu'un dossier qui grossit seul
+        /// reste visible dans les réglages de stockage.
+        var annualBytes: Int64 = 0
+        var annualCount: Int = 0
         var databaseBytes: Int64 = 0
         var totalBytes: Int64 {
-            wavBytes + attachmentBytes + slidesBytes + databaseBytes
+            wavBytes + attachmentBytes + slidesBytes + annualBytes + databaseBytes
         }
     }
 
@@ -117,6 +122,15 @@ final class StorageStatsService {
         }
         stats.slidesBytes = slidesBytes
         stats.slidesCount = slidesCount
+
+        // Récaps 1:1 du dossier annuel (lot 10) : `recordings/annual/` n'est
+        // pas un dossier de réunion, il n'a donc pas de sous-dossier `slides`
+        // et le scan ci-dessus l'a compté pour zéro.
+        let (annualBytes, annualCount) = directorySize(
+            at: recordingsDir.appendingPathComponent("annual")
+        )
+        stats.annualBytes = annualBytes
+        stats.annualCount = annualCount
 
         // SwiftData store: OneToOne.store (+ WAL and SHM)
         let storeFile = supportDir.appendingPathComponent("OneToOne.store")
