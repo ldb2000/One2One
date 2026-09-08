@@ -11,8 +11,9 @@ plan `docs/superpowers/plans/2026-09-08-skill-documentation.md`.
   `docs/superpowers/specs/skill-documenter-application/`), ligne rouge (8 fautes de forme et de
   placement sans skill) et rejeu (aucune reproduite avec le skill) consignés dans
   `docs/superpowers/specs/2026-09-08-skill-documentation-ligne-rouge.md`.
-- Manifeste `docs/documentation.yml` ; `Tests/DocumentationTests.swift` (7 tests, 4 rouges avant
-  réalignement, 7 verts après, preuve par mutation faite) ; `Scripts/generer-decisions.py` →
+- Manifeste `docs/documentation.yml` ; `Tests/DocumentationTests.swift` (8 tests, 4 rouges avant
+  réalignement, verts après, preuves par mutation faites : document introuvable, modèle fantôme
+  dans l'inventaire, chemin nu inexistant) ; `Scripts/generer-decisions.py` →
   `docs/decisions.md` (11 ADR).
 - `/docs` réaligné : `README.md` (index), `glossaire.md`, `architecture.md` corrigé par sections
   (35 modèles inventoriés, ~50 symboles renommés, retirés ou déclarés `symboles_externes`).
@@ -25,16 +26,23 @@ plan `docs/superpowers/plans/2026-09-08-skill-documentation.md`.
   silencieux tant que `docs/documentation.yml` n'est pas sur `master`.
 - Le skill appliqué à cette branche elle-même a ajouté `Scripts/generer-decisions.py` (§11) et
   `Tests/DocumentationTests.swift` (§12) à `architecture.md`, sans régénération.
-- Tests : `swift build` propre ; `swift test` : **2 053 Swift Testing / 258 suites + 1 057 XCTest
-  (1 ignoré) = 3 110**, 0 échec (+7 sur les 3 103 de la section suivante).
+- Relecture finale de branche : sept points importants corrigés en une vague (parseur du manifeste
+  muet sur un document introuvable, égalité stricte de l'inventaire des modèles, `code_documente`
+  étendu à `Markdown/`, `DesignSystem/` et au point d'entrée, statut d'ADR lu où qu'il soit et les
+  deux ADR retouchés rétablis, règle de placement d'un service conditionnée à son usage, citations
+  `Foo.swift` nues résolues et interdites comme échappatoire, `architecture.md` à l'état présent
+  sans pied de date).
+- Tests : `swift build` propre ; `swift test` : **2 054 Swift Testing / 258 suites + 1 057 XCTest
+  (1 ignoré) = 3 111**, 0 échec (+8 sur les 3 103 de la section suivante).
 
 **Dettes et observations.** Depuis un sous-agent, l'outil `Skill` ne trouvait pas
 `documenter-application` (à vérifier depuis une session principale) ; le skill ne dit pas comment
 relier un fichier de `code_documente` à une section précise (amélioration à faire en TDD de skill) ;
-le pied « Dernière mise à jour » d'`architecture.md` contredit les règles de rédaction et n'est pas
-détecté par les tests ; les citations de fichier sans dossier (`ColorHex.swift`) échappent aux deux
-tests de citation ; `datesAbsolues` ne signale que la première occurrence par ligne ;
-`generer-decisions.py` importe `sys` sans l'utiliser.
+`symbolesCitesExistent` saute les documents générés (`genere_par`), dont le registre qui cite des
+titres d'ADR historiques ; le hook réagit au texte `git push` où qu'il soit dans la commande ;
+`datesAbsolues` ne signale que la première occurrence par ligne ; `generer-decisions.py` importe
+`sys` sans l'utiliser et trie par nom de fichier ; `manifeste.md` cite les préfixes `NS/UI/…` du
+test, un fait d'implémentation dans un skill générique.
 
 **Prochaine action** : première PR de code après fusion → vérifier que le hook déclenche le skill et
 que le paragraphe « Documentation » apparaît dans la PR.
