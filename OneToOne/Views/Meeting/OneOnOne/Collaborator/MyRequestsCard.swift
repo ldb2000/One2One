@@ -56,7 +56,9 @@ struct MyRequestsCard: View {
             if !historique.isEmpty {
                 Text(historique)
                     .font(.plexSans(11))
-                    .foregroundStyle(One2OneToken.inkMuted)
+                    // `ink/4` et non `ink/muted` : §1.2 réserve `ink/muted` aux
+                    // placeholders de 11,5 px et plus, et exige 4,5:1 sous 12 px.
+                    .foregroundStyle(One2OneToken.ink4)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
