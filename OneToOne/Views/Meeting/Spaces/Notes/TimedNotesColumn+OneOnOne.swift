@@ -20,6 +20,15 @@ struct OneOnOneNotesSection: View {
     let meeting: Meeting
     let section: OneOnOneNoteSections.Section
     let screen: MeetingScreenModel
+    /// Faux quand le libellé de section est déjà rendu par la vue qui
+    /// enveloppe celle-ci.
+    ///
+    /// C'est le cas d'un seul appelant : `① COMMENT ÇA VA` titre l'échelle
+    /// d'humeur **et** les notes de ce temps-là, sous un seul en-tête, comme le
+    /// montre la capture 2a. `MoodScale` le rendait déjà, et cette vue le
+    /// rendait une seconde fois : la recette finale a lu deux fois
+    /// « ① COMMENT ÇA VA » dans la colonne centrale, l'un sous l'autre.
+    var montreLeLibelle: Bool = true
 
     @Environment(\.modelContext) private var context
     @State private var editing: PersistentIdentifier?
@@ -35,7 +44,7 @@ struct OneOnOneNotesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            SectionLabel(section.label)
+            if montreLeLibelle { SectionLabel(section.label) }
             let notes = OneOnOneNoteSections.notes(meeting, in: section)
             if notes.isEmpty {
                 Text(OneOnOneNoteSections.emptyInvite(for: section))
