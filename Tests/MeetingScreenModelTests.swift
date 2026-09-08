@@ -257,4 +257,68 @@ struct MeetingScreenModelTests {
         #expect(model.playhead.markers.map(\.t) == [10, 30])
         #expect(model.playhead.marker(at: 10.2)?.kind == .decision)
     }
+
+    // MARK: - Lot 2 : filtre de notes, intention d'action, jeton de focus
+
+    @Test("Le filtre de notes bascule sur la même nature")
+    func filtreDeNotes() {
+        // Le KPI Décisions du bandeau (spec §2.3 : « Clic = filtre les notes
+        // sur kind:'decision' ») doit pouvoir se déclencher **et** se
+        // relâcher : un filtre qu'on ne sait pas retirer est un cul-de-sac.
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        #expect(model.noteFilter == nil)
+        model.toggleNoteFilter(.decision)
+        #expect(model.noteFilter == .decision)
+        model.toggleNoteFilter(.decision)
+        #expect(model.noteFilter == nil)
+        model.toggleNoteFilter(.risk)
+        #expect(model.noteFilter == .risk)
+        model.toggleNoteFilter(.decision)
+        #expect(model.noteFilter == .decision, "une autre nature remplace le filtre")
+    }
+
+    @Test("Une action demandée depuis une phrase préremplit le composeur du rail")
+    func intentionDAction() {
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        let brouillon = ActionFromPhrase.draft(phrase: "il faut vérifier les droits.",
+                                               segmentID: UUID(), t: 252,
+                                               speakerName: "Laurent Deberti")
+        model.requestAction(from: brouillon)
+        #expect(model.pendingActionDraft == brouillon)
+        #expect(model.newTaskTitle == "Vérifier les droits")
+        #expect(model.pendingActionDraft?.sourceRef.t == 252)
+    }
+
+    @Test("Le filtre et l'intention ne sont pas mémorisés d'une ouverture à l'autre")
+    func intentionNonPersistee() {
+        let defaults = makeDefaults()
+        let id = UUID()
+        let premier = MeetingScreenModel(defaults: defaults)
+        premier.attach(meetingID: id)
+        premier.toggleNoteFilter(.decision)
+        premier.requestAction(from: ActionFromPhrase.draft(phrase: "chiffrer",
+                                                           segmentID: UUID(), t: 0,
+                                                           speakerName: nil))
+
+        let second = MeetingScreenModel(defaults: defaults)
+        second.attach(meetingID: id)
+        #expect(second.noteFilter == nil)
+        #expect(second.pendingActionDraft == nil)
+    }
+
+    @Test("Le focus du composeur de notes passe par un jeton, pas par un booléen")
+    func jetonDeFocus() {
+        // Un booléen ne permettrait pas deux ⌘⇧N de suite : la seconde pression
+        // ne changerait rien et le composeur ne reprendrait pas le clavier.
+        let model = MeetingScreenModel(defaults: makeDefaults())
+        let depart = model.noteComposerFocusToken
+        model.focusNoteComposer()
+        model.focusNoteComposer()
+        #expect(model.noteComposerFocusToken == depart + 2)
+    }
+
+    @Test("Le suivi de la transcription part actif")
+    func suiviParDefaut() {
+        #expect(MeetingScreenModel(defaults: makeDefaults()).follow)
+    }
 }

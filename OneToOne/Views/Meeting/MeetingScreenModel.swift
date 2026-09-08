@@ -216,4 +216,55 @@ final class MeetingScreenModel {
         newTaskImportant = false
         newTaskPomodoros = 0
     }
+
+    // MARK: - Lot 2 : notes ↔ transcription
+
+    /// Filtre de nature de la colonne de notes. `nil` = tout est affiché.
+    ///
+    /// Alimenté par la carte Décisions du bandeau d'indicateurs (spec §2.3 :
+    /// « Clic = filtre les notes sur `kind:'decision'` »). État d'écran, non
+    /// persisté : un filtre retrouvé trois jours plus tard passerait pour une
+    /// colonne vide.
+    var noteFilter: MeetingNoteKind?
+
+    /// Intention « ouvrir le composeur d'action prérempli » (spec §2.4).
+    ///
+    /// Posée par `/action` dans le composeur de notes et par `＋ Action` sur un
+    /// segment de transcription. Le rail qui la consomme — et qui animera
+    /// l'insertion en tête — arrive au lot 3 ; d'ici là, `requestAction`
+    /// préremplit le composeur existant, et la source reste lisible ici.
+    var pendingActionDraft: ActionFromPhrase.Draft?
+
+    /// Jeton de focus du composeur de notes, incrémenté par `⌘⇧N`.
+    ///
+    /// Un jeton et non un booléen : deux `⌘⇧N` de suite doivent tous les deux
+    /// rendre le clavier au champ, or la seconde écriture d'un booléen déjà
+    /// vrai ne notifie personne.
+    private(set) var noteComposerFocusToken = 0
+
+    /// Embeddings du dernier passage de diarisation, par cluster.
+    ///
+    /// Vivait en `@State` dans `MeetingView`, entre la fonction qui lance la
+    /// diarisation et le badge de locuteur qui met à jour le voiceprint (EMA).
+    /// Le badge a déménagé au lot 2 (`TranscriptSpeakerTools`) : le cache doit
+    /// donc vivre là où les deux le voient.
+    var lastDiarizationEmbeddings: [Int: [Float]] = [:]
+
+    /// Demande le focus du composeur de notes.
+    func focusNoteComposer() {
+        noteComposerFocusToken += 1
+    }
+
+    /// Pose l'intention de créer une action depuis une phrase et préremplit le
+    /// composeur du rail.
+    func requestAction(from draft: ActionFromPhrase.Draft) {
+        pendingActionDraft = draft
+        newTaskTitle = draft.title
+    }
+
+    /// Active le filtre de notes sur `kind`, ou le retire si c'est déjà lui.
+    /// Un filtre qu'on ne sait pas relâcher est un cul-de-sac.
+    func toggleNoteFilter(_ kind: MeetingNoteKind) {
+        noteFilter = (noteFilter == kind) ? nil : kind
+    }
 }

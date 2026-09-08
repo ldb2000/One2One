@@ -3,30 +3,6 @@ import SwiftData
 import UniformTypeIdentifiers
 import AVFoundation
 
-/// Métadonnées de matching speaker pour un cluster donné, décodées depuis
-/// `meeting.speakerMatchMetaJSON` (confiance, assignation auto, ambiguïté,
-/// candidats par stableID).
-fileprivate struct SpeakerMeta {
-    let confidence: Double
-    let auto: Bool
-    let ambiguous: Bool
-    let candidateStableIDs: [String]
-
-    static func parse(json: String, clusterID: Int) -> SpeakerMeta? {
-        guard let data = json.data(using: .utf8),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let entry = dict[String(clusterID)] as? [String: Any] else {
-            return nil
-        }
-        return SpeakerMeta(
-            confidence: (entry["confidence"] as? Double) ?? 0,
-            auto: (entry["auto"] as? Bool) ?? false,
-            ambiguous: (entry["ambiguous"] as? Bool) ?? false,
-            candidateStableIDs: (entry["candidates"] as? [String]) ?? []
-        )
-    }
-}
-
 /// Pipeline phases surfaced to the UI during a transcription run.
 enum TranscriptionPhase: Equatable, Sendable {
     case idle
@@ -112,7 +88,6 @@ struct MeetingView: View {
     @State private var transcriptionPhase: TranscriptionPhase = .idle
     @State private var transcriptionProgress: Double? = nil   // 0.0–1.0 when known
     @State private var transcriptionProgressStatus: String? = nil
-    @State private var speakerPickerSearch: String = ""
     /// Cible du sélecteur de fichiers UNIFIÉ. On n'utilise qu'un seul
     /// `.fileImporter` : macOS/SwiftUI ne présente pas fiablement plusieurs
     /// `.fileImporter` coexistant dans la même hiérarchie (l'un masque l'autre,
@@ -127,7 +102,6 @@ struct MeetingView: View {
     @State private var showCalendarImporter = false
     @State private var calendarImportError: String?
     @State private var wavImportError: String?
-    @State private var segmentDeleteError: String?
     @State private var reportProgressChars: Int = 0
     @State private var reportElapsedSeconds: Int = 0
     @State private var reportActivity = AIReportProgress()
@@ -166,9 +140,6 @@ struct MeetingView: View {
     @State private var mgrElaborationFallbackReason: String = ""
 
     // Speaker view toggle + rename popover state
-    @State private var renamingSpeakerID: Int?
-    @State private var segmentToDelete: TranscriptSegment?
-    @State private var lastDiarizationEmbeddings: [Int: [Float]] = [:]
     /// Si défini, la prochaine `stop()` concatène le nouveau WAV avec celui-ci.
     @State private var pendingAppendBaseURL: URL?
 
@@ -252,8 +223,7 @@ struct MeetingView: View {
                     captureService.lastError,
                     attachmentError,
                     calendarImportError,
-                    wavImportError,
-                    segmentDeleteError
+                    wavImportError
                 ].compactMap { $0 }.filter { !$0.isEmpty },
                 onDismissErrors: {
                     recorder.lastError = nil
@@ -263,7 +233,6 @@ struct MeetingView: View {
                     attachmentError = nil
                     calendarImportError = nil
                     wavImportError = nil
-                    segmentDeleteError = nil
                 }
             )
             .animation(.easeInOut(duration: 0.15), value: isRecordingThisMeeting)
@@ -650,6 +619,7 @@ struct MeetingView: View {
             MeetingSpaceView(
                 meeting: meeting,
                 screen: screen,
+                settings: settings,
                 kpi: MeetingKPIBuilder.build(meeting: meeting),
                 prepareContext: MeetingPrepareBuilder.build(meeting: meeting,
                                                             allMeetings: allMeetings),
@@ -660,17 +630,22 @@ struct MeetingView: View {
                 isAssistantOpen: $showAssistant,
                 onSummarize: { Task { await generateShortSummary() } },
                 onManageParticipants: { showParticipantsSheet = true },
-                // Le filtre `kind:decision` sur les notes horodatées arrive au
-                // lot 2, avec la colonne qui sait les afficher : d'ici là, le
-                // mode Relire est le seul endroit qui liste les décisions.
-                onFilterDecisions: { screen.mode = .review },
+                // La carte Décisions filtre la colonne de notes sur
+                // `kind:decision` (spec §2.3) ; un second clic le relâche.
+                onFilterDecisions: {
+                    screen.toggleNoteFilter(.decision)
+                    screen.mode = .live
+                },
                 // L'onglet Risques du rail arrive au lot 3 ; les alertes de la
                 // réunion sont pour l'instant dans le rapport.
                 onOpenRisks: { screen.space = .report },
                 onOpenMeeting: { id in openMeeting(id) },
                 onToggleAction: { id in toggleTask(id) },
-                notes: { liveNotesEditor },
-                transcript: { transcriptView },
+                onDiarize: { runDiarization() },
+                onReidentify: { reidentifySpeakers() },
+                onAddToManagerReport: { range, extrait, champ in
+                    startManagerReportFlow(range: range, snippet: extrait, field: champ)
+                },
                 actions: {
                     ActionsPanel(
                         meeting: meeting,
@@ -842,7 +817,7 @@ struct MeetingView: View {
                     self.transcriptionProgress = nil
                     self.transcriptionProgressStatus = nil
                     // Cache embeddings pour EMA voiceprint update au 1er labeling.
-                    self.lastDiarizationEmbeddings = result.clusterEmbeddings
+                    self.screen.lastDiarizationEmbeddings = result.clusterEmbeddings
                     self.meeting.rawTranscript = result.text
                     PrepCarryoverService.carryoverUncheckedFromMeeting(
                         self.meeting,
@@ -927,85 +902,6 @@ struct MeetingView: View {
             }
         case .failure(let error):
             attachmentError = error.localizedDescription
-        }
-    }
-
-    /// Vrai tant qu'une session live tourne ou qu'un texte live existe (avant que
-    /// le transcript final ne soit produit au `stop()`).
-    private var isLiveActive: Bool {
-        liveService.isLive || !liveService.liveTranscript.isEmpty
-    }
-
-    /// Aperçu de la transcription en direct, affiché en tête de l'onglet
-    /// « Transcription » pendant l'enregistrement (même source que le widget).
-    private var liveTranscriptSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "waveform.badge.mic")
-                    .foregroundColor(liveService.isLive ? .red : .secondary)
-                Text("Transcription en direct").font(.headline)
-                if let status = liveService.statusMessage {
-                    Text(status).font(.caption).foregroundColor(.secondary)
-                }
-            }
-            Text(liveService.liveTranscript.isEmpty ? "En écoute…" : liveService.liveTranscript)
-                .font(.body)
-                .foregroundColor(liveService.liveTranscript.isEmpty ? .secondary : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-    }
-
-    private var transcriptView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if isLiveActive {
-                    liveTranscriptSection
-                    if !meeting.rawTranscript.isEmpty { Divider() }
-                }
-                if meeting.rawTranscript.isEmpty {
-                    if !isLiveActive {
-                        ContentUnavailableView(
-                            "Aucune transcription",
-                            systemImage: "waveform",
-                            description: Text("Démarre un enregistrement pour voir la transcription ici.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 240)
-                    }
-                } else {
-                    // Contrôles speakers (toggle « Afficher speakers », détection,
-                    // compteur de segments) uniquement en mode Diarisation ; en
-                    // transcription seule il n'y a qu'un locuteur → transcript à plat.
-                    if settings.transcriptionMode == .diarizeFirst {
-                        transcriptToolbar
-                    }
-                    if settings.transcriptionMode == .diarizeFirst
-                        && screen.showSpeakers && !meeting.transcriptSegments.isEmpty {
-                        transcriptSegmentsView
-                    } else if !meeting.mergedTranscript.isEmpty {
-                        MeetingHighlightableTextView(
-                            text: .constant(meeting.mergedTranscript),
-                            isEditable: false,
-                            highlightedRanges: ManagerReportService.highlightedRanges(meeting: meeting, field: "mergedTranscript", in: context),
-                            onAddToManagerReport: { range, snippet in
-                                startManagerReportFlow(range: range, snippet: snippet, field: "mergedTranscript")
-                            }
-                        )
-                        .frame(minHeight: 280)
-                    } else {
-                        MeetingHighlightableTextView(
-                            text: .constant(meeting.rawTranscript),
-                            isEditable: false,
-                            highlightedRanges: ManagerReportService.highlightedRanges(meeting: meeting, field: "transcript", in: context),
-                            onAddToManagerReport: { range, snippet in
-                                startManagerReportFlow(range: range, snippet: snippet, field: "transcript")
-                            }
-                        )
-                        .frame(minHeight: 280)
-                    }
-                }
-            }
-            .padding()
         }
     }
 
@@ -1429,7 +1325,7 @@ struct MeetingView: View {
             print("[MeetingView] ← transcribe OK: \(result.text.count) chars, \(result.segments.count) segments")
             // Cache les embeddings pour permettre l'EMA voiceprint update au
             // premier labeling manuel (sinon il faut attendre re-diarisation).
-            lastDiarizationEmbeddings = result.clusterEmbeddings
+            screen.lastDiarizationEmbeddings = result.clusterEmbeddings
             meeting.rawTranscript = result.text
             PrepCarryoverService.carryoverUncheckedFromMeeting(
                 meeting,
@@ -1955,382 +1851,6 @@ struct MeetingView: View {
         pendingMgrSelection = nil
     }
 
-    // MARK: - Transcript / speakers UI
-
-    /// Header above the transcript: speakers toggle + diarization launcher.
-    @ViewBuilder
-    private var transcriptToolbar: some View {
-        HStack(spacing: 12) {
-            Toggle("Afficher speakers",
-                   isOn: Binding(get: { screen.showSpeakers },
-                                 set: { screen.showSpeakers = $0 }))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .disabled(meeting.transcriptSegments.isEmpty)
-
-            if !meeting.transcriptSegments.isEmpty {
-                Text("\(meeting.transcriptSegments.count) segments")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            Button {
-                runDiarization()
-            } label: {
-                Label("Détecter les speakers", systemImage: "person.wave.2")
-                    .font(.caption)
-            }
-            .buttonStyle(.bordered)
-            .disabled(meeting.transcriptSegments.isEmpty || (meeting.wavFilePath ?? "").isEmpty)
-            .help("Analyse l'audio (VAD) et propose une alternance de tours de parole. Reassign manuel ensuite via clic sur le label.")
-
-            Button {
-                reidentifySpeakers()
-            } label: {
-                Image(systemName: "person.crop.circle.badge.questionmark")
-            }
-            .help("Ré-identifier les speakers")
-            .disabled((meeting.wavFilePath ?? "").isEmpty)
-        }
-        .padding(.bottom, 4)
-    }
-
-    /// List of timestamped segments with speaker prefix + color.
-    @ViewBuilder
-    private var transcriptSegmentsView: some View {
-        let sorted = meeting.transcriptSegments.sorted { $0.orderIndex < $1.orderIndex }
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(sorted) { seg in
-                segmentRow(seg)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .alert("Supprimer ce passage ?",
-               isPresented: Binding(get: { segmentToDelete != nil },
-                                     set: { if !$0 { segmentToDelete = nil } }),
-               presenting: segmentToDelete) { seg in
-            Button("Annuler", role: .cancel) { segmentToDelete = nil }
-            Button("Supprimer", role: .destructive) {
-                let target = seg
-                segmentToDelete = nil
-                Task {
-                    do {
-                        try await TranscriptEditService.deleteSegment(
-                            target, in: meeting, context: context
-                        )
-                    } catch {
-                        segmentDeleteError = error.localizedDescription
-                    }
-                }
-            }
-        } message: { _ in
-            Text("Le texte et la portion audio correspondante seront supprimés définitivement.")
-        }
-    }
-
-    private func segmentRow(_ seg: TranscriptSegment) -> some View {
-        // textSelection(.enabled) capture le clic droit sur macOS → on ne peut
-        // pas y attacher un contextMenu fonctionnel. À la place : bouton play
-        // visible à côté du timestamp (clic gauche = lecture ; option-clic =
-        // seek sans jouer).
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            speakerBadge(for: seg)
-
-            Button {
-                playSegmentAudio(seg)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "play.fill").font(.caption2)
-                    Text(seg.formattedTimestamp)
-                        .font(.caption.monospacedDigit().bold())
-                }
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(
-                    Capsule().fill(meeting.wavFileURL == nil
-                                   ? Color.secondary.opacity(0.15)
-                                   : Color.accentColor.opacity(0.18))
-                )
-                .foregroundColor(meeting.wavFileURL == nil ? .secondary : .accentColor)
-                .overlay(
-                    Capsule().stroke(
-                        meeting.wavFileURL == nil ? Color.clear : Color.accentColor.opacity(0.4),
-                        lineWidth: 0.5
-                    )
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(meeting.wavFileURL == nil)
-            .help(meeting.wavFileURL == nil
-                  ? "Aucun audio attaché à la réunion"
-                  : "Lire l'audio à partir de \(seg.formattedTimestamp)")
-
-            HStack(spacing: 4) {
-                if seg.isHighlighted {
-                    Image(systemName: "star.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
-                }
-                Text(seg.text)
-                    .font(.body)
-                    .foregroundColor(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(.vertical, 2)
-        .background(seg.isHighlighted ? Color.yellow.opacity(0.08) : Color.clear)
-    }
-
-    /// Charge le wav si besoin, place le curseur sur seg.startSeconds, joue.
-    /// Si la lecture est déjà en cours, on pause d'abord pour forcer le saut
-    /// (sinon AVAudioPlayer continue parfois depuis l'ancienne position avant
-    /// de prendre en compte le seek).
-    private func playSegmentAudio(_ seg: TranscriptSegment) {
-        guard let url = meeting.wavFileURL else { return }
-        do {
-            if player.loadedURL != url { try player.load(url: url) }
-        } catch {
-            transcribeError = "Lecture impossible: \(error.localizedDescription)"
-            return
-        }
-        let wasPlaying = player.isPlaying
-        if wasPlaying { player.pause() }
-        playhead.beginPlayback()
-        playhead.seek(to: seg.startSeconds)
-        player.play()
-        print("[MeetingView] play segment from \(seg.startSeconds)s (was playing: \(wasPlaying))")
-    }
-
-    @ViewBuilder
-    private func segmentActionsMenu(_ seg: TranscriptSegment) -> some View {
-        Button {
-            seg.isHighlighted.toggle()
-            try? context.save()
-        } label: {
-            Label(seg.isHighlighted ? "Retirer l'importance" : "Marquer comme important",
-                  systemImage: seg.isHighlighted ? "star.slash" : "star.fill")
-        }
-        Divider()
-        Button(role: .destructive) {
-            segmentToDelete = seg
-        } label: {
-            Label("Supprimer ce passage", systemImage: "trash")
-        }
-    }
-
-    @ViewBuilder
-    private func speakerBadge(for seg: TranscriptSegment) -> some View {
-        let clusterID = seg.speakerID - 1
-        let meta = SpeakerMeta.parse(json: meeting.speakerMatchMetaJSON, clusterID: clusterID)
-
-        if let speaker = seg.speaker {
-            // Auto-assigned: small green check
-            Button { renamingSpeakerID = seg.speakerID } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: meta?.auto == true ? "checkmark.seal.fill" : "person.fill")
-                        .font(.caption2)
-                        .foregroundStyle(meta?.auto == true ? .green : speakerColor(seg.speakerID))
-                    Text(speaker.name)
-                        .font(.caption.bold())
-                        .foregroundColor(.primary)
-                    if let m = meta, m.auto {
-                        Text("(\(Int(m.confidence * 100))%)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(speakerColor(seg.speakerID).opacity(0.10))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: Binding(
-                get: { renamingSpeakerID == seg.speakerID },
-                set: { if !$0 { renamingSpeakerID = nil } }
-            )) {
-                speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
-            }
-            .contextMenu { segmentActionsMenu(seg) }
-        } else if let m = meta,
-                  m.confidence >= settings.speakerIdSuggestThreshold,
-                  let suggested = firstCandidate(stableIDs: m.candidateStableIDs) {
-            // Suggestion path
-            HStack(spacing: 4) {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.caption2).foregroundStyle(.orange)
-                Text("\(suggested.name)? (\(Int(m.confidence * 100))%)")
-                    .font(.caption.italic())
-                    .foregroundColor(.primary)
-                Button { acceptSuggestion(suggested, for: seg) } label: {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                }.buttonStyle(.plain)
-                Button { rejectSuggestion(for: seg) } label: {
-                    Image(systemName: "xmark.circle").foregroundStyle(.secondary)
-                }.buttonStyle(.plain)
-            }
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Color.orange.opacity(0.10))
-            .clipShape(Capsule())
-            .contextMenu { segmentActionsMenu(seg) }
-        } else {
-            // Anonymous fallback (existing flow).
-            Button { renamingSpeakerID = seg.speakerID } label: {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(speakerColor(seg.speakerID))
-                        .frame(width: 8, height: 8)
-                    Text("[\(seg.displayLabel)]")
-                        .font(.caption.bold())
-                        .foregroundColor(speakerColor(seg.speakerID))
-                }
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(speakerColor(seg.speakerID).opacity(0.10))
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: Binding(
-                get: { renamingSpeakerID == seg.speakerID },
-                set: { if !$0 { renamingSpeakerID = nil } }
-            )) {
-                speakerRenamePopover(speakerID: seg.speakerID).padding(12).frame(minWidth: 240)
-            }
-            .contextMenu { segmentActionsMenu(seg) }
-        }
-    }
-
-    private func firstCandidate(stableIDs: [String]) -> Collaborator? {
-        guard let first = stableIDs.first, let uuid = UUID(uuidString: first) else { return nil }
-        return allCollaborators.first { $0.stableID == uuid }
-    }
-
-    private func acceptSuggestion(_ collab: Collaborator, for seg: TranscriptSegment) {
-        assignSpeaker(speakerID: seg.speakerID, to: collab)
-    }
-
-    private func rejectSuggestion(for seg: TranscriptSegment) {
-        let clusterID = seg.speakerID - 1
-        var meta = (try? JSONSerialization.jsonObject(
-            with: meeting.speakerMatchMetaJSON.data(using: .utf8) ?? Data()
-        ) as? [String: Any]) ?? [:]
-        meta.removeValue(forKey: String(clusterID))
-        if let data = try? JSONSerialization.data(withJSONObject: meta),
-           let s = String(data: data, encoding: .utf8) {
-            meeting.speakerMatchMetaJSON = s
-            try? context.save()
-        }
-    }
-
-    @ViewBuilder
-    private func speakerRenamePopover(speakerID: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Speaker \(speakerID) → participant")
-                .font(.caption.bold())
-
-            TextField("Rechercher…", text: $speakerPickerSearch)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption)
-
-            let participantIDs = Set(meeting.participants.map { $0.persistentModelID })
-            let query = speakerPickerSearch.trimmingCharacters(in: .whitespaces)
-            let matches: (Collaborator) -> Bool = { c in
-                query.isEmpty || c.name.localizedCaseInsensitiveContains(query)
-            }
-            let participants = meeting.participants
-                .filter { !$0.isArchived && matches($0) }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            let others = allCollaborators
-                .filter { !participantIDs.contains($0.persistentModelID) && matches($0) }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-            if participants.isEmpty && others.isEmpty {
-                Text(query.isEmpty ? "Aucun collaborateur dans la base." : "Aucun résultat.")
-                    .font(.caption2).foregroundColor(.secondary)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if !participants.isEmpty {
-                            Text("Participants de la réunion").font(.caption2.bold()).foregroundStyle(.secondary)
-                            ForEach(participants) { c in
-                                speakerPickerRow(c, speakerID: speakerID, highlighted: true)
-                            }
-                        }
-                        if !others.isEmpty {
-                            if !participants.isEmpty { Divider() }
-                            Text("Autres collaborateurs").font(.caption2.bold()).foregroundStyle(.secondary)
-                            ForEach(others) { c in
-                                speakerPickerRow(c, speakerID: speakerID, highlighted: false)
-                            }
-                        }
-                    }
-                }
-                .frame(maxHeight: 360)
-                Divider()
-            }
-            Button("Annuler") {
-                renamingSpeakerID = nil
-                speakerPickerSearch = ""
-            }
-            .font(.caption)
-        }
-        .frame(width: 280)
-    }
-
-    @ViewBuilder
-    private func speakerPickerRow(_ c: Collaborator, speakerID: Int, highlighted: Bool) -> some View {
-        Button {
-            assignSpeaker(speakerID: speakerID, to: c)
-            renamingSpeakerID = nil
-            speakerPickerSearch = ""
-        } label: {
-            HStack {
-                Image(systemName: highlighted ? "person.fill.checkmark" : "person.fill")
-                    .foregroundColor(highlighted ? .green : .accentColor)
-                Text(c.name)
-                    .fontWeight(highlighted ? .semibold : .regular)
-                if c.voicePrint != nil {
-                    Image(systemName: "waveform").font(.caption2).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Assigne tous les segments d'un `speakerID` à un collaborateur, persiste
-    /// le mapping dans `speakerAssignmentsJSON` et applique une mise à jour EMA
-    /// du voiceprint si un embedding frais est en cache pour ce cluster.
-    private func assignSpeaker(speakerID: Int, to collaborator: Collaborator) {
-        for seg in meeting.transcriptSegments where seg.speakerID == speakerID {
-            seg.speaker = collaborator
-        }
-        // Update assignmentsJSON
-        let clusterID = speakerID - 1
-        var assignments = (try? JSONSerialization.jsonObject(
-            with: meeting.speakerAssignmentsJSON.data(using: .utf8) ?? Data()
-        ) as? [String: Any]) ?? [:]
-        assignments[String(clusterID)] = collaborator.ensuredStableID.uuidString
-        if let data = try? JSONSerialization.data(withJSONObject: assignments),
-           let s = String(data: data, encoding: .utf8) {
-            meeting.speakerAssignmentsJSON = s
-        }
-        // EMA voiceprint update if we have a fresh embedding cached from the last
-        // diarization pass for this cluster.
-        if let embedding = lastDiarizationEmbeddings[clusterID] {
-            SpeakerMatcher.applyEMAUpdate(to: collaborator, newEmbedding: embedding, in: context)
-        }
-        try? context.save()
-    }
-
-    /// Stable palette per speakerID. ID 0 = grey (unassigned).
-    private func speakerColor(_ id: Int) -> Color {
-        guard id > 0 else { return .secondary }
-        let palette: [Color] = [.blue, .green, .orange, .purple, .pink, .teal, .brown]
-        return palette[(id - 1) % palette.count]
-    }
-
     /// Launch VAD diarization on the meeting's audio. Re-assigns speakerID
     /// across all segments based on the detected turn boundaries.
     private func runDiarization() {
@@ -2432,7 +1952,7 @@ struct MeetingView: View {
                 )
                 try Task.checkCancellation()
                 await MainActor.run {
-                    self.lastDiarizationEmbeddings = out.perClusterEmbedding
+                    self.screen.lastDiarizationEmbeddings = out.perClusterEmbedding
                     let assignments = SpeakerMatcher.match(
                         clusterEmbeddings: out.perClusterEmbedding,
                         meeting: self.meeting,

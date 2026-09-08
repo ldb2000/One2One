@@ -5,26 +5,32 @@ import SwiftUI
 ///
 /// Une seule carte, `grid-template-columns: 1fr 1px 1fr` (spec §2.4), en-tête
 /// « Notes & transcription · synchronisées sur l'audio » avec la bascule
-/// `Speakers` et le bouton `Résumer`.
+/// `Speakers` et le bouton `Résumer`, et la **frise audio de 22 px** en pied.
 ///
-/// **Contenu provisoire** : les colonnes sont ici l'éditeur markdown et la vue
-/// de transcription existants, injectés par `MeetingView` (les fonctions de
-/// diarisation et de locuteurs restent dans ce fichier pour ce lot). Le lot 2
-/// les remplace par `TimedNotesColumn` et `TranscriptColumn`, avec le
-/// composeur `/action /décision /risque /citer` et la frise audio.
-struct MeetingLiveSpace<Notes: View, Transcript: View>: View {
+/// Le lot 1 y injectait les vues provisoires de `MeetingView` (éditeur markdown
+/// et ancienne transcription). Le lot 2 monte les composants définitifs :
+/// `TimedNotesColumn` (avec son `NoteComposer`), `TranscriptColumn` et
+/// `AudioTimelineStrip`. Plus rien n'est injecté depuis `MeetingView`, qui ne
+/// garde que la diarisation et la ré-identification.
+struct MeetingLiveSpace: View {
 
     /// Hauteur de l'en-tête de la carte.
     static var headerHeight: CGFloat { 34 }
 
+    let meeting: Meeting
     let screen: MeetingScreenModel
+    let settings: AppSettings
     /// Vrai si la transcription montre des locuteurs (mode diarisation) : la
     /// bascule `Speakers` n'a pas de sens sinon.
     let showsSpeakerToggle: Bool
     /// Lance la génération du résumé (`SummaryCard.generate` existant).
     let onSummarize: () -> Void
-    @ViewBuilder let notes: Notes
-    @ViewBuilder let transcript: Transcript
+    /// Diarisation VAD, orchestrée par `MeetingView` (tâches longues, phases).
+    let onDiarize: () -> Void
+    /// Ré-identification des locuteurs, même raison.
+    let onReidentify: () -> Void
+    /// Ajout d'un extrait de transcription au CR manager.
+    let onAddToManagerReport: (NSRange, String, String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -32,15 +38,23 @@ struct MeetingLiveSpace<Notes: View, Transcript: View>: View {
             GeometryReader { geo in
                 let colonnes = MeetingSpaceLayout.evenSplit(width: geo.size.width)
                 HStack(spacing: 0) {
-                    colonne("MES NOTES", largeur: colonnes.0) { notes }
+                    colonne("MES NOTES", largeur: colonnes.0) {
+                        TimedNotesColumn(meeting: meeting, screen: screen)
+                    }
                     Rectangle()
                         .fill(One2OneToken.hair)
                         .frame(width: MeetingSpaceLayout.hairlineWidth)
                     colonne("TRANSCRIPTION", largeur: colonnes.1, fond: One2OneToken.surfaceAlt) {
-                        transcript
+                        TranscriptColumn(meeting: meeting,
+                                         screen: screen,
+                                         settings: settings,
+                                         onDiarize: onDiarize,
+                                         onReidentify: onReidentify,
+                                         onAddToManagerReport: onAddToManagerReport)
                     }
                 }
             }
+            AudioTimelineStrip(meeting: meeting, screen: screen)
         }
         .background(
             RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
@@ -51,6 +65,23 @@ struct MeetingLiveSpace<Notes: View, Transcript: View>: View {
                 .strokeBorder(One2OneToken.cardBorder, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: One2OneToken.radiusCard))
+        .task(id: marqueursSignature) { rafraichirMarqueurs() }
+    }
+
+    /// Signature des repères : recalculer à chaque rendu relirait toutes les
+    /// notes et toutes les captures pour rien, mais un repère manquant après
+    /// une prise de note serait un défaut visible.
+    private var marqueursSignature: String {
+        "\(meeting.timedNotes.count)-\(meeting.attachments.flatMap(\.slides).count)"
+    }
+
+    private func rafraichirMarqueurs() {
+        screen.playhead.markers = MeetingTimelineMarkers.markers(for: meeting)
+        // Sans fichier chargé, l'axe temps est celui de la réunion : sinon la
+        // frise et les timecodes de notes n'auraient aucune échelle.
+        if screen.playhead.duration <= 0 {
+            screen.playhead.duration = Double(meeting.durationSeconds)
+        }
     }
 
     private var entete: some View {

@@ -5,12 +5,14 @@ import SwiftData
 /// d'invocation de l'assistant en pied (spec §2.2 et §2.3, capture
 /// `1a-cockpit.png`).
 ///
-/// Aiguille sur `MeetingScreenModel.mode` et ne connaît rien du métier : les
-/// colonnes lui sont injectées par `MeetingView`, qui garde la transcription,
-/// la diarisation et la liste d'actions pour ce lot.
-struct MeetingSpaceView<Notes: View, Transcript: View, Actions: View>: View {
+/// Aiguille sur `MeetingScreenModel.mode` et ne connaît rien du métier. Depuis
+/// le lot 2, le mode En séance monte ses propres colonnes
+/// (`MeetingLiveSpace`) : seule la liste d'actions du mode Relire reste
+/// injectée par `MeetingView`, jusqu'au rail du lot 3.
+struct MeetingSpaceView<Actions: View>: View {
     @Bindable var meeting: Meeting
     let screen: MeetingScreenModel
+    let settings: AppSettings
     let kpi: MeetingKPI
     let prepareContext: MeetingPrepareContext
     /// Réunions connues, pour les suggestions de l'assistant.
@@ -29,9 +31,10 @@ struct MeetingSpaceView<Notes: View, Transcript: View, Actions: View>: View {
     let onOpenRisks: () -> Void
     let onOpenMeeting: (PersistentIdentifier) -> Void
     let onToggleAction: (PersistentIdentifier) -> Void
+    let onDiarize: () -> Void
+    let onReidentify: () -> Void
+    let onAddToManagerReport: (NSRange, String, String) -> Void
 
-    @ViewBuilder let notes: Notes
-    @ViewBuilder let transcript: Transcript
     @ViewBuilder let actions: Actions
 
     var body: some View {
@@ -70,11 +73,14 @@ struct MeetingSpaceView<Notes: View, Transcript: View, Actions: View>: View {
                                 onOpenMeeting: onOpenMeeting,
                                 onToggleAction: onToggleAction)
         case .live:
-            MeetingLiveSpace(screen: screen,
+            MeetingLiveSpace(meeting: meeting,
+                             screen: screen,
+                             settings: settings,
                              showsSpeakerToggle: showsSpeakerToggle,
                              onSummarize: onSummarize,
-                             notes: { notes },
-                             transcript: { transcript })
+                             onDiarize: onDiarize,
+                             onReidentify: onReidentify,
+                             onAddToManagerReport: onAddToManagerReport)
                 .padding(.horizontal, 14)
         case .review:
             MeetingReviewSpace(meeting: meeting,

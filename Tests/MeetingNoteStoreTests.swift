@@ -204,4 +204,67 @@ struct MeetingNoteStoreTests {
         #expect(!NoteFactory.isDiscardableEmptyNote(libre),
                 "une note qui porte une ligne horodatée n'est pas vide")
     }
+
+    // MARK: - Lot 2 : timecode affiché et fabrique depuis le composeur
+
+    @Test("Sans axe temps, le timecode se lit --:--")
+    func timecodeSansAudio() {
+        // « En dehors de tout audio, t = 0 et le timecode s'affiche --:-- » :
+        // afficher `00:00` laisserait croire à un instant de la séance.
+        #expect(MeetingNoteStore.timecodeLabel(t: 0, hasTimeline: false) == "--:--")
+        #expect(MeetingNoteStore.timecodeLabel(t: 0, hasTimeline: true) == "00:00")
+        #expect(MeetingNoteStore.timecodeLabel(t: 252, hasTimeline: true) == "04:12")
+        // Un `t` non nul **est** un axe temps, même si l'appelant l'a oublié.
+        #expect(MeetingNoteStore.timecodeLabel(t: 252, hasTimeline: false) == "04:12")
+    }
+
+    @Test("Une commande de composeur devient une ligne horodatée")
+    func ajoutDepuisComposeur() throws {
+        let context = try makeContext()
+        let reunion = Meeting(title: "R", date: Date(), notes: "")
+        context.insert(reunion)
+
+        let decision = MeetingNoteStore.append(NoteCommandParser.parse("/décision on y va"),
+                                               at: 663, to: reunion, in: context)
+        #expect(decision?.kind == .decision)
+        #expect(decision?.t == 663)
+        #expect(decision?.text == "on y va")
+        #expect(decision?.visibility == .shared)
+
+        // Une commande sans texte n'est pas une note : rien n'est inséré.
+        #expect(MeetingNoteStore.append(NoteCommandParser.parse("/décision   "),
+                                        at: 10, to: reunion, in: context) == nil)
+
+        let prive = MeetingNoteStore.append(NoteCommandParser.parse("/privé pour moi"),
+                                            at: 12, to: reunion, in: context)
+        #expect(prive?.visibility == .private)
+        #expect(reunion.timedNotes.count == 2)
+    }
+
+    @Test("Le côté collaborateur reste privé par défaut, même depuis le composeur")
+    func visibiliteParTypeDeReunion() throws {
+        let context = try makeContext()
+        let monEntretien = Meeting(title: "1:1 avec mon manager", date: Date(), notes: "")
+        monEntretien.kind = .manager
+        context.insert(monEntretien)
+
+        let note = MeetingNoteStore.append(NoteCommandParser.parse("ce que je pense"),
+                                           at: 30, to: monEntretien, in: context)
+        #expect(note?.visibility == .private)
+    }
+
+    @Test("Deux notes au même timecode gardent leur ordre de saisie")
+    func ordreAMemeTimecode() throws {
+        let context = try makeContext()
+        let reunion = Meeting(title: "R", date: Date(), notes: "")
+        context.insert(reunion)
+
+        let premiere = MeetingNoteStore.append(NoteCommandParser.parse("première"),
+                                               at: 0, to: reunion, in: context)
+        let seconde = MeetingNoteStore.append(NoteCommandParser.parse("seconde"),
+                                              at: 0, to: reunion, in: context)
+        #expect(premiere?.orderIndex == 0)
+        #expect(seconde?.orderIndex == 1)
+        #expect(MeetingNoteStore.sorted(reunion.timedNotes).map(\.text) == ["première", "seconde"])
+    }
 }

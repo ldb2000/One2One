@@ -84,6 +84,63 @@ enum MeetingNoteStore {
         }
     }
 
+    // MARK: - Affichage
+
+    /// Timecode d'une ligne, tel que la colonne de notes l'affiche.
+    ///
+    /// `--:--` quand la réunion n'a **aucun** axe temps (ni enregistrement, ni
+    /// fichier audio) : afficher `00:00` laisserait croire à un instant précis
+    /// de la séance, alors que la note n'est rattachée à rien. Un `t` non nul
+    /// est en revanche toujours un axe temps réel, même si l'appelant a oublié
+    /// de le dire.
+    static func timecodeLabel(t: Double, hasTimeline: Bool) -> String {
+        guard hasTimeline || t > 0 else { return "--:--" }
+        return MeetingPlayhead.mmss(t)
+    }
+
+    // MARK: - Création depuis le composeur
+
+    /// Prochain ordre d'affichage à `t` donné : plusieurs notes peuvent
+    /// partager la seconde (le cas courant à `t = 0`), et l'ordre de saisie
+    /// est alors la seule chose qui les distingue.
+    static func nextOrderIndex(at t: Double, in meeting: Meeting) -> Int {
+        let memeInstant = meeting.timedNotes.filter { $0.t == t }
+        guard let dernier = memeInstant.map(\.orderIndex).max() else { return 0 }
+        return dernier + 1
+    }
+
+    /// Crée la ligne décrite par le composeur, au timecode `t`.
+    ///
+    /// Rend `nil` — sans rien insérer — quand le texte est vide après analyse :
+    /// une commande sans texte (`/décision` seul) n'est pas une note, et une
+    /// ligne vide dans la colonne serait un déchet que rien ne viendrait
+    /// nettoyer.
+    ///
+    /// La visibilité vient de la commande (`/privé`) ou, à défaut, du type de
+    /// réunion (`defaultVisibility(for:)`) : la confidentialité par défaut du
+    /// côté collaborateur ne doit pas dépendre de la vue qui appelle.
+    @MainActor
+    @discardableResult
+    static func append(_ parsed: NoteCommandParser.Parsed,
+                       at t: Double,
+                       to meeting: Meeting,
+                       in context: ModelContext) -> MeetingNote? {
+        let texte = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !texte.isEmpty else { return nil }
+
+        let note = MeetingNote(t: t,
+                               text: texte,
+                               kind: parsed.kind,
+                               visibility: parsed.visibility
+                                   ?? defaultVisibility(for: meeting.kind),
+                               orderIndex: nextOrderIndex(at: t, in: meeting))
+        context.insert(note)
+        note.meeting = meeting
+        try? context.save()
+        noteStoreLog.info("append: meeting=\(meeting.ensuredStableID.uuidString, privacy: .public) t=\(t) kind=\(note.kindRaw, privacy: .public)")
+        return note
+    }
+
     // MARK: - Reprise des notes libres
 
     /// Reprend `meeting.liveNotes` en **une** note `t = 0` à la première
