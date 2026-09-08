@@ -47,18 +47,15 @@ struct CapturesStrip: View {
         .overlay(
             RoundedRectangle(cornerRadius: One2OneToken.radiusCard)
                 .strokeBorder(One2OneToken.cardBorder, lineWidth: 1))
-        .background {
-            // Le raccourci vit sur la vue de la bande, jamais sur la tuile :
-            // celle-ci est une cellule de grille défilante, non instanciée dès
-            // que la bande défile — le raccourci disparaîtrait précisément dans
-            // les séances longues, celles où il sert le plus (leçon de
-            // `CaptureRail.swift`). `.opacity(0)` et non `.hidden()`, qui
-            // rendrait le bouton non interactif.
-            Button("") { Task { await coordinator.captureNow() } }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                .opacity(0)
-        }
     }
+
+    // Le `⌘⇧S` que cette bande déclarait est parti au lot 19c : la spec §1.4
+    // n'en veut qu'une déclaration, et le geste est déjà porté deux fois — par
+    // le menu « Réunion ▸ Capturer l'écran » (`MeetingShortcut.capture`, actif
+    // dès que la réunion a le focus) et par le raccourci système de
+    // `CaptureHotkeys`, qui l'emporte de toute façon sur un `keyboardShortcut`
+    // de vue quand la case des réglages est cochée. Le badge « ⌘⇧S » de
+    // l'en-tête reste : il annonce un geste qui fonctionne.
 
     // MARK: - En-tête
 

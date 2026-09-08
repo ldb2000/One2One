@@ -256,6 +256,8 @@ struct MeetingTopChromeBar: View {
     @State private var timecodeDraft: String?
     /// L'aperçu `Mon récap` d'un 1:1 subi est ouvert (lot 13).
     @State private var showsMyRecap = false
+    /// La feuille « Raccourcis » est ouverte (lot 19c, spec §1.4).
+    @State private var showsShortcuts = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1141,6 +1143,14 @@ struct MeetingTopChromeBar: View {
             }
 
             Divider()
+            // Spec §1.4 : la table des raccourcis doit être consultable. Elle
+            // vit ici parce que `⋯` est le seul menu de l'écran qui ne dépend
+            // ni du type de réunion ni de l'état de l'audio.
+            Button { showsShortcuts = true } label: {
+                Label("Raccourcis clavier…", systemImage: "keyboard")
+            }
+
+            Divider()
             Button(role: .destructive, action: actions.deleteMeeting) {
                 Label("Supprimer la réunion…", systemImage: "trash")
             }
@@ -1152,5 +1162,8 @@ struct MeetingTopChromeBar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: Self.moreButtonWidth)
+        .sheet(isPresented: $showsShortcuts) {
+            MeetingShortcutsSheet()
+        }
     }
 }

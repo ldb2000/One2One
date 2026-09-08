@@ -5,6 +5,10 @@ import SwiftData
 /// via `FocusedValue` : tout est grisé si aucune réunion n'a le focus
 /// (`menu == nil`). Export rangé sous « Fichier » (`.importExport`) ; le reste
 /// dans un nouveau menu « Réunion ».
+///
+/// Les raccourcis de la spec §1.4 ne sont **pas** épelés ici : ils viennent de
+/// `MeetingShortcut`, la table unique, via `.meetingShortcut(_:)`. Les autres
+/// (⌘⇧C, ⌘⇧E, ⌘⇧R, ⌘⇧T, ⌘⌫) sont propres à ce menu et restent en littéral.
 struct MeetingCommands: Commands {
     @FocusedValue(\.meetingMenu) private var menu
     /// Contexte partagé, pour la commande de recette qui sème le jeu de
@@ -48,26 +52,26 @@ struct MeetingCommands: Commands {
             // Spec §1.4 : ⌘K ouvre l'assistant sur la réunion courante, ⌘M
             // pose un marqueur sur l'axe temps à l'instant courant.
             Button("Assistant…") { menu?.openAssistant() }
-                .keyboardShortcut("k", modifiers: .command)
+                .meetingShortcut(MeetingShortcut.assistant)
                 .disabled(!isEnabled(.assistant))
             Button("Poser un marqueur") { menu?.addPlayheadMarker() }
-                .keyboardShortcut("m", modifiers: .command)
+                .meetingShortcut(MeetingShortcut.marqueur)
                 .disabled(!isEnabled(.marker))
             // Spec §2.6 : le mode séance plein écran s'ouvre depuis la pilule
             // audio ou par `⌃⌘F`. `⌘⌃F` et non `⌘F`, qui reste la recherche.
             Button("Mode séance plein écran") { menu?.toggleSessionFullscreen() }
-                .keyboardShortcut("f", modifiers: [.control, .command])
+                .meetingShortcut(MeetingShortcut.seancePleinEcran)
                 .disabled(!isEnabled(.sessionFullscreen))
             // Spec §1.4 : ⌘⇧V colle un lien ou une image dans les ressources.
             Button("Coller dans les ressources") { menu?.pasteResource() }
-                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .meetingShortcut(MeetingShortcut.collerRessource)
                 .disabled(!isEnabled(.pasteResource))
             Button("Ressources…") { menu?.openResources() }
                 .disabled(!isEnabled(.resources))
             // Spec §1.4 : ⌘⇧S capture la source configurée — le sélecteur à la
             // première utilisation (lot 7, spec §5.1).
             Button("Capturer l'écran") { menu?.captureNow() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .meetingShortcut(MeetingShortcut.capture)
                 .disabled(!isEnabled(.captureNow))
 
             Divider()
