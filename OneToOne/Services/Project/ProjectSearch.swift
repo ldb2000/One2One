@@ -44,6 +44,19 @@ enum ProjectSearch {
         }
     }
 
+    /// Ces champs contiennent-ils le terme ?
+    ///
+    /// La même comparaison que `matches` — casse et accents pliés, terme vide
+    /// = pas de filtre — pour les appelants qui ne tiennent pas un `Project`
+    /// sous la main. Le Portfolio filtre des `PortfolioRow` (décision **D11** :
+    /// les lignes sont calculées d'avance) et n'a plus le projet ; il ne doit
+    /// pas pour autant écrire une seconde comparaison, ce que D7 interdit.
+    static func matches(fields: [String], query: String) -> Bool {
+        let terme = normalise(query)
+        guard !terme.isEmpty else { return true }
+        return fields.contains { contient($0, terme) }
+    }
+
     // MARK: - Classement
 
     /// Les projets correspondants, du plus pertinent au moins pertinent.

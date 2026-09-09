@@ -41,6 +41,15 @@ final class MainRouter {
     /// que la recette peut atteindre avant elle.
     var pendingPaletteQuery: String?
 
+    /// Vue enregistrée que le Portfolio doit activer à sa prochaine
+    /// apparition, posée par l'écran de recette `p1a` (« Mes projets ASP ») et
+    /// consommée par `PortfolioView`.
+    ///
+    /// Même raison que `pendingPaletteQuery` : une vue enregistrée est un état
+    /// d'écran, la recette ne sait pas cliquer, et le routeur est le seul objet
+    /// que le point d'entrée de l'application et l'écran partagent.
+    var pendingPortfolioSavedView: UUID?
+
     /// Les réglages où s'écrit la liste des projets récents. Injectable : une
     /// suite de tests ne doit pas écrire dans les réglages de l'utilisateur.
     private let defaults: UserDefaults
@@ -113,5 +122,14 @@ final class MainRouter {
     func consumePendingPaletteQuery() -> String? {
         defer { pendingPaletteQuery = nil }
         return pendingPaletteQuery
+    }
+
+    // MARK: - Portfolio
+
+    /// Rend la vue enregistrée en attente et la retire, pour qu'un second
+    /// affichage du Portfolio garde les filtres de l'utilisateur.
+    func consumePendingPortfolioSavedView() -> UUID? {
+        defer { pendingPortfolioSavedView = nil }
+        return pendingPortfolioSavedView
     }
 }

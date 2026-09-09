@@ -59,7 +59,7 @@ struct SidebarProjectCounts: Equatable, Sendable {
                         tasks: [ActionTask],
                         today: Date) -> SidebarProjectCounts {
         let actifs = projects.filter { !$0.isArchived }
-        let derniereReunion = derniereReunionParProjet(meetings, today: today)
+        let derniereReunion = MeetingStatsScope.lastHeldByProject(meetings, today: today)
 
         let aRisque = actifs.filter { projet in
             estARisque(projet,
@@ -126,27 +126,8 @@ struct SidebarProjectCounts: Equatable, Sendable {
     /// D14 en dit.
     static func ficheIncomplete(_ project: Project) -> Bool {
         if project.sponsor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if project.projectManager == nil { return true }
+        if ProjectPeople.manager(of: project) == nil { return true }
         let statut = project.status.trimmingCharacters(in: .whitespacesAndNewlines)
         return statut.isEmpty || ProjectStatus(raw: statut) == .unknown
-    }
-
-    // MARK: - Mécanique
-
-    /// La date de la dernière réunion **tenue** de chaque projet.
-    ///
-    /// « Tenue » au sens de `MeetingStatsScope.held` (une note n'est pas une
-    /// réunion) et **passée** : une réunion planifiée en novembre ne sort pas
-    /// un projet du motif 2.
-    private static func derniereReunionParProjet(_ meetings: [Meeting],
-                                                 today: Date) -> [PersistentIdentifier: Date] {
-        var resultat: [PersistentIdentifier: Date] = [:]
-        for reunion in MeetingStatsScope.held(meetings) {
-            guard reunion.date <= today, let projet = reunion.project else { continue }
-            let id = projet.persistentModelID
-            if let connue = resultat[id], connue >= reunion.date { continue }
-            resultat[id] = reunion.date
-        }
-        return resultat
     }
 }

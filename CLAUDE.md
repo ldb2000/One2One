@@ -130,7 +130,7 @@ transcription, rail d'actions de 330 px, poste de pilotage), `Session/**` (séan
 - Les semis de recette sont des extensions de `RefonteDemoSeed`, **idempotentes** ; la table
   des écrans photographiables est `Services/Debug/RecetteScreen.swift`.
 
-**Protocole de recette visuelle, et ses cinq pièges.**
+**Protocole de recette visuelle, et ses sept pièges.**
 
 ```bash
 swift build -c release
@@ -156,6 +156,23 @@ Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --screen 1a
 5. **Binaire périmé** : l'erreur la plus coûteuse de la refonte — deux heures d'observations
    fausses sur un bundle construit depuis un binaire d'il y a trois lots. Le script compare
    le `md5` copié et l'horodatage des sources.
+6. **Préférences et état de fenêtres non isolés** : `CFFIXED_USER_HOME` isole
+   `NSHomeDirectory()`, **pas `cfprefsd`** — les réglages du bundle `.recette` restent dans le
+   vrai `~/Library/Preferences/<bundle id>.plist`, partagé par tous les bundles de même
+   identifiant. Le 2026-09-09, il portait un cadre de fenêtre principale à `x = 2048`, sur un
+   écran débranché depuis : fenêtre hors de tout écran, jamais rendue, `onAppear` jamais parti,
+   aucun semis — et la fenêtre d'un **autre** processus OneToOne, lancé sept heures plus tôt
+   hors bundle, a été photographiée à sa place. Trois heures perdues. `recette-run.sh` lance
+   donc avec `-ApplePersistenceIgnoreState YES` et, sous `--reset`, fait `defaults delete
+   <bundle id>` + `killall cfprefsd` — **seulement** sur un identifiant suffixé `.recette`.
+   Corollaire : `ps -Ao pid,lstart,command | grep -i onetoone` avant toute capture ; une
+   fenêtre OneToOne n'est pas forcément la sienne.
+7. **Lire le store de recette sans son journal WAL** rend zéro partout : les écritures
+   récentes vivent dans `OneToOne.store-wal`. Copier les **trois** fichiers (`.store`, `-wal`,
+   `-shm`) avant tout `sqlite3`. Une mesure a conclu « l'application ne sème rien » sur un
+   store qui portait soixante-seize projets. Le garde-fou de `recette-run.sh` compte désormais
+   les gabarits intégrés ainsi : l'existence du fichier de store ne prouve que son
+   emplacement, pas que l'interface a été rendue.
 
 ## Règles de travail
 
