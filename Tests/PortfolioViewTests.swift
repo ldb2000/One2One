@@ -11,7 +11,7 @@ import SwiftUI
 /// ce que les vues **exposent** : les libellés au mot près, les mesures du
 /// handoff en constantes, et le comportement du modèle d'écran (debounce,
 /// facettes, tri, sélection, vues enregistrées). Même approche que
-/// `MeetingShortcutsTests` et `ProjectsSidebarSectionTests`.
+/// `AppShortcutsTests` et `ProjectsSidebarSectionTests`.
 @Suite("Écran Portfolio")
 @MainActor
 struct PortfolioViewTests {
@@ -482,5 +482,84 @@ struct PortfolioViewTests {
         #expect(modele.filtered.map(\.name)
                     == modele.filtered.map(\.name)
                         .sorted { $0.localizedStandardCompare($1) == .orderedAscending })
+    }
+
+    // MARK: - Le Portfolio vierge des écrans de recette
+
+    /// Racine du dépôt, déduite de `#filePath` (`<racine>/Tests/<fichier>`).
+    private static var racineDuDepot: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private static func source(_ chemin: String) -> String {
+        (try? String(contentsOf: racineDuDepot.appendingPathComponent(chemin),
+                     encoding: .utf8)) ?? ""
+    }
+
+    @Test("seul p1a photographie une vue enregistrée ; les autres écrans de la fenêtre principale exigent un tableau vierge")
+    func portfolioViergeParEcran() {
+        for ecran in RecetteScreen.allCases {
+            switch ecran.cible {
+            case .fenetrePrincipale:
+                #expect(ecran.portfolioVierge == (ecran != .portefeuille),
+                        "\(ecran.rawValue) : vierge attendu sauf pour p1a")
+            default:
+                // Un écran de réunion n'affiche pas le Portfolio : il n'a rien
+                // à en dire, et surtout rien à y remettre à zéro.
+                #expect(!ecran.portfolioVierge, "\(ecran.rawValue) n'ouvre pas le Portfolio")
+            }
+        }
+        #expect(RecetteScreen.palette.portfolioVierge)
+        #expect(!RecetteScreen.portefeuille.portfolioVierge)
+    }
+
+    @Test("la consigne de remise à zéro se consomme une seule fois")
+    func consigneDeRemiseAZero() {
+        let routeur = MainRouter(defaults: ReglagesEnMemoire())
+        #expect(!routeur.consumePendingPortfolioReset())
+        routeur.pendingPortfolioReset = true
+        #expect(routeur.consumePendingPortfolioReset())
+        // Consommée : un second affichage du Portfolio garde les filtres que
+        // l'utilisateur y aura posés entretemps.
+        #expect(!routeur.consumePendingPortfolioReset())
+    }
+
+    @Test("réinitialiser efface le texte, les filtres et la vue active")
+    func reinitialiser() throws {
+        let contexte = try contexteEnMemoire()
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+        let projets = try contexte.fetch(FetchDescriptor<Project>())
+        let reunions = try contexte.fetch(FetchDescriptor<Meeting>())
+
+        let model = PortfolioModel()
+        model.recharger(projects: projets, meetings: reunions)
+        let toutes = model.filtered.count
+
+        // L'état exact de la capture `p1c` fautive : « ASP » dans le champ,
+        // quinze lignes, et une vue appliquée par-dessus.
+        model.appliquer(PortfolioSavedView(name: "Mes projets ASP",
+                                           filters: PortfolioFilters(entities: ["ASP"]),
+                                           sort: PortfolioSort(column: .entity, ascending: false)))
+        model.filters.text = "ASP"
+        model.recharger(projects: projets, meetings: reunions)
+        #expect(model.filtered.count < toutes)
+        #expect(model.vueActive != nil)
+
+        model.reinitialiser()
+        model.recharger(projects: projets, meetings: reunions)
+        #expect(model.champDeRecherche.isEmpty)
+        #expect(model.filters == .aucun)
+        #expect(model.vueActive == nil)
+        #expect(model.sort == .parDefaut)
+        #expect(model.filtered.count == toutes)
+    }
+
+    @Test("l'écran de recette pose la consigne, et le Portfolio l'applique")
+    func consigneBranchee() {
+        let app = Self.source("OneToOne/OneToOneApp.swift")
+        #expect(app.contains("mainRouter.pendingPortfolioReset = ecran.portfolioVierge"))
+        let vue = Self.source("OneToOne/Views/Portfolio/PortfolioView.swift")
+        #expect(vue.contains("router.consumePendingPortfolioReset()"))
+        #expect(vue.contains("model.reinitialiser()"))
     }
 }

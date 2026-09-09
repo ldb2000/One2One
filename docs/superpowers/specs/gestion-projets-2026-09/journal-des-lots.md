@@ -346,3 +346,102 @@ recentrée, quelle que soit la clé d'où vient son cadre).
 - **Le tri de la capture est « PROJET ↑ » mais ses lignes ne sont pas alphabétiques** (elles
   suivent l'ordre de déclaration du semis). Le tableau les triera par nom : « AE – Gestion… »
   passera en tête. Écart inévitable, sauf à ne pas trier.
+
+---
+
+## Lot 3 — Palette ⌘K (1c), recherche dans les CR, unification D7 (2026-09-09)
+
+Branche `feat/projets-lot-3-palette`, **base `88916de`** (tête du lot 2 après ses deux
+commits de correction et de captures ; le lot a démarré sur `c092442` et a été rebasé en fin
+de course, sans conflit). Rien poussé, arbre propre, aucun `git stash`, aucun lancement
+graphique, aucun build release — la recette `p1c` est prise par le coordinateur depuis un
+autre checkout.
+
+`swift test` : **2 345 Swift Testing / 276 suites + 1 057 XCTest (1 ignoré) = 3 402**,
+0 échec, **+56 tests et +3 suites** sur le lot 2. Aucun avertissement nouveau ;
+`DocumentationTests` et `RefonteTypographieTests` verts.
+
+### Ce que le lot livre
+
+**La table des raccourcis change de portée (D1).**
+`Views/Menus/MeetingShortcut.swift` devient `AppShortcut.swift` (`git mv`, l'historique suit) :
+`⌘K` va à la palette, l'assistant de réunion passe à `⌘⇧K`, et un neuvième cas `palette` arrive
+en tête. Aucun `typealias` de compatibilité — les cinq appelants sont renommés, et
+`Tests/AppShortcutsTests.swift` refuse toute trace du nom retiré. ADR
+`docs/adr/2026-09-09-palette-commande-k.md` ; le §1.4 de la spec réunion porte une note datée
+qui y renvoie.
+
+**La palette** (`Views/Palette/`, `Services/Project/PaletteModel.swift`) : une carte de 560 pt
+posée en superposition de la fenêtre principale, ouverte par `⌘K` depuis n'importe quel écran
+(item de menu natif) et au lancement par la recette `p1c`. Six projets au plus, classés par
+`ProjectSearch.rank`, puis les deux actions « Créer un projet « x » » et « Chercher « x » dans
+les CR » (D8 : pas de mails). `↑`/`↓` bornés, `↩` ouvre, `⌘↩` épingle **sans fermer**, `esc`
+referme.
+
+**La recherche dans les CR** (`Views/Search/ReportSearchView.swift`,
+`Services/Project/ReportSearch.swift`) remplace l'invite `.searchReports` du lot 0 :
+`localizedStandardContains` sur `Meeting.textualContent` hors notes, un résultat par réunion
+étiqueté par le champ trouvé, groupé par projet avec « Sans projet » en dernier, extrait de
+±60 caractères aplati et surligné, clic → réunion par `QuickLaunchRouter.pendingToken`.
+
+**L'unification D7 est faite.** `SearchPopover` et `MeetingsProjectFilterPicker` perdent leurs
+prédicats propres pour `ProjectSearch`. Il n'en reste **aucun** dans le dépôt.
+
+### Commits
+
+| Hash | Intention |
+| --- | --- |
+| `2ed1b14` | `refactor(raccourcis)` — `AppShortcut`, la palette prend ⌘K et l'assistant ⌘⇧K (D1) |
+| `15cf4cb` | `feat(projets)` — `PaletteModel` et `ReportSearch`, deux règles pures avant leurs vues |
+| `2d12123` | `feat(projets)` — lot 3, la palette ⌘K et la recherche dans les CR |
+
+### Décisions prises en cours de lot
+
+1. **L'entité entre dans les champs de `ProjectSearch`.** Elle n'était que dans le prédicat de
+   `MeetingsProjectFilterPicker`, qui migre : une recherche unique doit être l'**union** de ce
+   qu'elle remplace, pas leur intersection. Sans cela, D7 aurait retiré une capacité.
+2. **Un terme vide n'affiche ni projet ni action.** Le brief dit « vide → « Aucun projet » + les
+   deux actions » ; c'est le cas d'un terme **cherché sans résultat**. Rien de frappé n'est pas
+   « aucun résultat » : on ne crée pas un projet sans nom et on ne cherche pas le vide. Les deux
+   états sont distincts (`estVide` / `aucunProjet`) et tous deux testés.
+3. **La palette montre les projets archivés.** La capture 1c fait remonter « RH – Migration GED
+   documentaire », qui est archivé. Le Portfolio, lui, ne montre que les actifs.
+4. **`⌘↩` ne recharge pas la liste.** Épingler remonte un projet dans `rank` : réordonner ferait
+   sauter sous le curseur la ligne qu'on vient d'épingler, et la palette reste ouverte.
+5. **Ni feuille ni panneau flottant** : une superposition. Une `.sheet` macOS descend du haut
+   avec son propre fond et ne sait pas dessiner une carte bordée et ombrée ; un `NSPanel`
+   demanderait une fenêtre à gérer pour le même rendu.
+6. **`MeetingMenuItem` gagne `.palette`.** Le cas décrit la surface de déclaration, pas une
+   dépendance à une réunion — l'item n'est jamais grisé, et un test le vérifie.
+7. **`AppIntents.AppShortcut` est qualifié** dans `StartOneToOneIntent.swift` : le nom arrêté par
+   D1 collisionne avec un type du framework, et aucun des deux n'est renommable.
+8. **`ProjectCreation.creer` gagne `nom:`**, avec la chaîne vide pour défaut et non
+   `nomParDefaut` — un argument par défaut est évalué hors acteur, et y lire une propriété
+   statique d'un `enum` `@MainActor` produit un avertissement de concurrence.
+
+### Écarts avec la capture `1c-palette-cmdk.png`
+
+Constatés **par lecture** ; la recette n'est pas de ce lot.
+
+1. **La carte fait 560 pt, la maquette en rend 508.** Le handoff écrit « 560 px de large » ; son
+   HTML pose un cadre de 560 avec 26 px de marge, donc une carte de 508. La mesure **nommée**
+   gagne.
+2. **« Chercher « ged » dans les CR »** et non « dans les CR et mails », que la capture affiche.
+   C'est **D8**, tranchée par Laurent le 2026-09-09.
+3. **La sous-ligne de « RH – Migration GED documentaire » portera « · PENVEN Yann ».** La capture
+   s'arrête à « P24_211 · RH · Run », mais le semis lie un chef de projet à ce projet, et D3 dit
+   que la relation fait foi. Corriger demanderait de changer le semis du lot 0.
+4. **Le pied est rendu en trois segments espacés de 14 pt**, comme la maquette les dessine ; la
+   constante testée reste la phrase du handoff, séparée par des points médians.
+5. **Aucun voile derrière la carte.** La maquette la pose sur un fond uni de cadre, pas sur un
+   tapis assombri ; la superposition est transparente et se contente d'avaler les clics.
+
+### Ce qui reste dû
+
+- **La recette `p1c` n'a pas été faite** (hors périmètre du lot, prise par le coordinateur).
+  Cinq points à regarder : les touches `↑`/`↓` avec un `TextField` focalisé, `⌘↩` face à l'item
+  de menu « Générer le rapport » qui porte la même combinaison, la position verticale de la
+  carte (96 pt), le rendu de l'ombre (`radius: 40` sur un flou CSS de 40) et la troncature des
+  noms de projet à 560 pt.
+- **`MeetingShortcutsSheet` garde son nom** alors qu'elle rend une table qui n'est plus
+  seulement de réunion : hors intention de ce lot.

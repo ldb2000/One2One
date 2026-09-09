@@ -117,11 +117,57 @@ final class MainRouter {
 
     // MARK: - Palette
 
+    /// Le terme d'ouverture de la palette `⌘K`, ou `nil` quand elle est
+    /// fermée (décision **D1**).
+    ///
+    /// **Ici et non en `@State` d'un écran** : la palette s'ouvre depuis
+    /// n'importe quel écran, et son déclencheur est un item de menu natif
+    /// (`MeetingCommands`), qui n'a accès à aucune hiérarchie de vues. Le
+    /// routeur est le seul objet que le menu et `ContentView` partagent —
+    /// c'est déjà la raison de son singleton (ADR du routeur).
+    ///
+    /// L'état *interne* de la palette (terme frappé, ligne sélectionnée) n'est
+    /// pas ici : il vit dans `PaletteModel`, comme l'état d'écran d'une
+    /// réunion vit dans `MeetingScreenModel`.
+    private(set) var paletteTerme: String?
+
+    /// La palette est-elle affichée ?
+    var paletteOuverte: Bool { paletteTerme != nil }
+
+    /// Ouvre la palette, éventuellement préremplie (recette `p1c`).
+    func ouvrirPalette(terme: String = "") {
+        paletteTerme = terme
+    }
+
+    /// Ferme la palette (`esc`, ou une ligne activée).
+    func fermerPalette() {
+        paletteTerme = nil
+    }
+
     /// Rend le terme en attente et le retire, pour qu'une seconde ouverture de
     /// la palette reparte vide.
     func consumePendingPaletteQuery() -> String? {
         defer { pendingPaletteQuery = nil }
         return pendingPaletteQuery
+    }
+
+    /// Ouvre la palette si un terme l'attend, et dit si elle s'est ouverte.
+    ///
+    /// **Ici et non dans la vue** : c'est la seule moitié du chemin de la
+    /// recette `p1c` qui soit vérifiable par un test — le reste est du rendu
+    /// SwiftUI. La vue l'appelle à son apparition **et** à chaque fois que
+    /// `pendingPaletteQuery` change, ce qui la rend insensible à l'ordre
+    /// relatif du semis et du premier `onAppear` : quel que soit celui qui
+    /// arrive en premier, la palette s'ouvre une fois.
+    ///
+    /// Idempotente : le terme est consommé, donc un second appel rend `false`
+    /// et n'ouvre rien. Elle ne peut pas boucler avec l'`onChange` qui
+    /// l'appelle.
+    @discardableResult
+    func ouvrirLaPaletteEnAttente() -> Bool {
+        guard let terme = consumePendingPaletteQuery() else { return false }
+        ouvrirPalette(terme: terme)
+        return true
     }
 
     // MARK: - Portfolio
@@ -131,5 +177,19 @@ final class MainRouter {
     func consumePendingPortfolioSavedView() -> UUID? {
         defer { pendingPortfolioSavedView = nil }
         return pendingPortfolioSavedView
+    }
+
+    /// Le Portfolio doit-il repartir vierge à sa prochaine apparition ?
+    ///
+    /// Posé par les écrans de recette qui ne photographient **pas** une vue
+    /// enregistrée (`RecetteScreen.portfolioVierge`). Même nature que
+    /// `pendingPortfolioSavedView` : une consigne de recette, consommée une
+    /// fois, qui ne concerne jamais un lancement ordinaire.
+    var pendingPortfolioReset = false
+
+    /// Rend la consigne de remise à zéro et la retire.
+    func consumePendingPortfolioReset() -> Bool {
+        defer { pendingPortfolioReset = false }
+        return pendingPortfolioReset
     }
 }

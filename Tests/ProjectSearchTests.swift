@@ -107,6 +107,23 @@ struct ProjectSearchTests {
         #expect(ProjectSearch.matches(p, query: "paoli"))
     }
 
+    @Test("L'entité est lue, comme le faisait le sélecteur de la liste des réunions")
+    func entite() throws {
+        // Ajoutée au lot 3 (**D7**) : elle n'était que dans le prédicat de
+        // `MeetingsProjectFilterPicker`, qui migre ici. Une recherche unique
+        // est l'union de ce qu'elle remplace.
+        let contexte = try contexteEnMemoire()
+        let p = projet(contexte, nom: "BLOOM", domaine: "")
+        #expect(!ProjectSearch.matches(p, query: "logistique"))
+
+        let entite = Entity(name: "LOG – Logistique")
+        contexte.insert(entite)
+        p.entity = entite
+        #expect(ProjectSearch.matches(p, query: "logistique"))
+        // Casse et accents pliés ici aussi.
+        #expect(ProjectSearch.matches(p, query: "LOGISTIQUE"))
+    }
+
     @Test("Une recherche vide ne filtre rien")
     func rechercheVide() throws {
         let contexte = try contexteEnMemoire()

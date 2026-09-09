@@ -13,7 +13,7 @@ import Foundation
 /// `NSLocalizedDescriptionKey`. L'alerte affiche `error.localizedDescription`
 /// telle quelle ; une erreur sans texte est donc une erreur illisible, et rien
 /// dans l'état d'un modèle ne le signale — d'où ce test de lecture, sur le
-/// modèle de `RefonteTypographieTests` et de `MeetingShortcutsTests`.
+/// modèle de `RefonteTypographieTests` et de `AppShortcutsTests`.
 ///
 /// Périmètre : les dossiers de services que la refonte a créés. Les erreurs
 /// hors périmètre restent de la responsabilité de leur propre suite.

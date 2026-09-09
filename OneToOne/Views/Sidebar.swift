@@ -208,17 +208,109 @@ struct MainSidebarView: View {
     @ObservedObject private var jobQueue = JobQueue.shared
     @AppStorage("sidebar.jobsExpanded") private var jobsExpanded: Bool = true
 
+    // MARK: - Sélection de la liste
+
+    /// La sélection de la `List`, **locale**, et non la route du routeur.
+    ///
+    /// Le binding a longtemps été `$mainRouter.route` : la barre latérale
+    /// pilotait l'écran directement. C'était un défaut, relevé deux fois à la
+    /// recette du 2026-09-09 — `NSTableView` conserve un **index** de ligne, et
+    /// quand l'ensemble des lignes change (semis, épinglage, recherche, groupe
+    /// déplié) SwiftUI retraduit cet index en tag d'une **autre** ligne et
+    /// l'écrit dans le binding. L'application ouvrait alors une fiche que
+    /// personne n'avait demandée. Voir `SidebarSelectionGuard`.
+    @State private var selectionDeLaListe: MainRoute?
+
+    /// Quand la composition des lignes a changé pour la dernière fois.
+    ///
+    /// `nil` jusqu'au premier rendu : `SidebarSelectionGuard.lignesStables`
+    /// répond alors `false`, ce qui couvre l'instant du semis, où toutes les
+    /// lignes apparaissent d'un coup.
+    @State private var dernierChangementDeLignes: Date?
+
+    /// Ce qui fait naître ou mourir une ligne. Comparée par `onChange` : un
+    /// renommage ou une sauvegarde de contexte ne la change pas.
+    private var empreinteDesLignes: SidebarRowsFingerprint {
+        let epingles = PinnedProjectsList.epingles(among: projects,
+                                                   query: debouncedSearch,
+                                                   notes: { notes(ofProject: $0) }).count
+        let recents = RecentProjectsList.resolve(ids: mainRouter.recentProjectIDs,
+                                                 among: projects,
+                                                 query: debouncedSearch,
+                                                 notes: { notes(ofProject: $0) })
+            .prefix(RecentProjectsList.maxAffiches).count
+        let archives = filteredArchivedProjects.count
+        let collabsActifs = filteredActiveCollaborators.count
+        let collabsArchives = filteredArchivedCollaborators.count
+        let entitesVisibles = filteredEntities.count
+        return SidebarRowsFingerprint(
+            projetsActifs: projects.filter { !$0.isArchived }.count,
+            projetsArchives: archives,
+            projetsEpingles: epingles,
+            projetsRecents: recents,
+            collaborateursActifs: collabsActifs,
+            collaborateursArchives: collabsArchives,
+            entites: entitesVisibles,
+            recherche: debouncedSearch,
+            sectionProjetsDepliee: sectionProjetsDepliee,
+            arbreDeplie: projectsExpanded,
+            collaborateursDeplies: collabsExpanded,
+            archivesDepliees: archivesExpanded,
+            projetsArchivesDeplies: archivedProjectsExpanded,
+            lignesRendues: Self.lignesFixes
+                + (sectionProjetsDepliee
+                    ? ProjectsSidebarEntry.allCases.count + epingles + recents
+                    : 0)
+                + (projectsExpanded ? entitesVisibles : 0)
+                + (collabsExpanded ? collabsActifs : 0)
+                + (archivesExpanded ? collabsArchives : 0)
+                + (archivedProjectsExpanded ? archives : 0))
+    }
+
+    /// Les entrées qui sont toujours là : les sept destinations du haut, les
+    /// en-têtes de section et « Paramètres ». Le compte exact n'a pas
+    /// d'importance — seule sa **stabilité** en a : c'est un décalage qu'on
+    /// cherche à détecter, pas un inventaire.
+    private static let lignesFixes = 12
+
+    /// L'état de dépliage de la section « Projets », lu là où elle l'écrit.
+    private var sectionProjetsDepliee: Bool {
+        UserDefaults.standard.object(forKey: ProjectsSidebarSection.expandedKey) as? Bool
+            ?? ProjectsSidebarSection.deplieParDefaut
+    }
+
+    /// Applique la décision du garde-fou à un changement de sélection.
+    private func selectionADeplace(de ancienne: MainRoute?, vers nouvelle: MainRoute?) {
+        let stables = SidebarSelectionGuard.lignesStables(
+            depuis: dernierChangementDeLignes.map { -$0.timeIntervalSinceNow })
+        switch SidebarSelectionGuard.decide(ancienne: ancienne,
+                                            nouvelle: nouvelle,
+                                            routeCourante: mainRouter.route,
+                                            lignesStables: stables) {
+        case .ouvrir(let route):
+            mainRouter.open(route)
+        case .ignorer:
+            break
+        case .restaurer:
+            // Remet aussi la surbrillance sur la ligne de l'écran affiché.
+            // Réécrire `selectionDeLaListe` redéclenche ce même `onChange`,
+            // qui tombera cette fois sur `.ignorer` : pas de boucle.
+            selectionDeLaListe = mainRouter.route
+        }
+    }
+
     var body: some View {
-        // Le routeur vient de l'environnement et il est `@Observable` : c'est
-        // `@Bindable` qui en tire le `Binding` que `List(selection:)` attend.
-        @Bindable var mainRouter = mainRouter
-        return VStack(spacing: 0) {
+        // La `List` sélectionne un `@State` **local**, jamais la route : c'est
+        // `SidebarSelectionGuard` qui décide si une sélection mérite d'être
+        // portée au routeur. Il n'y a plus de `@Bindable` sur le routeur ici,
+        // et un test l'interdit.
+        VStack(spacing: 0) {
             // Multi-select action bar
             if isMultiSelectMode && !selectedProjectIDs.isEmpty {
                 multiSelectBar
             }
 
-            List(selection: $mainRouter.route) {
+            List(selection: $selectionDeLaListe) {
                 Label("Tableau de bord", systemImage: "chart.bar.fill")
                     .tag(MainRoute.dashboard)
 
@@ -450,6 +542,25 @@ struct MainSidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            // Synchronisation **descendante** : la route décide de la
+            // surbrillance, y compris quand elle vient de la palette `⌘K`, du
+            // menu système ou de l'écran de recette.
+            .onAppear {
+                selectionDeLaListe = mainRouter.route
+                // Le premier rendu compte comme un changement de lignes : au
+                // lancement, elles apparaissent toutes d'un coup, et c'est
+                // l'instant exact où le semis remappe les index.
+                dernierChangementDeLignes = Date()
+            }
+            .onChange(of: mainRouter.route) { _, nouvelle in
+                selectionDeLaListe = nouvelle
+            }
+            // Le signal de méfiance : les lignes viennent de bouger.
+            .onChange(of: empreinteDesLignes) { dernierChangementDeLignes = Date() }
+            // Synchronisation **montante**, filtrée.
+            .onChange(of: selectionDeLaListe) { ancienne, nouvelle in
+                selectionADeplace(de: ancienne, vers: nouvelle)
+            }
             .sheet(item: $renamingCollaborator) { collaborator in
                 VStack(spacing: 16) {
                     Text("Renommer le collaborateur")

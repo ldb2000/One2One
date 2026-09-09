@@ -521,7 +521,7 @@ graph TD
 
 ## 8. Couche Views
 
-250 fichiers. Organisation :
+254 fichiers. Organisation :
 
 - **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter` et `MainDetailView` —
   voir « Navigation de la fenêtre principale » ci-dessous. La barre latérale est
@@ -544,6 +544,18 @@ graph TD
   `PortfolioGroupedView`, et le pied. `PhaseBadge` et `RiskBadge` portent les couples de
   teintes ; l'état d'écran est dans `PortfolioModel` (`@Observable`) et les vues enregistrées
   passent par `PortfolioSavedViewStore`.
+- **Palette `⌘K`** (`Views/Palette/`) : l'écran 1c du handoff — une carte de 560 pt posée en
+  superposition de la fenêtre principale, ouverte par `⌘K` depuis n'importe quel écran
+  (décision **D1**, ADR `docs/adr/2026-09-09-palette-commande-k.md`). `CommandPalette` monte le
+  champ de 44 pt à pastille `esc`, les groupes `PROJETS` et `ACTIONS` et le pied ;
+  `PaletteRow.swift` porte les deux formes de ligne (projet et action) et `HighlightedText` le
+  surlignage `highlight` des occurrences du terme. L'état est dans `PaletteModel`
+  (`Services/Project/`), l'ouverture dans `MainRouter` — un item de menu natif n'a accès à
+  aucune hiérarchie de vues.
+- **Recherche dans les CR** (`Views/Search/`) : `ReportSearchView`, l'écran de résultats de
+  « Chercher « x » dans les CR » (décision **D8**). Il monte la route
+  `MainRoute.searchReports(_:)`, groupe par projet, surligne l'extrait et ouvre la réunion par
+  `QuickLaunchRouter.pendingToken`. Les règles sont dans `ReportSearch`.
 - **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`),
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
 - **Réunion** (`Views/Meeting/`) : voir la section dédiée ci-dessous — c'est le chantier de
@@ -582,23 +594,43 @@ des projets).
   `PersistentIdentifier` (`Entity` n'a pas de `stableID`). `ProjectTab` porte les six onglets
   de l'écran projet.
 - `MainRouter` (`@Observable`, singleton `.shared`) porte la route, une histoire bornée à vingt
-  écrans, les projets récents (`RecentProjects`) et le terme en attente de la palette.
+  écrans, les projets récents (`RecentProjects`), le terme en attente de la palette et son
+  **ouverture** (`paletteTerme`, `ouvrirPalette`, `fermerPalette`).
   Singleton parce que `MenuBarController` est un `NSObject` : il ne lit aucun environnement, et
   c'est lui qui ouvre un projet depuis la recherche du menu système.
 - `MainSidebarView` est une liste à sélection sur `MainRoute` ; `MainDetailView` monte l'écran
   par un `switch` total. C'est un routeur, comme `MeetingView` : il ne calcule rien.
-- `ContentView` injecte le routeur par `.environment(_:)` et borne la colonne latérale à
-  170 / 250 / 320 px.
+- **La liste ne sélectionne pas la route directement.** Elle sélectionne un état local, et
+  `SidebarSelectionGuard` décide si ce changement mérite d'être porté au routeur : `NSTableView`
+  conserve un **index** de ligne, et quand la composition des lignes change (semis, épinglage,
+  recherche, groupe déplié) SwiftUI le retraduit en tag d'une **autre** ligne, qu'il écrit dans
+  le binding — l'application ouvrait alors une fiche que personne n'avait demandée (relevé deux
+  fois à la recette du 2026-09-09). L'écriture n'est acceptée que si `SidebarRowsFingerprint`
+  n'a pas bougé dans les 300 ms ; sinon la sélection est restaurée depuis la route. Pas de
+  condition de focus : la première version en exigeait une, et elle refusait les sélections
+  faites par l'accessibilité (`AXSelected`, VoiceOver) comme le premier clic depuis un état non
+  focalisé.
+- `ContentView` injecte le routeur par `.environment(_:)`, borne la colonne latérale à
+  170 / 250 / 320 px et pose la palette en superposition — **avant** l'injection, sinon la
+  superposition ne verrait pas le routeur de la fenêtre.
 
 Le vocabulaire de valeurs d'un projet vit dans `Services/Project/` : `ProjectPhase`,
 `ProjectStatus`, `ProjectType` et `RiskLevel` interprètent les colonnes — restées des chaînes
 libres — et rendent `nil` pour une valeur hors table ; `PortfolioSavedView`, `PortfolioFilters`
 et `PortfolioSort` sont les vues enregistrées du Portfolio, encodées en JSON dans
 `AppSettings.portfolioSavedViewsJSON`. `ProjectSearch` est la **seule** recherche de projets
-(nom, code, domaine, sponsor, chef de projet, architecte, notes ; correspondance, classement,
-surlignage — décision **D7**) et `SidebarProjectCounts` les trois compteurs de la barre
-latérale, dont un stub des trois motifs « à risque » que la vue dédiée du lot 5 remplacera
-par son propre constructeur.
+(nom, code, domaine, sponsor, entité, chef de projet, architecte, notes ; correspondance,
+classement, surlignage — décision **D7**) : la barre latérale, le Portfolio, la palette, le
+popover de la barre de menus et le sélecteur de projet de la liste des réunions l'appellent
+tous. `SidebarProjectCounts` porte les trois compteurs de la barre latérale, dont un stub des
+trois motifs « à risque » que la vue dédiée du lot 5 remplacera par son propre constructeur.
+
+`PaletteModel` tient l'état de la palette `⌘K` : les six projets que `ProjectSearch.rank`
+remonte (archivés compris), les deux actions, les bornes de `↑`/`↓`, l'effet de `⌘↩` sur
+`Project.pinned` et la sous-ligne `code · entité · phase · chef de projet`. `ReportSearch`
+cherche un terme dans `Meeting.textualContent` des réunions hors notes, groupe les résultats
+par projet et découpe l'extrait de ±60 caractères (décision **D8** : les comptes rendus
+seulement, pas les mails).
 
 Le tableau du Portfolio est construit par `PortfolioBuilder` : `rows` transforme les projets
 actifs en `PortfolioRow` (une valeur par ligne, sa cellule `MilestoneCell` et son libellé
@@ -644,9 +676,11 @@ s'ajoute dans `MeetingView.swift`, on en retire**.
   derrière le drapeau `workshopEnabled`) : palettes, dock, inspecteur, planche de séance.
 - `Views/Project/ProjectCardPanel.swift` — la fiche projet en panneau de 430 px (spec §4.3),
   qui se superpose à n'importe quel espace.
-- `Views/Menus/` — `MeetingShortcut` (la table des raccourcis §1.4, seule à épeler une
-  combinaison), `MeetingCommands` (menus natifs), `MeetingMenuActions` (source unique des
-  actions secondaires, partagée avec le menu `⋯`), `MeetingShortcutsSheet` (l'aide).
+- `Views/Menus/` — `AppShortcut` (la table des raccourcis clavier de l'**application**, seule à
+  épeler une combinaison ; elle s'appelait « raccourcis de réunion » avant que `⌘K` n'aille à la
+  palette — décision **D1**), `MeetingCommands` (menus natifs, dont l'item « Palette… »),
+  `MeetingMenuActions` (source unique des actions secondaires, partagée avec le menu `⋯`),
+  `MeetingShortcutsSheet` (l'aide, qui rend la table).
 
 **Retirés au lot 19a** (décision D8) : OverviewDashboard, PanelLayoutEntry,
 DashboardGridLayout, MeetingTabsUnderline, CollaboratorDetailView — le dashboard
@@ -765,7 +799,7 @@ publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec
 Testing et XCTest. Couverture orientée **logique pure et services** — les vues SwiftUI ne sont
 pas montées, mais quelques suites **relisent les sources** (`#filePath`) pour vérifier ce qui
 ne se teste pas autrement : un modifieur de mise en page, l'absence d'une condition, l'unicité
-d'une déclaration de raccourci (`MeetingShortcutsTests`, `Tests/RefonteFinitionsTests.swift`,
+d'une déclaration de raccourci (`AppShortcutsTests`, `Tests/RefonteFinitionsTests.swift`,
 `ReviewStateTests`) :
 
 - **STT / diarisation** : `TurnMergerTests`, `CanonicalizeClustersTests`,
@@ -787,7 +821,7 @@ d'une déclaration de raccourci (`MeetingShortcutsTests`, `Tests/RefonteFinition
   `SpotlightCollaboratorIndexTests`, `PrepCarryoverServiceTests`,
   `PrepCheckboxCompatTests`, `SentenceContextExtractorTests`, `SwiftDataTests`.
 - **Écran de réunion (refonte)** : `MeetingScreenModelTests` (état d'écran),
-  `ReviewStateTests`, `MeetingShortcutsTests` (table §1.4),
+  `ReviewStateTests`, `AppShortcutsTests` (la table des raccourcis),
   `Tests/RefonteFinitionsTests.swift`, `MeetingMenuActionsTests`, `SessionNoChromeTests`,
   `ActionsRailGroupingTests`, `CaptureStripModelTests`, `BoardStoreTests`,
   `ManagerPrepRoutingTests` (routage espace × mode × type, `MeetingSpaceRouting`),

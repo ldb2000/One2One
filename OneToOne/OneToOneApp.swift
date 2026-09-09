@@ -150,6 +150,15 @@ struct ContentView: View {
             MainDetailView()
                 .focusSection()
         }
+        // La palette `⌘K` (décision **D1**) : une couche par-dessus les deux
+        // colonnes, posée **avant** `.environment(_:)` pour que le routeur
+        // qu'elle lit soit celui de la fenêtre — l'ordre des modificateurs
+        // décide de ce qu'une superposition voit.
+        .overlay {
+            if mainRouter.paletteOuverte {
+                CommandPalette(router: mainRouter)
+            }
+        }
         .environment(mainRouter)
         .onAppear {
             // Indispensable quand l'app est lancée via swift run :
@@ -177,6 +186,7 @@ struct ContentView: View {
             maybeRunAutoCleanup()
             runRAGIndexingSweep()
             maybeSeedRefonteDemo()
+            mainRouter.ouvrirLaPaletteEnAttente()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -197,6 +207,13 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+        // Filet de la recette `p1c` : si le terme est posé **après** le premier
+        // `onAppear` — ordre que rien ne garantit, `maybeSeedRefonteDemo` étant
+        // gardé par un `@State` —, la palette s'ouvre quand même. L'opération
+        // consomme le terme, donc elle ne peut pas boucler.
+        .onChange(of: mainRouter.pendingPaletteQuery) { _, _ in
+            mainRouter.ouvrirLaPaletteEnAttente()
         }
         .onReceive(router.$pendingToken.compactMap { $0 }) { token in
             openWindow(id: "1to1-meeting", value: token)
@@ -293,6 +310,11 @@ struct ContentView: View {
             let focus = RefonteDemoSeed.seedPortfolio(in: context)
             mainRouter.pendingPaletteQuery = ecran.termeDePalette
             prereplirLesRecents(ecran.codesDeProjetsRecents)
+            // Une capture ne doit pas dépendre de celle qui l'a précédée : les
+            // écrans qui ne photographient pas de vue enregistrée exigent un
+            // Portfolio vierge, quoi qu'une instance laissée ouverte ou un
+            // home réutilisé lui ait laissé.
+            mainRouter.pendingPortfolioReset = ecran.portfolioVierge
             poserLaVueEnregistree(ecran.vueEnregistreeDeRecette)
             mainRouter.open(routeDeRecette(route, focus: focus))
             return

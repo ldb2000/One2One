@@ -35,10 +35,16 @@ struct SessionAssistantPanel: View {
         }
         .padding(.horizontal, 14)
         .overlay {
-            // `⌘K` (spec §1.4) : en mode séance, l'assistant n'est pas une
-            // feuille à ouvrir — il est déjà là. `⌘K` lui rend le clavier.
+            // `⌘⇧K` (spec §1.4, amendée par la décision **D1** : `⌘K` est
+            // allé à la palette le 2026-09-09) : en mode séance, l'assistant
+            // n'est pas une feuille à ouvrir — il est déjà là. Le raccourci
+            // lui rend le clavier.
+            //
+            // Doublon **assumé** du déclarant de `AppShortcut.assistant`, et
+            // inscrit comme tel dans `Tests/AppShortcutsTests.swift` : le
+            // menu natif ne sait pas focaliser un champ de cette vue.
             Button("") { champFocalise = true }
-                .keyboardShortcut("k", modifiers: .command)
+                .keyboardShortcut("k", modifiers: [.command, .shift])
                 .opacity(0)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
@@ -52,7 +58,7 @@ struct SessionAssistantPanel: View {
                 .foregroundStyle(c.action)
             Text("Assistant").sectionLabel()
             Spacer(minLength: 6)
-            Text("⌘K")
+            Text("⌘⇧K")
                 .font(.plexMono(10))
                 .foregroundStyle(c.ink4)
         }
