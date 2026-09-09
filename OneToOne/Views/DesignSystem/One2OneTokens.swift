@@ -120,6 +120,28 @@ enum One2OneToken {
     /// côté de la colonne que le panneau recouvre.
     static let panelShadowOffsetX: CGFloat = -8
 
+    /// Ombre de la palette `⌘K` : `0 18px 40px rgba(0,0,0,.16)` (capture
+    /// `1c-palette-cmdk.png`). Le handoff de la refonte des projets disait
+    /// « ne rien ajouter » aux jetons ; il n'avait pas relevé ses trois propres
+    /// valeurs sans nom — décision **D12**. Deux jetons, comme pour
+    /// `panelShadow` : une ombre est une couleur *plus* une géométrie, et
+    /// séparer les deux ferait réapparaître un littéral dans la vue. Elle est
+    /// portée droit vers le bas, donc sans décalage horizontal.
+    static let paletteShadow = Color.black.opacity(0.16)
+    static let paletteShadowRadius: CGFloat = 40
+
+    /// Surlignage d'un terme trouvé : `#FFE9A8` (capture 1c). Un fond, jamais
+    /// une encre — le texte surligné reste en `ink1`, ce qui lui garde son
+    /// contraste (cf. `One2OneTokensTests`).
+    static let highlight = Color(hex: 0xFFE9A8)
+
+    /// Bord tireté d'une zone à compléter — le cadre en pointillés du
+    /// « Sponsor à renseigner » et le filet du bas de la carte Périmètre
+    /// (capture `1d-ecran-projet-pilotage.png`) : `rgba(0,0,0,.22)`. Plus
+    /// appuyé que `strongBorder` (14 %) parce qu'un tireté couvre moins de
+    /// pixels qu'un trait plein et paraît sinon plus clair qu'il ne l'est.
+    static let dashedBorder = Color.black.opacity(0.22)
+
     /// Opacité de la colonne principale quand un panneau contextuel est ouvert
     /// (spec §4.3 : « la colonne principale passe à 55 % d'opacité et reste
     /// consultable »). C'est un dépoli, pas un blocage : la vue qui l'applique
