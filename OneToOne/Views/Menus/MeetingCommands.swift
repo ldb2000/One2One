@@ -24,6 +24,33 @@ struct MeetingCommands: Commands {
         return ModelContext(container)
     }
 
+    /// Le semis de démonstration est-il autorisé dans **ce** processus ?
+    ///
+    /// **Non par défaut.** L'item « Charger le jeu de démonstration (refonte) »
+    /// écrit dans le store du processus qui le montre : depuis le lot 0 de la
+    /// refonte des projets, il y verse aussi soixante-deux projets actifs et
+    /// quatorze archivés (`RefonteDemoSeed.seedPortfolio`). Un clic dans
+    /// l'application de tous les jours polluait donc le store de
+    /// **production**, sans confirmation ni retour en arrière — le semis est
+    /// idempotent, il n'est pas réversible.
+    ///
+    /// La garde est celle qui existait déjà de l'autre côté : la variable
+    /// d'environnement `ONETOONE_SEED_DEMO`, posée par
+    /// `Scripts/recette-run.sh` et par lui seul. `ContentView.maybeSeedRefonteDemo`
+    /// l'exige depuis toujours pour le semis **automatique** ; l'item de menu,
+    /// qui fait la même chose à la main, ne l'exigeait pas.
+    ///
+    /// Ni `#if DEBUG` ni un réglage : le bundle de recette est un build
+    /// **release**, et un réglage serait une case à cocher de plus dans un
+    /// écran que personne ne lit avant de cliquer.
+    private var semisAutorise: Bool {
+        ProcessInfo.processInfo.environment[ContentView.seedDemoEnvironmentKey] == "1"
+    }
+
+    /// L'infobulle de l'item désactivé — sans elle, un item grisé sans raison
+    /// est un défaut, pas une garde.
+    static let semisReserveALaRecette = "Réservé au bundle de recette"
+
     var body: some Commands {
         // Export → menu « Fichier », emplacement conventionnel.
         CommandGroup(after: .importExport) {
@@ -121,6 +148,10 @@ struct MeetingCommands: Commands {
             // `1c-poste-de-pilotage.png` ajoute (décisions horodatées à
             // porteur, thèmes, fil du projet). Idempotent — cliquer deux fois
             // ne duplique rien.
+            //
+            // **Grisé hors bundle de recette** : voir `semisAutorise`. Cet item
+            // écrit dans le store du processus, portefeuille de 76 projets
+            // compris.
             Button("Charger le jeu de démonstration (refonte)") {
                 guard let demoContext else { return }
                 // Un seul item de menu, mais **tous** les semis de la vague :
@@ -160,7 +191,8 @@ struct MeetingCommands: Commands {
                     autoStartRecording: false
                 )
             }
-            .disabled(demoContext == nil)
+            .disabled(demoContext == nil || !semisAutorise)
+            .help(semisAutorise ? "" : Self.semisReserveALaRecette)
 
             // Lots 16 à 18 : la réunion d'atelier de `6a-atelier-planche.png`
             // et de `6b-atelier-planche-de-seance.png` (4 participants, 4
