@@ -221,31 +221,57 @@ struct MainSidebarView: View {
     /// personne n'avait demandée. Voir `SidebarSelectionGuard`.
     @State private var selectionDeLaListe: MainRoute?
 
-    /// La `List` a-t-elle le focus clavier ? C'est la preuve qu'un humain est
-    /// aux commandes — et la seule qui couvre `↑`/`↓`, dont `NSTableView`
-    /// n'informe aucun `onKeyPress` SwiftUI.
-    @FocusState private var listeFocalisee: Bool
-
     /// Quand la composition des lignes a changé pour la dernière fois.
+    ///
+    /// `nil` jusqu'au premier rendu : `SidebarSelectionGuard.lignesStables`
+    /// répond alors `false`, ce qui couvre l'instant du semis, où toutes les
+    /// lignes apparaissent d'un coup.
     @State private var dernierChangementDeLignes: Date?
 
     /// Ce qui fait naître ou mourir une ligne. Comparée par `onChange` : un
     /// renommage ou une sauvegarde de contexte ne la change pas.
     private var empreinteDesLignes: SidebarRowsFingerprint {
-        SidebarRowsFingerprint(
+        let epingles = PinnedProjectsList.epingles(among: projects,
+                                                   query: debouncedSearch,
+                                                   notes: { notes(ofProject: $0) }).count
+        let recents = RecentProjectsList.resolve(ids: mainRouter.recentProjectIDs,
+                                                 among: projects,
+                                                 query: debouncedSearch,
+                                                 notes: { notes(ofProject: $0) })
+            .prefix(RecentProjectsList.maxAffiches).count
+        let archives = filteredArchivedProjects.count
+        let collabsActifs = filteredActiveCollaborators.count
+        let collabsArchives = filteredArchivedCollaborators.count
+        let entitesVisibles = filteredEntities.count
+        return SidebarRowsFingerprint(
             projetsActifs: projects.filter { !$0.isArchived }.count,
-            projetsArchives: filteredArchivedProjects.count,
-            projetsEpingles: projects.filter { $0.pinned && !$0.isArchived }.count,
-            collaborateursActifs: filteredActiveCollaborators.count,
-            collaborateursArchives: filteredArchivedCollaborators.count,
-            entites: filteredEntities.count,
+            projetsArchives: archives,
+            projetsEpingles: epingles,
+            projetsRecents: recents,
+            collaborateursActifs: collabsActifs,
+            collaborateursArchives: collabsArchives,
+            entites: entitesVisibles,
             recherche: debouncedSearch,
             sectionProjetsDepliee: sectionProjetsDepliee,
             arbreDeplie: projectsExpanded,
             collaborateursDeplies: collabsExpanded,
             archivesDepliees: archivesExpanded,
-            projetsArchivesDeplies: archivedProjectsExpanded)
+            projetsArchivesDeplies: archivedProjectsExpanded,
+            lignesRendues: Self.lignesFixes
+                + (sectionProjetsDepliee
+                    ? ProjectsSidebarEntry.allCases.count + epingles + recents
+                    : 0)
+                + (projectsExpanded ? entitesVisibles : 0)
+                + (collabsExpanded ? collabsActifs : 0)
+                + (archivesExpanded ? collabsArchives : 0)
+                + (archivedProjectsExpanded ? archives : 0))
     }
+
+    /// Les entrées qui sont toujours là : les sept destinations du haut, les
+    /// en-têtes de section et « Paramètres ». Le compte exact n'a pas
+    /// d'importance — seule sa **stabilité** en a : c'est un décalage qu'on
+    /// cherche à détecter, pas un inventaire.
+    private static let lignesFixes = 12
 
     /// L'état de dépliage de la section « Projets », lu là où elle l'écrit.
     private var sectionProjetsDepliee: Bool {
@@ -255,13 +281,12 @@ struct MainSidebarView: View {
 
     /// Applique la décision du garde-fou à un changement de sélection.
     private func selectionADeplace(de ancienne: MainRoute?, vers nouvelle: MainRoute?) {
-        let utilisateur = SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: listeFocalisee,
-            lignesChangeesIlYA: dernierChangementDeLignes.map { -$0.timeIntervalSinceNow })
+        let stables = SidebarSelectionGuard.lignesStables(
+            depuis: dernierChangementDeLignes.map { -$0.timeIntervalSinceNow })
         switch SidebarSelectionGuard.decide(ancienne: ancienne,
                                             nouvelle: nouvelle,
                                             routeCourante: mainRouter.route,
-                                            utilisateur: utilisateur) {
+                                            lignesStables: stables) {
         case .ouvrir(let route):
             mainRouter.open(route)
         case .ignorer:
@@ -517,11 +542,16 @@ struct MainSidebarView: View {
                 }
             }
             .listStyle(.sidebar)
-            .focused($listeFocalisee)
             // Synchronisation **descendante** : la route décide de la
             // surbrillance, y compris quand elle vient de la palette `⌘K`, du
             // menu système ou de l'écran de recette.
-            .onAppear { selectionDeLaListe = mainRouter.route }
+            .onAppear {
+                selectionDeLaListe = mainRouter.route
+                // Le premier rendu compte comme un changement de lignes : au
+                // lancement, elles apparaissent toutes d'un coup, et c'est
+                // l'instant exact où le semis remappe les index.
+                dernierChangementDeLignes = Date()
+            }
             .onChange(of: mainRouter.route) { _, nouvelle in
                 selectionDeLaListe = nouvelle
             }

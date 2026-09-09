@@ -24,16 +24,31 @@ struct SidebarSelectionGuardTests {
         #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
                                              nouvelle: parasite,
                                              routeCourante: .portfolio,
-                                             utilisateur: false) == .restaurer)
+                                             lignesStables: false) == .restaurer)
     }
 
-    @Test("la même sélection, choisie par l'utilisateur, ouvre la route")
-    func selectionUtilisateurOuvre() {
+    @Test("la même sélection, les lignes posées, ouvre la route")
+    func selectionOuvreQuandLesLignesSontStables() {
         let choisie = MainRoute.project(UUID(), .pilotage)
         #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
                                              nouvelle: choisie,
                                              routeCourante: .portfolio,
-                                             utilisateur: true) == .ouvrir(choisie))
+                                             lignesStables: true) == .ouvrir(choisie))
+    }
+
+    @Test("une sélection sans focus — accessibilité, premier clic — est acceptée")
+    func selectionSansFocusAcceptee() {
+        // Le défaut de la re-relecture (g), confirmé à l'écran le 2026-09-09 :
+        // `AXSelected = true` sur une `AXRow` (ce que fait VoiceOver) était
+        // refusé par la condition de focus, et la garde restaurait l'écran
+        // précédent. Un premier clic depuis un état non focalisé subissait le
+        // même sort dès que le focus s'établissait après l'`onChange`.
+        //
+        // Il n'y a plus de condition de focus : seules les lignes comptent.
+        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
+                                             nouvelle: .atRisk,
+                                             routeCourante: .portfolio,
+                                             lignesStables: true) == .ouvrir(.atRisk))
     }
 
     @Test("une désélection ne devient jamais une route")
@@ -41,11 +56,11 @@ struct SidebarSelectionGuardTests {
         // `List(selection:)` écrit `nil` quand la ligne sélectionnée
         // disparaît. Un écran vide n'est pas une destination — même quand
         // l'utilisateur est aux commandes.
-        for utilisateur in [true, false] {
+        for stables in [true, false] {
             #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
                                                  nouvelle: nil,
                                                  routeCourante: .portfolio,
-                                                 utilisateur: utilisateur) == .restaurer)
+                                                 lignesStables: stables) == .restaurer)
         }
     }
 
@@ -57,11 +72,11 @@ struct SidebarSelectionGuardTests {
         #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
                                              nouvelle: .atRisk,
                                              routeCourante: .atRisk,
-                                             utilisateur: false) == .ignorer)
+                                             lignesStables: false) == .ignorer)
         #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
                                              nouvelle: .atRisk,
                                              routeCourante: .atRisk,
-                                             utilisateur: true) == .ignorer)
+                                             lignesStables: true) == .ignorer)
     }
 
     @Test("un appel redondant ne fait rien")
@@ -69,7 +84,7 @@ struct SidebarSelectionGuardTests {
         #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
                                              nouvelle: .portfolio,
                                              routeCourante: .portfolio,
-                                             utilisateur: false) == .ignorer)
+                                             lignesStables: false) == .ignorer)
     }
 
     @Test("restaurer une sélection depuis une route nulle reste sans destination")
@@ -78,63 +93,52 @@ struct SidebarSelectionGuardTests {
         #expect(SidebarSelectionGuard.decide(ancienne: nil,
                                              nouvelle: .settings,
                                              routeCourante: nil,
-                                             utilisateur: false) == .restaurer)
+                                             lignesStables: false) == .restaurer)
         #expect(SidebarSelectionGuard.decide(ancienne: nil,
                                              nouvelle: .settings,
                                              routeCourante: nil,
-                                             utilisateur: true) == .ouvrir(.settings))
+                                             lignesStables: true) == .ouvrir(.settings))
     }
 
-    // MARK: - Ce qui compte comme action de l'utilisateur
+    // MARK: - Quand les lignes sont-elles posées ?
 
-    @Test("sans le focus, rien n'est une action de l'utilisateur")
-    func sansFocus() {
-        #expect(!SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: false, lignesChangeesIlYA: nil))
-        #expect(!SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: false, lignesChangeesIlYA: 10))
+    @Test("avant le premier rendu, rien n'est stable")
+    func avantLePremierRendu() {
+        // `nil` = la vue n'a pas encore horodaté de rendu. C'est l'instant du
+        // lancement, où le semis fait apparaître toutes les lignes d'un coup :
+        // c'est exactement là qu'il ne faut rien écrire.
+        #expect(!SidebarSelectionGuard.lignesStables(depuis: nil))
     }
 
-    @Test("avec le focus et des lignes stables, c'est une action de l'utilisateur")
-    func avecFocusEtLignesStables() {
-        // `nil` = les lignes n'ont jamais changé depuis l'ouverture.
-        #expect(SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: true, lignesChangeesIlYA: nil))
-        #expect(SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: true, lignesChangeesIlYA: 5))
+    @Test("des lignes posées depuis assez longtemps sont stables")
+    func lignesPosees() {
+        #expect(SidebarSelectionGuard.lignesStables(depuis: 5))
+        #expect(SidebarSelectionGuard.lignesStables(depuis: 60))
     }
 
-    @Test("juste après un changement de lignes, le focus ne suffit pas")
+    @Test("juste après un changement de lignes, rien n'est stable")
     func fenetreApresChangementDeLignes() {
-        // Épingler un projet depuis la palette pendant que la barre latérale
-        // a le focus : les lignes bougent sans qu'on y ait touché.
-        #expect(!SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: true, lignesChangeesIlYA: 0))
-        #expect(!SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: true, lignesChangeesIlYA: 0.29))
+        // Épingler un projet depuis la palette, un import xlsx, une frappe
+        // dans le champ de recherche : les lignes bougent, l'index de
+        // `NSTableView` est remappé.
+        #expect(!SidebarSelectionGuard.lignesStables(depuis: 0))
+        #expect(!SidebarSelectionGuard.lignesStables(depuis: 0.29))
         // La borne est inclusive : au délai, la voie est libre.
-        #expect(SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: true, lignesChangeesIlYA: 0.3))
+        #expect(SidebarSelectionGuard.lignesStables(depuis: 0.3))
         #expect(SidebarSelectionGuard.delaiApresChangementDeLignes == 0.3)
     }
 
     @Test("un délai négatif est traité comme « à l'instant »")
     func delaiNegatif() {
         // Horloge qui recule, date future : dans le doute, on n'écrit pas.
-        #expect(!SidebarSelectionGuard.estUneSelectionUtilisateur(
-            listeFocalisee: true, lignesChangeesIlYA: -1))
+        #expect(!SidebarSelectionGuard.lignesStables(depuis: -1))
     }
 
     // MARK: - L'empreinte des lignes
 
     @Test("l'empreinte change quand une ligne naît ou meurt")
     func empreinteSensibleAuxLignes() {
-        let base = SidebarRowsFingerprint(
-            projetsActifs: 62, projetsArchives: 14, projetsEpingles: 3,
-            collaborateursActifs: 7, collaborateursArchives: 0, entites: 8,
-            recherche: "", sectionProjetsDepliee: true, arbreDeplie: false,
-            collaborateursDeplies: true, archivesDepliees: false,
-            projetsArchivesDeplies: false)
+        let base = Self.empreinteDuSemis
 
         var epingleDePlus = base; epingleDePlus.projetsEpingles = 4
         #expect(epingleDePlus != base, "un épinglage ajoute une ligne")
@@ -150,6 +154,15 @@ struct SidebarSelectionGuardTests {
 
         var archives = base; archives.projetsArchivesDeplies = true
         #expect(archives != base, "c'est le groupe de la capture p1a")
+
+        var recent = base; recent.projetsRecents = 1
+        #expect(recent != base, "ouvrir un projet ajoute une ligne « RÉCENTS »")
+
+        // Le total est le nombre que `NSTableView` indexe : deux changements
+        // qui se compensent laisseraient les compteurs cohérents mais
+        // décaleraient les index, et l'inverse est vrai aussi.
+        var total = base; total.lignesRendues += 1
+        #expect(total != base, "le nombre de lignes rendues fait partie de l'empreinte")
     }
 
     @Test("l'empreinte ignore ce qui ne déplace aucune ligne")
@@ -157,15 +170,19 @@ struct SidebarSelectionGuardTests {
         // Renommer un projet, changer son statut, sauvegarder le contexte :
         // aucune ligne ne naît ni ne meurt, donc la sélection reste valable et
         // le garde ne doit pas se fermer pour rien.
-        let a = SidebarRowsFingerprint(
-            projetsActifs: 62, projetsArchives: 14, projetsEpingles: 3,
-            collaborateursActifs: 7, collaborateursArchives: 0, entites: 8,
-            recherche: "", sectionProjetsDepliee: true, arbreDeplie: false,
-            collaborateursDeplies: true, archivesDepliees: false,
-            projetsArchivesDeplies: false)
-        let b = a
+        let a = Self.empreinteDuSemis
+        let b = Self.empreinteDuSemis
         #expect(a == b)
     }
+
+    /// L'empreinte du portefeuille de démonstration, section « Projets »
+    /// dépliée et arbre replié — l'état de la capture `p1c`.
+    private static let empreinteDuSemis = SidebarRowsFingerprint(
+        projetsActifs: 62, projetsArchives: 14, projetsEpingles: 3,
+        projetsRecents: 0, collaborateursActifs: 7, collaborateursArchives: 0,
+        entites: 8, recherche: "", sectionProjetsDepliee: true,
+        arbreDeplie: false, collaborateursDeplies: true, archivesDepliees: false,
+        projetsArchivesDeplies: false, lignesRendues: 19)
 
     // MARK: - Le branchement, par lecture des sources
 
@@ -191,8 +208,11 @@ struct SidebarSelectionGuardTests {
         // Et ce qui doit être là à la place.
         #expect(source.contains("List(selection: $selectionDeLaListe)"))
         #expect(source.contains("SidebarSelectionGuard.decide("))
-        #expect(source.contains("SidebarSelectionGuard.estUneSelectionUtilisateur("))
+        #expect(source.contains("SidebarSelectionGuard.lignesStables("))
         #expect(source.contains("SidebarRowsFingerprint("))
-        #expect(source.contains(".focused($listeFocalisee)"))
+        // Plus de condition de focus : elle refusait des sélections légitimes
+        // (accessibilité, premier clic). Voir `SidebarSelectionGuard`.
+        #expect(!source.contains("listeFocalisee"),
+                "la garde ne doit plus dépendre du focus clavier")
     }
 }

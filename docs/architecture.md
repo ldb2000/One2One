@@ -605,9 +605,11 @@ des projets).
   conserve un **index** de ligne, et quand la composition des lignes change (semis, épinglage,
   recherche, groupe déplié) SwiftUI le retraduit en tag d'une **autre** ligne, qu'il écrit dans
   le binding — l'application ouvrait alors une fiche que personne n'avait demandée (relevé deux
-  fois à la recette du 2026-09-09). L'écriture n'est acceptée que si la liste a le focus **et**
-  que `SidebarRowsFingerprint` n'a pas bougé dans les 300 ms ; sinon la sélection est restaurée
-  depuis la route.
+  fois à la recette du 2026-09-09). L'écriture n'est acceptée que si `SidebarRowsFingerprint`
+  n'a pas bougé dans les 300 ms ; sinon la sélection est restaurée depuis la route. Pas de
+  condition de focus : la première version en exigeait une, et elle refusait les sélections
+  faites par l'accessibilité (`AXSelected`, VoiceOver) comme le premier clic depuis un état non
+  focalisé.
 - `ContentView` injecte le routeur par `.environment(_:)`, borne la colonne latérale à
   170 / 250 / 320 px et pose la palette en superposition — **avant** l'injection, sinon la
   superposition ne verrait pas le routeur de la fenêtre.

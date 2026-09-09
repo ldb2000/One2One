@@ -15,6 +15,7 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
     var projetsActifs: Int
     var projetsArchives: Int
     var projetsEpingles: Int
+    var projetsRecents: Int
     var collaborateursActifs: Int
     var collaborateursArchives: Int
     var entites: Int
@@ -24,6 +25,15 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
     var collaborateursDeplies: Bool
     var archivesDepliees: Bool
     var projetsArchivesDeplies: Bool
+    /// Le nombre total de lignes que la `List` rend, entrées fixes comprises.
+    ///
+    /// Redondant avec les compteurs ci-dessus dans la plupart des cas, et
+    /// c'est voulu : c'est **le** nombre que `NSTableView` indexe. Deux
+    /// changements qui se compensent (un projet actif archivé, par exemple)
+    /// laisseraient le total identique mais bougeraient les compteurs ; un
+    /// groupe qui se déplie sans qu'aucun compteur ne change bougerait le
+    /// total. Il faut les deux pour couvrir tout remappage d'index.
+    var lignesRendues: Int
 }
 
 /// Le garde-fou qui empêche `List(selection:)` de réécrire la route de la
@@ -50,26 +60,25 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
 /// ## La règle
 ///
 /// La `List` sélectionne un `@State` **local** ; la route n'est écrite que si
-/// le changement de sélection vient d'une action de l'utilisateur. Sinon le
-/// `@State` est **restauré** depuis la route, ce qui remet aussi la
-/// surbrillance à sa place.
+/// les lignes n'ont pas bougé dans les 300 ms qui précèdent. Sinon le `@State`
+/// est **restauré** depuis la route, ce qui remet aussi la surbrillance à sa
+/// place.
 ///
-/// Deux conditions, et il faut les deux (`estUneSelectionUtilisateur`) :
+/// **Une liste noire, pas une liste blanche.** La première version exigeait
+/// aussi que la `List` ait le focus clavier, au motif que c'était la preuve
+/// qu'un humain était aux commandes. La recette du 2026-09-09 l'a réfutée à
+/// l'écran : une ligne sélectionnée par l'**accessibilité** (`AXSelected` sur
+/// une `AXRow`, ce que fait VoiceOver) était refusée, la garde restaurant
+/// l'écran précédent — et un premier clic depuis un état non focalisé subit le
+/// même sort chaque fois que le focus s'établit après l'`onChange`. Une
+/// sélection légitime refusée est un défaut pire que celui qu'on corrige :
+/// l'utilisateur clique et rien ne se passe.
 ///
-/// 1. **La liste a le focus.** Une `List` ne prend le focus que si on a cliqué
-///    dedans ou tabulé jusqu'à elle — c'est la preuve la moins chère qu'un
-///    humain est aux commandes, et la seule qui couvre `↑`/`↓` : la navigation
-///    clavier de `NSTableView` ne remonte pas jusqu'à un `onKeyPress` de la
-///    vue SwiftUI, donc un drapeau armé par les touches raterait les flèches.
-/// 2. **Les lignes n'ont pas changé à l'instant.** Le focus seul ne suffit
-///    pas : épingler un projet depuis la palette pendant que la barre latérale
-///    a le focus fait bouger les lignes sans qu'on ait touché à la barre. Le
-///    délai est court — un humain ne clique pas une ligne dans les trois
-///    dixièmes de seconde qui suivent son apparition, et s'il le fait, sa
-///    sélection est simplement ignorée une fois.
-///
-/// Une liste blanche (le focus) **et** une liste noire (le changement de
-/// lignes) : chacune couvre le trou de l'autre.
+/// Reste donc la seule condition qui décrive **le défaut** plutôt que
+/// l'intention : les lignes viennent-elles de changer ? C'est le remappage
+/// d'index qui produit l'écriture parasite, et rien d'autre. Un humain ne
+/// clique pas une ligne dans les trois dixièmes de seconde qui suivent son
+/// apparition ; s'il y arrive, sa sélection est ignorée une fois.
 enum SidebarSelectionGuard {
 
     /// Délai pendant lequel une écriture de sélection est refusée après un
@@ -98,11 +107,12 @@ enum SidebarSelectionGuard {
     ///   - ancienne: la sélection d'avant, pour reconnaître un non-changement.
     ///   - nouvelle: ce que la `List` vient d'écrire. `nil` = désélection.
     ///   - routeCourante: ce que le routeur affiche à cet instant.
-    ///   - utilisateur: le résultat d'`estUneSelectionUtilisateur`.
+    ///   - lignesStables: le résultat de `lignesStables(depuis:)`. Aucune
+    ///     condition de focus : voir la note de l'`enum`.
     static func decide(ancienne: MainRoute?,
                        nouvelle: MainRoute?,
                        routeCourante: MainRoute?,
-                       utilisateur: Bool) -> Decision {
+                       lignesStables: Bool) -> Decision {
         // Rien n'a bougé : le cas ne devrait pas arriver (`onChange` compare
         // avant d'appeler), mais un appel redondant ne doit rien casser.
         if ancienne == nouvelle && nouvelle == routeCourante { return .ignorer }
@@ -116,22 +126,24 @@ enum SidebarSelectionGuard {
         // à restaurer non plus.
         if nouvelle == routeCourante { return .ignorer }
 
-        return utilisateur ? .ouvrir(nouvelle) : .restaurer
+        return lignesStables ? .ouvrir(nouvelle) : .restaurer
     }
 
-    /// Le changement de sélection vient-il d'une action de l'utilisateur ?
+    /// Les lignes sont-elles posées depuis assez longtemps pour qu'une
+    /// sélection soit crédible ?
     ///
-    /// - Parameters:
-    ///   - listeFocalisee: la `List` a le focus clavier.
-    ///   - lignesChangeesIlYA: secondes écoulées depuis le dernier changement
-    ///     de `SidebarRowsFingerprint`, ou `nil` s'il n'y en a jamais eu.
-    static func estUneSelectionUtilisateur(
-        listeFocalisee: Bool,
-        lignesChangeesIlYA: TimeInterval?,
+    /// - Parameter lignesChangeesIlYA: secondes écoulées depuis le dernier
+    ///   changement de `SidebarRowsFingerprint`. **`nil` répond `false`** : au
+    ///   lancement, tant que la vue n'a pas enregistré un premier rendu avec
+    ///   ses données, on ne sait pas si les lignes sont stables — et c'est
+    ///   précisément l'instant où le semis les fait toutes apparaître. La vue
+    ///   pose donc l'horodatage dès son `onAppear`, ce qui ouvre la voie
+    ///   300 ms plus tard.
+    static func lignesStables(
+        depuis lignesChangeesIlYA: TimeInterval?,
         delai: TimeInterval = delaiApresChangementDeLignes
     ) -> Bool {
-        guard listeFocalisee else { return false }
-        guard let lignesChangeesIlYA else { return true }
+        guard let lignesChangeesIlYA else { return false }
         // Un délai négatif (horloge qui recule, date future) est traité comme
         // « à l'instant » : dans le doute, on refuse d'écrire la route.
         return lignesChangeesIlYA >= delai
