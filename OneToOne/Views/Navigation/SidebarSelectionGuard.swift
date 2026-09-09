@@ -100,10 +100,8 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
     var projetsRecents: Int
     var collaborateursActifs: Int
     var collaborateursArchives: Int
-    var entites: Int
     var recherche: String
     var sectionProjetsDepliee: Bool
-    var arbreDeplie: Bool
     var collaborateursDeplies: Bool
     var archivesDepliees: Bool
     var projetsArchivesDeplies: Bool
