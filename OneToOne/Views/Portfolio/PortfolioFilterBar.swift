@@ -91,29 +91,36 @@ struct PortfolioFilterBar: View {
     private func chip(_ facette: PortfolioFacet) -> some View {
         let actives = model.actives(facette)
         if actives.isEmpty {
+            // Chip inactive : pilule en tirets, libellé puis chevron.
+            //
+            // `.menuStyle(.button)` **et pas** `.borderlessButton` — c'est le
+            // correctif de la recette du 2026-09-09 (capture
+            // `recette/lot-2-p1a-v1.png`). `.borderlessButton` passe par un
+            // bouton AppKit, qui **extrait** de l'étiquette un titre et une
+            // image et les redessine lui-même, image en tête : la pilule et
+            // ses tirets disparaissaient et le chevron sortait **avant** le
+            // libellé (« ⌄ Risque »). Le style `.button` rend l'étiquette
+            // telle qu'elle est écrite, et honore `.menuIndicator(.hidden)`.
             Menu {
                 menuDeValeurs(facette)
             } label: {
-                HStack(spacing: 4) {
-                    Text(facette.libelle)
-                        .font(.plexSans(Self.tailleChip, .medium))
-                        .foregroundStyle(One2OneToken.ink4)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 7))
-                        .foregroundStyle(One2OneToken.ink4)
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 5)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Self.rayonChip, style: .continuous)
-                        .strokeBorder(One2OneToken.dashedBorder,
-                                      style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                )
+                pilule(libelle: facette.libelle, encre: One2OneToken.ink4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Self.rayonChip, style: .continuous)
+                            .strokeBorder(One2OneToken.dashedBorder,
+                                          style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    )
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("Filtrer par \(facette.libelle.lowercased())")
         } else {
+            // Chip active : la croix doit rester cliquable à part, donc la
+            // pilule est dessinée par le `HStack` qui porte les deux, et
+            // l'étiquette du menu se réduit à son texte. C'est ce rendu que la
+            // recette a validé — il ne change pas.
             HStack(spacing: 5) {
                 Menu {
                     menuDeValeurs(facette)
@@ -122,7 +129,8 @@ struct PortfolioFilterBar: View {
                         .font(.plexSans(Self.tailleChip, .medium))
                         .foregroundStyle(encre(facette))
                 }
-                .menuStyle(.borderlessButton)
+                .menuStyle(.button)
+                .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
 
@@ -149,8 +157,26 @@ struct PortfolioFilterBar: View {
         }
     }
 
+    /// Le contenu d'une chip inactive : libellé 12 pt/500 puis chevron de 9 pt,
+    /// dans cet ordre — c'est l'ordre que la capture montre et celui qu'un
+    /// bouton AppKit inversait.
+    private func pilule(libelle: String, encre: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(libelle)
+                .font(.plexSans(Self.tailleChip, .medium))
+                .foregroundStyle(encre)
+            Image(systemName: "chevron.down")
+                .font(.system(size: Self.tailleChevron))
+                .foregroundStyle(encre)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 5)
+    }
+
     /// Rayon d'une chip (handoff §1a : 20).
     private static let rayonChip: CGFloat = 20
+    /// Chevron d'une chip et du menu de vues enregistrées.
+    static let tailleChevron: CGFloat = 9
 
     /// L'encre d'une chip active. La chip de risque est teintée `report`,
     /// comme la capture la montre : c'est le seul filtre qui parle d'une

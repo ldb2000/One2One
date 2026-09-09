@@ -206,6 +206,62 @@ struct PortfolioViewTests {
         }
     }
 
+    /// Le défaut n° 1 de la recette du 2026-09-09 (capture
+    /// `recette/lot-2-p1a-v1.png`), et le garde-fou qui l'empêche de revenir.
+    ///
+    /// `.menuStyle(.borderlessButton)` passe par un bouton AppKit, qui
+    /// **extrait** de l'étiquette d'un `Menu` un titre et une image et les
+    /// redessine lui-même, image en tête : la pilule en tirets disparaissait et
+    /// le chevron sortait **avant** le libellé (« ⌄ Risque » au lieu de
+    /// « Risque ⌄ »). Un rendu ne se vérifie pas depuis un test ; le choix de
+    /// style, si — même approche que `RefonteTypographieTests` et que
+    /// `ProjectsSidebarSectionTests.ordreDeLaBarreLaterale`.
+    @Test("Les menus du Portfolio dessinent leur propre étiquette, chevron après le libellé")
+    func menusDessinesAlaMain() throws {
+        let racine = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OneToOne/Views/Portfolio")
+        for fichier in ["PortfolioFilterBar.swift", "SavedViewMenu.swift", "ProjectBatchBar.swift"] {
+            let source = try String(contentsOf: racine.appendingPathComponent(fichier),
+                                    encoding: .utf8)
+            // Le style fautif ne doit plus être **appliqué** (il reste cité en
+            // commentaire, pour dire pourquoi).
+            #expect(!source.contains(".menuStyle(.borderlessButton)"),
+                    "\(fichier) applique encore .borderlessButton : le chevron repasserait devant le libellé")
+            #expect(source.contains(".menuStyle(.button)"), "\(fichier)")
+            #expect(source.contains(".menuIndicator(.hidden)"), "\(fichier)")
+            #expect(source.contains(".buttonStyle(.plain)"), "\(fichier)")
+        }
+
+        // Dans une étiquette de chip, le libellé précède le chevron : c'est
+        // l'ordre d'écriture qui fait l'ordre à l'écran, une fois le style
+        // AppKit écarté.
+        let barre = try String(
+            contentsOf: racine.appendingPathComponent("PortfolioFilterBar.swift"),
+            encoding: .utf8)
+        let texte = try #require(barre.range(of: "Text(libelle)"))
+        let chevron = try #require(barre.range(of: "Image(systemName: \"chevron.down\")"))
+        #expect(texte.lowerBound < chevron.lowerBound,
+                "le chevron est écrit avant le libellé de la chip")
+        // La pilule est bien en tirets, au jeton du handoff.
+        #expect(barre.contains("One2OneToken.dashedBorder"))
+        #expect(barre.contains("dash: [3, 2]"))
+        #expect(PortfolioFilterBar.tailleChevron == 9)
+    }
+
+    @Test("« Vue enregistrée : » est en inkMuted, le nom en action")
+    func teintesDuMenuDeVues() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("OneToOne/Views/Portfolio/SavedViewMenu.swift"),
+            encoding: .utf8)
+        #expect(source.contains("One2OneToken.inkMuted"))
+        #expect(source.contains("One2OneToken.action"))
+        // Le préfixe est à 12 pt : `inkMuted` n'est jamais sous 11,5 pt (§1.2).
+        #expect(SavedViewMenu.taille >= 11.5)
+    }
+
     @Test("`ProjectListView` est supprimée (D16) et n'a plus d'appelant")
     func projetListViewSupprimee() {
         let racine = URL(fileURLWithPath: #filePath)

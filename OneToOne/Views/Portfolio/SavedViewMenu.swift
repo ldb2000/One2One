@@ -34,10 +34,17 @@ struct SavedViewMenu: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            // `inkMuted` à 12 pt : au-dessus du plancher de 11,5 pt de §1.2.
             Text(Self.prefixe)
                 .font(.plexSans(Self.taille))
-                .foregroundStyle(One2OneToken.ink4)
+                .foregroundStyle(One2OneToken.inkMuted)
 
+            // `.menuStyle(.button)` **et pas** `.borderlessButton` : ce dernier
+            // extrayait de l'étiquette un titre et une image et les redessinait
+            // lui-même, image en tête — « ⌄ Mes projets ASP » au lieu de
+            // « Mes projets ASP ⌄ » (recette du 2026-09-09, capture
+            // `recette/lot-2-p1a-v1.png`). Même correctif que les chips de
+            // `PortfolioFilterBar`.
             Menu {
                 ForEach(vues) { vue in
                     Button {
@@ -57,11 +64,12 @@ struct SavedViewMenu: View {
                         .font(.plexSans(Self.taille, .medium))
                         .foregroundStyle(One2OneToken.action)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 7))
+                        .font(.system(size: PortfolioFilterBar.tailleChevron))
                         .foregroundStyle(One2OneToken.action)
                 }
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
         }

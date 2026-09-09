@@ -121,7 +121,7 @@ struct ProjectBatchBar: View {
                     .font(.plexSans(Self.taille, .medium))
                     .foregroundStyle(One2OneToken.ink2)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 7))
+                    .font(.system(size: PortfolioFilterBar.tailleChevron))
                     .foregroundStyle(One2OneToken.ink4)
             }
             .padding(.horizontal, 9)
@@ -135,7 +135,12 @@ struct ProjectBatchBar: View {
                     .strokeBorder(One2OneToken.cardBorder, lineWidth: 1)
             )
         }
-        .menuStyle(.borderlessButton)
+        // Même correctif que les chips de `PortfolioFilterBar` :
+        // `.borderlessButton` redessinait l'étiquette lui-même, chevron en
+        // tête et sans le cadre. La barre en lot n'est pas sur la capture 1a,
+        // mais elle portait le même défaut.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
     }
