@@ -780,3 +780,45 @@ est rendu dans `p1a`, mais personne ne l'a **cliqué**.
 - **Deux vérifications hors recette** : le hook de documentation, à éprouver de bout en bout dans
   une session Claude Code neuve, et le Portfolio sur le store réel de Laurent — le coût des
   `@Query` n'a été mesuré que sur le semis de 76 projets.
+
+### Vague de correction finale de la pile (2026-09-09)
+
+Relecture transversale : 0 critique, 8 importants, quelques mineurs textuels. Tous corrigés sur
+la tête du lot 6, un commit par thème. `swift test` complet : **2 542 Swift Testing / 287 suites
++ 1 057 XCTest (1 ignoré) = 3 599**, exit 0 (+17).
+
+1. **Le semis de démonstration n'est plus atteignable hors bundle de recette.** L'item de menu
+   « Charger le jeu de démonstration (refonte) » versait `RefonteDemoSeed.seedPortfolio` — 76
+   projets — dans le store du processus qui le montrait, donc en **production**, d'un clic et
+   sans retour en arrière. Il lit désormais `ONETOONE_SEED_DEMO`, la garde que
+   `ContentView.maybeSeedRefonteDemo` exigeait déjà de l'autre côté.
+2. **`AtRiskViewTests` écrivait dans `~/Library/Preferences`** : quatorze plists, supprimés ; la
+   suite passe à `ReglagesEnMemoire`. Deux gardes ajoutées dans `MainRouterTests` — l'une refuse
+   toute **nouvelle** suite nommée, l'autre empêche la liste d'exceptions de vieillir.
+3. **`architecture.md` §8** décrivait la règle de sélection d'avant `p1f` (empreinte + 300 ms) :
+   réécrit sur l'événement d'entrée, les trois cas de `decide` et le chemin d'accessibilité.
+4. **Les deux dernières routes sont livrées** — voir « Correction 2 » ci-dessous.
+5. **La sauvegarde ignorait quatre champs** de la refonte : `Project.pinned`, `scopeText`,
+   `scopeUpdatedAt`, `AppSettings.portfolioSavedViewsJSON`. Un aller-retour les perdait en
+   silence.
+6. **`⌘K` et la recherche du menu système posaient leur état dans le vide** quand la fenêtre
+   principale était derrière : `MainWindowRegistry` la remonte d'abord.
+7. Chiffres et commentaires prospectifs réalignés ; trois dettes de plus à l'ADR
+   (`MainRouter.back()` sans appelant, `MainRouter.shared` partagé par deux fenêtres, le `print`
+   d'`AtRiskView`).
+
+### Correction 2 — « Mes réunions projets » et « Actions projets » (option A)
+
+Les deux entrées montaient encore l'invite « Bientôt » du lot 0. Le §4 de la spec les décrit
+comme **les listes existantes, filtrées** : `MeetingsListView` et `ActionsListView` gagnent un
+paramètre d'init `projetsSeulement`, faux par défaut, qui ajoute **une** ligne à leur chaîne de
+filtres (`$0.project != nil`). Tous les autres filtres, la recherche, le groupement et les
+gestes restent ; le rendu par défaut ne bouge pas.
+
+`ProjectScopeBanner` (`Views/Navigation/`) dit à l'écran que la liste est restreinte et comment
+en sortir — une liste amputée de la moitié de ses lignes sans rien dire se lit comme une liste
+vide. `MainDetailPlaceholder` n'a plus d'appelant et disparaît : les six écrans sont livrés.
+
+Un test compare le compte de l'écran « Actions projets » au badge
+`SidebarProjectCounts.openProjectActions` : un badge qui annoncerait un nombre que l'écran ne
+montre pas serait pire que l'invite.

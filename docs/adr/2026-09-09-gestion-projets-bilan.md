@@ -190,7 +190,7 @@ au deuxième clic accidentel).
 destinations inline ; toute règle métier du domaine projet est une fonction pure testée avant sa
 vue ; il n'y a plus qu'une recherche de projets, plus qu'une table de risque, plus qu'un service
 d'opérations en lot ; la barre latérale a cessé d'être un catalogue et tient en un écran ; sept
-lots ont porté la suite de 3 111 à 3 582 tests (+471), sans en retirer aucun.
+lots ont porté la suite de 3 111 à 3 599 tests (+488), sans en retirer aucun.
 
 **Négatives.** `Sidebar.swift` reste un fichier de 2 004 lignes malgré 154 lignes retirées ;
 trois écrans reconstruisent tout leur contenu à chaque changement de `@Query`, sans mesure sur

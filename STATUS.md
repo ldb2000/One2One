@@ -29,10 +29,11 @@ principale est une **valeur** (`MainRoute`) et non plus des `NavigationLink` inl
 | 5 | `feat/projets-lot-5-a-risque` | #59 | vue « À risque » (1f), `AtRiskBuilder` (D11), correctif transverse de la sélection |
 | 6 | `feat/projets-lot-6-bascule-2a` | #60 | retrait de l'arbre par entité, en-tête d'entité du Portfolio, « Mes réunions projets » et « Actions projets » (listes existantes filtrées), documentation et ADR de clôture |
 
-**Tests.** `swift build` propre ; `swift test` complet vert sur la tête du lot 6 : **2 525 Swift
-Testing / 284 suites + 1 057 XCTest (1 ignoré) = 3 582**, exit 0 — soit **+471** sur les 3 111 de
-la section suivante, aucun test retiré (un seul remplacé, celui de la sous-ligne de l'arbre, par
-un test d'absence). `DocumentationTests` et `RefonteTypographieTests` verts à chaque lot.
+**Tests.** `swift build` propre ; `swift test` complet vert sur la tête de la pile : **2 542
+Swift Testing / 287 suites + 1 057 XCTest (1 ignoré) = 3 599**, exit 0 — soit **+488** sur les
+3 111 de la section suivante, aucun test retiré (un seul remplacé, celui de la sous-ligne de
+l'arbre, par un test d'absence). `DocumentationTests` et `RefonteTypographieTests` verts à
+chaque lot.
 
 **Recette visuelle : les six écrans, faits et conformes.** Chacun a d'abord été photographié
 dans son lot — `p2b` (barre latérale, lot 1), `p1a` (Portfolio, lot 2, après un fix round sur
@@ -83,6 +84,25 @@ contre « Portfolio » de la capture ; la ligne du semis qui donnerait « il y a
 l'ordre des épinglés ; le badge « Mails 12 » sans source ;
 l'ordre alphabétique de `SearchPopover` ; les pilules de l'en-tête de l'écran projet, non
 éditables au clic ; « Démarrer une réunion » et « Planifier », qui ne demandent rien.
+
+**La relecture transversale de la pile** (0 critique) a produit une dernière vague de huit
+corrections, toutes sur la tête du lot 6 : l'item de menu « Charger le jeu de démonstration »
+versait 76 projets dans le store de **production** d'un clic — il est grisé hors bundle de
+recette ; `AtRiskViewTests` laissait des plists dans `~/Library/Preferences` ; le paragraphe de
+`architecture.md` sur la garde de sélection décrivait la règle d'avant ; « Mes réunions
+projets » et « Actions projets » montaient encore l'invite « Bientôt » du lot 0 — ce sont
+désormais `MeetingsListView` et `ActionsListView` filtrées sur `project != nil`, avec
+`ProjectScopeBanner` pour le dire ; la sauvegarde ignorait `Project.pinned`, `scopeText`,
+`scopeUpdatedAt` et `AppSettings.portfolioSavedViewsJSON` ; `⌘K` et la recherche du menu système
+posaient leur état sans remonter la fenêtre principale (`MainWindowRegistry`). Le reste est
+textuel.
+
+**Une mesure à part**, relevée en corrigeant les plists et **non traitée** :
+`~/Library/Preferences` porte **2 025** fichiers `MeetingScreenModelTests.<uuid>.plist`, un par
+exécution de test depuis des mois. Douze suites passent encore un `UserDefaults(suiteName:)` à
+`MeetingScreenModel` ; elles sont inscrites comme exceptions nommées dans `MainRouterTests`, si
+bien qu'aucune **nouvelle** ne peut s'ajouter, mais leur correction demande un double en mémoire
+pour ce modèle-là — un chantier à part, avec le ménage des plists existants.
 
 **Prochaine action** : fusion des PR **#53 → #60** dans l'ordre de la pile, après validation de
 Laurent. Puis les deux vérifications que le chantier n'a pas pu faire : le hook de documentation,
