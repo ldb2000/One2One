@@ -73,7 +73,15 @@ struct MeetingCommands: Commands {
             // Décision **D1** : `⌘K` ouvre la palette de projets et d'actions,
             // depuis n'importe quel écran. Le routeur porte l'état d'ouverture
             // ; `ContentView` la présente.
-            Button("Palette…") { MainRouter.shared.ouvrirPalette() }
+            //
+            // **La fenêtre d'abord.** `⌘K` s'atteint depuis une fenêtre de
+            // réunion, ou avec la fenêtre principale derrière une autre
+            // application : poser l'état d'ouverture sans la remonter ouvrait
+            // la palette dans le vide.
+            Button("Palette…") {
+                MainWindowRegistry.remonter()
+                MainRouter.shared.ouvrirPalette()
+            }
                 .appShortcut(AppShortcut.palette)
 
             Divider()
