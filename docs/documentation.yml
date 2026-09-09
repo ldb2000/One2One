@@ -8,6 +8,7 @@ tests: swift test --filter DocumentationTests
 code_documente:
   - OneToOne/Models/
   - OneToOne/Services/
+  - OneToOne/Views/AtRisk/
   - OneToOne/Views/Meeting/
   - OneToOne/Views/Navigation/
   - OneToOne/Views/Palette/

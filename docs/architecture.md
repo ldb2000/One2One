@@ -571,6 +571,16 @@ graph TD
   `ProjectMailsTab` et `ProjectDocumentsTab` (les pièces jointes, sorties de
   `ProjectDetailView`). `ProjectCardPanel` — la fiche de 430 px de la refonte réunion — reste
   dans le même dossier ; sa réunion est devenue optionnelle.
+- **Vue « À risque »** (`Views/AtRisk/`) : l'écran 1f du handoff — les projets groupés par
+  **motif** et non par entité. `AtRiskView` monte l'en-tête (« À risque » + « n projets
+  demandent une décision · mis à jour <relatif> ») et trois `AtRiskGroup` (jalon dépassé en
+  `report`, sans réunion depuis 30 j en `warn`, fiche incomplète en `inkMuted`) : un titre
+  `.sectionLabel(teinte)`, une carte à bord gauche de 3 pt, une `AtRiskRow` par projet. Les
+  trois groupes viennent d'`AtRiskBuilder` (décision **D11**) ; la vue n'exécute que les
+  gestes — « Replanifier » (onglet Fiche complète, `MainRouter.pendingFocusField`),
+  « Planifier » (une réunion de projet à J+7, puis l'onglet Réunions) et « Compléter »
+  (onglet Pilotage, champ visé : sélecteur de chef **prérempli** par
+  `ProjectPeople.suggestedManager`, champ sponsor en édition in-place, menu de statut).
 - **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`, l'onglet « Fiche complète »
   de l'écran projet — sans sa heatmap ni sa barre d'outils depuis le lot 4),
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
@@ -640,8 +650,18 @@ et `PortfolioSort` sont les vues enregistrées du Portfolio, encodées en JSON d
 (nom, code, domaine, sponsor, entité, chef de projet, architecte, notes ; correspondance,
 classement, surlignage — décision **D7**) : la barre latérale, le Portfolio, la palette, le
 popover de la barre de menus et le sélecteur de projet de la liste des réunions l'appellent
-tous. `SidebarProjectCounts` porte les trois compteurs de la barre latérale, dont un stub des
-trois motifs « à risque » que la vue dédiée du lot 5 remplacera par son propre constructeur.
+tous. `SidebarProjectCounts` porte les trois compteurs de la barre latérale ; son badge
+« à risque » **appelle** `AtRiskBuilder.count` depuis le lot 5, au lieu de répéter les trois
+motifs comme il le faisait depuis le lot 1.
+
+`AtRiskBuilder` est la règle **unique** des trois motifs de la vue « À risque » (décision
+**D11**) : jalon dépassé (`dueAt` passé et `state != .done`, ou `state == .late`), aucune
+réunion **tenue** depuis trente jours (`MeetingStatsScope.lastHeldByProject`), fiche incomplète
+(sponsor vide, `projectManager` non lié — décision **D3** —, statut inconnu). `build` rend un
+`AtRiskReport` : trois listes d'`AtRiskItem` (titre, détail, `AtRiskAction`), le nombre de
+projets **distincts** et le sous-titre accordé. Les archivés sont exclus ; un projet peut
+figurer dans plusieurs groupes mais n'est compté qu'une fois. `SidebarProjectCounts` et
+`AtRiskView` l'appellent tous les deux.
 
 `PaletteModel` tient l'état de la palette `⌘K` : les six projets que `ProjectSearch.rank`
 remonte (archivés compris), les deux actions, les bornes de `↑`/`↓`, l'effet de `⌘↩` sur
@@ -655,8 +675,8 @@ actifs en `PortfolioRow` (une valeur par ligne, sa cellule `MilestoneCell` et so
 relatif de dernière réunion), `apply` cumule les facettes de `PortfolioFacet` en ET, `sort`
 ordonne les sept colonnes, `values` alimente les menus, `summary`, `footer` et `groups`
 écrivent les textes et le groupement. `ProjectPeople` lit les rôles — la **relation** fait foi
-(décision **D3**), d'où « Non affecté », et `suggestedManager` préremplira l'action
-« Compléter » du lot 5. `ProjectBatchActions` et `ProjectCreation` portent les opérations en
+(décision **D3**), d'où « Non affecté », et `suggestedManager` préremplit le sélecteur de
+l'action « Compléter » de la vue « À risque ». `ProjectBatchActions` et `ProjectCreation` portent les opérations en
 lot et la création d'un projet, jusqu'ici méthodes privées de `Sidebar.swift`.
 `MeetingStatsScope.lastHeldByProject` est la source unique de « dernière réunion tenue »,
 partagée par le tableau et les compteurs.
