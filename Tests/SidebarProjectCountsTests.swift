@@ -10,8 +10,9 @@ import SwiftData
 /// fabriqués pour l'occasion : c'est ce store-là que la recette photographie,
 /// et un compteur juste sur un cas d'école mais faux sur soixante-seize
 /// projets ne vaudrait rien. Les motifs « à risque » sont en plus vérifiés un
-/// par un, parce que le lot 5 remplacera ce stub par `AtRiskBuilder` et que la
-/// bascule devra rendre exactement les mêmes chiffres.
+/// par un sur `AtRiskBuilder`, qui porte la règle depuis le lot 5 : ce
+/// compteur l'appelle au lieu de la répéter, et les chiffres sont les mêmes
+/// des deux côtés par construction.
 @Suite("Compteurs de la section Projets")
 @MainActor
 struct SidebarProjectCountsTests {
@@ -121,53 +122,53 @@ struct SidebarProjectCountsTests {
     @Test("Motif 1 — un jalon échu et non fait met le projet à risque")
     func motifJalonDepasse() {
         let aujourdHui = Date()
-        #expect(SidebarProjectCounts.jalonDepasse(
+        #expect(AtRiskBuilder.jalonDepasse(
             jalons: [(dueAt: aujourdHui.addingTimeInterval(-6 * 86_400), state: .planned)],
             today: aujourdHui))
         // Fait : ce n'est plus un risque, même échu.
-        #expect(!SidebarProjectCounts.jalonDepasse(
+        #expect(!AtRiskBuilder.jalonDepasse(
             jalons: [(dueAt: aujourdHui.addingTimeInterval(-6 * 86_400), state: .done)],
             today: aujourdHui))
         // À venir : pas un risque.
-        #expect(!SidebarProjectCounts.jalonDepasse(
+        #expect(!AtRiskBuilder.jalonDepasse(
             jalons: [(dueAt: aujourdHui.addingTimeInterval(6 * 86_400), state: .planned)],
             today: aujourdHui))
         // Marqué « en retard » : risque, quelle que soit l'échéance.
-        #expect(SidebarProjectCounts.jalonDepasse(
+        #expect(AtRiskBuilder.jalonDepasse(
             jalons: [(dueAt: aujourdHui.addingTimeInterval(6 * 86_400), state: .late)],
             today: aujourdHui))
         // Sans échéance ni retard déclaré, rien à dire.
-        #expect(!SidebarProjectCounts.jalonDepasse(
+        #expect(!AtRiskBuilder.jalonDepasse(
             jalons: [(dueAt: nil, state: .inProgress)], today: aujourdHui))
-        #expect(!SidebarProjectCounts.jalonDepasse(jalons: [], today: aujourdHui))
+        #expect(!AtRiskBuilder.jalonDepasse(jalons: [], today: aujourdHui))
     }
 
     @Test("Motif 2 — aucune réunion tenue depuis trente jours")
     func motifSansReunion() {
         let aujourdHui = Date()
-        #expect(SidebarProjectCounts.sansReunionRecente(nil, today: aujourdHui))
-        #expect(SidebarProjectCounts.sansReunionRecente(
+        #expect(AtRiskBuilder.sansReunionRecente(nil, today: aujourdHui))
+        #expect(AtRiskBuilder.sansReunionRecente(
             aujourdHui.addingTimeInterval(-34 * 86_400), today: aujourdHui))
-        #expect(!SidebarProjectCounts.sansReunionRecente(
+        #expect(!AtRiskBuilder.sansReunionRecente(
             aujourdHui.addingTimeInterval(-26 * 86_400), today: aujourdHui))
-        #expect(SidebarProjectCounts.sansReunionDepuis == 30)
+        #expect(AtRiskBuilder.sansReunionDepuis == 30)
     }
 
     @Test("Motif 3 — fiche incomplète : sponsor vide, chef non lié, statut inconnu")
     func motifFicheIncomplete() throws {
         let contexte = try contexteEnMemoire()
-        #expect(SidebarProjectCounts.ficheIncomplete(
+        #expect(AtRiskBuilder.ficheIncomplete(
             projet(contexte, code: "P25_001", sponsor: "")))
         // D3 : la **relation** fait foi — le nom du xlsx ne suffit pas.
         let sansRelation = projet(contexte, code: "P25_002", chefLie: false)
         sansRelation.chefDeProjet = "NOMINE Laurent"
-        #expect(SidebarProjectCounts.ficheIncomplete(sansRelation))
-        #expect(SidebarProjectCounts.ficheIncomplete(
+        #expect(AtRiskBuilder.ficheIncomplete(sansRelation))
+        #expect(AtRiskBuilder.ficheIncomplete(
             projet(contexte, code: "P25_003", statut: "Unknown")))
-        #expect(SidebarProjectCounts.ficheIncomplete(
+        #expect(AtRiskBuilder.ficheIncomplete(
             projet(contexte, code: "P25_004", statut: "")))
         // Complète : rien ne manque.
-        #expect(!SidebarProjectCounts.ficheIncomplete(projet(contexte, code: "P25_005")))
+        #expect(!AtRiskBuilder.ficheIncomplete(projet(contexte, code: "P25_005")))
     }
 
     @Test("Un projet cumulant deux motifs n'est compté qu'une fois")
