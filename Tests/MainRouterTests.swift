@@ -219,7 +219,7 @@ struct MainRouterTests {
     /// ce qu'elle sert.
     ///
     /// Une liste d'exceptions nommées, comme celle des raccourcis dupliqués de
-    /// `AppShortcutsTests` : les treize fichiers ci-dessous précèdent cette
+    /// `AppShortcutsTests` : les douze fichiers ci-dessous précèdent cette
     /// garde, ils passent tous leur `UserDefaults` à `MeetingScreenModel`, et
     /// les corriger demande un double en mémoire pour **ce** modèle-là — un
     /// chantier à part. Ce qui compte, c'est qu'aucun **nouveau** fichier ne

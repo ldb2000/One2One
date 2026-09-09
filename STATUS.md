@@ -99,7 +99,7 @@ textuel.
 
 **Trois dettes antérieures relevées en chemin, aucune traitée, toutes consignées à l'ADR.**
 
-- **La sauvegarde ignore onze champs de `Project`** — `isArchived`, `chefDeProjet`, `architecte`,
+- **La sauvegarde ignore neuf champs de `Project` (`entity` est restauré par son nom)** — `isArchived`, `chefDeProjet`, `architecte`,
   `planningText`, `standingPrepNotes`/`standingPrepUpdatedAt`, `tagsJSON`, et les relations
   `entity`, `projectManager`, `technicalArchitect` (que **D3** déclare faisant foi). Une
   restauration rend donc **un projet archivé actif** et son chef de projet « Non affecté ». Le

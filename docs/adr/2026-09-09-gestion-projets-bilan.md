@@ -180,7 +180,7 @@ au deuxième clic accidentel).
   là où le reste du dossier avale ses erreurs en silence : deux politiques, aucune des deux
   n'étant celle du reste de l'application (`os.Logger`). À prendre avec le chantier « les
   écritures projet disent quand elles échouent ».
-- **La sauvegarde ignore encore onze champs de `Project`** — `isArchived`, `chefDeProjet` et
+- **La sauvegarde ignore encore neuf champs de `Project` (`entity` est restauré par son nom)** — `isArchived`, `chefDeProjet` et
   `architecte` importés du xlsx, `planningText`, `standingPrepNotes`/`standingPrepUpdatedAt`,
   `tagsJSON`, et les relations `entity`, `projectManager`, `technicalArchitect`, que la décision
   **D3** déclare pourtant faisant foi. Conséquences concrètes d'une restauration : **un projet

@@ -65,7 +65,7 @@ struct ProjectScopedListsTests {
 
     // MARK: - Le branchement
 
-    @Test("Les deux routes montent les listes existantes, plus une invite")
+    @Test("Les deux routes montent les listes existantes, sans invite résiduelle")
     func routesCablees() {
         let source = Self.source("OneToOne/Views/Navigation/MainDetailView.swift")
         #expect(!source.isEmpty, "MainDetailView.swift introuvable")
