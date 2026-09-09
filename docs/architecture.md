@@ -523,9 +523,11 @@ graph TD
 
 225 fichiers. Organisation :
 
-- **Navigation racine** : `Sidebar.swift` (`MainSidebarView`, `DashboardView`, Gantt,
-  cartes de stats), `MeetingsListView`, `ProjectListView`, `AllCollaboratorsView`,
-  `AllNotesView`, `ActionsListView`.
+- **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter` et `MainDetailView` —
+  voir « Navigation de la fenêtre principale » ci-dessous. La barre latérale est
+  `Sidebar.swift` (`MainSidebarView`, `DashboardView`, Gantt, cartes de stats) ; les écrans de
+  liste qu'elle atteint sont `MeetingsListView`, `AllCollaboratorsView`, `AllNotesView`,
+  `ActionsListView` (`ProjectListView` est orpheline).
 - **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`),
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
 - **Réunion** (`Views/Meeting/`) : voir la section dédiée ci-dessous — c'est le chantier de
@@ -549,6 +551,33 @@ graph TD
   leurs pendants `NSFont`, IBM Plex embarquée avec repli système — décision D2),
   `RiskLevelTint.swift` (teinte d'un niveau de risque, table unique — `MeetingKPI.Level.teinte`),
   `One2OneTheme`.
+
+### Navigation de la fenêtre principale
+
+La fenêtre principale est routée par une **valeur**, pas par des destinations inline
+(ADR `docs/adr/2026-09-09-routeur-de-navigation.md`, décision D0 de la refonte de la gestion
+des projets).
+
+- `MainRoute` nomme un écran : les huit historiques (`dashboard`, `assistant`, `actions`,
+  `meetings`, `notes`, `manager`, `collaborators`, `settings`), les cinq de la refonte des
+  projets (`portfolio`, `atRisk`, `projectMeetings`, `projectActions`, `searchReports`) et les
+  trois fiches — un projet et un collaborateur par leur `stableID`, une entité par son
+  `PersistentIdentifier` (`Entity` n'a pas de `stableID`). `ProjectTab` porte les six onglets
+  de l'écran projet.
+- `MainRouter` (`@Observable`, singleton `.shared`) porte la route, une histoire bornée à vingt
+  écrans, les projets récents (`RecentProjects`) et le terme en attente de la palette.
+  Singleton parce que `MenuBarController` est un `NSObject` : il ne lit aucun environnement, et
+  c'est lui qui ouvre un projet depuis la recherche du menu système.
+- `MainSidebarView` est une liste à sélection sur `MainRoute` ; `MainDetailView` monte l'écran
+  par un `switch` total. C'est un routeur, comme `MeetingView` : il ne calcule rien.
+- `ContentView` injecte le routeur par `.environment(_:)` et borne la colonne latérale à
+  170 / 250 / 320 px.
+
+Le vocabulaire de valeurs d'un projet vit dans `Services/Project/` : `ProjectPhase`,
+`ProjectStatus`, `ProjectType` et `RiskLevel` interprètent les colonnes — restées des chaînes
+libres — et rendent `nil` pour une valeur hors table ; `PortfolioSavedView`, `PortfolioFilters`
+et `PortfolioSort` sont les vues enregistrées du Portfolio, encodées en JSON dans
+`AppSettings.portfolioSavedViewsJSON`.
 
 ### L'écran de réunion (refonte 2026-09)
 

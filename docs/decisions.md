@@ -5,6 +5,7 @@
 
 | Date | Décision | Statut | Fichier |
 | --- | --- | --- | --- |
+| 2026-09-09 | Un routeur pour la fenêtre principale | acceptée le 2026-09-09 (décision D0 de la refonte de la gestion des projets, validée par Laurent le 2026-09-09) | `docs/adr/2026-09-09-routeur-de-navigation.md` |
 | 2026-09-08 | Refonte de l'écran de réunion — bilan des décisions D0 à D11 | accepté, 2026-09-08 | `docs/adr/2026-09-08-refonte-ecran-reunion-bilan.md` |
 | 2026-09-07 | Pièces jointes de réunion : copiées, jamais référencées | validée le 2026-09-07 (décision D5 du programme de refonte, acceptée par Laurent le 2026-09-07) | `docs/adr/2026-09-07-pieces-copiees-jamais-referencees.md` |
 | 2026-09-07 | Moteur de planches : Excalidraw embarqué dans un `WKWebView` | acceptée (décision D6 du plan directeur docs/superpowers/plans/2026-09-07-refonte-reunion-programme.md) | `docs/adr/2026-09-07-moteur-de-planches-excalidraw-embarque.md` |
