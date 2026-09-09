@@ -668,7 +668,11 @@ d'identité — et aucune vue ne recompte. `MeetingTypeBadge` porte la règle **
 reconnaît à un thème ou à un titre, un atelier et un 1:1 à leur `kind`, et toute autre réunion
 n'a pas de badge. `ProjectCardDraft` transporte les champs éditables de la fiche, statut
 persisté compris, et son `apply` reste le seul point d'écriture ; `MainRouter.switchTab(_:)`
-change d'onglet sans empiler l'histoire.
+change d'onglet sans empiler l'histoire. `ProjectRelationWriter` porte la seule écriture de
+relation du domaine qui demande un contournement : réaffecter `Project.entity` puis
+enregistrer perd la valeur environ une fois sur trois — `Entity.projects` est le seul inverse
+déclaré du modèle — et le service relit puis répare. `ProjectCardDraft.apply` et
+`ProjectBatchActions.setEntity` y passent tous les deux.
 
 ### L'écran de réunion (refonte 2026-09)
 

@@ -516,6 +516,18 @@ de l'en-tête, avec confirmation pour la seconde ; Enregistrer descend dans le c
 7. **`⌘⏎` valide un paragraphe**, `⏎` y insère un retour à la ligne. Le handoff écrit `⏎` sans
    distinguer ; un périmètre de trois phrases doit pouvoir en contenir. Le champ actif l'annonce.
 
+**Un défaut SwiftData trouvé en route, et réparé.** Le test des relations du brouillon passait
+seul et tombait **une fois sur huit** en suite complète. Sonde de 200 tours : réaffecter
+`Project.entity` — passer d'une entité à une autre — puis appeler `save()` perd la nouvelle
+valeur **70 fois sur 200** ; la même réaffectation *sans* `save` n'échoue jamais, et une
+première affectation non plus. `Entity.projects` est le seul inverse déclaré du modèle, et
+lire cette collection juste après le même `save` lève « Fatal error: Never access a full future
+backing data » — c'est aussi ce qui faisait sortir la suite complète en `SIGTRAP` de temps en
+temps. `ProjectRelationWriter` affecte, enregistre, **relit et répare** : 0 perte sur 200.
+`ProjectBatchActions.setEntity` (lot 2) portait le même défaut et y passe désormais ;
+`Tests/ProjectRelationWriterTests.swift` répète chaque scénario trente fois, parce qu'un tour
+unique ne prouve rien contre un défaut à une chance sur trois.
+
 ### Écarts avec la capture `1d-ecran-projet-pilotage.png`
 
 Constatés **par lecture** ; la recette n'est pas de ce lot.

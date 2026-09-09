@@ -218,7 +218,7 @@ struct ProjectCardDraft: Equatable, Sendable {
         project.riskDescription = riskDescription.isEmpty ? nil : riskDescription
         project.plannedDays = plannedDays
         project.designEndDeadline = designEndDeadline
-        project.entity = Self.resoudre(entityID, in: context)
+        let entite: Entity? = Self.resoudre(entityID, in: context)
         project.projectManager = Self.resoudre(managerID, in: context)
         project.technicalArchitect = Self.resoudre(architectID, in: context)
 
@@ -236,6 +236,14 @@ struct ProjectCardDraft: Equatable, Sendable {
         applyRisks(to: project, in: context)
 
         try? context.save()
+
+        // L'entité **après** l'enregistrement, par `ProjectRelationWriter` :
+        // réaffecter `Project.entity` puis enregistrer perd la valeur une fois
+        // sur trois, et le contournement est de relire et de réparer. Voir le
+        // tableau de mesures de ce service.
+        if project.entity?.persistentModelID != entite?.persistentModelID {
+            ProjectRelationWriter.setEntity(entite, on: [project], in: context)
+        }
     }
 
     /// Résout une identité SwiftData en objet, **par requête** et non par
