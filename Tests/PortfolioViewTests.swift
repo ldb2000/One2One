@@ -11,7 +11,7 @@ import SwiftUI
 /// ce que les vues **exposent** : les libellés au mot près, les mesures du
 /// handoff en constantes, et le comportement du modèle d'écran (debounce,
 /// facettes, tri, sélection, vues enregistrées). Même approche que
-/// `MeetingShortcutsTests` et `ProjectsSidebarSectionTests`.
+/// `AppShortcutsTests` et `ProjectsSidebarSectionTests`.
 @Suite("Écran Portfolio")
 @MainActor
 struct PortfolioViewTests {

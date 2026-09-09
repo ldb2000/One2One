@@ -160,15 +160,36 @@ struct AppShortcutsTests {
         #expect(!source.contains("isEnabled(.palette)"))
     }
 
-    @Test("plus aucune trace du nom MeetingShortcut dans les sources")
+    @Test("plus aucune trace du nom MeetingShortcut, ni dans OneToOne/ ni dans Tests/")
     func plusDeMeetingShortcut() {
         // D1 interdit un `typealias MeetingShortcut = AppShortcut` à la fin du
-        // lot : tous les appelants sont renommés. Le nom ne subsiste que dans
-        // `MeetingShortcutsSheet`, la feuille d'aide, qui garde le sien.
-        let trouves = Self.fichiersContenant("MeetingShortcut")
-            .filter { !$0.hasSuffix("MeetingShortcutsSheet.swift") }
-            .filter { $0 != "Views/Meeting/MeetingTopChromeBar.swift" }
+        // lot : tous les appelants sont renommés. Le scan couvre **aussi**
+        // `Tests/`, où trois commentaires citaient encore l'ancien nom de
+        // cette suite — un renvoi faux dans un test est une piste morte pour
+        // qui cherche le garde-fou dont il s'inspire.
+        //
+        // Deux exclusions, et deux seulement :
+        // - `MeetingShortcutsSheet`, la feuille du menu `⋯` d'une **réunion**,
+        //   qui garde son nom à dessein (cf. l'ADR) — un fichier n'est excusé
+        //   que si **toutes** ses occurrences sont celles de la feuille ;
+        // - ce fichier-ci, qui doit épeler le mot interdit pour l'interdire.
+        let moi = "Tests/AppShortcutsTests.swift"
+        let trouves = Self.fichiersDuDepotContenant("MeetingShortcut",
+                                                    dans: ["OneToOne", "Tests"])
+            .subtracting([moi])
+            .filter { chemin in
+                let contenu = Self.source(chemin)
+                return contenu.components(separatedBy: "MeetingShortcut")
+                    .dropFirst()
+                    .contains { !$0.hasPrefix("sSheet") }
+            }
         #expect(trouves.isEmpty, "MeetingShortcut subsiste dans \(trouves.sorted())")
+        // Le garde-fou garde-t-il quelque chose ? Sans ces attentes, un scan
+        // qui ne lirait plus aucun fichier passerait tout aussi vert.
+        #expect(Self.fichiersDuDepotContenant("MeetingShortcut",
+                                              dans: ["OneToOne", "Tests"]).contains(moi))
+        #expect(Self.fichiersDuDepotContenant("AppShortcut",
+                                              dans: ["OneToOne"]).count >= 3)
     }
 
     @Test("la feuille d'aide rend la table, elle n'en tient pas une seconde")
@@ -199,6 +220,33 @@ struct AppShortcutsTests {
 
     private static func source(_ chemin: String) -> String {
         (try? String(contentsOf: racine.appendingPathComponent(chemin), encoding: .utf8)) ?? ""
+    }
+
+    /// Chemins **depuis la racine du dépôt** des fichiers Swift de `dossiers`
+    /// contenant `motif`.
+    ///
+    /// Deux fonctions et non une paramétrée : la table `attendus` du test des
+    /// seconds déclarants énumère des chemins relatifs à `OneToOne/` depuis le
+    /// lot 19c, et les préfixer tous pour un seul appelant aurait touché à un
+    /// garde-fou qui n'a rien demandé.
+    private static func fichiersDuDepotContenant(_ motif: String,
+                                                 dans dossiers: [String]) -> Set<String> {
+        var trouves: Set<String> = []
+        for dossier in dossiers {
+            let base = racine.appendingPathComponent(dossier)
+            guard let enumerateur = FileManager.default.enumerator(
+                at: base, includingPropertiesForKeys: nil) else { continue }
+            let prefixe = base.standardizedFileURL.path + "/"
+            for cas in enumerateur {
+                guard let url = cas as? URL, url.pathExtension == "swift" else { continue }
+                guard let contenu = try? String(contentsOf: url, encoding: .utf8),
+                      contenu.contains(motif) else { continue }
+                let complet = url.standardizedFileURL.path
+                guard complet.hasPrefix(prefixe) else { continue }
+                trouves.insert(dossier + "/" + String(complet.dropFirst(prefixe.count)))
+            }
+        }
+        return trouves
     }
 
     /// Chemins relatifs, sous `OneToOne/`, des fichiers Swift contenant `motif`.
