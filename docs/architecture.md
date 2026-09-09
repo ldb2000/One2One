@@ -521,19 +521,26 @@ graph TD
 
 ## 8. Couche Views
 
-270 fichiers. Organisation :
+273 fichiers. Organisation :
 
-- **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter` et `MainDetailView` —
-  voir « Navigation de la fenêtre principale » ci-dessous. La barre latérale est
-  `Sidebar.swift` (`MainSidebarView`, `DashboardView`, Gantt, cartes de stats) ; les écrans de
-  liste qu'elle atteint sont `MeetingsListView`, `AllCollaboratorsView`, `AllNotesView`,
-  `ActionsListView`.
+- **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter`, `MainDetailView` et
+  `SidebarSelectionGuard` — voir « Navigation de la fenêtre principale » ci-dessous. La barre
+  latérale est `Sidebar.swift` (`MainSidebarView`, `DashboardView`, `EntityDetailView`, Gantt,
+  cartes de stats) ; les écrans de liste qu'elle atteint sont `MeetingsListView`,
+  `AllCollaboratorsView`, `AllNotesView`, `ActionsListView`.
 - **Barre latérale, section « Projets »** (`Views/Sidebar/`) : `ProjectsSidebarSection`
   (les quatre destinations — Portfolio, À risque, Mes réunions projets, Actions projets — et
-  leurs compteurs), `PinnedProjectsList` et `RecentProjectsList`. Variante 2b du handoff : la
-  section s'ajoute au-dessus de l'arbre « Projets par Entité », qui reste, replié (décision
-  **D5**) ; le lot 6 retirera l'arbre. Les compteurs viennent de `SidebarProjectCounts` et la
-  recherche de `ProjectSearch` (`Services/Project/`).
+  leurs compteurs), `PinnedProjectsList` et `RecentProjectsList`. C'est la variante **2a** du
+  handoff (`2a-sidebar-section-projets.png`) : la barre latérale est un **point d'accès**, plus
+  un catalogue. L'arbre des projets par entité, sa clé `sidebar.projectsExpanded`, ses boutons
+  « Ajouter un projet » et le glisser-déposer d'un projet vers une entité ont été retirés au
+  lot 6 ; changer l'entité d'une sélection passe par le menu « Entité » de `ProjectBatchBar`
+  (décision **D15**) et la fiche d'une entité s'ouvre depuis l'en-tête de groupe du Portfolio.
+  La section garde sa propre clé de dépliage, `sidebar.projectsSectionExpanded` (décision
+  **D5**). Les compteurs viennent de `SidebarProjectCounts` et la recherche de `ProjectSearch`
+  (`Services/Project/`). **Retiré au lot 2** (décision **D16**) : ProjectListView, le catalogue
+  de projets qui doublait l'arbre ; sa pastille de statut est devenue `StatusIcon`, dans
+  `Views/DesignSystem/`.
 - **Portfolio** (`Views/Portfolio/`) : l'écran 1a du handoff — tableau triable, facettes et
   vues enregistrées. `PortfolioView` assemble cinq bandes et ne calcule rien (décision
   **D11**) : `PortfolioHeader` (titre, sous-titre, segmenté « Tableau / Groupé par entité »,
@@ -541,7 +548,9 @@ graph TD
   `SavedViewMenu` et `SavedViewNameSheet`), `ProjectBatchBar` (la barre en lot, partagée avec
   la barre latérale — décision **D15**), `PortfolioTable` (huit colonnes, en-tête de 30 px,
   lignes de 44 px alternées, tri au clic, ⇧-clic pour la sélection multiple) ou
-  `PortfolioGroupedView`, et le pied. `PhaseBadge` et `RiskBadge` portent les couples de
+  `PortfolioGroupedView` (dont l'en-tête de groupe ouvre la fiche de l'entité — le seul
+  appelant de `MainRoute.entity` depuis le retrait de l'arbre), et le pied. `PhaseBadge` et
+  `RiskBadge` portent les couples de
   teintes ; l'état d'écran est dans `PortfolioModel` (`@Observable`) et les vues enregistrées
   passent par `PortfolioSavedViewStore`.
 - **Palette `⌘K`** (`Views/Palette/`) : l'écran 1c du handoff — une carte de 560 pt posée en
@@ -893,10 +902,14 @@ bloquants**) :
 - **Objets « dieu »** :
   - `Meeting` (50+ propriétés couvrant transcription, rapport, calendrier, diarisation, prep).
   - `Project` (40+ propriétés ; doublon `chefDeProjet: String` vs `projectManager: Collaborator?`).
-  - Vues monolithiques : `MeetingView` (~2 050 l. — un **routeur** depuis la refonte, mais
-    encore le plus gros fichier de `Views/` : il porte le routage d'espace, la fabrique de
-    `MeetingMenuActions` et six présentations), `DetailsViews.swift` (~2 670 l.),
-    `Sidebar.swift` (~1 890 l., regroupe sidebar + dashboard + helpers), `SettingsView` (~1 200 l.).
+  - Vues monolithiques (tailles relevées le 2026-09-09, `wc -l`) : `MeetingView` (2 068 l. — un
+    **routeur** depuis la refonte, mais encore le plus gros fichier de `Views/` : il porte le
+    routage d'espace, la fabrique de `MeetingMenuActions` et six présentations),
+    `Sidebar.swift` (1 995 l. — regroupe la barre latérale, `DashboardView`,
+    `EntityDetailView`, les vues Gantt et leurs cartes de stats ; 141 l. de moins depuis le
+    retrait de l'arbre par entité au lot 6), `SettingsView` (908 l.),
+    `DetailsViews.swift` (617 l. — `ProjectDetailView`, devenue l'onglet « Fiche complète » de
+    l'écran projet, sans sa heatmap ni sa barre d'outils depuis le lot 4).
     → candidats à un découpage par responsabilité.
 - **Duplication** : palette de couleurs navy/cream dupliquée entre `ReportThemeCSS` et
   `ReportHTMLBuilder.inlineForOutlook` ; plusieurs `DateFormatter` recréés à chaque accès au
@@ -912,11 +925,13 @@ bloquants**) :
 ### Dette laissée par la refonte de l'écran de réunion (2026-09)
 
 - **Code mort hors périmètre de la refonte** — le lot 19a a inventorié ~3 000 lignes que sa
-  seule intention ne pouvait pas retirer : `Services/Agent/`, `MailBrowserView`,
-  `AnthropicOAuthClient`, `RAGChatView`, `ManagerCRGenerator`, `MickeyIntegration`,
-  `ReportThemeCSS`, `MailSuggestionService`, `ManagerActionReviewSheet`,
-  `CollaboratorEntity`/`StartOneToOneIntent`, `ExternalServices.swift`, `SessionPillHostModifier`,
-  `CollaboratorTopBarModel`. Un lot dédié, à arbitrer.
+  seule intention ne pouvait pas retirer : `Services/Agent/`, `AnthropicOAuthClient`,
+  `RAGChatView`, `ManagerCRGenerator`, `MickeyIntegration`, `ReportThemeCSS`,
+  `ManagerActionReviewSheet`, `CollaboratorEntity`/`StartOneToOneIntent`,
+  `ExternalServices.swift`, `SessionPillHostModifier`, `CollaboratorTopBarModel`. Un lot dédié,
+  à arbitrer. **Deux entrées en sont sorties** : `MailBrowserView` et `MailSuggestionService`
+  ont de nouveau une porte d'entrée depuis l'onglet « Mails » de l'écran projet
+  (`ProjectMailsTab`, lot 4).
 - **`AppSettings.rightSidebarLayoutJSON`** — colonne sans lecteur depuis le lot 19a ; elle
   partira avec la prochaine version de schéma, pas avant (une suppression de colonne casse la
   lightweight migration).
@@ -932,6 +947,49 @@ bloquants**) :
 - **Recette visuelle** — les douze écrans restent à recapturer avec le binaire de la pile
   complète (lot 19b) ; les décisions produit en attente sont recensées par
   [`docs/adr/2026-09-08-refonte-ecran-reunion-bilan.md`](./adr/2026-09-08-refonte-ecran-reunion-bilan.md).
+
+### Dette laissée par la refonte de la gestion des projets (2026-09-09)
+
+Sept lots (0 à 6), décisions D0 à D18 ; le bilan décision par décision est dans
+[`adr/2026-09-09-gestion-projets-bilan.md`](./adr/2026-09-09-gestion-projets-bilan.md).
+
+- **Le coût des écrans sur le store réel n'est pas mesuré.** `PortfolioView` porte quatre
+  `@Query` globales (projets, réunions, entités, réglages) et reconstruit tout son tableau à
+  chaque changement ; `ProjectScreen` en ajoute trois ; `PortfolioBuilder.rows`,
+  `ProjectPilotageBuilder.build` et `AtRiskBuilder.build` traversent **toutes** les réunions du
+  store à chaque rechargement. Sur le semis de recette (76 projets, 82 réunions) c'est
+  instantané ; sur un portefeuille réel de plusieurs centaines de réunions avec transcriptions,
+  à mesurer une bonne fois pour les trois constructeurs.
+- **`ReportSearch` n'a pas d'index.** Il balaye `Meeting.textualContent` de toutes les réunions
+  hors notes, transcriptions comprises, à chaque ouverture de l'écran (décision **D8**). Le
+  remède suivant serait un `#Predicate` sur le titre et le résumé avant le balayage complet.
+- **`ProjectCardDraft.apply` requête toute la table à chaque édition** : `Entity`, puis
+  `Collaborator`, puis `Collaborator` encore, même quand aucune relation n'a changé.
+  `ModelContext.model(for:)` ne peut pas remplacer ces `fetch` — il rend un objet faulté quand
+  l'identité vient d'un autre conteneur.
+- **Les écritures de projet avalent leurs erreurs** : `try? context.save()` dans
+  `ProjectCardDraft.apply`, `ProjectRelationWriter` et `ProjectBatchActions` (qui porte aussi
+  `ProjectCreation`). Un enregistrement qui échoue est silencieux, et la bannière d'annulation
+  propose d'annuler ce qui n'a pas eu lieu. C'est le style de tout le dossier ; un chantier
+  « les écritures projet disent quand elles échouent » les prendrait ensemble.
+- **`ProjectRelationWriter` répare sans expliquer.** Réaffecter `Project.entity` puis
+  enregistrer perd la valeur environ une fois sur trois sur un conteneur **en mémoire** ; la
+  sonde sur un store fichier n'a pas abouti. Il se peut que le contournement ne serve qu'aux
+  tests.
+- **`MilestoneCell.none` est un piège de nom** : derrière un optionnel, `== .none` se résout en
+  `Optional.none` et compare toujours faux. `.aucun` serait plus sûr — un renommage mécanique.
+- **Deux clés de préférences à surveiller.** `sidebar.projectsExpanded` n'a plus de lecteur
+  depuis le lot 6 : la valeur reste dans les préférences des utilisateurs existants, sans
+  effet. `sidebar.projectsSectionExpanded` (défaut `true`) s'applique aussi aux utilisateurs
+  qui n'ont jamais rien exprimé — l'absence de clé est indistinguable d'un choix.
+- **`MainRoute.entity` porte un `PersistentIdentifier`** et non un identifiant stable :
+  `Entity` n'a pas de `stableID`. La route ne survit donc pas à un relancement de
+  l'application, contrairement à `project` et `collaborator`.
+- **Les préférences du bundle de recette ne sont pas isolées** par `CFFIXED_USER_HOME` :
+  `cfprefsd` sert `com.onetoone.app.recette` depuis les préférences réelles. Un cadre de
+  fenêtre hors écran hérité d'une session précédente a coûté une demi-journée d'observations
+  fausses ; `Scripts/recette-run.sh` lance désormais avec `-ApplePersistenceIgnoreState YES` et
+  purge ce domaine sous `--reset`.
 
 > Ces observations servent de feuille de route ; le détail du code mort retiré et des
 > simplifications appliquées/différées est consigné dans [`cleanup-report.md`](./cleanup-report.md).
