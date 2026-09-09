@@ -37,10 +37,21 @@ struct RefonteTypographieTests {
     /// Les périmètres tenus par ce test : le rail, tous les espaces, la barre
     /// du haut et la barre d'espaces. Ce sont les surfaces que la recette
     /// photographie et que le retour d'usage a relevées.
+    /// Étendu par la refonte de la gestion des projets (décision **D17**) :
+    /// le routeur de navigation et l'écran projet entrent dans le périmètre.
+    ///
+    /// **Les autres dossiers de la refonte n'y sont pas encore**, parce qu'ils
+    /// n'existent pas : `sourcesAreFound` ci-dessous vérifie que le périmètre
+    /// est bien celui qu'on croit lire, et un dossier absent le rendrait faux
+    /// à vide. À ajouter par le lot qui crée son premier fichier —
+    /// `Views/Sidebar/` au lot 1, `Views/Portfolio/` au lot 2,
+    /// `Views/Palette/` au lot 3, `Views/AtRisk/` au lot 5.
     private static let perimetres = [
         "OneToOne/Views/Meeting/Spaces",
         "OneToOne/Views/Meeting/MeetingTopChromeBar.swift",
         "OneToOne/Views/Meeting/Chrome",
+        "OneToOne/Views/Navigation",
+        "OneToOne/Views/Project",
     ]
 
     private func sources() throws -> [(nom: String, texte: String)] {
@@ -67,9 +78,12 @@ struct RefonteTypographieTests {
 
     // MARK: - Le périmètre est bien celui qu'on croit lire
 
-    @Test("Les trois périmètres typographiques sont trouvés")
+    @Test("Les cinq périmètres typographiques sont trouvés")
     func sourcesAreFound() throws {
         let noms = try sources().map(\.nom)
+        // Le routeur de navigation (D0) et l'écran projet (D17).
+        #expect(noms.contains("MainDetailView.swift"))
+        #expect(noms.contains("ProjectCardPanel.swift"))
         // Si ce test tombe, c'est qu'un dossier a bougé — et alors les deux
         // suivants ne prouveraient plus rien en passant.
         #expect(noms.contains("ActionsRail.swift"))

@@ -115,7 +115,15 @@ struct OneToOneApp: App {
 /// au lancement la réparation du store, l'indexation Spotlight, les hotkeys
 /// globaux et le nettoyage audio automatique.
 struct ContentView: View {
-    @State private var selectedTab: String? = "Dashboard"
+    /// Le routeur de la fenêtre principale (décision **D0**). Il remplace
+    /// `selectedTab`, qui était mort : rien ne l'écrivait ni ne le lisait, et
+    /// aucune destination n'était atteignable par programme.
+    ///
+    /// `MainRouter.shared` et non une instance locale : `MenuBarController` est
+    /// un `NSObject` hors hiérarchie SwiftUI, il ne peut pas lire
+    /// l'environnement, et c'est lui qui ouvre un projet depuis la recherche
+    /// du menu système.
+    private let mainRouter = MainRouter.shared
     @Environment(\.modelContext) private var context
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var router: QuickLaunchRouter
@@ -129,18 +137,20 @@ struct ContentView: View {
         NavigationSplitView {
             MainSidebarView()
                 .focusSection()
-                // La barre latérale de la spec §1.2 fait **190 px**. Sans
-                // largeur déclarée, SwiftUI la ramène à ~147 px et les entrées
-                // s'y coupent (« Tableau d… », « Suivi man… ») : c'est l'autre
-                // moitié de la capture du défaut n° 1. Sa position de séparateur
-                // est enregistrée sous la même clé instable que le cadre de la
-                // fenêtre — elle ne peut donc pas être restaurée, et c'est cette
-                // largeur idéale qui sert de repli.
-                .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 320)
+                // Sans largeur déclarée, SwiftUI ramène la colonne à ~147 px et
+                // les entrées s'y coupent (« Tableau d… », « Suivi man… ») : sa
+                // position de séparateur est enregistrée sous la même clé
+                // instable que le cadre de la fenêtre, elle ne peut donc pas
+                // être restaurée, et c'est cette largeur idéale qui sert de
+                // repli. **250 px** depuis la refonte de la gestion des projets
+                // (décision **D13**) : c'est la largeur des captures 2a et 2b,
+                // et la section « Projets » du lot 1 ne tient pas dans 190.
+                .navigationSplitViewColumnWidth(min: 170, ideal: 250, max: 320)
         } detail: {
-            DashboardView()
+            MainDetailView()
                 .focusSection()
         }
+        .environment(mainRouter)
         .onAppear {
             // Indispensable quand l'app est lancée via swift run :
             // sans ça, l'app reste un processus "accessory" qui ne reçoit
