@@ -667,7 +667,7 @@ struct MainSidebarView: View {
     private func projectLabel(for project: Project) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                StatusIcon(status: project.status)
+                StatusIcon(status: project.status, size: 12)
                 Text(project.name)
                     .lineLimit(1)
                 Spacer()
@@ -825,7 +825,7 @@ struct EntityDetailView: View {
                         ForEach(entity.projects) { project in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
-                                    StatusIcon(status: project.status)
+                                    StatusIcon(status: project.status, size: 12)
                                     Text(project.name)
                                     Spacer()
                                     Text(project.code).font(.caption).foregroundColor(.secondary)
@@ -1344,7 +1344,7 @@ struct DashboardView: View {
                         ForEach(riskyProjects) { project in
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    StatusIcon(status: project.status)
+                                    StatusIcon(status: project.status, size: 12)
                                     Text(project.name).font(.headline)
                                     Spacer()
                                     if let risk = project.riskLevel {
@@ -1851,7 +1851,7 @@ struct GanttPhaseView: View {
             ForEach(projects.sorted(by: { $0.name < $1.name })) { project in
                 HStack(spacing: 0) {
                     HStack(spacing: 4) {
-                        StatusIcon(status: project.status)
+                        StatusIcon(status: project.status, size: 12)
                         Text(project.name)
                             .font(.caption)
                             .lineLimit(1)
