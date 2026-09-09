@@ -62,6 +62,10 @@ final class BackupService {
         var aiProfilesJSON: String? = nil
         var directModelRepo: String? = nil
         var allowRemoteMailClassification: Bool? = nil
+        /// Les vues enregistrées du Portfolio (décision **D4** de la refonte
+        /// des projets). Optionnelle : une sauvegarde antérieure au lot 2 n'en
+        /// porte pas, et une liste vide est la valeur par défaut du modèle.
+        var portfolioSavedViewsJSON: String? = nil
     }
 
     struct EntityDTO: Codable {
@@ -121,6 +125,18 @@ final class BackupService {
         /// lot 19c (fiche projet du lot 9).
         var milestones: [ProjectMilestoneDTO]?
         var contacts: [ProjectContactDTO]?
+        /// Épinglage dans la barre latérale (décision **D4** de la refonte des
+        /// projets). Optionnel : une sauvegarde antérieure au lot 1 n'en porte
+        /// pas, et `false` est la valeur par défaut du modèle.
+        var pinned: Bool?
+        /// Le périmètre du projet et la date de sa dernière modification,
+        /// posée par l'édition in-place (décision **D9**).
+        ///
+        /// `scopeText` accompagne `scopeUpdatedAt` : sauvegarder la date sans
+        /// le texte restaurerait un « mis à jour le … » qui ne désigne rien.
+        /// Optionnels, comme tout ce qu'une sauvegarde antérieure ignore.
+        var scopeText: String?
+        var scopeUpdatedAt: Date?
     }
 
     struct CollaboratorDTO: Codable {
@@ -445,7 +461,8 @@ final class BackupService {
                     return profile
                 }),
                 directModelRepo: settings.directModelRepo,
-                allowRemoteMailClassification: settings.allowRemoteMailClassification
+                allowRemoteMailClassification: settings.allowRemoteMailClassification,
+                portfolioSavedViewsJSON: settings.portfolioSavedViewsJSON
             ),
             entities: entities.map { EntityDTO(name: $0.name, summary: $0.summary) },
             projects: projects.map { project in
@@ -519,7 +536,10 @@ final class BackupService {
                                 order: contact.order,
                                 createdAt: contact.createdAt
                             )
-                        }
+                        },
+                    pinned: project.pinned,
+                    scopeText: project.scopeText,
+                    scopeUpdatedAt: project.scopeUpdatedAt
                 )
             },
             collaborators: collaborators.map { collaborateur in
@@ -845,6 +865,11 @@ final class BackupService {
         restoredSettings.managerEmail = payload.settings.managerEmail ?? ""
         restoredSettings.managerCategoriesJSON = payload.settings.managerCategoriesJSON ?? AppSettings.defaultManagerCategoriesJSON
         restoredSettings.managerReportPrompt = payload.settings.managerReportPrompt ?? AppSettings.defaultManagerReportPrompt
+        // Vues enregistrées du Portfolio : « [] » plutôt que `nil` pour une
+        // sauvegarde antérieure au lot 2 — le décodeur de `portfolioSavedViews`
+        // rend une liste vide sur toute chaîne illisible, mais la colonne, elle,
+        // ne doit pas rester vide au sens de « chaîne vide ».
+        restoredSettings.portfolioSavedViewsJSON = payload.settings.portfolioSavedViewsJSON ?? "[]"
 
         var entityMap: [String: Entity] = [:]
         for entityDTO in payload.entities {
@@ -893,6 +918,12 @@ final class BackupService {
             project.hasDIT = projectDTO.hasDIT
             project.ditLink = projectDTO.ditLink.flatMap(URL.init(string:))
             project.entity = projectDTO.entityName.flatMap { entityMap[$0] }
+            // Refonte des projets : épinglage (D4) et date de périmètre (D9).
+            // Une sauvegarde antérieure ne les porte pas — les défauts du
+            // modèle s'appliquent alors.
+            project.pinned = projectDTO.pinned ?? false
+            project.scopeText = projectDTO.scopeText ?? ""
+            project.scopeUpdatedAt = projectDTO.scopeUpdatedAt
             context.insert(project)
 
             for attachmentDTO in projectDTO.attachments {
