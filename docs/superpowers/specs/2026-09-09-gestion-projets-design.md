@@ -87,10 +87,10 @@ Chaque constat corrige ou complète le handoff ; les décisions du §3 en décou
 
 ## 3. Décisions
 
-Les décisions marquées **(à valider)** sont structurantes ou contredisent le handoff ; les
-autres sont des choix d'intégration que j'ai tranchés et que Laurent peut renverser.
+D0, D1, D2, D3, D8 et D13 ont été validées ou tranchées par Laurent le 2026-09-09 ; les autres
+sont des choix d'intégration que j'ai pris et que Laurent peut renverser.
 
-**D0 — Routeur de navigation, lot 0 obligatoire (à valider).** Un `enum MainRoute: Hashable`
+**D0 — Routeur de navigation, lot 0 obligatoire (validée le 2026-09-09).** Un `enum MainRoute: Hashable`
 (`dashboard`, `assistant`, `actions`, `meetings`, `notes`, `manager`, `collaborators`,
 `portfolio`, `atRisk`, `projectMeetings`, `projectActions`, `project(UUID, ProjectTab)`,
 `collaborator(UUID)`, `entity(UUID)`, `settings`…) ; la sidebar devient une `List(selection:)`
@@ -101,20 +101,26 @@ migrent un à un ; les écrans non touchés par la refonte (collaborateurs, arch
 même mécanisme sans changer de rendu. Coût si faux : un lot de plus ; sans lui, aucune des
 interactions du handoff n'est réalisable.
 
-**D1 — ⌘K va à la palette, l'Assistant passe à ⌘⇧K (à valider).** Le handoff est explicite et
+**D1 — ⌘K va à la palette, l'Assistant passe à ⌘⇧K (validée le 2026-09-09).** Le handoff est explicite et
 ⌘K est la convention universelle des palettes. `MeetingShortcut` est renommé en portée :
 la table devient `AppShortcut` (mêmes cas + `palette`), `MeetingShortcutsTests` est mis à jour
 (liste des jetons, déclarants nommés), la spec de la refonte réunion §1.4 est amendée par un
 ADR. Alternative si refusé : palette sur ⌘P (libre), rien ne bouge côté Assistant.
 
-**D2 — Table de risque unique, « Faible » reste `ink4` (à valider).** On ne rouvre pas une
+**D2 — Table de risque unique, « Faible » reste `ink4` (validée le 2026-09-09).** On ne rouvre pas une
 décision de la refonte réunion pour un badge que la capture 1a ne montre même pas. Les badges
 Modéré / Élevé / Critique et le tiret « absent » suivent le handoff à la lettre.
 
-**D3 — Chef de projet et architecte : relation d'abord, chaîne en repli.** Fonction pure
-`ProjectPeople.manager(of:) -> String?` : `projectManager?.name`, sinon `chefDeProjet` non
-vide, sinon `nil` (« Non affecté » en italique). Même chose pour l'architecte. La règle « fiche
-incomplète » lit cette fonction, pas la FK.
+**D3 — Chef de projet et architecte : la relation fait foi (décision de Laurent, 2026-09-09).**
+Un projet sans `projectManager` lié **est incomplet**, même si la chaîne `chefDeProjet` importée du
+xlsx porte un nom : la colonne « Chef de projet » et la carte Interlocuteurs lisent
+`projectManager?.name` et affichent « Non affecté » en italique sinon ; la règle « fiche
+incomplète » lit `projectManager == nil`. Les 62 projets du store réel apparaîtront donc dans ce
+groupe : l'action « Compléter » ouvre un sélecteur de collaborateur **prérempli** avec le
+collaborateur dont le nom correspond à `chefDeProjet` (fonction pure
+`ProjectPeople.suggestedManager(for:among:)`, correspondance insensible à la casse et aux accents),
+pour que la mise en conformité soit un clic par projet. Même logique pour `technicalArchitect`
+/ `architecte`.
 
 **D4 — `Project.pinned: Bool = false`**, migration légère, pas de `SchemaV4`. Récents :
 `@AppStorage("projects.recentIDs")` chaîne d'UUID séparés par `,` (max 5, FIFO), accès par une
@@ -140,11 +146,12 @@ code, domaine, **sponsor**, chef de projet, architecte, notes) et `ProjectSearch
 `MeetingsProjectFilterPicker` et `SearchPopover` y migrent dans le lot palette.
 `ProjectSearch.highlightRanges` alimente le surlignage `#FFE9A8`.
 
-**D8 — « Chercher « x » dans les CR et mails » (à valider)** : ouvre un écran de résultats
-lexical synchrone (`localizedStandardContains` sur `Meeting.textualContent` et
-`ProjectMail.subject/body`, groupé Réunions / Mails, clic → réunion ou projet). Pas de RAG ni
-d'embeddings à la frappe. Alternative : reporter cette action à un chantier ultérieur (la
-palette ne montre alors que « Créer un projet »).
+**D8 — « Chercher « x » dans les CR » (décision de Laurent, 2026-09-09 : CR seulement, pas les
+mails pour l'instant).** L'action de la palette s'intitule « Chercher « x » dans les CR » et ouvre
+un écran de résultats lexical synchrone : `localizedStandardContains` sur `Meeting.textualContent`
+(titre, notes, résumé, points clés, décisions, questions ouvertes) des réunions hors notes, groupé
+par projet, extrait surligné, clic → réunion en mode Relire. Pas de RAG ni d'embeddings à la
+frappe. Les mails viendront dans un chantier ultérieur (`ProjectMail.subject/body`, même écran).
 
 **D9 — Édition in-place par champ.** `ProjectCardDraft` est étendu (nom, phase, statut, type,
 entité, chef de projet, architecte, dates, `riskLevel`/`riskDescription`, `plannedDays`,
@@ -162,7 +169,7 @@ pas de badge. Fonction pure `MeetingTypeBadge.from(meeting:)`.
 un `@Observable PortfolioModel`, recalculée sur changement des `@Query`, jamais dans `body`.
 Même chose pour `ProjectPilotageState` (tuiles, actions, réunions, mails) et `AtRiskBuilder`
 (trois motifs, règles du handoff avec `dueAt` et `MilestoneState != .done`, `max(date) < J−30`,
-`ProjectPeople.manager == nil || sponsor.isEmpty || status == "Unknown"`). « En retard » = action
+`projectManager == nil || sponsor.isEmpty || status == "Unknown"` (D3)). « En retard » = action
 `status == .open` et `dueDate < aujourd'hui`.
 
 **D12 — Trois jetons ajoutés** à `One2OneToken` (seul fichier autorisé à nommer une couleur) :
@@ -170,7 +177,7 @@ Même chose pour `ProjectPilotageState` (tuiles, actions, réunions, mails) et `
 n'avait pas ces trois valeurs. `AvatarStack` gagne un paramètre de taille (26 px) ;
 `TimecodeLabel` n'est pas touché (la colonne date des réunions est un `Text` mono de 44 px).
 
-**D13 — Largeur de la sidebar (à valider)** : `ideal` passe de 190 à 250, `max` à 320, `min`
+**D13 — Largeur de la sidebar (validée)** : `ideal` passe de 190 à 250, `max` à 320, `min`
 reste 170. Les captures 2a/2b sont prises à 250.
 
 **D14 — Sources uniques pour les listes de valeurs** : `ProjectPhase`, `ProjectStatus`,
@@ -240,7 +247,7 @@ handoff.
 | 0 | Routeur `MainRoute`/`MainRouter`, sidebar en `List(selection:)`, migration des `NavigationLink`, `RecetteScreen.Cible.fenetrePrincipale`, semis Portfolio 62 projets, `Project.pinned`, enums D14, jetons D12, extension du périmètre typographique | — (aucun rendu changé) |
 | 1 | Section « Projets » 2b : quatre entrées, Épinglés, Récents, compteurs, arbre replié, largeur 250 ; `RecentProjects`, `ProjectSearch` (sidebar) | `p2b` |
 | 2 | Portfolio 1a : `PortfolioBuilder`, tableau, tri, recherche, chips, vues enregistrées, `StatusIcon` migré, `ProjectBatchActions` + barre, « Groupé par entité », `ProjectListView` supprimée | `p1a` |
-| 3 | Palette 1c : `AppShortcut` (D1), `CommandPalette`, surlignage, `⌘↩`, actions « Créer » et « Chercher dans les CR et mails » (D8), `SearchPopover`/`MeetingsProjectFilterPicker` sur `ProjectSearch` | `p1c` |
+| 3 | Palette 1c : `AppShortcut` (D1), `CommandPalette`, surlignage, `⌘↩`, actions « Créer » et « Chercher dans les CR » (D8), `SearchPopover`/`MeetingsProjectFilterPicker` sur `ProjectSearch` | `p1c` |
 | 4 | Écran projet 1d : en-tête, onglets, Pilotage (tuiles, actions, réunions, périmètre, colonne latérale), `ProjectCardDraft` étendu + édition in-place (D9), onglets Réunions & CR / Actions / Mails / Documents (listes existantes), « Fiche complète » = `ProjectDetailView`, heatmap remplacée par la tuile Rythme | `p1d` |
 | 5 | Vue « À risque » 1f : `AtRiskBuilder`, trois groupes, actions Replanifier / Planifier / Compléter (Replanifier ouvre le jalon en édition, Planifier crée une réunion projet, Compléter ouvre la fiche sur le champ) | `p1f` |
 | 6 | Bascule 2a : retrait de l'arbre, de sa clé et du drag & drop par `code` ; « Déplacer vers une entité » sur la sélection multiple ; ADR de clôture ; `STATUS.md` | `p2a` |
