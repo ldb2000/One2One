@@ -12,7 +12,15 @@ struct PortfolioGroupedView: View {
 
     /// Le libellé du groupe des projets sans entité, tel que
     /// `PortfolioBuilder.groups` le nomme.
-    static let sansEntite = "Sans entité"
+    static let sansEntite = PortfolioBuilder.sansEntite
+
+    /// Un en-tête de groupe ouvre la fiche de son entité — sauf celui des
+    /// orphelins, qui n'en désigne aucune.
+    ///
+    /// C'est le seul chemin vers `EntityDetailView` depuis la fenêtre
+    /// principale depuis que l'arbre par entité de la barre latérale a été
+    /// retiré (lot 6, variante 2a du handoff).
+    static func estCliquable(_ entite: String) -> Bool { entite != sansEntite }
 
     /// L'invite d'un groupement vide.
     static let aucunResultat = PortfolioTable.aucunResultat
@@ -23,6 +31,8 @@ struct PortfolioGroupedView: View {
     let trierPar: (PortfolioSort.Column) -> Void
     let ouvrir: (PortfolioRow) -> Void
     let basculerSelection: (PortfolioRow) -> Void
+    /// Ouvrir la fiche de l'entité que nomme un en-tête de groupe.
+    let ouvrirEntite: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -60,8 +70,9 @@ struct PortfolioGroupedView: View {
         return resultat
     }
 
+    @ViewBuilder
     private func enteteDeGroupe(_ entite: String, nombre: Int) -> some View {
-        HStack(spacing: 6) {
+        let contenu = HStack(spacing: 6) {
             Text(entite)
                 .sectionLabel()
             Text("\(nombre)")
@@ -71,9 +82,18 @@ struct PortfolioGroupedView: View {
         }
         .padding(.horizontal, PortfolioTable.marge)
         .frame(height: PortfolioTable.hauteurEntete)
+        .contentShape(Rectangle())
         .background(One2OneToken.bgApp)
         .overlay(alignment: .bottom) {
             Rectangle().fill(One2OneToken.hair).frame(height: 1)
+        }
+
+        if Self.estCliquable(entite) {
+            Button { ouvrirEntite(entite) } label: { contenu }
+                .buttonStyle(.plain)
+                .help(entite)
+        } else {
+            contenu
         }
     }
 }

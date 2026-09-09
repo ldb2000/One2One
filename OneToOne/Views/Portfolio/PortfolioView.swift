@@ -81,7 +81,8 @@ struct PortfolioView: View {
                                              selection: model.selection,
                                              trierPar: trierPar,
                                              ouvrir: ouvrir,
-                                             basculerSelection: { model.basculerSelection($0.id) })
+                                             basculerSelection: { model.basculerSelection($0.id) },
+                                             ouvrirEntite: ouvrirLEntite)
                     }
 
                     Text(model.footer)
@@ -126,6 +127,17 @@ struct PortfolioView: View {
     private func ouvrir(_ ligne: PortfolioRow) {
         guard let projet = model.projet(ligne) else { return }
         router.openProject(projet)
+    }
+
+    /// Clic sur un en-tête de groupe : la fiche de l'entité.
+    ///
+    /// `MainRoute.entity` était créée depuis le lot 0 sans appelant : la fiche
+    /// d'une entité ne s'atteignait que par l'arbre de la barre latérale et par
+    /// les réglages. L'arbre est retiré au lot 6 (variante 2a), et c'est cet
+    /// en-tête qui reprend le chemin.
+    private func ouvrirLEntite(_ nom: String) {
+        guard let entite = PortfolioBuilder.entite(nommee: nom, parmi: entites) else { return }
+        router.open(MainRoute.entity(entite.persistentModelID))
     }
 
     // MARK: - Création

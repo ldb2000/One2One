@@ -270,6 +270,44 @@ struct PortfolioViewTests {
             atPath: racine.appendingPathComponent("OneToOne/Views/ProjectListView.swift").path))
     }
 
+    // MARK: - L'en-tête d'entité du mode groupé (lot 6)
+
+    @Test("L'en-tête d'un groupe ouvre l'entité, sauf « Sans entité »")
+    func enTeteDeGroupeCliquable() {
+        // La fiche d'une entité était atteinte par l'arbre de la barre
+        // latérale, retiré au lot 6 (variante 2a). Le seul chemin restant est
+        // l'en-tête du mode « Groupé par entité » — c'est aussi le premier
+        // appelant de `MainRoute.entity`, créée au lot 0 sans destination.
+        #expect(PortfolioGroupedView.estCliquable("ASP"))
+        #expect(!PortfolioGroupedView.estCliquable(PortfolioGroupedView.sansEntite))
+        // Le libellé du groupe des orphelins vient de `PortfolioBuilder` : les
+        // deux doivent rester le même mot.
+        #expect(PortfolioGroupedView.sansEntite == "Sans entité")
+    }
+
+    @Test("Le nom d'un groupe se résout en entité du store")
+    func resolutionDeLEntiteDuGroupe() throws {
+        let contexte = try contexteEnMemoire()
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+        let entites = try contexte.fetch(FetchDescriptor<Entity>())
+        let asp = try #require(PortfolioBuilder.entite(nommee: "ASP", parmi: entites))
+        #expect(asp.name == "ASP")
+        // Le groupe des orphelins n'est pas une entité, et un nom inconnu non
+        // plus : la vue ne route pas plutôt que de router n'importe où.
+        #expect(PortfolioBuilder.entite(nommee: PortfolioGroupedView.sansEntite,
+                                        parmi: entites) == nil)
+        #expect(PortfolioBuilder.entite(nommee: "Entité fantôme", parmi: entites) == nil)
+    }
+
+    @Test("Le Portfolio est le seul appelant de la route `entity`")
+    func routeEntiteBranchee() {
+        let vue = Self.source("OneToOne/Views/Portfolio/PortfolioView.swift")
+        #expect(vue.contains("MainRoute.entity("),
+                "l'en-tête d'entité doit ouvrir la fiche de l'entité")
+        let groupee = Self.source("OneToOne/Views/Portfolio/PortfolioGroupedView.swift")
+        #expect(groupee.contains("ouvrirEntite"))
+    }
+
     // MARK: - Le modèle d'écran
 
     @Test("Le modèle recalcule les lignes, le groupement et le sous-titre")

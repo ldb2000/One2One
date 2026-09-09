@@ -322,6 +322,9 @@ enum PortfolioBuilder {
             + " ⇧-clic pour changer phase, statut ou entité en lot"
     }
 
+    /// L'en-tête du groupe des projets sans entité.
+    static let sansEntite = "Sans entité"
+
     /// Le groupement du segment « Groupé par entité » : les mêmes lignes, sous
     /// un en-tête d'entité, par ordre alphabétique — les projets sans entité
     /// en dernier groupe.
@@ -330,8 +333,20 @@ enum PortfolioBuilder {
         return paquets.keys
             .sorted { compareTexte($0, $1) == .orderedAscending }
             .map { clef in
-                (entite: clef ?? "Sans entité", lignes: paquets[clef] ?? [])
+                (entite: clef ?? sansEntite, lignes: paquets[clef] ?? [])
             }
+    }
+
+    /// L'entité que nomme un en-tête de groupe, ou `nil`.
+    ///
+    /// Le groupement travaille sur des **noms** (`PortfolioRow.entity` est une
+    /// chaîne), et la route d'une fiche d'entité demande une identité
+    /// (`MainRoute.entity(PersistentIdentifier)`). Cette fonction fait le seul
+    /// pas qui manque, et rend `nil` pour le groupe des orphelins comme pour un
+    /// nom sans entité : la vue ne route pas plutôt que de router n'importe où.
+    static func entite(nommee nom: String, parmi entites: [Entity]) -> Entity? {
+        guard nom != sansEntite else { return nil }
+        return entites.first { $0.name == nom }
     }
 
     // MARK: - Mécanique
