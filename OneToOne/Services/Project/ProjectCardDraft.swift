@@ -97,6 +97,10 @@ struct ProjectCardDraft: Equatable, Sendable {
     /// fois, et passent par le même `apply` — donc par la même bannière
     /// d'annulation.
     var name: String = ""
+    /// Le sponsor, chaîne libre du portfolio externe. Vide = « Sponsor à
+    /// renseigner » sur la carte Interlocuteurs, et une fiche incomplète pour
+    /// la vue « À risque ».
+    var sponsor: String = ""
     /// Phase, statut, type et niveau de risque restent des **chaînes libres**
     /// dans le modèle (décision **D14**) : le brouillon les transporte telles
     /// quelles, y compris une valeur hors table.
@@ -159,6 +163,7 @@ struct ProjectCardDraft: Equatable, Sendable {
                               existing: alerte.persistentModelID)
                 },
             name: project.name,
+            sponsor: project.sponsor,
             phaseRaw: project.phase,
             projectTypeRaw: project.projectType,
             riskLevelRaw: project.riskLevel ?? "",
@@ -205,6 +210,7 @@ struct ProjectCardDraft: Equatable, Sendable {
         // part, et ce n'est jamais ce qu'on voulait taper.
         let nomNet = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nomNet.isEmpty { project.name = nomNet }
+        project.sponsor = sponsor
         project.phase = phaseRaw
         project.projectType = projectTypeRaw
         project.riskLevel = riskLevelRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -212,9 +218,9 @@ struct ProjectCardDraft: Equatable, Sendable {
         project.riskDescription = riskDescription.isEmpty ? nil : riskDescription
         project.plannedDays = plannedDays
         project.designEndDeadline = designEndDeadline
-        project.entity = entityID.flatMap { context.model(for: $0) as? Entity }
-        project.projectManager = managerID.flatMap { context.model(for: $0) as? Collaborator }
-        project.technicalArchitect = architectID.flatMap { context.model(for: $0) as? Collaborator }
+        project.entity = Self.resoudre(entityID, in: context)
+        project.projectManager = Self.resoudre(managerID, in: context)
+        project.technicalArchitect = Self.resoudre(architectID, in: context)
 
         // Le total saisi est le budget **révisé**. Égal à l'initial, il n'y a
         // pas de révision : `budgetRev` repasse à `nil` plutôt que de recopier
@@ -230,6 +236,21 @@ struct ProjectCardDraft: Equatable, Sendable {
         applyRisks(to: project, in: context)
 
         try? context.save()
+    }
+
+    /// Résout une identité SwiftData en objet, **par requête** et non par
+    /// `ModelContext.model(for:)`.
+    ///
+    /// `model(for:)` rend un objet *faulté* — voire piège — quand l'identité
+    /// ne vient pas du conteneur interrogé, et la suite de tests en ouvre un
+    /// par cas : le rendu était juste isolément et `nil` en suite complète.
+    /// Une requête ne ment pas, et le nombre d'entités comme de collaborateurs
+    /// se compte en dizaines.
+    @MainActor
+    private static func resoudre<T: PersistentModel>(_ id: PersistentIdentifier?,
+                                                     in context: ModelContext) -> T? {
+        guard let id, let objets = try? context.fetch(FetchDescriptor<T>()) else { return nil }
+        return objets.first { $0.persistentModelID == id }
     }
 
     @MainActor

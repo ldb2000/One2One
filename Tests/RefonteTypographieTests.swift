@@ -46,7 +46,9 @@ struct RefonteTypographieTests {
     /// à vide. À ajouter par le lot qui crée son premier fichier —
     /// `Views/Sidebar/` **au lot 1, fait**, `Views/Portfolio/` **au lot 2,
     /// fait**, `Views/Palette/` et `Views/Search/` **au lot 3, faits**,
-    /// `Views/AtRisk/` au lot 5.
+    /// `Views/AtRisk/` au lot 5. Le lot 4 n'ajoute pas de dossier :
+    /// `Views/Project/` y était depuis le lot 0, et ses deux sous-dossiers
+    /// `Pilotage/` et `Tabs/` sont balayés par l'énumérateur.
     private static let perimetres = [
         "OneToOne/Views/Meeting/Spaces",
         "OneToOne/Views/Meeting/MeetingTopChromeBar.swift",
@@ -105,6 +107,21 @@ struct RefonteTypographieTests {
         #expect(noms.contains("PaletteRow.swift"))
         #expect(noms.contains("HighlightedText.swift"))
         #expect(noms.contains("ReportSearchView.swift"))
+        // L'écran projet à six onglets (lot 4, D17).
+        #expect(noms.contains("ProjectScreen.swift"))
+        #expect(noms.contains("ProjectHeader.swift"))
+        #expect(noms.contains("ProjectTabs.swift"))
+        #expect(noms.contains("PilotageTab.swift"))
+        #expect(noms.contains("KPITiles.swift"))
+        #expect(noms.contains("OpenActionsCard.swift"))
+        #expect(noms.contains("RecentMeetingsCard.swift"))
+        #expect(noms.contains("ScopeCard.swift"))
+        #expect(noms.contains("SideColumn.swift"))
+        #expect(noms.contains("MeetingTypeBadgeView.swift"))
+        #expect(noms.contains("ProjectMeetingsTab.swift"))
+        #expect(noms.contains("ProjectActionsTab.swift"))
+        #expect(noms.contains("ProjectMailsTab.swift"))
+        #expect(noms.contains("ProjectDocumentsTab.swift"))
         // Si ce test tombe, c'est qu'un dossier a bougé — et alors les deux
         // suivants ne prouveraient plus rien en passant.
         #expect(noms.contains("ActionsRail.swift"))

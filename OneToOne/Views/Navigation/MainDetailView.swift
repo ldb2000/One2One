@@ -5,12 +5,13 @@ import SwiftData
 /// `MainRouter.route` (décision **D0**).
 ///
 /// **C'est un routeur, comme `MeetingView`** : il monte un écran, il n'en
-/// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`) et la
-/// recherche dans les CR aussi (lot 3, `ReportSearchView`) ; les autres écrans
+/// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`), la
+/// recherche dans les CR aussi (lot 3, `ReportSearchView`) et l'écran projet à
+/// six onglets également (lot 4, `ProjectScreen`) ; les deux écrans restants
 /// de la refonte (À risque, réunions et actions de projets) affichent encore
-/// une invite sobre que les lots 4 et 5 remplaceront, un par un. Rien d'autre ne change de rendu : chaque entrée de
-/// la barre latérale retrouve ici exactement la destination qu'elle avait en
-/// `NavigationLink`.
+/// une invite sobre que les lots 5 et 6 remplaceront. Rien d'autre ne change
+/// de rendu : chaque entrée de la barre latérale retrouve ici exactement la
+/// destination qu'elle avait en `NavigationLink`.
 struct MainDetailView: View {
 
     @Environment(MainRouter.self) private var router
@@ -54,12 +55,12 @@ struct MainDetailView: View {
             // reconstruit quand la palette en propose un autre.
             ReportSearchView(terme: terme)
 
-        case .project(let id, _):
-            // Le lot 4 remplacera cette résolution par l'écran à six onglets ;
-            // jusque-là l'onglet demandé n'est pas honoré, et la fiche
-            // complète — celle qu'ouvrait le `NavigationLink` — s'affiche.
+        case .project(let id, let onglet):
+            // Lot 4 : l'écran projet à six onglets (capture 1d).
+            // `ProjectDetailView` n'a pas disparu — elle est son onglet
+            // « Fiche complète ».
             if let projet = projects.first(where: { $0.stableID == id }) {
-                ProjectDetailView(project: projet)
+                ProjectScreen(project: projet, tab: onglet)
             } else {
                 MainDetailIntrouvable(quoi: "Ce projet")
             }

@@ -395,7 +395,8 @@ enum ProjectPilotageBuilder {
     /// l'ordre de la liste d'actions du projet, `sortOrder`, que le lecteur a
     /// posé lui-même.
     static func lignesDActions(_ ouvertes: [ActionTask],
-                               debutDuJour: Date) -> [ProjectPilotageState.ActionRow] {
+                               debutDuJour: Date,
+                               limite: Int = maxActions) -> [ProjectPilotageState.ActionRow] {
         let retards = ouvertes.filter { estEnRetard($0, debutDuJour: debutDuJour) }
             .sorted { ($0.dueDate ?? .distantPast) < ($1.dueDate ?? .distantPast) }
         let reste = ouvertes.filter { !estEnRetard($0, debutDuJour: debutDuJour) }
@@ -403,7 +404,7 @@ enum ProjectPilotageBuilder {
                 if gauche.sortOrder != droite.sortOrder { return gauche.sortOrder < droite.sortOrder }
                 return gauche.title.localizedStandardCompare(droite.title) == .orderedAscending
             }
-        return (retards + reste).prefix(maxActions).map { tache in
+        return (retards + reste).prefix(max(limite, 0)).map { tache in
             ProjectPilotageState.ActionRow(
                 id: tache.persistentModelID,
                 title: tache.title,
