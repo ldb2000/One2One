@@ -26,6 +26,14 @@ struct MainSidebarView: View {
     /// la colonne stockée, pas sur le wrapper calculé `kind`.
     @Query(filter: #Predicate<Meeting> { $0.kindRaw == "note" })
     private var allNotes: [Meeting]
+    /// Réunions **tenues** (au sens de `MeetingStatsScope.held`) : elles
+    /// n'alimentent que les compteurs de la section « Projets ». Le prédicat
+    /// écarte les notes dans le store plutôt qu'en mémoire — la barre latérale
+    /// n'a aucune raison de charger toutes les notes deux fois.
+    @Query(filter: #Predicate<Meeting> { $0.kindRaw != "note" })
+    private var heldMeetings: [Meeting]
+    /// Actions, pour le badge « Actions projets ».
+    @Query private var allTasks: [ActionTask]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var router: QuickLaunchRouter
     /// Le routeur de la fenêtre principale (décision **D0**). La barre latérale
@@ -44,7 +52,12 @@ struct MainSidebarView: View {
     @State private var renamingCollaborator: Collaborator?
     @State private var renamingName: String = ""
     @AppStorage("sidebar.collabsExpanded") private var collabsExpanded: Bool = true
-    @AppStorage("sidebar.projectsExpanded") private var projectsExpanded: Bool = true
+    /// L'arbre « Projets par Entité ». **Replié par défaut** depuis la
+    /// variante 2b (décision **D5**) : la navigation projets passe par la
+    /// section « Projets », et l'arbre n'est plus qu'un filet de sécurité —
+    /// le lot 6 le retire. La valeur d'un utilisateur qui l'a déjà déplié est
+    /// respectée : `@AppStorage` ne réécrit pas une clé existante.
+    @AppStorage("sidebar.projectsExpanded") private var projectsExpanded: Bool = false
     @AppStorage("sidebar.archivesExpanded") private var archivesExpanded: Bool = false
     @AppStorage("sidebar.archivedProjectsExpanded") private var archivedProjectsExpanded: Bool = false
 
@@ -144,11 +157,12 @@ struct MainSidebarView: View {
 
     // MARK: - Match helpers (incluent les notes)
 
+    /// Délègue à `ProjectSearch` (décision **D7**) : une seule recherche de
+    /// projets dans l'application. Le prédicat local lisait le nom, le code, le
+    /// domaine et les notes ; le service y ajoute le sponsor, le chef de projet
+    /// et l'architecte, et c'est lui que la palette du lot 3 partagera.
     private func projectMatches(_ p: Project, _ q: String) -> Bool {
-        p.name.localizedCaseInsensitiveContains(q) ||
-        p.code.localizedCaseInsensitiveContains(q) ||
-        p.domain.localizedCaseInsensitiveContains(q) ||
-        notes(ofProject: p).contains(where: { noteMatches($0, q) })
+        ProjectSearch.matches(p, query: q, notes: notes(ofProject: p))
     }
 
     private func collabMatches(_ c: Collaborator, _ q: String) -> Bool {
@@ -176,6 +190,19 @@ struct MainSidebarView: View {
 
     private var selectedProjects: [Project] {
         projects.filter { selectedProjectIDs.contains($0.persistentModelID) }
+    }
+
+    /// Les trois badges de la section « Projets ».
+    ///
+    /// Calculés par la fonction pure `SidebarProjectCounts.compute` (décision
+    /// **D11**) : la barre latérale ne compte rien elle-même, elle passe ce
+    /// qu'elle a déjà chargé. Même nature que `filteredEntities` ou
+    /// `filteredActiveCollaborators` juste au-dessus.
+    private var comptesProjets: SidebarProjectCounts {
+        SidebarProjectCounts.compute(projects: projects,
+                                     meetings: heldMeetings,
+                                     tasks: allTasks,
+                                     today: Date())
     }
 
     @ObservedObject private var jobQueue = JobQueue.shared
@@ -212,6 +239,17 @@ struct MainSidebarView: View {
 
                 Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
                     .tag(MainRoute.collaborators)
+
+                // La section « Projets » de la variante 2b du handoff. Elle ne
+                // remplace rien ici : l'arbre par entité la suit, replié.
+                ProjectsSidebarSection(
+                    projets: projects,
+                    comptes: comptesProjets,
+                    recherche: debouncedSearch,
+                    routeCourante: mainRouter.route,
+                    notesDuProjet: { notes(ofProject: $0) },
+                    ouvrir: { mainRouter.openProject($0) }
+                )
 
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
@@ -363,8 +401,15 @@ struct MainSidebarView: View {
                     }
                     .buttonStyle(.plain)
                     } label: {
-                        Label("Projets par Entité", systemImage: "folder.fill")
-                            .font(.subheadline.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Label("Projets par Entité", systemImage: "folder.fill")
+                                .font(.subheadline.weight(.semibold))
+                            // La sous-ligne de la capture 2b : ce que l'arbre
+                            // contient, et le fait qu'il ne s'ouvre plus seul.
+                            Text(ProjectsSidebarSection.sousLigneArbre(entites: entities.count))
+                                .font(.plexMono(11))
+                                .foregroundStyle(One2OneToken.inkMuted)
+                        }
                     }
                 }
 
