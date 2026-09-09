@@ -292,6 +292,7 @@ struct ContentView: View {
         if case .fenetrePrincipale(let route) = ecran.cible {
             let focus = RefonteDemoSeed.seedPortfolio(in: context)
             mainRouter.pendingPaletteQuery = ecran.termeDePalette
+            prereplirLesRecents(ecran.codesDeProjetsRecents)
             mainRouter.open(routeDeRecette(route, focus: focus))
             return
         }
@@ -339,6 +340,26 @@ struct ContentView: View {
                                   forKey: MeetingScreenModel.modeKey(for: cible.ensuredStableID))
         router.pendingToken = OneToOneLaunchToken(meetingID: cible.ensuredStableID,
                                                   autoStartRecording: false)
+    }
+
+    /// Inscrit dans les récents les projets que l'écran de recette demande.
+    ///
+    /// La sous-section « RÉCENTS » de la capture `2b` est un **état de
+    /// session** : elle vit dans `@AppStorage`, pas dans le store, et le semis
+    /// ne la pose donc pas. Sans ce préremplissage, l'écran `p2b` se
+    /// photographierait avec une sous-section vide.
+    ///
+    /// La liste est un ordre d'usage — le plus récemment ouvert en tête. Les
+    /// codes sont inscrits du **dernier au premier** pour que l'ordre affiché
+    /// soit celui de la capture.
+    @MainActor
+    private func prereplirLesRecents(_ codes: [String]) {
+        guard !codes.isEmpty else { return }
+        let projets = (try? context.fetch(FetchDescriptor<Project>())) ?? []
+        for code in codes.reversed() {
+            guard let projet = projets.first(where: { $0.code == code }) else { continue }
+            mainRouter.rememberRecentProject(projet.ensuredStableID)
+        }
     }
 
     /// La route à ouvrir, recalée sur le projet **réellement** semé.
