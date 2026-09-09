@@ -213,3 +213,117 @@ trois chiffres de la capture, au premier essai, sans retoucher le semis.
 - **Deux `@Query` globales de plus dans la barre latérale** (réunions tenues, actions). Sur le
   semis (82 réunions, 76 projets) rien ne se voit ; sur le store réel de Laurent, le coût
   n'est pas mesuré. Réserve n° 9 du lot 0, toujours ouverte.
+
+---
+
+## Lot 2 — Écran Portfolio (1a) (2026-09-09)
+
+Branche `feat/projets-lot-2-portfolio`, sur le lot 1 (`a0ae22a`). Écran de recette `p1a`.
+
+**État : livré, `swift build` propre (aucun avertissement nouveau dans les fichiers du lot),
+`swift test` complet vert. Recette visuelle : voir « Ce qui reste dû ».**
+
+### Commits
+
+| Commit | Intention |
+| --- | --- |
+| `7aaea0b` | `feat(projets)` — `PortfolioBuilder`, `ProjectPeople`, `ProjectBatchActions` (D3, D11, D15) |
+| `3835db4` | `feat(projets)` — l'écran Portfolio : tableau, facettes, vues enregistrées |
+| _ce commit_ | `docs` — §8 d'`architecture.md`, manifeste, ce journal |
+
+### Ce qui est en place
+
+- **`Services/Project/`** : `PortfolioRow` + `MilestoneCell` (une ligne calculée d'avance,
+  D11), `PortfolioBuilder` (`rows`, `apply`, `sort`, `values`, `relativeLabel`, `summary`,
+  `footer`, `groups`) et `PortfolioFacet` ; `ProjectPeople` (D3) ; `ProjectBatchActions` +
+  `ProjectCreation` (D15).
+- **`Views/Portfolio/`** (nouveau dossier, périmètre typographique D17) : `PortfolioView`,
+  `PortfolioModel` + `PortfolioSavedViewStore`, `PortfolioHeader`, `PortfolioFilterBar`,
+  `SavedViewMenu`, `PortfolioTable`, `PortfolioGroupedView`, `PhaseBadge`, `RiskBadge`,
+  `ProjectBatchBar`.
+- **`MainDetailView`** monte `PortfolioView` sur `.portfolio` : le placeholder du lot 0 est
+  remplacé.
+- **`Sidebar.swift`** : `multiSelectBar` devient `ProjectBatchBar`, ses six méthodes `batch*`
+  disparaissent, `nextProjectCode` délègue à `ProjectCreation`. La suppression demande
+  désormais confirmation.
+- **`ProjectListView.swift` supprimée** (D16) : orpheline, sans appelant, elle ne portait plus
+  que `StatusIcon`, migré au lot 1.
+- **Dédoublonnages** : `MeetingStatsScope.lastHeldByProject` remplace le calcul privé de
+  `SidebarProjectCounts`, dont le motif « fiche incomplète » lit désormais
+  `ProjectPeople.manager` ; `ProjectSearch.matches(fields:query:)` sert le filtrage de lignes
+  sans écrire une seconde comparaison (D7).
+- **Recette** : `RecetteScreen.vueEnregistreeDeRecette` (seul `p1a` en porte) et
+  `MainRouter.pendingPortfolioSavedView`, consommée par `PortfolioView` à son apparition.
+
+### Tests ajoutés
+
+`PortfolioBuilderTests` (41), `ProjectPeopleTests` (13), `ProjectBatchActionsTests` (15),
+`PortfolioViewTests` (31) — **cent tests dans quatre suites nouvelles**, plus six attentes de
+plus dans `RefonteTypographieTests.sourcesAreFound` (le périmètre gagne `Views/Portfolio`) et
+son titre passé à « sept périmètres ».
+
+Les huit lignes que la capture nomme sont vérifiées une par une **sur le semis** : entité,
+phase, type, risque, chef de projet, statut, cellule de jalon (`J−4`, `J−21`, `retard`,
+`J−35`, `—`, `J−60`, `J−12`, `J−90`) et libellé relatif (`il y a 3 j`, `hier`, `il y a 8 j`,
+`il y a 2 sem.`, `jamais`, `il y a 5 j`, `il y a 4 j`, `il y a 1 mois`) — tous justes au
+premier essai, sans retoucher le semis.
+
+### Écarts et décisions prises
+
+1. **Le titre est « Projets », la capture écrit « Portfolio ».** Le tableau du handoff §1a dit
+   « Titre `Projets` » et « sous-titre `62 actifs · 8 entités · 14 archivés` » ; la capture
+   affiche « Portfolio » et s'arrête à « 62 projets actifs · 8 entités ». Le tableau gagne :
+   c'est lui qui spécifie la zone, et « Portfolio » est déjà le libellé de l'entrée de barre
+   latérale qui mène ici. **À trancher si la capture doit primer** — c'est une constante,
+   `PortfolioHeader.titre`.
+2. **L'écran `p1a` n'active que « Entité : ASP », pas « Risque ≥ Modéré ».** La capture affiche
+   les deux chips, mais quatre de ses huit lignes portent un risque « — » : la maquette montre
+   une chip qu'elle **n'applique pas**. Sur le semis, ASP seul rend **15 lignes** (les 8 nommées
+   + 7 projets de remplissage) et ASP + Risque ≥ Modéré n'en rend que **5**. Aucune combinaison
+   ne donne les 8 de la capture. Le repli prévu par le dispatch est retenu : entité seule, et le
+   pied affichera « 15 lignes sur 62 » au lieu de « 8 lignes sur 62 ».
+3. **La colonne « Jalon » est la huitième colonne.** Le handoff donne sept largeurs
+   (`22 | 1fr | 88 | 92 | 88 | 126 | 78`) et la capture montre huit colonnes. Les six premières
+   largeurs sont celles du handoff ; « Jalon » (72) et « Dernière réu. » (92) sont mesurées sur
+   la capture 2×.
+4. **Le menu de vues enregistrées est sur sa propre ligne**, aligné à droite sous les chips :
+   c'est ce que montre la capture, là où le tableau du handoff le place « à droite » de la barre
+   de filtres — qui est déjà pleine à cinq chips.
+5. **`RiskBadge.fond(.faible)` est `surfaceAlt`, pas `okBg`.** D2 dit que « Faible » reste
+   `ink4` ; un fond vert sous une encre neutre n'aurait aucun sens. Aucun projet « Faible »
+   n'apparaît sur la capture.
+6. **`Font.plexSansItalic` est ajoutée à `One2OneTypography`.** « Non affecté » est en italique
+   sur la capture, aucune italique Plex n'est embarquée (l'italique est donc synthétisée), et
+   `.italic()` est dans l'interdit de `RefonteTypographieTests` — le poser dans le fichier de
+   typographie, hors périmètre, respecte la règle sans l'affaiblir.
+7. **`PortfolioRow` porte un champ de plus que le brief** (`sponsor`) et son `stableID` est
+   optionnel. Le sponsor est là parce que le champ de recherche s'annonce « Nom, code,
+   sponsor… » ; `stableID` est optionnel parce qu'un constructeur pur ne peut pas appeler
+   `ensuredStableID`, qui écrit dans le store.
+8. **`MilestoneCell.none` est un piège de nom** : `ligne?.nextMilestone == .none` se résout en
+   `Optional.none` et compare toujours faux. Le nom est celui du brief ; un test l'a attrapé, et
+   il faut écrire `MilestoneCell.none` derrière un optionnel.
+9. **Le tri met les vides en dernier** (entité, chef de projet, jalon), sauf « Dernière réu. »,
+   où « jamais » est le plus ancien des passés et ouvre donc le tri croissant — c'est là que
+   l'utilisateur cherche ce qu'il a négligé. Le nom départage toujours, en croissant.
+10. **Les menus de facettes ne proposent que des valeurs présentes**, sauf le risque, dont les
+    quatre crans sont toujours là : c'est un seuil, et une liste qui change selon le contenu du
+    tableau serait illisible. Les valeurs sont calculées sur **toutes** les lignes, pas sur les
+    filtrées — sinon filtrer sur ASP interdirait de changer d'entité.
+11. **`SidebarProjectCounts.ficheIncomplete` lit `ProjectPeople.manager`** au lieu de
+    `projectManager == nil`. Même règle (D3), une seule lecture ; un `Collaborator` au nom
+    blanc compte désormais comme non affecté. Les sept projets « à risque » du semis sont
+    inchangés.
+
+### Ce qui reste dû
+
+- **La recette `p1a`** : voir le rapport de lot pour son état exact.
+- **Le pied affichera « 15 lignes sur 62 »** et non « 8 lignes sur 62 » (écart n° 2) : si
+  Laurent veut la capture au chiffre près, il faut soit huit projets ASP actifs au semis, soit
+  une vue enregistrée sur une liste de codes — ce que `PortfolioFilters` ne sait pas exprimer.
+- **La sélection multiple par ⇧-clic n'est prouvée par aucun test de rendu** : le modèle est
+  testé, le geste (`TapGesture().modifiers(.shift)` en `highPriorityGesture` devant un
+  `onTapGesture`) ne l'est pas. C'est le premier point que la recette doit vérifier.
+- **Le tri de la capture est « PROJET ↑ » mais ses lignes ne sont pas alphabétiques** (elles
+  suivent l'ordre de déclaration du semis). Le tableau les triera par nom : « AE – Gestion… »
+  passera en tête. Écart inévitable, sauf à ne pas trier.
