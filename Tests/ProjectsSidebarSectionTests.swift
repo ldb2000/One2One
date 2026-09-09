@@ -96,6 +96,30 @@ struct ProjectsSidebarSectionTests {
         #expect(ProjectsSidebarSection.sousLigneArbre(entites: 0) == "0 entité · replié par défaut")
     }
 
+    // MARK: - La place de la section dans la barre
+
+    @Test("La section précède l'arbre par entité, qui précède les collaborateurs")
+    func ordreDeLaBarreLaterale() throws {
+        // Lecture des sources : l'ordre des lignes d'une `List` ne s'observe
+        // pas depuis un test, et c'est pourtant lui que la capture 2b fixe —
+        // section « Projets », **puis** l'arbre par entité (« conservé sous la
+        // section Projets »), **puis** « Collaborateurs ». La relecture du
+        // lot 1 a relevé l'arbre resté à sa place historique ; ce test le
+        // tient. Même approche que `RefonteTypographieTests`.
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("OneToOne/Views/Sidebar.swift")
+        let texte = try String(contentsOf: source, encoding: .utf8)
+        let section = try #require(texte.range(of: "ProjectsSidebarSection("))
+        let arbre = try #require(texte.range(of: "isExpanded: $projectsExpanded"))
+        let collaborateurs = try #require(texte.range(of: "isExpanded: $collabsExpanded"))
+        #expect(section.lowerBound < arbre.lowerBound,
+                "l'arbre par entité doit venir sous la section « Projets »")
+        #expect(arbre.lowerBound < collaborateurs.lowerBound,
+                "l'arbre par entité doit venir avant la section « Collaborateurs »")
+    }
+
     // MARK: - Épinglés
 
     @Test("Les épinglés du semis sont les trois projets de la capture")

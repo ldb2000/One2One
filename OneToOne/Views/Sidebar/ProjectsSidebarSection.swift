@@ -192,7 +192,7 @@ struct ProjectsSidebarSection: View {
         HStack(spacing: 6) {
             Image(systemName: entree.icone)
                 .font(.system(size: Self.tailleIcone))
-                .foregroundStyle(teinteIcone(entree, selectionnee: selectionnee))
+                .foregroundStyle(teinte(entree, selectionnee: selectionnee))
                 .frame(width: 18, alignment: .center)
             Text(entree.libelle)
                 .font(.plexSans(Self.tailleEntree))
@@ -202,23 +202,20 @@ struct ProjectsSidebarSection: View {
             if let badge = entree.badge(comptes) {
                 Text(badge)
                     .font(.plexMono(Self.tailleBadge, .medium))
-                    .foregroundStyle(teinteBadge(entree, selectionnee: selectionnee))
+                    .foregroundStyle(teinte(entree, selectionnee: selectionnee))
             }
         }
         .tag(entree.route)
         .listRowBackground(fondDeSelection(selectionnee))
     }
 
-    /// L'icône suit la teinte de l'entrée, sauf sélectionnée : sur le fond
-    /// `action`, `report` serait illisible.
-    private func teinteIcone(_ entree: ProjectsSidebarEntry, selectionnee: Bool) -> Color {
-        if selectionnee { return One2OneToken.onFilledButton }
-        return entree.teinte ?? One2OneToken.ink4
-    }
-
-    /// Le compteur en `ink4` et non `inkMuted` : à 11 pt, `inkMuted` n'atteint
-    /// pas 4,5:1 (règle §1.2 — « jamais sous 11,5 px »).
-    private func teinteBadge(_ entree: ProjectsSidebarEntry, selectionnee: Bool) -> Color {
+    /// L'encre de l'icône **et** du compteur d'une entrée — la capture les
+    /// montre de la même teinte, y compris le `report` de « À risque ».
+    ///
+    /// Sélectionnée, la ligne est peinte en `action` : tout y passe en blanc,
+    /// où `report` serait illisible. Sinon `ink4`, et non `inkMuted` : à 11 pt,
+    /// `inkMuted` n'atteint pas 4,5:1 (règle §1.2 — « jamais sous 11,5 px »).
+    private func teinte(_ entree: ProjectsSidebarEntry, selectionnee: Bool) -> Color {
         if selectionnee { return One2OneToken.onFilledButton }
         return entree.teinte ?? One2OneToken.ink4
     }

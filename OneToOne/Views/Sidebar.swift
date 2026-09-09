@@ -252,6 +252,79 @@ struct MainSidebarView: View {
                 )
 
                 Section {
+                    DisclosureGroup(isExpanded: $projectsExpanded) {
+                    ForEach(filteredEntities.sorted(by: { $0.name < $1.name })) { entity in
+                        let entityProjects = filteredProjectsFor(entity: entity)
+                        if !entityProjects.isEmpty || searchText.isEmpty {
+                            DisclosureGroup(
+                                isExpanded: Binding(
+                                    get: { expandedEntityNames.contains(entity.name) || !searchText.isEmpty },
+                                    set: { isExpanded in
+                                        if isExpanded {
+                                            expandedEntityNames.insert(entity.name)
+                                        } else {
+                                            expandedEntityNames.remove(entity.name)
+                                        }
+                                    }
+                                )
+                            ) {
+                                ForEach(entityProjects) { project in
+                                    projectRow(project)
+                                }
+
+                                Button(action: { addProject(to: entity) }) {
+                                    Label("Ajouter un projet", systemImage: "plus.circle")
+                                        .foregroundColor(.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                            } label: {
+                                HStack {
+                                    Label(entity.name, systemImage: "building.2")
+                                    Spacer()
+                                    Text("\(entityProjects.count)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .dropDestination(for: String.self) { codes, _ in
+                                moveProjects(codes: codes, to: entity)
+                                return true
+                            }
+                        }
+                    }
+
+                    let orphans = filteredOrphanProjects
+                    if !orphans.isEmpty || searchText.isEmpty {
+                        DisclosureGroup("Sans Entité") {
+                            ForEach(orphans) { project in
+                                projectRow(project)
+                            }
+                        }
+                        .dropDestination(for: String.self) { codes, _ in
+                            moveProjectsToNone(codes: codes)
+                            return true
+                        }
+                    }
+
+                    Button(action: addProject) {
+                        Label("Ajouter Projet", systemImage: "plus.circle")
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Label("Projets par Entité", systemImage: "folder.fill")
+                                .font(.subheadline.weight(.semibold))
+                            // La sous-ligne de la capture 2b : ce que l'arbre
+                            // contient, et le fait qu'il ne s'ouvre plus seul.
+                            Text(ProjectsSidebarSection.sousLigneArbre(entites: entities.count))
+                                .font(.plexMono(11))
+                                .foregroundStyle(One2OneToken.inkMuted)
+                        }
+                    }
+                }
+
+                Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
                     ForEach(filteredActiveCollaborators) { collaborator in
                         collaboratorRow(collaborator)
@@ -336,79 +409,6 @@ struct MainSidebarView: View {
                         } label: {
                             Label("Archives", systemImage: "archivebox")
                                 .font(.subheadline.weight(.semibold))
-                        }
-                    }
-                }
-
-                Section {
-                    DisclosureGroup(isExpanded: $projectsExpanded) {
-                    ForEach(filteredEntities.sorted(by: { $0.name < $1.name })) { entity in
-                        let entityProjects = filteredProjectsFor(entity: entity)
-                        if !entityProjects.isEmpty || searchText.isEmpty {
-                            DisclosureGroup(
-                                isExpanded: Binding(
-                                    get: { expandedEntityNames.contains(entity.name) || !searchText.isEmpty },
-                                    set: { isExpanded in
-                                        if isExpanded {
-                                            expandedEntityNames.insert(entity.name)
-                                        } else {
-                                            expandedEntityNames.remove(entity.name)
-                                        }
-                                    }
-                                )
-                            ) {
-                                ForEach(entityProjects) { project in
-                                    projectRow(project)
-                                }
-
-                                Button(action: { addProject(to: entity) }) {
-                                    Label("Ajouter un projet", systemImage: "plus.circle")
-                                        .foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.plain)
-                            } label: {
-                                HStack {
-                                    Label(entity.name, systemImage: "building.2")
-                                    Spacer()
-                                    Text("\(entityProjects.count)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .dropDestination(for: String.self) { codes, _ in
-                                moveProjects(codes: codes, to: entity)
-                                return true
-                            }
-                        }
-                    }
-
-                    let orphans = filteredOrphanProjects
-                    if !orphans.isEmpty || searchText.isEmpty {
-                        DisclosureGroup("Sans Entité") {
-                            ForEach(orphans) { project in
-                                projectRow(project)
-                            }
-                        }
-                        .dropDestination(for: String.self) { codes, _ in
-                            moveProjectsToNone(codes: codes)
-                            return true
-                        }
-                    }
-
-                    Button(action: addProject) {
-                        Label("Ajouter Projet", systemImage: "plus.circle")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Label("Projets par Entité", systemImage: "folder.fill")
-                                .font(.subheadline.weight(.semibold))
-                            // La sous-ligne de la capture 2b : ce que l'arbre
-                            // contient, et le fait qu'il ne s'ouvre plus seul.
-                            Text(ProjectsSidebarSection.sousLigneArbre(entites: entities.count))
-                                .font(.plexMono(11))
-                                .foregroundStyle(One2OneToken.inkMuted)
                         }
                     }
                 }

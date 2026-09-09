@@ -119,7 +119,9 @@ Branche `feat/projets-lot-1-sidebar`, sur le lot 0 (`b3bf61d`). Écran de recett
 **État : livré, `swift build` propre (aucun avertissement nouveau), `swift test` complet vert —
 2 175 Swift Testing / 268 suites + 1 057 XCTest (1 ignoré) = **3 232**, 0 échec, soit **+50
 tests et +4 suites** sur les 3 182 du lot 0, aucun retiré. Recette visuelle **non faite** :
-écran verrouillé (garde 1 de `recette-run.sh`) — voir « Ce qui reste dû ».
+écran verrouillé (garde 1 de `recette-run.sh`) — voir « Ce qui reste dû ». **Fix round 1**
+appliqué après la relecture (conformité ✅) : place de l'arbre et teinte unique, suite à
+**3 233** (+1 test).
 
 ### Commits
 
@@ -130,6 +132,7 @@ tests et +4 suites** sur les 3 182 du lot 0, aucun retiré. Recette visuelle **n
 | `d529fb6` | `feat(projets)` — la section « Projets » de la barre latérale (2b) |
 | `3637c02` | `feat(recette)` — l'écran `p2b` préremplit les projets récents |
 | _ce commit_ | `docs` — §8 d'`architecture.md`, manifeste, ce journal |
+| `fix round 1` | `fix(sidebar)` — l'arbre passe sous la section Projets ; teinte unique |
 
 ### Ce qui est en place
 
@@ -163,10 +166,13 @@ trois chiffres de la capture, au premier essai, sans retoucher le semis.
 
 ### Écarts et décisions prises
 
-1. **L'ordre de la barre n'est pas celui de la capture.** La capture montre l'arbre « Projets
-   par Entité » juste sous la section « Projets », alors qu'il vit après « Collaborateurs » et
-   « Archives ». Le handoff dit « ordre de la `List` **inchangé** pour ce qui existe déjà », et
-   le lot 6 retire l'arbre : il n'a pas bougé. La section, elle, est bien à la place demandée.
+1. **L'arbre « Projets par Entité » est passé sous la section « Projets »** (fix round 1). Il
+   vivait après « Collaborateurs » et « Archives » ; le handoff §2b dit « conservé **sous** la
+   section Projets » et la capture le montre juste après « RÉCENTS ». L'ordre est désormais :
+   section « Projets », arbre par entité, « Collaborateurs », « Archives », « Projets
+   Archivés », « Paramètres » — le reste n'a pas bougé. Un test de lecture des sources
+   (`ordreDeLaBarreLaterale`) le tient : l'ordre des lignes d'une `List` ne s'observe pas
+   autrement.
 2. **Les trois épinglés sont triés par nom**, donc dans l'ordre AE / ASP – BLOOM / ASP –
    Installation, là où la maquette les liste dans l'ordre de son tableau (BLOOM / AE /
    Installation). Aucune colonne du modèle ne porte cet ordre — l'implémenter demanderait un
