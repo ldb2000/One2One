@@ -95,7 +95,11 @@ extension RefonteDemoSeed {
     ///
     /// Réutilisés s'ils existent déjà, par comparaison de nom insensible à la
     /// casse — motif de `seedCollaborators` : semer ne doit pas créer un second
-    /// « RIGAUT Manuel » dans une base réelle, et ne doit pas réécrire son rôle.
+    /// « RIGAUT Manuel » dans une base réelle, et ne doit pas réécrire son rôle
+    /// ni son niveau d'épinglage. Ceux que le semis **crée** sont posés en
+    /// favoris (`pinLevel == 1`), sans quoi la section « Collaborateurs » de la
+    /// barre latérale — qui ne montre que `pinLevel >= 1` — serait vide à la
+    /// recette, là où la capture 2b en affiche trois.
     static let portfolioPeople: [(nom: String, role: String)] = [
         ("RIGAUT Manuel", "Chef de projet"),
         ("PENVEN Yann", "Chef de projet"),
@@ -160,6 +164,16 @@ extension RefonteDemoSeed {
                 continue
             }
             let collaborateur = Collaborator(name: personne.nom, role: personne.role)
+            // Favori (`pinLevel == 1`) : la section « Collaborateurs » de la
+            // barre latérale ne montre que `pinLevel >= 1`, et la capture
+            // `2b-sidebar-variante-arbre-replie.png` en affiche trois. Sans
+            // cela, la recette photographiait une section vide.
+            //
+            // **Seulement sur un collaborateur créé par le semis.** Un
+            // collaborateur qui existait déjà garde son niveau : le semis ne
+            // réécrit jamais une préférence de l'utilisateur (c'est déjà la
+            // règle pour son rôle, juste au-dessus).
+            collaborateur.pinLevel = 1
             context.insert(collaborateur)
             resultat[personne.nom] = collaborateur
         }
