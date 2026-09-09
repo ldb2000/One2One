@@ -234,4 +234,73 @@ struct ProjectsSidebarSectionTests {
                          "ASP – Obsolescence de la VM applicative",
                          "RH – TIME & APPLI"])
     }
+
+    // MARK: - L'identité des lignes de projet (recette p1f)
+
+    /// Racine du dépôt, déduite de `#filePath` (`<racine>/Tests/<fichier>`).
+    private static var racineDuDepot: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private static func source(_ chemin: String) -> String {
+        (try? String(contentsOf: racineDuDepot.appendingPathComponent(chemin),
+                     encoding: .utf8)) ?? ""
+    }
+
+    @Test("un même projet a une identité différente dans chaque sous-section")
+    func identitesDistinctesParSection() throws {
+        let contexte = try contexteEnMemoire()
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+        let projets = try contexte.fetch(FetchDescriptor<Project>())
+        let bloom = try #require(projets.first { $0.code == "P25_112" })
+
+        let epingle = SidebarProjectRow.lignes([bloom], section: PinnedProjectsList.libelle)
+        let recent = SidebarProjectRow.lignes([bloom], section: RecentProjectsList.libelle)
+        #expect(epingle[0].id != recent[0].id,
+                "un projet épinglé **et** récent apparaît deux fois dans la même List")
+        // Le projet, lui, est bien le même des deux côtés.
+        #expect(epingle[0].projet.persistentModelID == recent[0].projet.persistentModelID)
+    }
+
+    @Test("deux projets d'une même section ont des identités différentes")
+    func identitesDistinctesParProjet() throws {
+        let contexte = try contexteEnMemoire()
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+        let projets = try contexte.fetch(FetchDescriptor<Project>())
+        let lignes = SidebarProjectRow.lignes(Array(projets.prefix(5)),
+                                              section: PinnedProjectsList.libelle)
+        #expect(Set(lignes.map(\.id)).count == 5)
+    }
+
+    @Test("l'identité d'une ligne est stable d'un rendu à l'autre")
+    func identiteStable() throws {
+        let contexte = try contexteEnMemoire()
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+        let projets = try contexte.fetch(FetchDescriptor<Project>())
+        let a = SidebarProjectRow.lignes(projets, section: PinnedProjectsList.libelle)
+        let b = SidebarProjectRow.lignes(projets, section: PinnedProjectsList.libelle)
+        #expect(a.map(\.id) == b.map(\.id),
+                "une identité qui change à chaque rendu casserait la réutilisation des lignes")
+    }
+
+    @Test("les trois listes de projets de la barre latérale ont migré")
+    func listesMigrees() {
+        // Le défaut de la recette `p1f` : `ForEach(projets, id: \.persistentModelID)`
+        // dans deux sous-sections d'une **même** `List`. Le garde-fou est une
+        // lecture des sources, parce qu'une collision d'identité ne change
+        // l'état d'aucun modèle — elle ne se voit qu'à l'écran.
+        for fichier in ["OneToOne/Views/Sidebar/PinnedProjectsList.swift",
+                        "OneToOne/Views/Sidebar/RecentProjectsList.swift"] {
+            let source = Self.source(fichier)
+            #expect(!source.isEmpty, "\(fichier) introuvable")
+            #expect(!source.contains("ForEach(projets, id: \\.persistentModelID)"),
+                    "\(fichier) identifie encore ses lignes par le seul projet")
+            #expect(source.contains("SidebarProjectRow.lignes(projets, section:"))
+        }
+        let barre = Self.source("OneToOne/Views/Sidebar.swift")
+        #expect(!barre.contains("ForEach(entityProjects) {"))
+        #expect(!barre.contains("ForEach(orphans) {"))
+        #expect(!barre.contains("ForEach(filteredArchivedProjects) {"))
+        #expect(barre.contains("SidebarProjectRow.lignes("))
+    }
 }
