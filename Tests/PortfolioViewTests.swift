@@ -403,7 +403,9 @@ struct PortfolioViewTests {
 
     @Test("La vue en attente du routeur ne s'applique qu'une fois")
     func vueEnAttente() {
-        let routeur = MainRouter(defaults: UserDefaults(suiteName: "PortfolioViewTests")!)
+        // `ReglagesEnMemoire` (cf. `MainRouterTests`) : une suite nommée écrirait
+        // un fichier dans les préférences réelles de l'utilisateur.
+        let routeur = MainRouter(defaults: ReglagesEnMemoire())
         #expect(routeur.consumePendingPortfolioSavedView() == nil)
         routeur.pendingPortfolioSavedView = RecetteScreen.idVueEnregistree
         #expect(routeur.consumePendingPortfolioSavedView() == RecetteScreen.idVueEnregistree)
