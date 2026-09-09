@@ -58,6 +58,17 @@
 #   En Swift et non en Python : `Quartz` (pyobjc) n'est pas dans le python3 du
 #   système sur ce poste.
 #
+# Restauration d'état des fenêtres — le sixième piège
+#   macOS mémorise les fenêtres ouvertes **par identité de bundle**, dans
+#   `~/Library/Saved Application State/<bundle id>.savedState`, et cet état vit
+#   **hors du home jetable** : `--reset` ne l'efface pas. Au lancement suivant,
+#   le bundle `.recette` rouvre donc ce qu'il affichait la fois précédente — le
+#   9 septembre 2026, une fenêtre de réunion à jeton vide, immobile sur son
+#   spinner, par-dessus la fenêtre principale qu'on venait photographier.
+#   L'application est lancée avec `-ApplePersistenceIgnoreState YES`, qui dit à
+#   AppKit de repartir d'une session vierge. Une capture qui montre un écran
+#   qu'on n'a pas demandé se diagnostique là.
+#
 # Usage
 #   Scripts/recette-app.sh /tmp/recette
 #   Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --seed
@@ -240,10 +251,14 @@ if [ -n "${WAIT}" ]; then
     echo "⚠️  --wait : aucun garde-fou d'isolation. Vérifie toi-même que"
     echo "    ${STORE}"
     echo "    est bien créé, et arrête l'application sinon."
-    exec "${BINARY}"
+    exec "${BINARY}" -ApplePersistenceIgnoreState YES
 fi
 
-"${BINARY}" > "${FAKE_HOME}/app.log" 2>&1 &
+# `-ApplePersistenceIgnoreState YES` : sixième piège de la recette, voir
+# l'en-tête. Sans lui, macOS rouvre les fenêtres de la session précédente du
+# bundle `.recette` — dont une fenêtre de réunion à jeton vide, qui tourne sur
+# son spinner par-dessus la capture.
+"${BINARY}" -ApplePersistenceIgnoreState YES > "${FAKE_HOME}/app.log" 2>&1 &
 PID=$!
 echo "✓ Lancé (pid ${PID}) — journal : ${FAKE_HOME}/app.log"
 

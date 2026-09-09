@@ -130,7 +130,7 @@ transcription, rail d'actions de 330 px, poste de pilotage), `Session/**` (séan
 - Les semis de recette sont des extensions de `RefonteDemoSeed`, **idempotentes** ; la table
   des écrans photographiables est `Services/Debug/RecetteScreen.swift`.
 
-**Protocole de recette visuelle, et ses cinq pièges.**
+**Protocole de recette visuelle, et ses six pièges.**
 
 ```bash
 swift build -c release
@@ -156,6 +156,11 @@ Scripts/recette-run.sh --app /tmp/recette/OneToOne.app --screen 1a
 5. **Binaire périmé** : l'erreur la plus coûteuse de la refonte — deux heures d'observations
    fausses sur un bundle construit depuis un binaire d'il y a trois lots. Le script compare
    le `md5` copié et l'horodatage des sources.
+6. **Restauration d'état des fenêtres** : macOS rouvre les fenêtres de la session précédente
+   du bundle `.recette` — une fenêtre de réunion à jeton vide s'est ainsi affichée, spinner
+   compris, par-dessus la fenêtre à photographier (2026-09-09). Cet état vit dans
+   `~/Library/Saved Application State/`, **hors du home jetable** : `--reset` ne l'efface pas.
+   `recette-run.sh` lance donc l'application avec `-ApplePersistenceIgnoreState YES`.
 
 ## Règles de travail
 
