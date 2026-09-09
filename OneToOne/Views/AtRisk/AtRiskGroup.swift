@@ -61,6 +61,7 @@ struct AtRiskGroup: View {
                 if index > 0 {
                     Rectangle()
                         .fill(One2OneToken.hair)
+                        .frame(maxWidth: .infinity)
                         .frame(height: 1)
                 }
                 AtRiskRow(ligne: ligne, onOuvrir: onOuvrir, onAgir: onAgir)

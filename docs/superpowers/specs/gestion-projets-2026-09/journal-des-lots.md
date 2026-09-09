@@ -608,17 +608,14 @@ lot 4 (`faf4538`) — sans conflit. Deux commits : `AtRiskBuilder` d'abord, la v
 
 Constatés **par lecture** ; la recette n'est pas de ce lot.
 
-1. **« demandent » et non « demandant ».** La capture écrit « 7 projets demandant une
-   décision » ; le brief et le coordinateur écrivent tous deux « demandent », qui est la forme
-   correcte. Un mot à changer si la maquette doit primer.
-2. **L'ordre du groupe « sans réunion » diffère.** La capture range IBMi (34 j), FIN (aucune),
+1. **L'ordre du groupe « sans réunion » diffère.** La capture range IBMi (34 j), FIN (aucune),
    NEVIDIS (41 j) — ni par urgence, ni par nom, ni par date. Le code range le plus long silence
    d'abord : NEVIDIS, FIN, puis IBMi.
-3. **NEVIDIS affichera « Aucune réunion enregistrée » et non « il y a 41 j ».** Le semis du
+2. **NEVIDIS affichera « Aucune réunion enregistrée » et non « il y a 41 j ».** Le semis du
    lot 0 ne lui donne aucune réunion (`derniereReunion: nil`), et le dispatch interdit de le
    modifier tant que les comptes sortent. Une ligne du semis à changer (`derniereReunion: 41`)
    si la capture doit primer — le compte resterait 3.
-4. **Les noms de projet sont ceux du semis, tronqués à une ligne** — même remarque qu'aux
+3. **Les noms de projet sont ceux du semis, tronqués à une ligne** — même remarque qu'aux
    lots 1 à 4 (« AE – Gestion des services IO pour l'association ALP » contre « … pour l'ALP »).
 
 ### Ce qui reste dû
