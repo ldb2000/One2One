@@ -519,6 +519,14 @@ struct EditableTextField: NSViewRepresentable {
     /// l'environnement SwiftUI : `Font.plexSans` posé par-dessus n'a jamais
     /// eu d'effet ici. Employer `NSFont.plexSans`.
     var font: NSFont? = nil
+    /// `⏎` dans le champ. `nil` = comportement historique (l'événement passe
+    /// au responder suivant), ce que font les vingt-cinq usages existants.
+    /// Renseigné par l'édition in-place (décision **D9**) : `⏎` valide.
+    var onSubmit: (() -> Void)? = nil
+    /// `esc` dans le champ. `nil` = comportement historique — c'est ce qui
+    /// laisse `.onExitCommand` d'un panneau fermer celui-ci. Renseigné,
+    /// l'événement est **consommé** : `esc` annule le champ, pas l'écran.
+    var onCancel: (() -> Void)? = nil
 
     /// Toute la configuration hors liaison au délégué : une fonction sur un
     /// `NSTextField`, donc testable sans contexte SwiftUI (programme §7 :
@@ -563,6 +571,8 @@ struct EditableTextField: NSViewRepresentable {
     func updateNSView(_ nsView: NSTextField, context: Context) {
         // Les bindings peuvent changer de profil tout en gardant la même vue.
         context.coordinator.text = $text
+        context.coordinator.onSubmit = onSubmit
+        context.coordinator.onCancel = onCancel
         nsView.isEnabled = context.environment.isEnabled
         nsView.placeholderString = placeholder
         if nsView.stringValue != text {
@@ -571,19 +581,47 @@ struct EditableTextField: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onSubmit: onSubmit, onCancel: onCancel)
     }
 
     class Coordinator: NSObject, NSTextFieldDelegate {
         var text: Binding<String>
+        var onSubmit: (() -> Void)?
+        var onCancel: (() -> Void)?
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>,
+             onSubmit: (() -> Void)? = nil,
+             onCancel: (() -> Void)? = nil) {
             self.text = text
+            self.onSubmit = onSubmit
+            self.onCancel = onCancel
         }
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             text.wrappedValue = field.stringValue
+        }
+
+        /// `⏎` et `esc`, et **seulement** quand un rappel est posé : rendre
+        /// `true` consomme l'événement, et le consommer sans rien en faire
+        /// casserait le `.onExitCommand` des panneaux qui emploient ce champ
+        /// depuis toujours.
+        func control(_ control: NSControl,
+                     textView: NSTextView,
+                     doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                guard let onSubmit else { return false }
+                text.wrappedValue = textView.string
+                onSubmit()
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                guard let onCancel else { return false }
+                onCancel()
+                return true
+            default:
+                return false
+            }
         }
     }
 }
@@ -591,41 +629,93 @@ struct EditableTextField: NSViewRepresentable {
 /// Same as EditableTextField but for multi-line text (NSTextView-based).
 struct EditableTextEditor: NSViewRepresentable {
     @Binding var text: String
+    /// Fonte imposée à la zone de texte. Même raison que sur
+    /// `EditableTextField` : un `NSViewRepresentable` ignore le `.font()` de
+    /// l'environnement SwiftUI, et l'écran projet est dans le périmètre Plex
+    /// (décision **D17**). `nil` = fonte système, comme avant.
+    var font: NSFont? = nil
+    /// Fond transparent : l'édition in-place se pose sur la carte, pas dans
+    /// une boîte. `false` = rendu historique.
+    var transparent: Bool = false
+    /// `⌘⏎` — et non `⏎`, qui doit rester un retour à la ligne dans un
+    /// paragraphe (décision **D9**, écart assumé et documenté).
+    var onSubmit: (() -> Void)? = nil
+    /// `esc`. Consommé seulement si un rappel est posé.
+    var onCancel: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
         guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
         textView.string = text
         textView.isRichText = false
-        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.font = font ?? .systemFont(ofSize: NSFont.systemFontSize)
         textView.isEditable = true
         textView.isSelectable = true
         textView.delegate = context.coordinator
         textView.textContainerInset = NSSize(width: 5, height: 5)
+        if transparent {
+            textView.drawsBackground = false
+            scrollView.drawsBackground = false
+        }
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
+        context.coordinator.onSubmit = onSubmit
+        context.coordinator.onCancel = onCancel
+        if let font { textView.font = font }
         if textView.string != text {
             textView.string = text
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onSubmit: onSubmit, onCancel: onCancel)
     }
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        var onSubmit: (() -> Void)?
+        var onCancel: (() -> Void)?
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>,
+             onSubmit: (() -> Void)? = nil,
+             onCancel: (() -> Void)? = nil) {
             self.text = text
+            self.onSubmit = onSubmit
+            self.onCancel = onCancel
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+        }
+
+        /// `⌘⏎` valide, `esc` annule.
+        ///
+        /// AppKit envoie le même `insertNewline:` avec ou sans `⌘` : c'est
+        /// l'événement courant qui porte le modificateur, et c'est le seul
+        /// endroit où on peut le lire. Sans `⌘`, l'événement n'est pas
+        /// consommé — un paragraphe doit pouvoir contenir des retours à la
+        /// ligne.
+        func textView(_ textView: NSTextView,
+                      doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                guard let onSubmit,
+                      NSApp?.currentEvent?.modifierFlags.contains(.command) == true
+                else { return false }
+                text.wrappedValue = textView.string
+                onSubmit()
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                guard let onCancel else { return false }
+                onCancel()
+                return true
+            default:
+                return false
+            }
         }
     }
 }

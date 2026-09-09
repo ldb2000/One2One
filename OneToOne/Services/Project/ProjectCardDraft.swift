@@ -56,26 +56,77 @@ struct ProjectCardDraft: Equatable, Sendable {
         }
     }
 
-    var status: ProjectCardStatus = .watch
+    // MARK: - Champs de la fiche de réunion (spec §4.3)
+
+    /// Le statut, **tel qu'il est persisté**.
+    ///
+    /// Source de vérité depuis le lot 4 : `status` n'en est plus qu'une vue à
+    /// trois valeurs. `ProjectCardStatus` replie « Unknown » sur « À
+    /// surveiller » (son `init(projectStatus:)`), et écrire cette vue-là
+    /// réécrivait « Yellow » sur un projet dont personne n'avait touché le
+    /// statut — soixante-deux projets du store réel sont dans ce cas.
+    var statusRaw: String = ProjectStatus.unknown.label
+
+    /// Le statut à trois valeurs du menu de la fiche de réunion. Inchangé
+    /// pour ses appelants : lire rend le repli, écrire pose la valeur brute
+    /// correspondante.
+    var status: ProjectCardStatus {
+        get { ProjectCardStatus(projectStatus: statusRaw) }
+        set { statusRaw = newValue.projectStatusRaw }
+    }
+
     var budgetSpent: Double?
     /// Le budget total tel que l'utilisateur le voit : `budgetRev` s'il existe,
     /// `budgetInit` sinon.
     var budgetTotal: Double?
     var scopeText: String = ""
+    /// Date de la dernière édition du périmètre. Portée par le brouillon et
+    /// **non** recalculée par `apply` : sinon l'annulation d'un
+    /// enregistrement redaterait le périmètre qu'elle vient de restaurer.
+    /// C'est l'éditeur qui l'horodate, par `stampScopeIfChanged(from:)`.
+    var scopeUpdatedAt: Date?
     var tags: [String] = []
     var milestones: [MilestoneDraft] = []
     var contacts: [ContactDraft] = []
     var risks: [RiskDraft] = []
+
+    // MARK: - Champs de l'écran projet (décision **D9**)
+
+    /// Ces champs n'apparaissent pas sur la fiche de réunion : ils sont
+    /// édités **in-place** sur l'écran projet (`EditableInPlace`), un à la
+    /// fois, et passent par le même `apply` — donc par la même bannière
+    /// d'annulation.
+    var name: String = ""
+    /// Phase, statut, type et niveau de risque restent des **chaînes libres**
+    /// dans le modèle (décision **D14**) : le brouillon les transporte telles
+    /// quelles, y compris une valeur hors table.
+    var phaseRaw: String = ""
+    var projectTypeRaw: String = ""
+    /// Niveau de risque. Chaîne vide = pas de risque déclaré (`nil` dans le
+    /// modèle), et non « Faible » — l'absence n'est pas un niveau.
+    var riskLevelRaw: String = ""
+    var riskDescription: String = ""
+    var plannedDays: Double?
+    var designEndDeadline: Date?
+    /// `Entity` n'a pas de `stableID` (constat du lot 0) : le brouillon la
+    /// désigne par son identité SwiftData, résolue à l'écriture.
+    var entityID: PersistentIdentifier?
+    /// Chef de projet et architecte : **la relation fait foi** (décision
+    /// **D3**), donc c'est bien elle que le brouillon transporte, jamais la
+    /// chaîne libre du xlsx.
+    var managerID: PersistentIdentifier?
+    var architectID: PersistentIdentifier?
 
     // MARK: - Lecture
 
     @MainActor
     static func snapshot(of project: Project) -> ProjectCardDraft {
         ProjectCardDraft(
-            status: ProjectCardStatus(projectStatus: project.status),
+            statusRaw: project.status,
             budgetSpent: project.budgetCons,
             budgetTotal: project.budgetRev ?? project.budgetInit,
             scopeText: project.scopeText,
+            scopeUpdatedAt: project.scopeUpdatedAt,
             tags: project.tags,
             milestones: ProjectCardBuilder.sortedMilestones(project.milestones).map { jalon in
                 MilestoneDraft(id: jalon.ensuredStableID,
@@ -106,8 +157,29 @@ struct ProjectCardDraft: Equatable, Sendable {
                               title: alerte.title,
                               severity: alerte.severityRaw,
                               existing: alerte.persistentModelID)
-                }
+                },
+            name: project.name,
+            phaseRaw: project.phase,
+            projectTypeRaw: project.projectType,
+            riskLevelRaw: project.riskLevel ?? "",
+            riskDescription: project.riskDescription ?? "",
+            plannedDays: project.plannedDays,
+            designEndDeadline: project.designEndDeadline,
+            entityID: project.entity?.persistentModelID,
+            managerID: project.projectManager?.persistentModelID,
+            architectID: project.technicalArchitect?.persistentModelID
         )
+    }
+
+    /// Horodate le périmètre si — et seulement si — la saisie l'a changé.
+    ///
+    /// Appelé par l'éditeur juste avant `apply`, avec l'instantané d'avant
+    /// saisie. `apply` ne le fait pas lui-même : il sert aussi à l'annulation,
+    /// qui doit restaurer la date d'avant et non poser celle de l'instant.
+    mutating func stampScopeIfChanged(from baseline: ProjectCardDraft,
+                                      now: Date = Date()) {
+        guard scopeText != baseline.scopeText else { return }
+        scopeUpdatedAt = now
     }
 
     // MARK: - Écriture
@@ -122,10 +194,27 @@ struct ProjectCardDraft: Equatable, Sendable {
     /// déplacé retrouverait sa place d'origine à la relecture.
     @MainActor
     func apply(to project: Project, in context: ModelContext) {
-        project.status = status.projectStatusRaw
+        project.status = statusRaw
         project.budgetCons = budgetSpent
         project.scopeText = scopeText
+        project.scopeUpdatedAt = scopeUpdatedAt
         project.tags = tags
+
+        // Les champs de l'écran projet (décision **D9**). Un nom vide n'écrase
+        // pas celui du modèle : un projet sans nom n'est plus repérable nulle
+        // part, et ce n'est jamais ce qu'on voulait taper.
+        let nomNet = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nomNet.isEmpty { project.name = nomNet }
+        project.phase = phaseRaw
+        project.projectType = projectTypeRaw
+        project.riskLevel = riskLevelRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : riskLevelRaw
+        project.riskDescription = riskDescription.isEmpty ? nil : riskDescription
+        project.plannedDays = plannedDays
+        project.designEndDeadline = designEndDeadline
+        project.entity = entityID.flatMap { context.model(for: $0) as? Entity }
+        project.projectManager = managerID.flatMap { context.model(for: $0) as? Collaborator }
+        project.technicalArchitect = architectID.flatMap { context.model(for: $0) as? Collaborator }
 
         // Le total saisi est le budget **révisé**. Égal à l'initial, il n'y a
         // pas de révision : `budgetRev` repasse à `nil` plutôt que de recopier

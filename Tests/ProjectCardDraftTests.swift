@@ -239,6 +239,185 @@ struct ProjectCardDraftTests {
         #expect(relu.contacts.map(\.name) == brouillon.contacts.map(\.name))
     }
 
+    // MARK: - Les champs de l'écran projet (décision D9)
+
+    /// Un projet complet : entité, chef de projet, architecte, dates, risque.
+    private func makeFullProject(_ context: ModelContext) -> Project {
+        let projet = makeProject(context)
+        let entite = Entity(name: "ASP")
+        context.insert(entite)
+        projet.entity = entite
+        let chef = Collaborator(name: "RIGAUT Manuel")
+        let architecte = Collaborator(name: "THEDREZ Wilfried")
+        context.insert(chef)
+        context.insert(architecte)
+        projet.projectManager = chef
+        projet.technicalArchitect = architecte
+        projet.riskLevel = "Modéré"
+        projet.riskDescription = "Disponibilité de l'équipe ALP."
+        projet.plannedDays = 60
+        projet.designEndDeadline = Date(timeIntervalSince1970: 1_788_000_000)
+        try? context.save()
+        return projet
+    }
+
+    @Test("L'instantané reprend les champs D9 : nom, phase, type, risque, jours, dates, relations")
+    func snapshotReadsD9Fields() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeFullProject(context)
+        let brouillon = ProjectCardDraft.snapshot(of: projet)
+
+        #expect(brouillon.name == "S/D — Modernisation CI/CD")
+        #expect(brouillon.phaseRaw == "Réalisation")
+        #expect(brouillon.projectTypeRaw == "Métier")
+        #expect(brouillon.riskLevelRaw == "Modéré")
+        #expect(brouillon.riskDescription == "Disponibilité de l'équipe ALP.")
+        #expect(brouillon.plannedDays == 60)
+        #expect(brouillon.designEndDeadline == projet.designEndDeadline)
+        #expect(brouillon.entityID == projet.entity?.persistentModelID)
+        #expect(brouillon.managerID == projet.projectManager?.persistentModelID)
+        #expect(brouillon.architectID == projet.technicalArchitect?.persistentModelID)
+    }
+
+    @Test("Enregistrer écrit les champs D9, relations comprises")
+    func applyWritesD9Fields() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeFullProject(context)
+        let autreEntite = Entity(name: "RH")
+        let autreChef = Collaborator(name: "PENVEN Yann")
+        context.insert(autreEntite)
+        context.insert(autreChef)
+        try context.save()
+
+        var brouillon = ProjectCardDraft.snapshot(of: projet)
+        brouillon.name = "  Nouveau nom  "
+        brouillon.phaseRaw = "Build"
+        brouillon.projectTypeRaw = "Technique"
+        brouillon.riskLevelRaw = "Élevé"
+        brouillon.riskDescription = "Autre risque."
+        brouillon.plannedDays = 90
+        brouillon.designEndDeadline = nil
+        brouillon.entityID = autreEntite.persistentModelID
+        brouillon.managerID = autreChef.persistentModelID
+        brouillon.architectID = nil
+        brouillon.apply(to: projet, in: context)
+
+        #expect(projet.name == "Nouveau nom")
+        #expect(projet.phase == "Build")
+        #expect(projet.projectType == "Technique")
+        #expect(projet.riskLevel == "Élevé")
+        #expect(projet.riskDescription == "Autre risque.")
+        #expect(projet.plannedDays == 90)
+        #expect(projet.designEndDeadline == nil)
+        #expect(projet.entity?.name == "RH")
+        #expect(projet.projectManager?.name == "PENVEN Yann")
+        #expect(projet.technicalArchitect == nil)
+    }
+
+    /// Un nom vide n'écrase pas celui du modèle : un projet sans nom n'est
+    /// plus repérable nulle part, et ce n'est jamais ce qu'on voulait taper.
+    @Test("Un nom vide n'écrase pas le nom du projet")
+    func emptyNameKeepsTheModelName() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject(context)
+        var brouillon = ProjectCardDraft.snapshot(of: projet)
+        brouillon.name = "   "
+        brouillon.apply(to: projet, in: context)
+        #expect(projet.name == "S/D — Modernisation CI/CD")
+    }
+
+    /// Un risque vidé devient `nil` et non « Faible » : l'absence n'est pas un
+    /// niveau, et le badge doit afficher un tiret.
+    @Test("Un niveau de risque vidé remet nil dans le modèle")
+    func clearedRiskBecomesNil() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeFullProject(context)
+        var brouillon = ProjectCardDraft.snapshot(of: projet)
+        brouillon.riskLevelRaw = ""
+        brouillon.riskDescription = ""
+        brouillon.apply(to: projet, in: context)
+        #expect(projet.riskLevel == nil)
+        #expect(projet.riskDescription == nil)
+    }
+
+    /// Le nerf de l'affaire : `ProjectCardStatus` replie « Unknown » sur « À
+    /// surveiller », et écrire cette vue-là réécrivait « Yellow » sur les
+    /// soixante-deux projets du store réel dont personne n'a touché le statut.
+    @Test("Un statut « Unknown » survit à un aller-retour du brouillon")
+    func unknownStatusSurvivesRoundTrip() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = Project(code: "P25_099", name: "Sans statut", domain: "ASP",
+                             phase: "Design", status: "Unknown")
+        context.insert(projet)
+        var brouillon = ProjectCardDraft.snapshot(of: projet)
+        #expect(brouillon.statusRaw == "Unknown")
+        #expect(brouillon.status == .watch)   // le repli d'affichage, inchangé
+        brouillon.scopeText = "Autre chose."
+        brouillon.apply(to: projet, in: context)
+        #expect(projet.status == "Unknown")
+
+        // Poser explicitement une valeur du menu écrit bien la valeur brute.
+        brouillon.status = .risk
+        brouillon.apply(to: projet, in: context)
+        #expect(projet.status == "Red")
+    }
+
+    /// Une valeur de phase hors table (« Réalisation ») traverse le brouillon
+    /// sans être normalisée : `Project.phase` reste une chaîne libre (D14).
+    @Test("Une phase hors table traverse le brouillon telle quelle")
+    func unknownPhaseSurvives() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject(context)
+        let brouillon = ProjectCardDraft.snapshot(of: projet)
+        #expect(brouillon.phaseRaw == "Réalisation")
+        #expect(ProjectPhase(raw: brouillon.phaseRaw) == nil)
+        brouillon.apply(to: projet, in: context)
+        #expect(projet.phase == "Réalisation")
+    }
+
+    // MARK: - Horodatage du périmètre
+
+    @Test("Le périmètre n'est horodaté que s'il change")
+    func scopeStampOnlyOnChange() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject(context)
+        let avant = ProjectCardDraft.snapshot(of: projet)
+        let quand = Date(timeIntervalSince1970: 1_700_000_000)
+
+        var intact = avant
+        intact.stampScopeIfChanged(from: avant, now: quand)
+        #expect(intact.scopeUpdatedAt == nil)
+
+        var modifie = avant
+        modifie.scopeText = "Périmètre révisé."
+        modifie.stampScopeIfChanged(from: avant, now: quand)
+        #expect(modifie.scopeUpdatedAt == quand)
+        modifie.apply(to: projet, in: context)
+        #expect(projet.scopeUpdatedAt == quand)
+    }
+
+    /// L'annulation réapplique l'instantané d'avant **tel quel** : la date
+    /// d'édition revient à ce qu'elle était, elle n'est pas repoussée à
+    /// l'instant de l'annulation.
+    @Test("Annuler restaure la date d'édition du périmètre")
+    func undoRestoresScopeDate() throws {
+        let context = ModelContext(try makeContainer())
+        let projet = makeProject(context)
+        let origine = Date(timeIntervalSince1970: 1_600_000_000)
+        projet.scopeUpdatedAt = origine
+
+        let avant = ProjectCardDraft.snapshot(of: projet)
+        var modifie = avant
+        modifie.scopeText = "Périmètre révisé."
+        modifie.stampScopeIfChanged(from: avant, now: Date())
+        modifie.apply(to: projet, in: context)
+        #expect(projet.scopeUpdatedAt != origine)
+
+        avant.apply(to: projet, in: context)
+        #expect(projet.scopeUpdatedAt == origine)
+        #expect(projet.scopeText == "Refonte de la chaîne CI/CD.")
+    }
+
     /// C'est le geste `Annuler` de `UndoBanner` : réappliquer l'instantané
     /// d'avant enregistrement remet exactement l'état d'avant.
     @Test("Réappliquer l'instantané précédent restaure l'état d'avant")
