@@ -74,8 +74,9 @@ extension RefonteDemoSeed {
     /// Le terme que la palette de la capture `1c-palette-cmdk.png` porte.
     /// Ici parce que c'est le semis qui garantit qu'il trouve quelque chose :
     /// « Installation nouvelle GED » (actif) et « Migration GED documentaire »
-    /// (archivé).
-    static let portfolioPaletteQuery = "ged"
+    /// (archivé). `nonisolated` pour la même raison que l'identifiant ci-dessus :
+    /// `RecetteScreen.termeDePalette` la lit hors de l'acteur principal.
+    nonisolated static let portfolioPaletteQuery = "ged"
 
     // MARK: - Les gens de la maquette
 
