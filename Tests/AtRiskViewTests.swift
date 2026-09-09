@@ -24,11 +24,17 @@ struct AtRiskViewTests {
         return ModelContext(container)
     }
 
+    /// Un `UserDefaults` jetable, **en mémoire**.
+    ///
+    /// `UserDefaults(suiteName:)` crée un fichier dans le vrai
+    /// `~/Library/Preferences/`, et `removePersistentDomain` n'y suffit pas :
+    /// `cfprefsd` le réécrit après coup. Cette suite en avait laissé quatorze
+    /// derrière elle (`AtRiskViewTests-<uuid>.plist`), comme `MainRouterTests`
+    /// avant elle. `ReglagesEnMemoire` (déclarée dans `MainRouterTests.swift`)
+    /// surcharge les quatre accès dont `MainRouter` a besoin : aucun octet ne
+    /// quitte le processus.
     private func reglagesEnMemoire() -> UserDefaults {
-        let suite = "AtRiskViewTests-\(UUID().uuidString)"
-        let reglages = UserDefaults(suiteName: suite)!
-        reglages.removePersistentDomain(forName: suite)
-        return reglages
+        ReglagesEnMemoire()
     }
 
     // MARK: - Les libellés de la capture

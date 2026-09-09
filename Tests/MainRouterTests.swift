@@ -213,6 +213,89 @@ struct MainRouterTests {
         #expect(routeur.consumePendingPaletteQuery() == nil)
     }
 
+    // MARK: - Aucune suite n'écrit dans les préférences réelles
+
+    /// Les suites qui ouvrent encore une suite `UserDefaults` **nommée**, avec
+    /// ce qu'elle sert.
+    ///
+    /// Une liste d'exceptions nommées, comme celle des raccourcis dupliqués de
+    /// `AppShortcutsTests` : les treize fichiers ci-dessous précèdent cette
+    /// garde, ils passent tous leur `UserDefaults` à `MeetingScreenModel`, et
+    /// les corriger demande un double en mémoire pour **ce** modèle-là — un
+    /// chantier à part. Ce qui compte, c'est qu'aucun **nouveau** fichier ne
+    /// s'y ajoute.
+    ///
+    /// Mesuré le 2026-09-09 : `~/Library/Preferences` portait 2 025 plists
+    /// `MeetingScreenModelTests.<uuid>.plist`, un par exécution de test depuis
+    /// des mois.
+    private static let suitesNommeesTolerees: Set<String> = [
+        "ActionComposerServiceTests.swift",
+        "ActionFromTranscriptCriterionTests.swift",
+        "ActionSeamIntegrationTests.swift",
+        "ActiveMeetingRegistryTests.swift",
+        "CaptureSessionCoordinatorTests.swift",
+        "MeetingPlayheadTests.swift",
+        "MeetingScreenModelTests.swift",
+        "RAGIndexingSweepTests.swift",
+        "ReviewStateTests.swift",
+        "SessionFullscreenTests.swift",
+        "SessionPillTargetTests.swift",
+        "WorkshopDockTests.swift",
+    ]
+
+    /// Aucun **nouveau** fichier de `Tests/` n'ouvre une suite `UserDefaults`
+    /// nommée.
+    ///
+    /// `UserDefaults(suiteName:)` crée un `.plist` dans le vrai
+    /// `~/Library/Preferences/`, que le processus de test **n'efface pas** :
+    /// `removePersistentDomain` est réécrit après coup par `cfprefsd`. Deux
+    /// suites en ont laissé derrière elles avant d'être corrigées — celle-ci,
+    /// soixante-cinq, et `AtRiskViewTests`, quatorze (2026-09-09). La parade
+    /// est `ReglagesEnMemoire`, déclarée juste au-dessus.
+    ///
+    /// Un test de lecture des sources : un `.plist` de trop ne fait échouer
+    /// aucune assertion, il encombre le poste de quelqu'un.
+    @Test("Aucune nouvelle suite de tests n'ouvre une suite UserDefaults nommée")
+    func aucuneSuiteDePreferencesNommee() throws {
+        let dossier = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let fichiers = try FileManager.default
+            .contentsOfDirectory(at: dossier, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        #expect(fichiers.count > 100, "chemin du dossier de tests faux : \(fichiers.count) fichiers")
+        var coupables: [String] = []
+        for fichier in fichiers {
+            let nom = fichier.lastPathComponent
+            guard !Self.suitesNommeesTolerees.contains(nom) else { continue }
+            // Hors commentaires : une garde qui compte ses propres explications
+            // se déclenche sur le texte qui la décrit.
+            let texte = try String(contentsOf: fichier, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            // `ReglagesEnMemoire` appelle `super.init(suiteName: nil)`, le
+            // domaine standard : il n'écrit aucun fichier nouveau.
+            let interdits = texte.components(separatedBy: "UserDefaults(suiteName:").count - 1
+            let permis = texte.components(separatedBy: "super.init(suiteName: nil)").count - 1
+            if interdits > permis { coupables.append(nom) }
+        }
+        #expect(coupables.isEmpty,
+                "ces suites écriraient dans ~/Library/Preferences : \(coupables) — employer ReglagesEnMemoire")
+    }
+
+    /// La liste d'exceptions ne survit pas à la correction de ses membres : un
+    /// fichier qui n'emploie plus de suite nommée doit en sortir, sinon elle
+    /// devient un cimetière que personne ne relit.
+    @Test("La liste d'exceptions ne cite que des fichiers encore concernés")
+    func exceptionsToujoursJustifiees() throws {
+        let dossier = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for nom in Self.suitesNommeesTolerees {
+            let fichier = dossier.appendingPathComponent(nom)
+            let texte = try String(contentsOf: fichier, encoding: .utf8)
+            #expect(texte.contains("UserDefaults(suiteName:"),
+                    "\(nom) n'ouvre plus de suite nommée : le retirer de suitesNommeesTolerees")
+        }
+    }
+
     // MARK: - Les routes elles-mêmes
 
     @Test("Deux routes de projet ne se confondent pas par leur seul onglet")
