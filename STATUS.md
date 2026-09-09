@@ -2,6 +2,51 @@
 
 Dernière mise à jour : 2026-09-08 CEST
 
+## Skill documenter-application — documentation développeur gardée par les tests (2026-09-08)
+
+Branche `feat/skill-documentation`. Spec `docs/superpowers/specs/2026-09-08-skill-documentation-design.md`,
+plan `docs/superpowers/plans/2026-09-08-skill-documentation.md`.
+
+- Skill installé dans `~/.claude/skills/documenter-application/` (copie de référence dans
+  `docs/superpowers/specs/skill-documenter-application/`), ligne rouge (8 fautes de forme et de
+  placement sans skill) et rejeu (aucune reproduite avec le skill) consignés dans
+  `docs/superpowers/specs/2026-09-08-skill-documentation-ligne-rouge.md`.
+- Manifeste `docs/documentation.yml` ; `Tests/DocumentationTests.swift` (8 tests, 4 rouges avant
+  réalignement, verts après, preuves par mutation faites : document introuvable, modèle fantôme
+  dans l'inventaire, chemin nu inexistant) ; `Scripts/generer-decisions.py` →
+  `docs/decisions.md` (11 ADR).
+- `/docs` réaligné : `README.md` (index), `glossaire.md`, `architecture.md` corrigé par sections
+  (35 modèles inventoriés, ~50 symboles renommés, retirés ou déclarés `symboles_externes`).
+- Hook `~/.claude/hooks/documentation-apres-pr.sh` enregistré (`PostToolUse`/Bash, commande
+  `$HOME/.claude/hooks/…`, délai 20 s ; copie de référence sous
+  `docs/superpowers/specs/skill-documenter-application/hooks/`), testé sur cinq cas dans des
+  worktrees jetables (code documenté → contexte ; `Package.swift` racine → contexte ;
+  `Prototypes/…/Package.swift` → rien ; `Tests/` seul → rien ; commande ordinaire → rien). Le test
+  de bout en bout dans une nouvelle session Claude Code reste **à faire par Laurent** ; le hook est
+  silencieux tant que `docs/documentation.yml` n'est pas sur `master`.
+- Le skill appliqué à cette branche elle-même a ajouté `Scripts/generer-decisions.py` (§11) et
+  `Tests/DocumentationTests.swift` (§12) à `architecture.md`, sans régénération.
+- Relecture finale de branche : sept points importants corrigés en une vague (parseur du manifeste
+  muet sur un document introuvable, égalité stricte de l'inventaire des modèles, `code_documente`
+  étendu à `Markdown/`, `DesignSystem/` et au point d'entrée, statut d'ADR lu où qu'il soit et les
+  deux ADR retouchés rétablis, règle de placement d'un service conditionnée à son usage, citations
+  `Foo.swift` nues résolues et interdites comme échappatoire, `architecture.md` à l'état présent
+  sans pied de date).
+- Tests : `swift build` propre ; `swift test` : **2 054 Swift Testing / 258 suites + 1 057 XCTest
+  (1 ignoré) = 3 111**, 0 échec (+8 sur les 3 103 de la section suivante).
+
+**Dettes et observations.** Depuis un sous-agent, l'outil `Skill` ne trouvait pas
+`documenter-application` (à vérifier depuis une session principale) ; le skill ne dit pas comment
+relier un fichier de `code_documente` à une section précise (amélioration à faire en TDD de skill) ;
+`symbolesCitesExistent` saute les documents générés (`genere_par`), dont le registre qui cite des
+titres d'ADR historiques ; le hook réagit au texte `git push` où qu'il soit dans la commande ;
+`datesAbsolues` ne signale que la première occurrence par ligne ; `generer-decisions.py` importe
+`sys` sans l'utiliser et trie par nom de fichier ; `manifeste.md` cite les préfixes `NS/UI/…` du
+test, un fait d'implémentation dans un skill générique.
+
+**Prochaine action** : première PR de code après fusion → vérifier que le hook déclenche le skill et
+que le paragraphe « Documentation » apparaît dans la PR.
+
 ## Les compteurs d'actions de l'écran de réunion mentaient (2026-09-08)
 
 Branche `fix/refonte-compteurs-actions`, sur `fix/refonte-transcrire-import-mp4`.
