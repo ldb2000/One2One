@@ -109,3 +109,101 @@ exact.
   chiffre 12 de l'onglet n'a pas de source ; au lot 4 de dire ce qu'il compte.
 - `MainRouter.pendingPaletteQuery` est une dette assumée du lot 3 : la palette n'existe pas
   encore, et l'écran `p1c` doit pouvoir poser son terme.
+
+---
+
+## Lot 1 — Section « Projets » de la barre latérale, variante 2b (2026-09-09)
+
+Branche `feat/projets-lot-1-sidebar`, sur le lot 0 (`b3bf61d`). Écran de recette `p2b`.
+
+**État : livré, `swift build` propre (aucun avertissement nouveau), `swift test` complet vert —
+2 175 Swift Testing / 268 suites + 1 057 XCTest (1 ignoré) = **3 232**, 0 échec, soit **+50
+tests et +4 suites** sur les 3 182 du lot 0, aucun retiré. Recette visuelle **non faite** :
+écran verrouillé (garde 1 de `recette-run.sh`) — voir « Ce qui reste dû ».
+
+### Commits
+
+| Commit | Intention |
+| --- | --- |
+| `c07eab1` | `refactor(design)` — `StatusIcon` sur les jetons, taille en paramètre (D16) |
+| `df254ab` | `feat(projets)` — `ProjectSearch` (D7) et `SidebarProjectCounts` (D11) |
+| `d529fb6` | `feat(projets)` — la section « Projets » de la barre latérale (2b) |
+| `3637c02` | `feat(recette)` — l'écran `p2b` préremplit les projets récents |
+| _ce commit_ | `docs` — §8 d'`architecture.md`, manifeste, ce journal |
+
+### Ce qui est en place
+
+- **`OneToOne/Views/Sidebar/`** (nouveau dossier, périmètre typographique D17) :
+  `ProjectsSidebarSection` (la table `ProjectsSidebarEntry` des quatre entrées — libellé,
+  icône, route, badge — et la section `DisclosureGroup`), `PinnedProjectsList` (pastille de
+  10 px + nom tronqué), `RecentProjectsList` (nom seul).
+- **`Views/DesignSystem/StatusIcon.swift`** : la pastille sort de `ProjectListView.swift`, passe
+  sur `ok` / `warn` / `report` / `inkMuted` et prend sa taille en paramètre (9 par défaut, 10
+  dans la barre latérale, 12 sur les six appels existants — leur rendu ne change que de teinte).
+- **`Services/Project/ProjectSearch.swift`** (D7) : `matches` (nom, code, domaine, sponsor, chef
+  de projet, architecte, notes), `rank` (préfixe > mot > sous-chaîne, épinglés, nom),
+  `highlightRanges`. `Sidebar.projectMatches` y délègue.
+- **`Services/Project/SidebarProjectCounts.swift`** (D11) : `active`, `atRisk`,
+  `openProjectActions`. Les trois motifs « à risque » sont un **stub** commenté comme tel.
+- **`Views/Sidebar.swift`** : la section s'insère entre « Tous les Collaborateurs » et
+  « Collaborateurs » ; deux `@Query` de plus (réunions tenues, actions) pour les compteurs ;
+  l'arbre « Projets par Entité » passe à `false` par défaut (D5) et son label gagne la
+  sous-ligne « 8 entités · replié par défaut ».
+- **Recette** : `RecetteScreen.codesDeProjetsRecents` (seul `p2b` en porte) et
+  `MainRouter.rememberRecentProject`, qui inscrit un projet aux récents sans router.
+
+### Tests ajoutés
+
+`ProjectSearchTests` (15), `SidebarProjectCountsTests` (12), `ProjectsSidebarSectionTests` (19),
+`StatusIconTests` (4) — cinquante tests dans quatre suites nouvelles, plus trois attentes
+dans `RefonteTypographieTests.sourcesAreFound` (le périmètre gagne `Views/Sidebar`).
+
+Les compteurs sont testés **sur le semis** : 62 actifs / 7 à risque / 23 actions ouvertes — les
+trois chiffres de la capture, au premier essai, sans retoucher le semis.
+
+### Écarts et décisions prises
+
+1. **L'ordre de la barre n'est pas celui de la capture.** La capture montre l'arbre « Projets
+   par Entité » juste sous la section « Projets », alors qu'il vit après « Collaborateurs » et
+   « Archives ». Le handoff dit « ordre de la `List` **inchangé** pour ce qui existe déjà », et
+   le lot 6 retire l'arbre : il n'a pas bougé. La section, elle, est bien à la place demandée.
+2. **Les trois épinglés sont triés par nom**, donc dans l'ordre AE / ASP – BLOOM / ASP –
+   Installation, là où la maquette les liste dans l'ordre de son tableau (BLOOM / AE /
+   Installation). Aucune colonne du modèle ne porte cet ordre — l'implémenter demanderait un
+   `pinnedOrder`, hors périmètre. Un tri par nom est stable d'un lancement à l'autre.
+3. **Les récents sont bornés à trois à l'affichage**, cinq en mémoire : le handoff écrit « les 3
+   derniers projets ouverts » et la file de D4 en retient cinq. Les deux plus anciens serviront
+   à la palette du lot 3.
+4. **Le badge est en `ink4`, pas en `inkMuted`.** À 11 pt, `inkMuted` n'atteint pas 4,5:1 — la
+   règle §1.2 (« jamais sous 11,5 px ») l'interdit. `ink4` est ce que `.sectionLabel()` emploie
+   déjà à 9,5 pt.
+5. **La sélection est peinte en `listRowBackground`** et non laissée à la surbrillance système :
+   la capture montre le jeton `action` (#2563D9), et la couleur d'accent de macOS est réglable.
+   **C'est le point que la recette doit vérifier** — si le système repeint par-dessus, il faudra
+   `.listItemTint` ou un `List` sans sélection sur ces lignes.
+6. **Le libellé de l'arbre garde `.subheadline.weight(.semibold)`** : `Sidebar.swift` n'est pas
+   dans le périmètre Plex, et le passer en `plexSans` aurait changé le rendu d'une ligne que ce
+   lot n'a pas mission de retoucher. Seule la sous-ligne ajoutée est en Plex Mono.
+7. **`MainRouter` gagne une méthode** (`rememberRecentProject`) et `RecetteScreen` une propriété
+   (`codesDeProjetsRecents`), sur le modèle de `termeDePalette` : la table des écrans reste
+   l'autorité sur ce que chaque code prépare, et un test vérifie que **seul** `p2b` en porte.
+8. **`architecture.md` §8 annonçait 225 fichiers de `Views/`** ; il y en a 241. Le compte est
+   corrigé au passage (il l'était déjà avant ce lot).
+
+### Ce qui reste dû
+
+- **La recette `p2b` n'a pas été faite** : `Scripts/recette-run.sh` a refusé sur la garde 1
+  (« Session graphique verrouillée »), et les contournements (`--ignore-lock`, `--ignore-teams`)
+  sont interdits. Le binaire release et le bundle `/tmp/recette/OneToOne.app` sont prêts
+  (md5 `f1e26b9f41140913994faff884208b42`, 2026-09-09 13:21). Reste à photographier, à comparer
+  à `handoff/screenshots/2b-sidebar-variante-arbre-replie.png` et à ranger dans
+  `recette/lot-1-p2b.png`. **Trois points à regarder en priorité** : la surbrillance de
+  sélection (écart n° 5), l'absence de chevron parasite et la navigation clavier (réserve n° 1
+  du lot 0), et le rendu des sous-sections « ÉPINGLÉS » / « RÉCENTS » — un `View` qui rend
+  plusieurs lignes dans une `List` est censé se déplier en autant de lignes, ce qu'aucun test
+  ne prouve.
+- **Le stub « à risque »** de `SidebarProjectCounts` : le lot 5 doit le remplacer par le
+  constructeur de la vue dédiée, et rendre les mêmes 7.
+- **Deux `@Query` globales de plus dans la barre latérale** (réunions tenues, actions). Sur le
+  semis (82 réunions, 76 projets) rien ne se voit ; sur le store réel de Laurent, le coût
+  n'est pas mesuré. Réserve n° 9 du lot 0, toujours ouverte.
