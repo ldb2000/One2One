@@ -68,7 +68,6 @@ signalés.
 | Badge « Mails 2 » là où la maquette écrit 12 | onglet Mails de l'écran projet (lot 4) | le 12 n'a **aucune source** : le semis pose deux `ProjectMail`, ce que la carte « MAILS LIÉS » montre, et le badge compte `project.mails.count` |
 | Risque « Faible » en `ink4` et non en vert | Portfolio, écran projet (D2) | on ne rouvre pas une décision de la refonte réunion pour un badge que la capture 1a ne montre pas |
 | Épinglés triés par nom | barre latérale (lot 1) | la maquette les liste dans l'ordre de son tableau ; aucune colonne du modèle ne porte cet ordre, et un `pinnedOrder` était hors périmètre. Un tri par nom est stable d'un lancement à l'autre |
-| Chevron de dépliage devant « Projets » | barre latérale (lot 1) | la section est un `DisclosureGroup` et macOS lui dessine un chevron ; la maquette n'en montre pas. Le retirer demanderait de réécrire la section sans `DisclosureGroup`, donc de reperdre le repli persisté de D5. **À confirmer à la recette `p2a`** |
 | « 15 lignes sur 62 » et non « 8 lignes sur 62 » | pied du Portfolio (lot 2) | la vue enregistrée « Mes projets ASP » rend quinze lignes sur ce semis ; les huit de la capture demanderaient une liste de codes, que `PortfolioFilters` n'exprime pas |
 | Carte de palette de 560 pt là où la maquette en rend 508 | palette `⌘K` (lot 3) | le handoff **écrit** « 560 px de large » ; son HTML pose un cadre de 560 avec 26 px de marge. La mesure nommée gagne |
 | « Chercher « x » dans les CR » et non « dans les CR et mails » | palette `⌘K` (lot 3) | D8, tranchée par Laurent |
@@ -128,17 +127,17 @@ rencontrés.
 
 ## Ce que le chantier laisse
 
-**Recette visuelle.** Quatre écrans sur six sont photographiés et conformes : `p2b`
-(barre latérale, lot 1), `p1a` (Portfolio, lot 2, après un fix round), `p1c` (palette, lot 3,
-après deux fix rounds), `p1d` (écran projet, lot 4). Restent **`p1f`** (vue « À risque ») et
-**`p2a`** (barre latérale en 2a), à prendre sur le binaire de la pile complète. Une anomalie
-observée une fois puis non reproduite — une fiche de projet archivé ouverte à la place du
-Portfolio — reste à surveiller à la recette finale, même si `SidebarSelectionGuard` en couvre le
-mécanisme connu.
+**Recette visuelle : faite, et conforme.** Les six écrans ont été photographiés lot par lot
+(`recette/lot-N-p<code>.png`) **puis** repris ensemble sur le binaire de la pile complète
+(`recette/finale/{p2a,p2b,p1a,p1c,p1d,p1f}.png`) — c'est cette seconde série qui fait foi. `p2a`,
+le seul écran que le chantier n'avait jamais vu, est conforme : l'arbre a disparu, le chevron est
+devant « Projets » comme la maquette le dessine, il n'y a pas de trou entre « RÉCENTS » et
+« Collaborateurs » là où le `Section` a été retiré, les pastilles de statut sont présentes, et la
+route reste stable après un redimensionnement de fenêtre — le défaut que `p1f` avait révélé ne
+revient pas.
 
 **Décisions produit, en attente de Laurent** : le titre « Projets » contre « Portfolio » ; la
-ligne du semis qui donnerait « il y a 41 j » à NEVIDIS ; le chevron de la section « Projets » ;
-l'ordre des épinglés ; le badge « Mails 12 » sans source ; l'ordre alphabétique de
+ligne du semis qui donnerait « il y a 41 j » à NEVIDIS ; l'ordre des épinglés ; le badge « Mails 12 » sans source ; l'ordre alphabétique de
 `SearchPopover` ; les pilules de l'en-tête de l'écran projet, non éditables au clic ; les deux
 gestes qui ne demandent rien (« Démarrer une réunion » et « Planifier » créent une réunion vide
 au deuxième clic accidentel).
@@ -163,7 +162,7 @@ au deuxième clic accidentel).
   à qui n'a jamais rien exprimé — l'absence de clé est indistinguable d'un choix.
 - **`MainRoute.entity` porte un `PersistentIdentifier`** et non un identifiant stable, faute de
   `stableID` sur `Entity` : la route ne survit pas à un relancement.
-- **`Sidebar.swift` reste hors du périmètre typographique** : 1 995 lignes dont 59 fontes
+- **`Sidebar.swift` reste hors du périmètre typographique** : 2 004 lignes dont 59 fontes
   système, réparties dans `DashboardView`, `EntityDetailView` et les vues Gantt qui cohabitent
   dans le fichier. Les entrées historiques de la barre (« Tableau de bord », « Actions »…) sont
   donc en fonte système à côté d'une section « Projets » en Plex — le handoff les déclare
@@ -180,7 +179,7 @@ vue ; il n'y a plus qu'une recherche de projets, plus qu'une table de risque, pl
 d'opérations en lot ; la barre latérale a cessé d'être un catalogue et tient en un écran ; sept
 lots ont porté la suite de 3 111 à 3 582 tests (+471), sans en retirer aucun.
 
-**Négatives.** `Sidebar.swift` reste un fichier de 1 995 lignes malgré 141 lignes retirées ;
+**Négatives.** `Sidebar.swift` reste un fichier de 2 004 lignes malgré 154 lignes retirées ;
 trois écrans reconstruisent tout leur contenu à chaque changement de `@Query`, sans mesure sur
 un store réel ; deux des six captures de recette manquent au moment de la clôture ; la fiche
 d'une entité n'a plus qu'un seul chemin depuis la fenêtre principale, et ce chemin n'a pas
@@ -190,9 +189,11 @@ encore été photographié.
 
 - **Garder l'arbre par entité** (variante 2b du handoff, « à retenir si la suppression est jugée
   trop brutale pour la première livraison »). Elle a été livrée au lot 1 et **tenue quatre
-  lots** — c'est ce qui a permis de comparer les deux à l'écran avant de trancher. Écartée
-  parce qu'elle laissait deux navigations projets concurrentes, dont une que le Portfolio, la
-  palette et les épinglés rendaient inutile.
+  lots** : le temps de construire le Portfolio, la palette et les épinglés, c'est-à-dire les
+  chemins qui devaient la remplacer. Écartée sur ce constat — deux navigations projets
+  concurrentes, dont une que les trois autres rendaient inutile —, non sur une comparaison
+  visuelle : 2a n'avait alors jamais été rendue à l'écran. La recette finale l'a confirmée
+  **après** la décision.
 - **Un `pinnedOrder` sur `Project`** pour reproduire l'ordre des épinglés de la maquette :
   écarté, une colonne de plus pour un ordre que rien d'autre ne lit.
 - **Étendre `PortfolioFilters` à une liste de codes** pour que le pied affiche « 8 lignes sur
@@ -203,6 +204,8 @@ encore été photographié.
 
 ## Suite
 
-La recette finale des six écrans sur le binaire de la pile complète, puis la fusion des sept PR
-dans l'ordre. Les décisions produit listées ci-dessus attendent Laurent ; aucune ne bloque la
-fusion.
+La fusion des huit PR (#53 → #60) dans l'ordre de la pile, après validation de Laurent. Puis deux
+vérifications que ce chantier n'a pas pu faire : le **hook de documentation**, à éprouver de bout
+en bout dans une session Claude Code neuve, et le **Portfolio sur le store réel** de Laurent,
+dont le coût des `@Query` n'a été mesuré que sur le semis. Les décisions produit listées ci-dessus
+attendent Laurent ; aucune ne bloque la fusion.

@@ -680,8 +680,8 @@ correctif transverse »). Cinq commits : le retrait de l'arbre, l'en-tête d'ent
 la documentation, l'ADR de clôture, la présente entrée avec `STATUS.md`. `swift test` complet
 vert : **2 525 Swift Testing / 284 suites + 1 057 XCTest (1 ignoré) = 3 582**, +4 tests nets
 (+5 ajoutés, 1 retiré avec la sous-ligne de l'arbre) sur les 3 578 de la tête du lot 5, aucune
-suite nouvelle. **Recettes `p1f` et `p2a` non faites** : elles sont du coordinateur, sur le
-binaire de la pile complète.
+suite nouvelle. **Recette finale des six écrans faite** par le coordinateur sur le binaire de la
+pile complète (`recette/finale/`), toutes conformes — `p2a` comprise.
 
 ### Ce que le lot livre
 
@@ -690,8 +690,10 @@ binaire de la pile complète.
   `filteredEntities`, `filteredProjectsFor(entity:)`, `filteredOrphanProjects`, le groupe
   « Sans Entité », les deux boutons « Ajouter un projet », `moveProjects(codes:to:)`,
   `moveProjectsToNone(codes:)`, les deux `.dropDestination`, les deux `.draggable(project.code)`,
-  `nextProjectCode()` devenu sans appelant et l'import `UniformTypeIdentifiers`. **2 136 →
-  1 995 lignes.** Ordre final de la `List` : les sept destinations historiques, la section
+  `nextProjectCode()` devenu sans appelant et l'import `UniformTypeIdentifiers`. **2 158 →
+  2 004 lignes** (−154 ; la base a grossi de 22 lignes entre les deux rebases, le correctif
+  transverse ayant ajouté les deux appels à `EvenementEntree` et les `SidebarProjectRow.lignes`).
+  Ordre final de la `List` : les sept destinations historiques, la section
   « Projets » (quatre entrées, ÉPINGLÉS, RÉCENTS), Collaborateurs, Archives, Projets Archivés,
   `Spacer()`, Paramètres — l'ordre de `2a-sidebar-section-projets.png`.
 - **Les appelants vérifiés avant chaque retrait.** `projectRow` reste : le groupe « Projets
@@ -708,10 +710,10 @@ binaire de la pile complète.
   fixes sont : les sept destinations du haut, les libellés des deux groupes toujours présents
   (« Projets » et « Collaborateurs »), le `Spacer` et « Paramètres » ; les en-têtes « Archives »
   et « Projets Archivés » sont conditionnels, donc hors du compte fixe.
-- **La documentation (D18).** `architecture.md` §8 (273 fichiers, la barre latérale en 2a,
+- **La documentation (D18).** `architecture.md` §8 (274 fichiers, la barre latérale en 2a,
   ProjectListView notée retirée, `PortfolioGroupedView` désignée comme seul appelant de
   `MainRoute.entity`) et §13 (les quatre tailles relevées au `wc -l` : `MeetingView` 2 068,
-  `Sidebar.swift` 1 995, `SettingsView` 908, `DetailsViews.swift` 617 — les deux dernières
+  `Sidebar.swift` 2 004, `SettingsView` 908, `DetailsViews.swift` 617 — les deux dernières
   étaient annoncées à 1 200 et 2 670 ; `MailBrowserView` et `MailSuggestionService` sortis du
   code mort ; une section de dette pour ce chantier). `glossaire.md` gagne cinq termes
   (Portfolio, Palette, À risque, Épinglé, Récents) ; `documentation.yml` gagne les sept dossiers
@@ -754,13 +756,27 @@ binaire de la pile complète.
    pour la section « Projets » dépliée (quatre entrées, trois épinglés, aucun récent) + 7
    collaborateurs actifs, les deux groupes d'archives étant repliés.
 
+### La recette `p2a`, et ce qu'elle a levé
+
+Faite par le coordinateur sur le binaire de la pile complète, avec les cinq autres écrans
+(`recette/finale/`). **Conforme.** Les quatre points que je signalais comme à vérifier sont
+levés :
+
+- l'ordre de la `List` sans l'arbre est celui de `2a-sidebar-section-projets.png` ;
+- **aucun trou ni séparateur orphelin** entre « RÉCENTS » et « Collaborateurs », là où le
+  `Section` de l'arbre vivait — c'était mon premier doute ;
+- le **chevron** devant « Projets » est celui que la maquette dessine : ce n'était pas un écart,
+  et la ligne correspondante a été retirée de l'ADR de clôture ;
+- les pastilles de statut sont présentes (le correctif d'identité du lot 5 tient), et la route
+  reste stable après un redimensionnement de fenêtre — le défaut révélé par `p1f` ne revient pas.
+
+Reste l'en-tête d'entité du Portfolio en mode groupé, seul chemin vers `EntityDetailView` : il
+est rendu dans `p1a`, mais personne ne l'a **cliqué**.
+
 ### Ce qui reste dû
 
-- **Les recettes `p1f` et `p2a`**, et la recette finale des six écrans sur le binaire de la pile
-  complète (`recette/finale/`) — **par le coordinateur**. Points que `p2a` doit vérifier :
-  l'ordre exact de la `List` sans l'arbre, l'absence de trou ou de séparateur orphelin là où le
-  `Section` vivait, le chevron de la section « Projets » (écart assumé, à confirmer), la
-  surbrillance `action` de la ligne sélectionnée, et l'en-tête d'entité du Portfolio en mode
-  groupé — le seul chemin restant vers `EntityDetailView` n'a jamais été cliqué.
 - **Le titre « Projets » contre « Portfolio »** et les autres décisions produit listées dans
   l'ADR de clôture : elles attendent Laurent, aucune ne bloque la fusion.
+- **Deux vérifications hors recette** : le hook de documentation, à éprouver de bout en bout dans
+  une session Claude Code neuve, et le Portfolio sur le store réel de Laurent — le coût des
+  `@Query` n'a été mesuré que sur le semis de 76 projets.

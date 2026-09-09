@@ -26,7 +26,7 @@ principale est une **valeur** (`MainRoute`) et non plus des `NavigationLink` inl
 | 2 | `feat/projets-lot-2-portfolio` | #56 | écran Portfolio (1a), `ProjectBatchActions` / `ProjectBatchBar` (D15), suppression de ProjectListView |
 | 3 | `feat/projets-lot-3-palette` | #57 | palette `⌘K` (1c), `ReportSearch` (D8), `AppShortcut` (D1), `SidebarSelectionGuard` |
 | 4 | `feat/projets-lot-4-ecran-projet` | #58 | écran projet à six onglets (1d), édition in-place (D9), `ProjectRelationWriter` |
-| 5 | `feat/projets-lot-5-a-risque` | **à ouvrir** | vue « À risque » (1f), `AtRiskBuilder` (D11) |
+| 5 | `feat/projets-lot-5-a-risque` | #59 | vue « À risque » (1f), `AtRiskBuilder` (D11), correctif transverse de la sélection |
 | 6 | `feat/projets-lot-6-bascule-2a` | **à ouvrir** | retrait de l'arbre par entité, en-tête d'entité du Portfolio, documentation et ADR de clôture |
 
 **Tests.** `swift build` propre ; `swift test` complet vert sur la tête du lot 6 : **2 525 Swift
@@ -34,14 +34,18 @@ Testing / 284 suites + 1 057 XCTest (1 ignoré) = 3 582**, exit 0 — soit **+47
 la section suivante, aucun test retiré (un seul remplacé, celui de la sous-ligne de l'arbre, par
 un test d'absence). `DocumentationTests` et `RefonteTypographieTests` verts à chaque lot.
 
-**Recette visuelle.** Quatre écrans sur six photographiés et **conformes** :
-`p2b` (barre latérale, lot 1), `p1a` (Portfolio, lot 2, après un fix round sur les chips et le
-menu de vue enregistrée), `p1c` (palette, lot 3, après deux fix rounds), `p1d` (écran projet,
-lot 4). Captures sous `docs/superpowers/specs/gestion-projets-2026-09/recette/`. **`p1f` et
-`p2a` restent à faire par le coordinateur** sur le binaire de la pile complète, avec la recette
-finale des six écrans (`recette/finale/`).
+**Recette visuelle : les six écrans, faits et conformes.** Chacun a d'abord été photographié
+dans son lot — `p2b` (barre latérale, lot 1), `p1a` (Portfolio, lot 2, après un fix round sur
+les chips et le menu de vue enregistrée), `p1c` (palette, lot 3, après deux fix rounds), `p1d`
+(écran projet, lot 4), `p1f` (À risque, lot 5, qui a révélé deux défauts de sélection) —, puis
+tous **repris ensemble sur le binaire de la pile complète** : c'est cette seconde série qui fait
+foi. Captures sous `docs/superpowers/specs/gestion-projets-2026-09/recette/` (par lot) et
+`recette/finale/` (les six). `p2a`, le seul écran que le chantier n'avait jamais vu, est
+conforme : arbre absent, chevron devant « Projets » comme la maquette le dessine, aucun trou
+entre « RÉCENTS » et « Collaborateurs » là où le `Section` a été retiré, pastilles de statut
+présentes, route stable après redimensionnement.
 
-**Quatre défauts trouvés en chemin**, aucun dans le périmètre d'un lot, tous corrigés :
+**Six défauts trouvés en chemin**, aucun dans le périmètre d'un lot, tous corrigés :
 `List(selection: $mainRouter.route)` réécrivait la route quand les lignes bougeaient (l'écran
 s'ouvrait sur une fiche que personne n'avait demandée — observé **trois** fois à la recette, la
 troisième sur un simple redimensionnement de fenêtre ; la garde repose finalement sur
@@ -51,7 +55,12 @@ sa pastille de statut (`SidebarProjectRow` préfixe l'identité par la sous-sect
 fois sur trois (`ProjectRelationWriter` relit et répare) ; les préférences du bundle `.recette`
 ne sont pas isolées par `CFFIXED_USER_HOME`, et un cadre de fenêtre hors écran hérité d'une
 session précédente a coûté une demi-journée d'observations fausses (`recette-run.sh` lance
-désormais avec `-ApplePersistenceIgnoreState YES` et purge le domaine sous `--reset`).
+désormais avec `-ApplePersistenceIgnoreState YES` et purge le domaine sous `--reset`) ;
+`.menuStyle(.borderlessButton)` **jette** l'étiquette SwiftUI qu'on lui donne — AppKit en extrait
+un titre et une image et les redessine, d'où les chips en tirets invisibles du Portfolio, les
+deux redessinées à la main ; `MainRouterTests` écrivait une soixantaine de plists
+`onetoone.tests.router.*` dans les préférences **réelles** du poste, faute d'un
+`removePersistentDomain` en sortie. L'ADR de clôture les détaille tous les six.
 
 **Dettes et observations.** Le coût des écrans sur le store réel n'est pas mesuré (quatre
 `@Query` globales dans `PortfolioView`, trois de plus dans `ProjectScreen`, trois constructeurs
@@ -62,7 +71,7 @@ un piège de nom (`.aucun` serait plus sûr) ; `sidebar.projectsExpanded` n'a pl
 reste écrite chez les utilisateurs existants, et `sidebar.projectsSectionExpanded` applique son
 défaut à qui n'a jamais rien exprimé ; `MainRoute.entity` porte un `PersistentIdentifier` et ne
 survit donc pas à un relancement, faute de `stableID` sur `Entity` ; **`Sidebar.swift` reste hors
-du périmètre typographique** — 1 995 lignes dont 59 fontes système, dans `DashboardView`,
+du périmètre typographique** — 2 004 lignes dont 59 fontes système, dans `DashboardView`,
 `EntityDetailView` et les vues Gantt qui y cohabitent, si bien que les entrées historiques de la
 barre restent en fonte système à côté d'une section « Projets » en Plex (le handoff les déclare
 « inchangées ») : son découpage est la condition de la bascule ; le hook
@@ -71,12 +80,14 @@ bout dans une session neuve reste dû.
 
 **Décisions produit en attente de Laurent** (détail dans l'ADR de clôture) : le titre « Projets »
 contre « Portfolio » de la capture ; la ligne du semis qui donnerait « il y a 41 j » à NEVIDIS ;
-le chevron de la section « Projets » ; l'ordre des épinglés ; le badge « Mails 12 » sans source ;
+l'ordre des épinglés ; le badge « Mails 12 » sans source ;
 l'ordre alphabétique de `SearchPopover` ; les pilules de l'en-tête de l'écran projet, non
 éditables au clic ; « Démarrer une réunion » et « Planifier », qui ne demandent rien.
 
-**Prochaine action** : fusion des PR dans l'ordre après validation de Laurent ; recette finale
-des six écrans sur le binaire de la pile.
+**Prochaine action** : fusion des PR **#53 → #60** dans l'ordre de la pile, après validation de
+Laurent. Puis les deux vérifications que le chantier n'a pas pu faire : le hook de documentation,
+à éprouver de bout en bout dans une session Claude Code neuve, et le Portfolio sur le store réel
+(le coût des `@Query` n'a été mesuré que sur le semis de 76 projets).
 
 ## Skill documenter-application — documentation développeur gardée par les tests (2026-09-08)
 

@@ -521,7 +521,7 @@ graph TD
 
 ## 8. Couche Views
 
-273 fichiers. Organisation :
+274 fichiers (relevé le 2026-09-09). Organisation :
 
 - **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter`, `MainDetailView` et
   `SidebarSelectionGuard` — voir « Navigation de la fenêtre principale » ci-dessous. La barre
@@ -905,8 +905,8 @@ bloquants**) :
   - Vues monolithiques (tailles relevées le 2026-09-09, `wc -l`) : `MeetingView` (2 068 l. — un
     **routeur** depuis la refonte, mais encore le plus gros fichier de `Views/` : il porte le
     routage d'espace, la fabrique de `MeetingMenuActions` et six présentations),
-    `Sidebar.swift` (1 995 l. — regroupe la barre latérale, `DashboardView`,
-    `EntityDetailView`, les vues Gantt et leurs cartes de stats ; 141 l. de moins depuis le
+    `Sidebar.swift` (2 004 l. — regroupe la barre latérale, `DashboardView`,
+    `EntityDetailView`, les vues Gantt et leurs cartes de stats ; 154 l. de moins depuis le
     retrait de l'arbre par entité au lot 6), `SettingsView` (908 l.),
     `DetailsViews.swift` (617 l. — `ProjectDetailView`, devenue l'onglet « Fiche complète » de
     l'écran projet, sans sa heatmap ni sa barre d'outils depuis le lot 4).
