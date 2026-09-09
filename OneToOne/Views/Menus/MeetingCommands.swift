@@ -206,6 +206,12 @@ struct MeetingCommands: Commands {
             // et de `6b-atelier-planche-de-seance.png` (4 participants, 4
             // planches légendées, objets annotés, une pièce épinglée et une
             // capture avec son texte extrait). Même idempotence.
+            //
+            // **Même garde que l'item ci-dessus**, pour la même raison : il
+            // écrit dans le store du processus. Il y verse une réunion et ses
+            // planches plutôt que soixante-seize projets — moindre ampleur,
+            // même défaut de classe, et un semis de démonstration n'a rien à
+            // faire dans un store de production.
             Button("Charger le jeu de démonstration (atelier)") {
                 guard let demoContext else { return }
                 let reunion = RefonteDemoSeed.seedWorkshopSession(in: demoContext)
@@ -214,7 +220,8 @@ struct MeetingCommands: Commands {
                     autoStartRecording: false
                 )
             }
-            .disabled(demoContext == nil)
+            .disabled(demoContext == nil || !semisAutorise)
+            .help(semisAutorise ? "" : Self.semisReserveALaRecette)
         }
     }
 

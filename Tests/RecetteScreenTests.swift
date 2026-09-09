@@ -118,8 +118,8 @@ struct RecetteScreenTests {
                      encoding: .utf8)) ?? ""
     }
 
-    /// L'item de menu qui sème le jeu de démonstration doit être **grisé** hors
-    /// bundle de recette.
+    /// Les **deux** items de menu qui sèment un jeu de démonstration doivent
+    /// être **grisés** hors bundle de recette.
     ///
     /// Le semis écrit dans le store du processus qui le montre, et depuis le
     /// lot 0 de la refonte des projets il y verse aussi soixante-deux projets
@@ -136,14 +136,21 @@ struct RecetteScreenTests {
         // automatique de `ContentView.maybeSeedRefonteDemo`.
         #expect(source.contains("ContentView.seedDemoEnvironmentKey"),
                 "la garde doit lire la variable d'environnement du bundle de recette")
-        #expect(source.contains(".disabled(demoContext == nil || !semisAutorise)"),
-                "l'item de semis doit être grisé quand la variable n'est pas posée")
+        // Les deux items : « refonte » (réunions + portefeuille) et
+        // « atelier » (une réunion et ses planches). Le second en verse moins,
+        // pas moins gravement.
+        let gardes = source.components(separatedBy: ".disabled(demoContext == nil || !semisAutorise)")
+            .count - 1
+        #expect(gardes == 2, "les deux items de semis doivent être grisés, pas un seul")
+        // Et la forme nue, qui ne gardait que l'absence de conteneur, a disparu
+        // des deux — `contains` distingue bien les deux formes, la garde
+        // complète n'ayant pas la parenthèse fermante après `nil`.
+        #expect(!source.contains(".disabled(demoContext == nil)"),
+                "un item de semis gardé par le seul conteneur écrirait en production")
         // Un item grisé sans raison est un défaut, pas une garde.
         #expect(MeetingCommands.semisReserveALaRecette == "Réservé au bundle de recette")
-        #expect(source.contains("Self.semisReserveALaRecette"))
-        // Et la forme d'avant, qui ne gardait que l'absence de conteneur.
-        #expect(!source.contains("\n            .disabled(demoContext == nil)\n\n            // Lots 16"),
-                "l'item de semis ne doit plus être gardé par le seul conteneur")
+        let infobulles = source.components(separatedBy: "Self.semisReserveALaRecette").count - 1
+        #expect(infobulles == 2, "l'infobulle est posée sur les deux items grisés")
     }
 
     /// Un écran de la fenêtre principale n'ouvre aucune réunion : son mode ne

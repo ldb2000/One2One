@@ -180,6 +180,30 @@ au deuxième clic accidentel).
   là où le reste du dossier avale ses erreurs en silence : deux politiques, aucune des deux
   n'étant celle du reste de l'application (`os.Logger`). À prendre avec le chantier « les
   écritures projet disent quand elles échouent ».
+- **La sauvegarde ignore encore onze champs de `Project`** — `isArchived`, `chefDeProjet` et
+  `architecte` importés du xlsx, `planningText`, `standingPrepNotes`/`standingPrepUpdatedAt`,
+  `tagsJSON`, et les relations `entity`, `projectManager`, `technicalArchitect`, que la décision
+  **D3** déclare pourtant faisant foi. Conséquences concrètes d'une restauration : **un projet
+  archivé revient actif**, et son chef de projet revient « Non affecté ». Antérieur au chantier —
+  le lot 6 n'y a ajouté que les quatre champs de la refonte (`pinned`, `scopeText`,
+  `scopeUpdatedAt`, `portfolioSavedViewsJSON`). Le remède est mécanique (une ligne par champ au
+  DTO, à l'export et à la restauration ; les relations par leur nom, comme `entityName`) mais
+  demande un test par champ pour ne pas refaire le même oubli.
+- **`swift test` plante par intermittence après que toute la suite est passée** : `EXC_BREAKPOINT`
+  dans SwiftData, déclenché par un `__NSFireTimer` sur la boucle principale — l'autosauvegarde
+  d'un `ModelContext` qui tire après la libération de son conteneur en mémoire. Deux fois sur
+  quatre, puis une fois sur trois, avec zéro test rouge. Antérieur au lot 6 : la même signature
+  est dans les rapports de plantage du 2026-09-09 à 14:04, 14:28, 18:48, 19:34 et suivants, soit
+  pendant les lots 2 à 5. Remède : `autosaveEnabled = false` sur le contexte de chaque helper de
+  test qui crée un conteneur — plusieurs dizaines de fichiers, donc un chantier à part. Un
+  `swift test` rouge sans aucun test rouge est le genre de chose qui fait douter d'une pile
+  saine.
+- **~2 000 plists de test dans `~/Library/Preferences`** : `MeetingScreenModelTests.<uuid>.plist`,
+  un par exécution depuis des mois, plus quelques `RAGIndexingSweepTests`. Douze suites passent
+  encore un `UserDefaults(suiteName:)` à `MeetingScreenModel`, faute d'un double en mémoire pour
+  ce modèle-là ; elles sont inscrites comme **exceptions nommées** dans `MainRouterTests`, si
+  bien qu'aucune nouvelle ne peut s'ajouter. Les fichiers existants ne sont pas supprimés — c'est
+  le poste de Laurent, et deux mille suppressions ne sont pas une décision d'agent.
 - **Le hook `documentation-apres-pr` n'a jamais déclenché** dans les sessions de ce chantier
   (il a été enregistré après leur démarrage) : son test de bout en bout dans une session neuve
   reste dû.

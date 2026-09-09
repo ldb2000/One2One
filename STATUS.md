@@ -97,12 +97,25 @@ désormais `MeetingsListView` et `ActionsListView` filtrées sur `project != nil
 posaient leur état sans remonter la fenêtre principale (`MainWindowRegistry`). Le reste est
 textuel.
 
-**Une mesure à part**, relevée en corrigeant les plists et **non traitée** :
-`~/Library/Preferences` porte **2 025** fichiers `MeetingScreenModelTests.<uuid>.plist`, un par
-exécution de test depuis des mois. Douze suites passent encore un `UserDefaults(suiteName:)` à
-`MeetingScreenModel` ; elles sont inscrites comme exceptions nommées dans `MainRouterTests`, si
-bien qu'aucune **nouvelle** ne peut s'ajouter, mais leur correction demande un double en mémoire
-pour ce modèle-là — un chantier à part, avec le ménage des plists existants.
+**Trois dettes antérieures relevées en chemin, aucune traitée, toutes consignées à l'ADR.**
+
+- **La sauvegarde ignore onze champs de `Project`** — `isArchived`, `chefDeProjet`, `architecte`,
+  `planningText`, `standingPrepNotes`/`standingPrepUpdatedAt`, `tagsJSON`, et les relations
+  `entity`, `projectManager`, `technicalArchitect` (que **D3** déclare faisant foi). Une
+  restauration rend donc **un projet archivé actif** et son chef de projet « Non affecté ». Le
+  lot 6 n'a ajouté que les quatre champs de la refonte (`pinned`, `scopeText`, `scopeUpdatedAt`,
+  `portfolioSavedViewsJSON`) ; le reste est mécanique mais demande un test par champ.
+- **`swift test` plante par intermittence** *après* que toute la suite soit passée (2 fois sur 4,
+  puis 1 sur 3, zéro test rouge) : `EXC_BREAKPOINT` dans SwiftData sur un `__NSFireTimer` —
+  l'autosauvegarde d'un contexte qui tire après la libération de son conteneur en mémoire. La
+  même signature est dans les rapports de plantage de 14:04, 14:28, 18:48 et 19:34, donc pendant
+  les lots 2 à 5. Remède : `autosaveEnabled = false` dans chaque helper de test qui crée un
+  conteneur, soit plusieurs dizaines de fichiers.
+- **~2 000 plists `MeetingScreenModelTests.<uuid>.plist`** dans `~/Library/Preferences`, un par
+  exécution depuis des mois. Douze suites passent encore un `UserDefaults(suiteName:)` à
+  `MeetingScreenModel` ; elles sont inscrites comme exceptions nommées dans `MainRouterTests`, si
+  bien qu'aucune **nouvelle** ne peut s'ajouter. **Les fichiers ne sont pas supprimés** : à la
+  décision de Laurent.
 
 **Prochaine action** : fusion des PR **#53 → #60** dans l'ordre de la pile, après validation de
 Laurent. Puis les deux vérifications que le chantier n'a pas pu faire : le hook de documentation,
