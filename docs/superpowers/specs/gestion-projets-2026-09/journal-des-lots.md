@@ -19,7 +19,9 @@ pas réécrite sept fois.
 Branche `feat/projets-lot-0-routeur`, sur `master` (`15c6c2f`). **Aucun rendu changé** : ce lot
 n'a pas d'écran de recette, et la comparaison au pixel commence au lot 1.
 
-**État : livré, `swift build` propre, `swift test` complet vert.**
+**État : livré, `swift build` propre (aucun avertissement nouveau), `swift test` complet vert —
+**2 125 Swift Testing / 264 suites + 1 057 XCTest (1 ignoré) = 3 182**, 0 échec, soit **+71
+tests et +6 suites** sur les 3 111 du 2026-09-08, aucun retiré.
 
 ### Commits
 
@@ -30,7 +32,9 @@ n'a pas d'écran de recette, et la comparaison au pixel commence au lot 1.
 | `c07d1ab` | `feat(navigation)` — `MainRoute` / `MainRouter` / `MainDetailView`, barre latérale à sélection, largeur D13, `MenuBarController` |
 | `5094a33` | `feat(projets)` — semis Portfolio : 62 actifs, 14 archivés, 8 entités |
 | `fc7d484` | `feat(recette)` — `RecetteScreen.Cible.fenetrePrincipale` et les six codes préfixés `p` |
-| `2abbe29` | `docs` — ADR D0, §8 d'`architecture.md`, manifeste, registre, ce journal |
+| `75ef9b5` | `docs` — ADR D0, §8 d'`architecture.md`, manifeste, registre, ce journal |
+| `222056c` | `test(recette)` — le garde-fou des douze codes ne compte que les écrans de réunion |
+| `1343405` | `fix(recette)` — `portfolioPaletteQuery` en `nonisolated`, comme l'identifiant du projet |
 
 ### Ce qui est en place
 
@@ -63,6 +67,12 @@ n'a pas d'écran de recette, et la comparaison au pixel commence au lot 1.
 `RecetteScreenTests` (9) — soixante-neuf tests dans six suites nouvelles. Étendus : `One2OneTokensTests` (+2, contraste du surlignage),
 `RefonteTypographieTests` (périmètre + `Views/Navigation` et `Views/Project`, D17),
 `SchemaV3MigrationTests` (+2, défaut de `pinned`, aucun modèle nouveau).
+
+Un garde-fou existant a dû être **corrigé et non contourné** :
+`RefonteVague5IntegrationTests` figeait `RecetteScreen.allCases.count == 12`. Les six écrans de
+fenêtre principale le faisaient tomber sans rien dire de faux — ils n'ouvrent aucune réunion,
+et c'est ce que le test gouverne. Il filtre désormais sur la cible, et ce qu'il tient reste
+exact.
 
 ### Écarts et décisions prises
 
