@@ -18,10 +18,12 @@ import SwiftData
 /// | Tableau ou groupement | `PortfolioTable`, `PortfolioGroupedView` |
 /// | Pied | `PortfolioBuilder.footer` |
 ///
-/// **Trois requêtes seulement.** Les projets, les réunions et les entités. Les
-/// jalons viennent par la relation (`Project.milestones`) et le chef de projet
-/// par la sienne ; le tableau se reconstruit quand l'une des trois change, une
-/// fois, par `recharger`.
+/// **Quatre requêtes.** Les projets, les réunions, les entités et les réglages
+/// (pour les vues enregistrées). Les jalons viennent par la relation
+/// (`Project.milestones`) et le chef de projet par la sienne ; le tableau se
+/// reconstruit quand les projets ou les réunions changent, une fois, par
+/// `recharger`. Leur coût sur un store réel n'est pas mesuré — dette inscrite
+/// à `docs/architecture.md` §13.
 struct PortfolioView: View {
 
     /// Le pied du tableau : mesure « méta » du handoff.
@@ -122,8 +124,8 @@ struct PortfolioView: View {
         }
     }
 
-    /// Clic sur une ligne : l'écran du projet. Le lot 4 y montera l'écran à six
-    /// onglets ; jusque-là la route ouvre la fiche complète.
+    /// Clic sur une ligne : l'écran projet à six onglets, sur l'onglet
+    /// Pilotage (`MainRouter.openProject`, lot 4).
     private func ouvrir(_ ligne: PortfolioRow) {
         guard let projet = model.projet(ligne) else { return }
         router.openProject(projet)

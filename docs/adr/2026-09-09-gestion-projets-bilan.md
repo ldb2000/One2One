@@ -167,6 +167,19 @@ au deuxième clic accidentel).
   dans le fichier. Les entrées historiques de la barre (« Tableau de bord », « Actions »…) sont
   donc en fonte système à côté d'une section « Projets » en Plex — le handoff les déclare
   « inchangées ». Le découpage du fichier est la condition de la bascule.
+- **`MainRouter.back()` et `history` n'ont aucun appelant applicatif** : seuls les tests les
+  exercent. L'histoire est écrite à chaque `open` et bornée à vingt écrans, pour un retour que
+  rien ne déclenche — ni raccourci, ni bouton, ni geste. Soit on livre le geste, soit on retire
+  les deux.
+- **Deux fenêtres principales partageraient `MainRouter.shared`.** `⌘N` n'est pas neutralisé et
+  le `WindowGroup` de `ContentView` en accepte plusieurs : la seconde fenêtre afficherait la
+  route de la première et la lui volerait au premier clic. Le singleton était le prix de
+  `MenuBarController`, qui est un `NSObject` sans environnement ; `MainWindowRegistry` a le même
+  présupposé — une fenêtre principale.
+- **`AtRiskView` journalise par `print`** (`AtRiskView.swift:169`, création de réunion échouée),
+  là où le reste du dossier avale ses erreurs en silence : deux politiques, aucune des deux
+  n'étant celle du reste de l'application (`os.Logger`). À prendre avec le chantier « les
+  écritures projet disent quand elles échouent ».
 - **Le hook `documentation-apres-pr` n'a jamais déclenché** dans les sessions de ce chantier
   (il a été enregistré après leur démarrage) : son test de bout en bout dans une session neuve
   reste dû.

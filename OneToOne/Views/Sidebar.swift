@@ -190,12 +190,12 @@ struct MainSidebarView: View {
     /// La sélection de la `List`, **locale**, et non la route du routeur.
     ///
     /// Le binding a longtemps été `$mainRouter.route` : la barre latérale
-    /// pilotait l'écran directement. C'était un défaut, relevé deux fois à la
-    /// recette du 2026-09-09 — `NSTableView` conserve un **index** de ligne, et
-    /// quand l'ensemble des lignes change (semis, épinglage, recherche, groupe
-    /// déplié) SwiftUI retraduit cet index en tag d'une **autre** ligne et
-    /// l'écrit dans le binding. L'application ouvrait alors une fiche que
-    /// personne n'avait demandée. Voir `SidebarSelectionGuard`.
+    /// pilotait l'écran directement. C'était un défaut, relevé **trois** fois à
+    /// la recette du 2026-09-09 — `NSTableView` conserve un **index** de ligne,
+    /// et quand il redispose ses lignes (semis, épinglage, recherche, groupe
+    /// déplié, fenêtre redimensionnée) SwiftUI retraduit cet index en tag d'une
+    /// **autre** ligne et l'écrit dans le binding. L'application ouvrait alors
+    /// une fiche que personne n'avait demandée. Voir `SidebarSelectionGuard`.
     @State private var selectionDeLaListe: MainRoute?
 
     /// Quand la composition des lignes a changé pour la dernière fois.

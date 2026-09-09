@@ -240,13 +240,18 @@ struct ProjectsSidebarSectionTests {
                 == ["P25_001", "P25_002", "P25_003"])
     }
 
-    // MARK: - Les récents de la recette `p2b`
+    // MARK: - Les récents des recettes `p2b` et `p2a`
 
-    @Test("L'écran `p2b` est le seul à préremplir les récents, dans l'ordre de la capture")
+    /// Les **deux** écrans de barre latérale préremplissent les récents : la
+    /// capture `2a-sidebar-section-projets.png` montre la sous-section comme
+    /// `2b`, et depuis le retrait de l'arbre au lot 6 c'est le même écran.
+    @Test("Les deux écrans de barre latérale préremplissent les récents, dans l'ordre de la capture")
     func recentsDeRecette() {
-        #expect(RecetteScreen.sectionProjets.codesDeProjetsRecents
-                == ["P25_140", "P25_099", "P25_204"])
-        for ecran in RecetteScreen.allCases where ecran != .sectionProjets {
+        let attendus = ["P25_140", "P25_099", "P25_204"]
+        #expect(RecetteScreen.sectionProjets.codesDeProjetsRecents == attendus)
+        #expect(RecetteScreen.sectionProjetsFinale.codesDeProjetsRecents == attendus)
+        for ecran in RecetteScreen.allCases
+        where ecran != .sectionProjets && ecran != .sectionProjetsFinale {
             #expect(ecran.codesDeProjetsRecents.isEmpty,
                     "\(ecran.rawValue) prérempli des récents")
         }
