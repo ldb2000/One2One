@@ -629,3 +629,18 @@ Constatés **par lecture** ; la recette n'est pas de ce lot.
   refonte réunion) en a un éditeur, derrière sa bascule globale `Édition`. Le repli explicitement
   autorisé par le dispatch. `pendingFocusField = .milestone(stableID)` est bien posé et consommé :
   le jour où l'onglet portera un panneau de jalons, il n'y aura qu'à l'honorer.
+
+### Correctif transverse porté par ce lot (origine : lot 3)
+
+La recette `p1f` a rejoué le remappage de sélection de la barre latérale, cette fois déclenché
+par un **redimensionnement** de la fenêtre vingt secondes après le lancement : deux projets
+ouverts sans clic, « À risque » non surligné. `NSTableView` remappe ses index quand il
+redispose ses lignes, pas seulement quand leur nombre change — la liste noire temporelle du
+lot 3 ne pouvait pas le couvrir. La garde repose désormais sur l'**événement d'entrée en cours
+de traitement** (`NSApp.currentEvent`, âge maximal 1 s), le chemin sans événement restant
+ouvert pour l'accessibilité sous deux garde-fous. La même capture a révélé un **second**
+défaut, indépendant : un projet à la fois épinglé et récent apparaissait deux fois dans la
+même `List` sous la même identité, ce qui lui faisait perdre sa pastille de statut ;
+`SidebarProjectRow` préfixe désormais l'identité par la sous-section. Détail complet dans
+`lot-3-report.md`, section « Correction 3 » — le défaut vient du lot 3, c'est la pile du lot 5
+qui le porte.
