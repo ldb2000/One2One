@@ -34,6 +34,7 @@ Les décisions validées, de la plus récente à la plus ancienne.
 
 | Date | Décision | Sujet |
 |---|---|---|
+| 2026-09-09 | [Refonte de la gestion des projets — bilan des décisions D0 à D18](2026-09-09-gestion-projets-bilan.md) | les sept lots du chantier : décisions telles qu'appliquées, écarts assumés avec les captures, défauts trouvés, dettes |
 | 2026-09-09 | [Un routeur pour la fenêtre principale](2026-09-09-routeur-de-navigation.md) | `MainRoute` / `MainRouter` / `MainDetailView` : la barre latérale sélectionne une route (D0) |
 | 2026-09-09 | [L'écran projet s'édite champ par champ](2026-09-09-edition-in-place-fiche-projet.md) | `EditableInPlace`, brouillon étendu, annulation par instantané (D9) |
 | 2026-09-09 | [⌘K va à la palette, l'assistant passe à ⌘⇧K](2026-09-09-palette-commande-k.md) | `AppShortcut` : la table des raccourcis sort de l'écran de réunion (D1) |
