@@ -285,6 +285,17 @@ struct ContentView: View {
     /// de quel lot vient chaque pixel — et se tromperait.
     @MainActor
     private func ouvrirEcranDeRecette(_ ecran: RecetteScreen) {
+        // Fenêtre principale (décision **D6**) : le portefeuille de
+        // démonstration, puis une route — **aucune** fenêtre de réunion. Les
+        // semis de réunion ne sont pas appelés : ils n'ont rien à voir avec le
+        // Portfolio, et ouvriraient une seconde fenêtre par-dessus la capture.
+        if case .fenetrePrincipale(let route) = ecran.cible {
+            let focus = RefonteDemoSeed.seedPortfolio(in: context)
+            mainRouter.pendingPaletteQuery = ecran.termeDePalette
+            mainRouter.open(routeDeRecette(route, focus: focus))
+            return
+        }
+
         let demonstration = RefonteDemoSeed.seedLot5(in: context)
         _ = RefonteDemoSeed.seedLot6(in: context)
         _ = RefonteDemoSeed.seedLot7(in: context)
@@ -313,6 +324,11 @@ struct ContentView: View {
             // les objets annotés du lot 17 ni les légendes du lot 18. Le plus
             // complet enveloppe les autres, et reste idempotent.
             cible = RefonteDemoSeed.seedWorkshopSession(in: context)
+        case .fenetrePrincipale:
+            // Traité plus haut, avant les semis de réunion. Le cas est ici pour
+            // que le `switch` reste total : c'est lui, et non un `default`, qui
+            // fera parler le compilateur au prochain écran ajouté.
+            return
         }
         guard let cible else { return }
 
@@ -323,6 +339,22 @@ struct ContentView: View {
                                   forKey: MeetingScreenModel.modeKey(for: cible.ensuredStableID))
         router.pendingToken = OneToOneLaunchToken(meetingID: cible.ensuredStableID,
                                                   autoStartRecording: false)
+    }
+
+    /// La route à ouvrir, recalée sur le projet **réellement** semé.
+    ///
+    /// `RecetteScreen.ecranProjet` désigne le projet par un identifiant
+    /// constant. Si le store portait déjà un projet du même code, le semis le
+    /// rend tel quel — avec son propre identifiant — et la route constante ne
+    /// désignerait plus rien. Le home de recette est jetable, donc le cas ne
+    /// s'y produit pas ; le recalage est là pour le semis lancé depuis le menu,
+    /// sur une base réelle.
+    @MainActor
+    private func routeDeRecette(_ route: MainRoute, focus: Project?) -> MainRoute {
+        guard case .project(let id, let onglet) = route,
+              id == RefonteDemoSeed.portfolioFocusProjectStableID,
+              let focus else { return route }
+        return .project(focus.ensuredStableID, onglet)
     }
 
     /// Lance, si activé dans les réglages et au plus une fois par 24 h, un job
