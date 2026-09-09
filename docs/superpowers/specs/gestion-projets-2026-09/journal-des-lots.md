@@ -445,3 +445,119 @@ Constatés **par lecture** ; la recette n'est pas de ce lot.
   noms de projet à 560 pt.
 - **`MeetingShortcutsSheet` garde son nom** alors qu'elle rend une table qui n'est plus
   seulement de réunion : hors intention de ce lot.
+
+---
+
+## Lot 4 — Écran projet de pilotage (1d) (2026-09-09)
+
+Branche `feat/projets-lot-4-ecran-projet`, base `ceaa026` (tête du lot 3), **rebasée en fin de
+course sur `feat/projets-lot-3-palette`** après les correctifs de barre latérale, de palette et
+de recette du coordinateur. Rien poussé, arbre propre, aucun `git stash`, aucun lancement
+graphique, aucun build release — la recette `p1d` est prise par le coordinateur depuis un autre
+checkout.
+
+### Ce que le lot livre
+
+**Deux règles pures, écrites et testées avant la moindre vue (D10, D11).**
+`ProjectPilotageBuilder.build(project:meetings:suggestions:today:)` rend un
+`ProjectPilotageState` : les quatre tuiles, les quatre lignes d'actions (retards d'abord, puis
+l'ordre manuel de la liste — c'est celui de la capture), les trois réunions, les trois mails et
+leur invite de rattachement, les trois interlocuteurs, le risque et les cinq lignes d'identité,
+plus l'alerte de deadline. Aucune vue de l'onglet ne recompte quoi que ce soit.
+`MeetingTypeBadge` porte D10 : un COPIL se reconnaît à un thème ou à un titre — `MeetingKind`
+n'en a pas et n'en aura pas —, un atelier et un 1:1 à leur `kind`, et toute autre réunion n'a
+pas de badge.
+
+**L'édition in-place (D9, ADR `docs/adr/2026-09-09-edition-in-place-fiche-projet.md`).**
+`EditableInPlace` : clic sur la valeur → champ actif, `⏎` (une ligne) ou `⌘⏎` (un paragraphe)
+valide, `esc` referme le champ **et rien d'autre**. `EditableTextField` et `EditableTextEditor`
+gagnent `onSubmit` / `onCancel`, `nil` par défaut — les vingt-cinq usages historiques et le
+`.onExitCommand` de `ProjectCardPanel` sont intacts, ce qu'un test fige. `ProjectCardDraft`
+couvre désormais nom, sponsor, phase, type, risque, jours, fin de design, entité et les deux
+relations de rôle ; son statut passe en `statusRaw`, ce qui met fin à un défaut réel — un
+enregistrement réétiquetait « Yellow » les soixante-deux projets du store dont le statut est
+« Unknown ». `ProjectCardPanel.meeting` devient optionnel.
+
+**L'écran (`Views/Project/`).** `ProjectScreen` est un routeur : en-tête, six onglets, contenu.
+`ProjectHeader` porte le fil d'Ariane `Portfolio / <entité> / <code>`, le nom en 21 pt, les
+pilules (statut, phase, type, entité, alerte de deadline) et les trois commandes ;
+`ProjectTabs` les six onglets soulignés, badgés des actions ouvertes et des mails. `Pilotage/`
+tient les cartes — `KPITiles`, `OpenActionsCard`, `RecentMeetingsCard`, `ScopeCard`,
+`SideColumn` — et `Tabs/` les quatre onglets secondaires, dont `ProjectDocumentsTab`, sorti de
+`ProjectDetailView`.
+
+**La heatmap devient une tuile.** `MeetingHeatmapView` quitte la fiche projet pour la tuile
+« RYTHME » (huit barres sur douze semaines, dégradé `okBg → ok`) mais **n'est pas supprimée** :
+le tableau de bord l'emploie encore, à deux endroits. `ProjectDetailView` devient l'onglet
+« Fiche complète » et perd sa barre d'outils : Archiver et Supprimer passent dans le menu `···`
+de l'en-tête, avec confirmation pour la seconde ; Enregistrer descend dans le corps de la fiche.
+
+### Décisions prises
+
+1. **Le résumé d'une réunion est sa première décision, à défaut son résumé court.** La carte
+   s'appelle « résumé de décision » (handoff §1d) et le coordinateur l'a tranché ainsi. Sur le
+   semis, la ligne COPIL affichera donc « Le lot « annuaire » sort du périmètre v1 » là où la
+   maquette écrit le résumé complet — écart visible, un `swap` de deux lignes pour l'inverser.
+2. **Les actions non en retard suivent `sortOrder`, pas l'échéance.** La capture montre
+   « Planifier l'atelier sécurité », sans échéance, en quatrième ligne, devant deux actions
+   datées de la semaine suivante : c'est l'ordre de la liste d'actions du projet.
+3. **Une origine d'action n'est affichée que si la réunion porte un badge.** « Issue de la
+   réunion projet du 08/09 » n'apprend rien sur un écran qui ne montre que ce projet.
+4. **`ProjectStatus.displayLabel` et non `ProjectCardStatus`** pour le libellé de la pilule de
+   statut : c'est l'énumération D14, posée au lot 0 pour cette rangée précise, et elle sait
+   dire « Statut inconnu ». Conséquence : « En alerte » au lieu de « En risque » pour un projet
+   rouge.
+5. **Les pilules réutilisent les tables de teintes du lot 2, pas leurs géométries.** Le
+   Portfolio dessine des badges de rayon 4 à 11,5 pt, la capture 1d des capsules de 12 pt.
+6. **La résolution d'une identité SwiftData passe par une requête**, jamais par
+   `ModelContext.model(for:)` : celui-ci rend un objet faulté quand l'identité vient d'un autre
+   conteneur, et la suite complète en ouvre un par cas — le test des relations passait isolément
+   et échouait en suite.
+7. **`⌘⏎` valide un paragraphe**, `⏎` y insère un retour à la ligne. Le handoff écrit `⏎` sans
+   distinguer ; un périmètre de trois phrases doit pouvoir en contenir. Le champ actif l'annonce.
+
+**Un défaut SwiftData trouvé en route, et réparé.** Le test des relations du brouillon passait
+seul et tombait **une fois sur huit** en suite complète. Sonde de 200 tours : réaffecter
+`Project.entity` — passer d'une entité à une autre — puis appeler `save()` perd la nouvelle
+valeur **70 fois sur 200** ; la même réaffectation *sans* `save` n'échoue jamais, et une
+première affectation non plus. `Entity.projects` est le seul inverse déclaré du modèle, et
+lire cette collection juste après le même `save` lève « Fatal error: Never access a full future
+backing data » — c'est aussi ce qui faisait sortir la suite complète en `SIGTRAP` de temps en
+temps. `ProjectRelationWriter` affecte, enregistre, **relit et répare** : 0 perte sur 200.
+`ProjectBatchActions.setEntity` (lot 2) portait le même défaut et y passe désormais ;
+`Tests/ProjectRelationWriterTests.swift` répète chaque scénario trente fois, parce qu'un tour
+unique ne prouve rien contre un défaut à une chance sur trois.
+
+### Écarts avec la capture `1d-ecran-projet-pilotage.png`
+
+Constatés **par lecture** ; la recette n'est pas de ce lot.
+
+1. **Le badge « Mails 12 » affichera 2.** Le semis pose deux `ProjectMail` — ce que la carte
+   « MAILS LIÉS » montre — et le coordinateur a fixé le badge à `project.mails.count`. Le 12 de
+   la maquette n'a aucune source (réserve n° 5 du lot 0, toujours ouverte).
+2. **Le résumé de la ligne COPIL** (décision n° 1 ci-dessus).
+3. **Le pied du périmètre s'arrêtera à « Cliquer pour éditer ».** La maquette écrit « dernière
+   mise à jour par RIGAUT Manuel, hier » ; le modèle ne garde pas **qui** a touché le périmètre,
+   et `scopeUpdatedAt` est `nil` sur le semis — il ne se remplit qu'à la première édition.
+4. **Les hauteurs des barres de rythme ne sont pas celles de la maquette.** Elles sont
+   proportionnelles au nombre de réunions par tranche de dix jours et demi ; la maquette dessine
+   huit hauteurs décoratives. Le compte, lui, est juste : neuf réunions.
+5. **Le rôle d'un interlocuteur et la sous-ligne d'un mail sont en `ink4`, pas `inkMuted`** : à
+   11 pt, `inkMuted` n'atteint pas 4,5:1 (§1.2 des contraintes globales). Même arbitrage qu'au
+   lot 1, invisible à l'œil.
+6. **La piste de la jauge de charge est en `hair`** là où la maquette écrit `#EFEBE3`, et le
+   bord d'une case à cocher non en retard en `dashedBorder` (22 %) là où elle écrit 24 % : ce
+   sont les jetons les plus proches, et aucune couleur ne se nomme hors `One2OneToken`.
+7. **Les noms de projet sont ceux du semis, tronqués à une ligne** — même remarque qu'aux
+   lots 1, 2 et 3.
+
+### Ce qui reste dû
+
+- **La recette `p1d`** (hors périmètre du lot). Six points à regarder : le rendu du menu `···`
+  et des deux menus de la colonne latérale (le piège `.borderlessButton` du lot 2), le
+  soulignement de 2 px des onglets, la largeur réelle de la colonne principale à 1242 pt, le
+  champ d'édition in-place au clic (aucun pixel observé), la bannière d'annulation en
+  superposition basse, et le `⌘⏎` du périmètre face aux raccourcis de menu.
+- **Les pilules de l'en-tête ne sont pas éditables au clic**, alors que le brouillon porte leurs
+  champs : la capture ne montre aucune affordance d'édition dessus, et l'onglet « Fiche
+  complète » les couvre. À rouvrir si Laurent veut éditer une phase depuis l'en-tête.

@@ -107,6 +107,16 @@ final class Project {
     /// CONTEXTE » de la fiche projet (lot 9).
     var scopeText: String = ""
 
+    /// Dernière édition du périmètre. Alimente le pied de la carte
+    /// « PÉRIMÈTRE & CONTEXTE » de l'écran projet (« Cliquer pour éditer ·
+    /// dernière mise à jour hier », capture `1d-ecran-projet-pilotage.png`).
+    ///
+    /// Champ **optionnel** : la migration reste légère, aucun `SchemaV4`
+    /// (constat §2.23). `nil` sur toutes les lignes existantes, et le pied se
+    /// réduit alors à l'invitation — on ne datera pas une édition qu'on n'a
+    /// pas observée.
+    var scopeUpdatedAt: Date? = nil
+
     /// Thèmes libres du projet, encodés en JSON (façade `tags`). JSON et non
     /// relation vers `MeetingTag` : ce sont des étiquettes de fiche, sans
     /// couleur ni partage avec les thèmes de réunion.

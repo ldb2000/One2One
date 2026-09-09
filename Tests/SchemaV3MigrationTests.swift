@@ -153,6 +153,9 @@ struct SchemaV3MigrationTests {
         // valeur par défaut, donc **pas** de `SchemaV4`. Le défaut est ici pour
         // qu'un futur `SchemaV4` ne passe pas inaperçu.
         #expect(projet.pinned == false)
+        // Lot 4 (D9) : même motif — `scopeUpdatedAt` est un champ optionnel,
+        // donc toujours pas de `SchemaV4`.
+        #expect(projet.scopeUpdatedAt == nil)
 
         projet.tags = ["migration", "budget"]
         #expect(projet.tags == ["migration", "budget"])
