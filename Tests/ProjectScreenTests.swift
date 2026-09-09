@@ -389,6 +389,28 @@ struct ProjectScreenTests {
         #expect(barre.contains("MeetingHeatmapView("))
     }
 
+    /// Archiver retire le projet du Portfolio **et** de la barre latérale : il
+    /// disparaît de tous les écrans où on le cherchait, et rien ne le signale
+    /// une fois le menu refermé. Désarchiver ne fait que le ramener.
+    @Test("Archiver demande confirmation, désarchiver non")
+    func confirmationDArchivage() throws {
+        #expect(ProjectHeader.confirmerLArchivage == "Archiver ce projet ?")
+        #expect(ProjectHeader.archiver == "Archiver")
+        #expect(ProjectHeader.annuler == "Annuler")
+        #expect(ProjectHeader.detailDeLArchivage
+                == "Le projet quitte le Portfolio et la barre latérale. "
+                 + "Rien n'est supprimé : « Désarchiver » le ramène.")
+        #expect(ProjectHeader.confirmerLaSuppression == "Supprimer ce projet ?")
+        #expect(ProjectHeader.conserver == "Conserver")
+
+        let source = try source("OneToOne/Views/Project/ProjectScreen.swift")
+        // Deux dialogues, et le second n'est armé que pour un projet actif.
+        #expect(source.contains("isPresented: $confirmerLArchivage"))
+        #expect(source.contains("isPresented: $confirmerLaSuppression"))
+        #expect(source.contains("if project.isArchived {\n            basculerLArchivage()"),
+                "un projet archivé se désarchive sans question")
+    }
+
     /// « Archiver » et « Supprimer » sont passés dans le menu `···` de
     /// l'en-tête ; « Enregistrer » est descendu dans le corps de la fiche.
     @Test("La fiche complète a perdu sa barre d'outils")

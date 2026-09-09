@@ -22,6 +22,17 @@ struct ProjectHeader: View {
     static let supprimer = "Supprimer"
     static let ouvrirLaFiche = "Ouvrir la fiche complète"
     static let confirmerLaSuppression = "Supprimer ce projet ?"
+    /// Archiver retire le projet du Portfolio et de la barre latérale : ce
+    /// n'est pas destructeur, mais c'est un projet qui **disparaît** de tous
+    /// les écrans où on le cherchait. La question est donc posée — au
+    /// contraire de « Désarchiver », qui ne fait que le ramener.
+    static let confirmerLArchivage = "Archiver ce projet ?"
+    static let detailDeLArchivage = "Le projet quitte le Portfolio et la barre latérale. "
+                                  + "Rien n'est supprimé : « Désarchiver » le ramène."
+    static let annuler = "Annuler"
+    static let conserver = "Conserver"
+    static let detailDeLaSuppression = "Le projet, ses jalons, ses actions et ses pièces "
+                                     + "jointes seront supprimés."
     static let sansEntite = "Sans entité"
     static let drapeau = "⚑"
 

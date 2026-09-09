@@ -37,6 +37,7 @@ struct ProjectScreen: View {
     /// L'instantané d'avant enregistrement, restauré par `UndoBanner`.
     @State private var undoSnapshot: ProjectCardDraft?
     @State private var confirmerLaSuppression = false
+    @State private var confirmerLArchivage = false
     @State private var fileDeMails = false
 
     // MARK: - Rendu
@@ -58,9 +59,16 @@ struct ProjectScreen: View {
         .confirmationDialog(ProjectHeader.confirmerLaSuppression,
                             isPresented: $confirmerLaSuppression) {
             Button(ProjectHeader.supprimer, role: .destructive) { supprimer() }
-            Button("Conserver", role: .cancel) {}
+            Button(ProjectHeader.conserver, role: .cancel) {}
         } message: {
-            Text("Le projet, ses jalons, ses actions et ses pièces jointes seront supprimés.")
+            Text(ProjectHeader.detailDeLaSuppression)
+        }
+        .confirmationDialog(ProjectHeader.confirmerLArchivage,
+                            isPresented: $confirmerLArchivage) {
+            Button(ProjectHeader.archiver) { basculerLArchivage() }
+            Button(ProjectHeader.annuler, role: .cancel) {}
+        } message: {
+            Text(ProjectHeader.detailDeLArchivage)
         }
         .sheet(isPresented: $fileDeMails) {
             MailSuggestionReviewSheet { fileDeMails = false }
@@ -207,7 +215,21 @@ struct ProjectScreen: View {
             OneToOneLaunchToken(meetingID: reunion.ensuredStableID, autoStartRecording: false)
     }
 
+    /// Archiver **demande confirmation**, désarchiver non.
+    ///
+    /// Archiver retire le projet du Portfolio et de la barre latérale : il
+    /// disparaît de tous les écrans où on le cherchait, et rien ne le signale
+    /// une fois le menu refermé. Désarchiver ne fait que le ramener — un geste
+    /// qui rend visible n'a pas à se justifier.
     private func archiver() {
+        if project.isArchived {
+            basculerLArchivage()
+        } else {
+            confirmerLArchivage = true
+        }
+    }
+
+    private func basculerLArchivage() {
         project.isArchived.toggle()
         enregistrer()
     }

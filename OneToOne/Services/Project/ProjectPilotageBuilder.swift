@@ -308,19 +308,21 @@ enum ProjectPilotageBuilder {
         }
     }
 
-    /// Le résumé montré sous le titre d'une réunion : **la première décision**,
-    /// à défaut le résumé court.
+    /// Le résumé montré sous le titre d'une réunion : **le résumé court**, à
+    /// défaut la première décision.
     ///
-    /// Dans cet ordre parce que la carte s'appelle « résumé de **décision** »
-    /// (handoff §1d) : ce qui a été tranché prime sur ce qui a été raconté.
-    /// La maquette, elle, écrit le résumé court des deux réunions qui en
-    /// portent un — écart assumé et signalé dans le rapport du lot.
+    /// Dans cet ordre parce que **la capture fait autorité sur le rendu** :
+    /// `1d-ecran-projet-pilotage.png` écrit sous le COPIL « Décision : le lot
+    /// « annuaire » sort du périmètre v1. 3 actions créées, CR envoyé au
+    /// sponsor. » — la phrase entière, qui dit la décision *et* ce qu'elle a
+    /// produit. La première `decisionEntries` seule ne rendait que la moitié
+    /// de gauche. Elle reste le repli : une réunion sans résumé court mais
+    /// avec une décision doit montrer sa décision plutôt qu'une ligne vide.
     static func resumeDeDecision(_ meeting: Meeting) -> String {
-        if let premiere = meeting.decisionEntries.first?.text
-            .trimmingCharacters(in: .whitespacesAndNewlines), !premiere.isEmpty {
-            return premiere
-        }
-        return meeting.shortSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let court = meeting.shortSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !court.isEmpty { return court }
+        return meeting.decisionEntries.first?.text
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     // MARK: - Rythme

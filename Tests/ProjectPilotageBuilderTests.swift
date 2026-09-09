@@ -328,15 +328,41 @@ struct ProjectPilotageBuilderTests {
         ])
     }
 
-    /// La carte s'appelle « résumé de décision » : la première décision prime
-    /// sur le résumé court, et le résumé court sert de repli.
-    @Test("Le résumé d'une réunion est sa première décision, à défaut son résumé court")
+    /// **La capture fait autorité** : sous le COPIL, elle écrit la phrase
+    /// entière du résumé court — la décision *et* ce qu'elle a produit —, pas
+    /// la seule `decisionEntries`, qui n'en est que la moitié de gauche.
+    @Test("Le résumé d'une réunion est son résumé court, au caractère près")
     func resumeDeDecision() throws {
         let semis = try semis()
-        #expect(semis.etat.meetings[0].resume == "Le lot « annuaire » sort du périmètre v1")
+        #expect(semis.etat.meetings[0].resume
+                == "Décision : le lot « annuaire » sort du périmètre v1. "
+                 + "3 actions créées, CR envoyé au sponsor.")
         #expect(semis.etat.meetings[1].resume
                 == "Choix d’architecture retenu : passerelle IO mutualisée.")
+        // Le 1:1 n'a ni résumé court ni décision : la ligne n'a pas de résumé.
         #expect(semis.etat.meetings[2].resume.isEmpty)
+    }
+
+    /// Le repli : une réunion sans résumé court mais avec une décision montre
+    /// sa décision plutôt qu'une ligne vide.
+    @Test("Sans résumé court, la première décision prend la place")
+    func resumeReplieSurLaDecision() throws {
+        let contexte = try contexteEnMemoire()
+        let projet = projetNu(contexte)
+        let reunion = Meeting(title: "Arbitrage", date: midi(-1), notes: "")
+        reunion.kind = .project
+        reunion.decisions = ["On garde le périmètre v1", "On reporte l’annuaire"]
+        contexte.insert(reunion)
+        reunion.project = projet
+        #expect(ProjectPilotageBuilder.resumeDeDecision(reunion) == "On garde le périmètre v1")
+
+        reunion.shortSummary = "  Le COPIL a tranché en dix minutes.  "
+        #expect(ProjectPilotageBuilder.resumeDeDecision(reunion)
+                == "Le COPIL a tranché en dix minutes.")
+
+        reunion.shortSummary = "   "
+        reunion.decisions = []
+        #expect(ProjectPilotageBuilder.resumeDeDecision(reunion).isEmpty)
     }
 
     // MARK: - Carte « PÉRIMÈTRE & CONTEXTE »
