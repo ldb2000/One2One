@@ -151,6 +151,25 @@ final class MainRouter {
         return pendingPaletteQuery
     }
 
+    /// Ouvre la palette si un terme l'attend, et dit si elle s'est ouverte.
+    ///
+    /// **Ici et non dans la vue** : c'est la seule moitié du chemin de la
+    /// recette `p1c` qui soit vérifiable par un test — le reste est du rendu
+    /// SwiftUI. La vue l'appelle à son apparition **et** à chaque fois que
+    /// `pendingPaletteQuery` change, ce qui la rend insensible à l'ordre
+    /// relatif du semis et du premier `onAppear` : quel que soit celui qui
+    /// arrive en premier, la palette s'ouvre une fois.
+    ///
+    /// Idempotente : le terme est consommé, donc un second appel rend `false`
+    /// et n'ouvre rien. Elle ne peut pas boucler avec l'`onChange` qui
+    /// l'appelle.
+    @discardableResult
+    func ouvrirLaPaletteEnAttente() -> Bool {
+        guard let terme = consumePendingPaletteQuery() else { return false }
+        ouvrirPalette(terme: terme)
+        return true
+    }
+
     // MARK: - Portfolio
 
     /// Rend la vue enregistrée en attente et la retire, pour qu'un second

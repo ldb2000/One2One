@@ -71,11 +71,19 @@ struct CommandPalette: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Le tapis : transparent, mais il prend les clics — cliquer à côté
-            // referme, et rien de la fenêtre ne réagit pendant ce temps.
+            // Le tapis : transparent, mais il prend les clics — rien de la
+            // fenêtre ne réagit tant que la palette est ouverte.
+            //
+            // **Il ne referme pas.** Il l'a fait, et c'était un piège : un
+            // clic n'importe où dans la fenêtre suffisait alors à faire
+            // disparaître la palette, y compris un clic destiné à autre chose
+            // ou l'activation d'un élément par l'accessibilité. La recette
+            // `p1c` du 2026-09-09 l'a photographiée absente sans qu'on puisse
+            // dire si elle ne s'était pas ouverte ou si elle venait de se
+            // refermer. `esc` referme, activer une ligne referme ; un clic à
+            // côté ne fait rien. Une ligne à remettre si l'usage la réclame.
             Color.clear
                 .contentShape(Rectangle())
-                .onTapGesture { fermer() }
 
             carte
                 .padding(.top, Self.margeHaute)

@@ -161,13 +161,65 @@ struct CommandPaletteTests {
         #expect(routeur.consumePendingPaletteQuery() == nil)
     }
 
+    @Test("le terme en attente ouvre la palette, une seule fois")
+    func ouvrirLaPaletteEnAttente() {
+        let routeur = MainRouter(defaults: ReglagesEnMemoire())
+        // Rien en attente : rien ne s'ouvre, et surtout la méthode le dit —
+        // c'est ce qui permet de l'appeler à répétition sans boucler.
+        #expect(routeur.ouvrirLaPaletteEnAttente() == false)
+        #expect(!routeur.paletteOuverte)
+
+        routeur.pendingPaletteQuery = "ged"
+        #expect(routeur.ouvrirLaPaletteEnAttente() == true)
+        #expect(routeur.paletteOuverte)
+        #expect(routeur.paletteTerme == "ged")
+        // Le terme est consommé : un second appel n'ouvre rien.
+        #expect(routeur.ouvrirLaPaletteEnAttente() == false)
+        #expect(routeur.pendingPaletteQuery == nil)
+    }
+
+    @Test("l'ouverture ne dépend pas de l'ordre du semis et du premier rendu")
+    func ouvertureInsensibleALOrdre() {
+        // Cas A : le terme est posé **avant** l'apparition (l'ordre nominal).
+        let avant = MainRouter(defaults: ReglagesEnMemoire())
+        avant.pendingPaletteQuery = RecetteScreen.palette.termeDePalette
+        avant.ouvrirLaPaletteEnAttente()
+        #expect(avant.paletteTerme == "ged")
+
+        // Cas B : l'apparition arrive **avant** que le semis pose le terme —
+        // rien ne garantit l'ordre, `maybeSeedRefonteDemo` étant gardé par un
+        // `@State`. C'est l'`onChange(of: pendingPaletteQuery)` qui rattrape.
+        let apres = MainRouter(defaults: ReglagesEnMemoire())
+        apres.ouvrirLaPaletteEnAttente()
+        #expect(!apres.paletteOuverte)
+        apres.pendingPaletteQuery = "ged"
+        apres.ouvrirLaPaletteEnAttente()
+        #expect(apres.paletteTerme == "ged")
+    }
+
+    @Test("un clic à côté ne referme pas la palette")
+    func leTapisNeRefermePas() {
+        let source = Self.source("OneToOne/Views/Palette/CommandPalette.swift")
+        // Le tapis avale les clics — la palette est modale — mais il ne
+        // referme plus : un clic destiné à autre chose, ou une activation par
+        // l'accessibilité, faisait disparaître la palette sans trace.
+        #expect(source.contains("Color.clear"))
+        #expect(source.contains(".contentShape(Rectangle())"))
+        #expect(!source.contains(".onTapGesture { fermer() }"),
+                "le tapis ne doit pas refermer la palette")
+        // `esc` et l'activation d'une ligne, eux, referment toujours.
+        #expect(source.contains(".onKeyPress(.escape) { fermer(); return .handled }"))
+    }
+
     @Test("le point d'entrée de l'application ouvre la palette au lancement")
     func brancheeAuLancement() {
         let source = Self.source("OneToOne/OneToOneApp.swift")
         #expect(source.contains("CommandPalette(router: mainRouter)"))
         #expect(source.contains("mainRouter.paletteOuverte"))
-        #expect(source.contains("consumePendingPaletteQuery()"))
-        #expect(source.contains("mainRouter.ouvrirPalette(terme: terme)"))
+        #expect(source.contains("mainRouter.ouvrirLaPaletteEnAttente()"))
+        // Deux appels : à l'apparition, et à chaque changement du terme en
+        // attente — l'ordre du semis et du premier rendu n'est pas garanti.
+        #expect(source.contains(".onChange(of: mainRouter.pendingPaletteQuery)"))
         // La superposition est posée **avant** `.environment(_:)`, sinon la
         // palette ne verrait pas le routeur de la fenêtre.
         guard let overlay = source.range(of: ".overlay {"),

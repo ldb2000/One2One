@@ -186,7 +186,7 @@ struct ContentView: View {
             maybeRunAutoCleanup()
             runRAGIndexingSweep()
             maybeSeedRefonteDemo()
-            ouvrirLaPaletteDeRecette()
+            mainRouter.ouvrirLaPaletteEnAttente()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -207,6 +207,13 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+        // Filet de la recette `p1c` : si le terme est posé **après** le premier
+        // `onAppear` — ordre que rien ne garantit, `maybeSeedRefonteDemo` étant
+        // gardé par un `@State` —, la palette s'ouvre quand même. L'opération
+        // consomme le terme, donc elle ne peut pas boucler.
+        .onChange(of: mainRouter.pendingPaletteQuery) { _, _ in
+            mainRouter.ouvrirLaPaletteEnAttente()
         }
         .onReceive(router.$pendingToken.compactMap { $0 }) { token in
             openWindow(id: "1to1-meeting", value: token)
@@ -351,18 +358,6 @@ struct ContentView: View {
                                   forKey: MeetingScreenModel.modeKey(for: cible.ensuredStableID))
         router.pendingToken = OneToOneLaunchToken(meetingID: cible.ensuredStableID,
                                                   autoStartRecording: false)
-    }
-
-    /// Ouvre la palette si un terme l'attend (écran de recette `p1c`).
-    ///
-    /// Le terme est posé par `ouvrirEcranDeRecette` dans
-    /// `MainRouter.pendingPaletteQuery`, et **consommé** ici : la palette
-    /// n'existe pas au moment du semis, et une seconde ouverture doit repartir
-    /// vide. Rien ne se passe hors recette — `pendingPaletteQuery` est `nil`.
-    @MainActor
-    private func ouvrirLaPaletteDeRecette() {
-        guard let terme = mainRouter.consumePendingPaletteQuery() else { return }
-        mainRouter.ouvrirPalette(terme: terme)
     }
 
     /// Inscrit dans les récents les projets que l'écran de recette demande.
