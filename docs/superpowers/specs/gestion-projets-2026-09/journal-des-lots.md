@@ -561,3 +561,86 @@ Constatés **par lecture** ; la recette n'est pas de ce lot.
 - **Les pilules de l'en-tête ne sont pas éditables au clic**, alors que le brouillon porte leurs
   champs : la capture ne montre aucune affordance d'édition dessus, et l'onglet « Fiche
   complète » les couvre. À rouvrir si Laurent veut éditer une phase depuis l'en-tête.
+
+---
+
+## Lot 5 — Vue « À risque » (1f) (2026-09-09)
+
+Branche `feat/projets-lot-5-a-risque`, base `7c50de8` puis **rebasée** sur la tête corrigée du
+lot 4 (`faf4538`) — sans conflit. Deux commits : `AtRiskBuilder` d'abord, la vue ensuite.
+`swift test` complet vert : **2 511 Swift Testing / 284 suites + 1 057 XCTest (1 ignoré) =
+3 568**, +42 tests, +2 suites, aucun retiré. **Recette `p1f` non faite** (hors périmètre du lot).
+
+### Ce que le lot livre
+
+- `Services/Project/AtRiskBuilder.swift` — la règle **unique** des trois motifs (D11) :
+  `build(projects:meetings:today:)` rend un `AtRiskReport` (trois listes d'`AtRiskItem`, le
+  nombre de projets **distincts**, le sous-titre accordé). Sur le semis : **2 / 3 / 2, sept
+  projets**, sans recoupement — exactement la capture.
+- `Views/AtRisk/AtRiskView.swift` et `AtRiskGroup.swift` — l'écran 1f : en-tête, trois groupes
+  teintés (`report` / `warn` / `inkMuted`), une carte à bord gauche de 3 pt, une ligne par
+  projet (nom 13 pt/500, détail 12 pt `inkMuted`, action à droite en `action`).
+- Le mécanisme de **champ actif** : `ProjectField` (`Views/Navigation/MainRoute.swift`),
+  `MainRouter.pendingFocusField` + `consumePendingFocusField()`, `openProject(_:tab:focus:)`.
+  `ProjectScreen` le consomme à l'apparition et la carte concernée l'honore une fois.
+- Les trois cibles de « Compléter » : `EditableInPlace` gagne une **ouverture externe** (le
+  sponsor), la carte Interlocuteurs un `ManagerPicker` **prérempli** par
+  `ProjectPeople.suggestedManager` (D3), l'en-tête un `StatusPicker` — la pilule de statut
+  devient cliquable au passage. Deux `popover` et non deux `Menu` : un menu ne s'ouvre pas par
+  programme, et c'est justement ce que « Compléter » demande.
+- `SidebarProjectCounts` **cesse de répéter la règle** : son badge appelle `AtRiskBuilder.count`
+  (le stub du lot 1 disparaît). `sectionLabel(_:)` accepte une teinte. `Views/AtRisk/` entre au
+  périmètre typographique (D17) et au manifeste de documentation.
+
+### Décisions du lot
+
+1. **Le semis n'a pas été touché.** Les comptes 2 / 3 / 2 sortent tels quels, comme le dispatch
+   l'exigeait.
+2. **Une ligne par projet et par groupe**, et le jalon nommé est **le plus ancien** des
+   dépassés : la capture ne montre jamais deux lignes pour un même projet.
+3. **Le plus urgent en tête**, puis l'ordre alphabétique. Le groupe des jalons reproduit la
+   capture (6 j avant 2 j) ; celui des silences non (écart n° 2 ci-dessous).
+4. **La majuscule ne va qu'au premier fragment** d'un détail : « Pas de chef de projet · statut
+   inconnu », comme la capture — et « Statut inconnu » quand il est seul.
+5. **`.milestone` est consommé sans effet** : voir « Ce qui reste dû ».
+
+### Écarts avec la capture `1f-vue-a-risque.png`
+
+Constatés **par lecture** ; la recette n'est pas de ce lot.
+
+1. **L'ordre du groupe « sans réunion » diffère.** La capture range IBMi (34 j), FIN (aucune),
+   NEVIDIS (41 j) — ni par urgence, ni par nom, ni par date. Le code range le plus long silence
+   d'abord : NEVIDIS, FIN, puis IBMi.
+2. **NEVIDIS affichera « Aucune réunion enregistrée » et non « il y a 41 j ».** Le semis du
+   lot 0 ne lui donne aucune réunion (`derniereReunion: nil`), et le dispatch interdit de le
+   modifier tant que les comptes sortent. Une ligne du semis à changer (`derniereReunion: 41`)
+   si la capture doit primer — le compte resterait 3.
+3. **Les noms de projet sont ceux du semis, tronqués à une ligne** — même remarque qu'aux
+   lots 1 à 4 (« AE – Gestion des services IO pour l'association ALP » contre « … pour l'ALP »).
+
+### Ce qui reste dû
+
+- **La recette `p1f`.** Cinq points : le bord gauche de 3 pt sous le `clipShape` de la carte,
+  les séparateurs de 1 px entre lignes, la teinte réellement posée sur les trois titres
+  (`sectionLabel(_:)` est neuf), le `popover` du sélecteur de chef ancré sur la bonne ligne, et
+  l'ouverture automatique du champ sponsor à l'arrivée depuis « Compléter ».
+- **« Replanifier » ouvre l'onglet « Fiche complète » sans mettre le jalon en édition.** Aucune
+  vue de cet onglet ne montre les jalons : seul `ProjectCardPanel` (la fiche de 430 px de la
+  refonte réunion) en a un éditeur, derrière sa bascule globale `Édition`. Le repli explicitement
+  autorisé par le dispatch. `pendingFocusField = .milestone(stableID)` est bien posé et consommé :
+  le jour où l'onglet portera un panneau de jalons, il n'y aura qu'à l'honorer.
+
+### Correctif transverse porté par ce lot (origine : lot 3)
+
+La recette `p1f` a rejoué le remappage de sélection de la barre latérale, cette fois déclenché
+par un **redimensionnement** de la fenêtre vingt secondes après le lancement : deux projets
+ouverts sans clic, « À risque » non surligné. `NSTableView` remappe ses index quand il
+redispose ses lignes, pas seulement quand leur nombre change — la liste noire temporelle du
+lot 3 ne pouvait pas le couvrir. La garde repose désormais sur l'**événement d'entrée en cours
+de traitement** (`NSApp.currentEvent`, âge maximal 1 s), le chemin sans événement restant
+ouvert pour l'accessibilité sous deux garde-fous. La même capture a révélé un **second**
+défaut, indépendant : un projet à la fois épinglé et récent apparaissait deux fois dans la
+même `List` sous la même identité, ce qui lui faisait perdre sa pastille de statut ;
+`SidebarProjectRow` préfixe désormais l'identité par la sous-section. Détail complet dans
+`lot-3-report.md`, section « Correction 3 » — le défaut vient du lot 3, c'est la pile du lot 5
+qui le porte.

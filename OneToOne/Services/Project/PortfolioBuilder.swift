@@ -106,7 +106,7 @@ enum PortfolioBuilder {
     /// « Prochain jalon non fait » (`MilestoneState != .done`) : un jalon
     /// échu et non fait, ou déclaré `.late`, rend `retard` ; sinon la plus
     /// proche échéance à venir rend `J−n` ; sinon un tiret. Comparaison au
-    /// **début du jour**, comme `SidebarProjectCounts.jalonDepasse` — un jalon
+    /// **début du jour**, comme `AtRiskBuilder.jalonDepasse` — un jalon
     /// dû aujourd'hui à midi n'est pas en retard à quinze heures, il est
     /// « J−0 ».
     static func milestoneCell(of projet: Project, today: Date) -> MilestoneCell {

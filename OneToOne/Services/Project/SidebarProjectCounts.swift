@@ -11,16 +11,14 @@ import SwiftData
 /// d'écran, et une règle qui bouge fait tomber un test au lieu de changer un
 /// chiffre en silence.
 ///
-/// ## « À risque » est un stub, et il le reste jusqu'au lot 5
+/// ## « À risque » : la règle est ailleurs
 ///
-/// Les trois motifs du handoff sont écrits ici — jalon dépassé, aucune réunion
-/// tenue depuis trente jours, fiche incomplète — parce que le badge en a besoin
-/// dès ce lot. Le **lot 5** livre `AtRiskBuilder`, qui groupe les projets par
-/// motif pour la capture `1f-vue-a-risque.png` : c'est lui qui portera alors la
-/// règle, et `atRisk` devra l'appeler au lieu de la répéter. Les tests de ce
-/// fichier vérifient chaque motif séparément **pour que la bascule se prouve** :
-/// les chiffres du semis (2 jalons + 3 sans réunion + 2 fiches = 7) sont les
-/// mêmes des deux côtés.
+/// Les trois motifs — jalon dépassé, aucune réunion tenue depuis trente
+/// jours, fiche incomplète — étaient écrits ici au lot 1, faute d'un autre
+/// endroit. Ils vivent depuis le lot 5 dans `AtRiskBuilder`, qui les groupe
+/// pour la capture `1f-vue-a-risque.png` : ce compteur **l'appelle**, il ne
+/// le répète pas. Les chiffres du semis (2 jalons + 3 sans réunion + 2
+/// fiches = 7) sont donc les mêmes des deux côtés par construction.
 struct SidebarProjectCounts: Equatable, Sendable {
 
     /// Projets non archivés — le badge de « Portfolio ».
@@ -36,10 +34,6 @@ struct SidebarProjectCounts: Equatable, Sendable {
 
     /// Aucun projet, aucune action : ce que rend un store vide.
     static let zero = SidebarProjectCounts(active: 0, atRisk: 0, openProjectActions: 0)
-
-    /// Le nombre de jours sans réunion tenue au-delà duquel un projet est à
-    /// risque (motif 2 du handoff).
-    static let sansReunionDepuis = 30
 
     // MARK: - Le comptage
 
@@ -58,76 +52,10 @@ struct SidebarProjectCounts: Equatable, Sendable {
                         meetings: [Meeting],
                         tasks: [ActionTask],
                         today: Date) -> SidebarProjectCounts {
-        let actifs = projects.filter { !$0.isArchived }
-        let derniereReunion = MeetingStatsScope.lastHeldByProject(meetings, today: today)
-
-        let aRisque = actifs.filter { projet in
-            estARisque(projet,
-                       derniereReunion: derniereReunion[projet.persistentModelID],
-                       today: today)
-        }
-
-        return SidebarProjectCounts(
-            active: actifs.count,
-            atRisk: aRisque.count,
+        SidebarProjectCounts(
+            active: projects.filter { !$0.isArchived }.count,
+            atRisk: AtRiskBuilder.count(projects: projects, meetings: meetings, today: today),
             openProjectActions: tasks.filter { $0.status == .open && $0.project != nil }.count
         )
-    }
-
-    // MARK: - « À risque » : les trois motifs
-
-    /// Le projet répond-il à au moins un motif ? Un `ou` — d'où le « compté une
-    /// fois » du badge.
-    static func estARisque(_ project: Project,
-                           derniereReunion: Date?,
-                           today: Date) -> Bool {
-        jalonDepasse(jalons: project.milestones.map { (dueAt: $0.dueAt, state: $0.state) },
-                     today: today)
-            || sansReunionRecente(derniereReunion, today: today)
-            || ficheIncomplete(project)
-    }
-
-    /// Motif 1 — un jalon échu et non fait, ou déclaré en retard.
-    ///
-    /// La comparaison se fait au **début du jour** : un jalon dû aujourd'hui à
-    /// midi n'est pas dépassé à quinze heures. Les échéances du semis sont
-    /// posées à midi pour la même raison.
-    ///
-    /// Prend des tuples et non des `ProjectMilestone` : la règle ne lit que
-    /// deux champs, et un tuple se fabrique dans un test sans store.
-    static func jalonDepasse(jalons: [(dueAt: Date?, state: MilestoneState)],
-                             today: Date) -> Bool {
-        let debutDeJournee = Calendar.current.startOfDay(for: today)
-        return jalons.contains { jalon in
-            if jalon.state == .late { return true }
-            guard jalon.state != .done, let echeance = jalon.dueAt else { return false }
-            return echeance < debutDeJournee
-        }
-    }
-
-    /// Motif 2 — aucune réunion tenue depuis trente jours, ou aucune du tout.
-    static func sansReunionRecente(_ derniereReunion: Date?, today: Date) -> Bool {
-        guard let derniereReunion else { return true }
-        let calendrier = Calendar.current
-        guard let limite = calendrier.date(byAdding: .day,
-                                           value: -sansReunionDepuis,
-                                           to: calendrier.startOfDay(for: today))
-        else { return false }
-        return derniereReunion < limite
-    }
-
-    /// Motif 3 — fiche incomplète : sponsor vide, chef de projet non **lié**
-    /// (décision **D3** : la relation fait foi, le nom du xlsx ne suffit pas)
-    /// ou statut inconnu.
-    ///
-    /// Un statut vide compte comme inconnu : c'est le même vide que celui du
-    /// sponsor. Une valeur hors table (« Réalisation »), elle, ne rend pas la
-    /// fiche incomplète — elle s'affiche en badge neutre, et c'est tout ce que
-    /// D14 en dit.
-    static func ficheIncomplete(_ project: Project) -> Bool {
-        if project.sponsor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if ProjectPeople.manager(of: project) == nil { return true }
-        let statut = project.status.trimmingCharacters(in: .whitespacesAndNewlines)
-        return statut.isEmpty || ProjectStatus(raw: statut) == .unknown
     }
 }

@@ -61,7 +61,11 @@ struct RecentProjectsList: View {
             if !projets.isEmpty {
                 Text(Self.libelle)
                     .sectionLabel()
-                ForEach(projets, id: \.persistentModelID) { projet in
+                // Même raison qu'en « ÉPINGLÉS » : l'identité inclut la
+                // sous-section, sinon un projet présent dans les deux se
+                // rend deux fois sous le même nom (recette `p1f`).
+                ForEach(SidebarProjectRow.lignes(projets, section: Self.libelle)) { ligne in
+                    let projet = ligne.projet
                     Button {
                         ouvrir(projet)
                     } label: {

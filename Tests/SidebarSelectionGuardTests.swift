@@ -13,91 +13,151 @@ import Foundation
 @Suite("Sélection de la barre latérale")
 struct SidebarSelectionGuardTests {
 
+    // MARK: - Outillage
+
+    /// Un clic à l'instant — le contexte nominal d'une sélection voulue.
+    private static let clic = EvenementEntree(nature: .souris, age: 0)
+    /// Une touche à l'instant : `↑`, `↓` ou `⏎` dans la liste.
+    private static let touche = EvenementEntree(nature: .clavier, age: 0)
+
+    /// `decide` avec les valeurs neutres du chemin nominal.
+    private func decide(_ nouvelle: MainRoute?,
+                        depuis ancienne: MainRoute? = .portfolio,
+                        route: MainRoute? = .portfolio,
+                        evenement: EvenementEntree? = Self.clic,
+                        fenetreActive: Bool = true,
+                        lignesStables: Bool = true) -> SidebarSelectionGuard.Decision {
+        SidebarSelectionGuard.decide(ancienne: ancienne,
+                                     nouvelle: nouvelle,
+                                     routeCourante: route,
+                                     evenement: evenement,
+                                     fenetreActive: fenetreActive,
+                                     lignesStables: lignesStables)
+    }
+
     // MARK: - Le cas du défaut
 
-    @Test("une sélection écrite hors action de l'utilisateur est restaurée")
-    func ecritureParasiteRestauree() {
-        // Le scénario de la capture `lot-3-p1c-anomalie.png` : la route est
-        // `.portfolio`, le semis fait apparaître les épinglés, et la `List`
-        // écrit la fiche d'un projet.
+    @Test("le remappage au redimensionnement est refusé — recette p1f")
+    func remappageAuRedimensionnement() {
+        // Vingt secondes après le lancement, un redimensionnement de la
+        // fenêtre a fait ouvrir deux projets. `NSApp.currentEvent` porte alors
+        // un événement synthétique, ou le dernier clic — vieux de vingt
+        // secondes. Les deux sont refusés.
         let parasite = MainRoute.project(UUID(), .pilotage)
-        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                             nouvelle: parasite,
-                                             routeCourante: .portfolio,
-                                             lignesStables: false) == .restaurer)
+        #expect(decide(parasite,
+                       evenement: EvenementEntree(nature: .autre, age: 0)) == .restaurer)
+        #expect(decide(parasite,
+                       evenement: EvenementEntree(nature: .souris, age: 20)) == .restaurer)
+        // Et sans aucun événement, la seule fenêtre active ne suffit pas si
+        // les lignes viennent de bouger.
+        #expect(decide(parasite, evenement: nil, lignesStables: false) == .restaurer)
     }
 
-    @Test("la même sélection, les lignes posées, ouvre la route")
-    func selectionOuvreQuandLesLignesSontStables() {
+    @Test("le remappage au semis est refusé — recettes p1a et p1c")
+    func remappageAuSemis() {
+        // Le premier défaut, celui du lot 3 : le semis fait apparaître les
+        // lignes, l'index est retraduit, aucun événement d'entrée n'est en
+        // cours.
+        let parasite = MainRoute.project(UUID(), .pilotage)
+        #expect(decide(parasite, evenement: nil, lignesStables: false) == .restaurer)
+    }
+
+    @Test("un clic ouvre la route")
+    func clicOuvre() {
         let choisie = MainRoute.project(UUID(), .pilotage)
-        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                             nouvelle: choisie,
-                                             routeCourante: .portfolio,
-                                             lignesStables: true) == .ouvrir(choisie))
+        #expect(decide(choisie, evenement: Self.clic) == .ouvrir(choisie))
     }
 
-    @Test("une sélection sans focus — accessibilité, premier clic — est acceptée")
-    func selectionSansFocusAcceptee() {
-        // Le défaut de la re-relecture (g), confirmé à l'écran le 2026-09-09 :
-        // `AXSelected = true` sur une `AXRow` (ce que fait VoiceOver) était
-        // refusé par la condition de focus, et la garde restaurait l'écran
-        // précédent. Un premier clic depuis un état non focalisé subissait le
-        // même sort dès que le focus s'établissait après l'`onChange`.
-        //
-        // Il n'y a plus de condition de focus : seules les lignes comptent.
-        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                             nouvelle: .atRisk,
-                                             routeCourante: .portfolio,
-                                             lignesStables: true) == .ouvrir(.atRisk))
+    @Test("une touche ouvre la route — ↑, ↓ et ⏎ dans la liste")
+    func toucheOuvre() {
+        #expect(decide(.atRisk, evenement: Self.touche) == .ouvrir(.atRisk))
+    }
+
+    @Test("un clic ouvre même si les lignes viennent de bouger")
+    func clicPrimeSurLesLignes() {
+        // L'événement est une preuve directe ; la stabilité des lignes n'est
+        // qu'un repli pour le chemin sans événement. Cliquer une ligne qui
+        // vient d'apparaître doit marcher.
+        #expect(decide(.atRisk, evenement: Self.clic, lignesStables: false) == .ouvrir(.atRisk))
+    }
+
+    @Test("un événement synthétique n'est pas une action de l'utilisateur")
+    func evenementsSynthetiques() {
+        // `.appKitDefined`, `.periodic`, `.systemDefined`, mouvements de
+        // souris : tous rangés en `.autre` par l'adaptateur.
+        #expect(decide(.atRisk,
+                       evenement: EvenementEntree(nature: .autre, age: 0)) == .restaurer)
+    }
+
+    @Test("un événement d'entrée périmé est refusé")
+    func evenementPerime() {
+        // `NSApp.currentEvent` retient le dernier événement traité quand plus
+        // rien n'est en cours : sans borne d'âge, un vieux clic autoriserait
+        // tout.
+        #expect(decide(.atRisk,
+                       evenement: EvenementEntree(nature: .souris, age: 5)) == .restaurer)
+        #expect(EvenementEntree.ageMaximal == 1)
+        #expect(decide(.atRisk,
+                       evenement: EvenementEntree(nature: .souris, age: 1)) == .ouvrir(.atRisk))
+        #expect(decide(.atRisk,
+                       evenement: EvenementEntree(nature: .souris, age: 1.01)) == .restaurer)
+    }
+
+    @Test("un âge négatif est refusé")
+    func ageNegatif() {
+        #expect(decide(.atRisk,
+                       evenement: EvenementEntree(nature: .souris, age: -1)) == .restaurer)
+    }
+
+    @Test("l'accessibilité sélectionne hors événement : acceptée si la fenêtre est active")
+    func accessibilite() {
+        // VoiceOver pose `AXSelected` sans qu'aucun `NSEvent` ne soit en
+        // cours. Refuser toute écriture sans événement le casserait — c'est le
+        // défaut de la première version de cette garde.
+        #expect(decide(.atRisk, evenement: nil,
+                       fenetreActive: true, lignesStables: true) == .ouvrir(.atRisk))
+        // Mais pas si la fenêtre n'est pas celle avec laquelle on interagit,
+        // ni si les lignes viennent de bouger.
+        #expect(decide(.atRisk, evenement: nil,
+                       fenetreActive: false, lignesStables: true) == .restaurer)
+        #expect(decide(.atRisk, evenement: nil,
+                       fenetreActive: true, lignesStables: false) == .restaurer)
     }
 
     @Test("une désélection ne devient jamais une route")
     func deselectionRestauree() {
         // `List(selection:)` écrit `nil` quand la ligne sélectionnée
-        // disparaît. Un écran vide n'est pas une destination — même quand
-        // l'utilisateur est aux commandes.
-        for stables in [true, false] {
-            #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                                 nouvelle: nil,
-                                                 routeCourante: .portfolio,
-                                                 lignesStables: stables) == .restaurer)
-        }
+        // disparaît. Un écran vide n'est pas une destination — même sous un
+        // clic franc.
+        #expect(decide(nil, evenement: Self.clic) == .restaurer)
+        #expect(decide(nil, evenement: nil) == .restaurer)
     }
 
     @Test("la synchronisation descendante n'ouvre rien et ne restaure rien")
     func synchronisationDescendante() {
         // La palette appelle `router.open(.atRisk)` ; la vue recopie la route
         // dans sa sélection, ce qui redéclenche le garde. Il ne doit ni
-        // rouvrir (boucle) ni restaurer (clignotement).
-        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                             nouvelle: .atRisk,
-                                             routeCourante: .atRisk,
-                                             lignesStables: false) == .ignorer)
-        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                             nouvelle: .atRisk,
-                                             routeCourante: .atRisk,
-                                             lignesStables: true) == .ignorer)
+        // rouvrir (boucle) ni restaurer (clignotement) — quel que soit le
+        // contexte, puisqu'aucun événement n'est en cause.
+        #expect(decide(.atRisk, route: .atRisk, evenement: nil) == .ignorer)
+        #expect(decide(.atRisk, route: .atRisk, evenement: Self.clic) == .ignorer)
+        #expect(decide(.atRisk, route: .atRisk,
+                       evenement: nil, fenetreActive: false,
+                       lignesStables: false) == .ignorer)
     }
 
     @Test("un appel redondant ne fait rien")
     func appelRedondant() {
-        #expect(SidebarSelectionGuard.decide(ancienne: .portfolio,
-                                             nouvelle: .portfolio,
-                                             routeCourante: .portfolio,
-                                             lignesStables: false) == .ignorer)
+        #expect(decide(.portfolio, evenement: nil) == .ignorer)
     }
 
     @Test("restaurer une sélection depuis une route nulle reste sans destination")
     func routeCouranteNulle() {
         // `MainRouter.route` peut être `nil` (le tableau de bord implicite).
-        #expect(SidebarSelectionGuard.decide(ancienne: nil,
-                                             nouvelle: .settings,
-                                             routeCourante: nil,
-                                             lignesStables: false) == .restaurer)
-        #expect(SidebarSelectionGuard.decide(ancienne: nil,
-                                             nouvelle: .settings,
-                                             routeCourante: nil,
-                                             lignesStables: true) == .ouvrir(.settings))
+        #expect(decide(.settings, depuis: nil, route: nil,
+                       evenement: nil, lignesStables: false) == .restaurer)
+        #expect(decide(.settings, depuis: nil, route: nil,
+                       evenement: Self.clic) == .ouvrir(.settings))
     }
 
     // MARK: - Quand les lignes sont-elles posées ?
@@ -209,6 +269,10 @@ struct SidebarSelectionGuardTests {
         #expect(source.contains("List(selection: $selectionDeLaListe)"))
         #expect(source.contains("SidebarSelectionGuard.decide("))
         #expect(source.contains("SidebarSelectionGuard.lignesStables("))
+        // Le discriminant principal : l'événement en cours de traitement, lu
+        // au moment exact où la `List` écrit.
+        #expect(source.contains("evenement: EvenementEntree.courant()"))
+        #expect(source.contains("fenetreActive: EvenementEntree.fenetreActive()"))
         #expect(source.contains("SidebarRowsFingerprint("))
         // Plus de condition de focus : elle refusait des sélections légitimes
         // (accessibilité, premier clic). Voir `SidebarSelectionGuard`.

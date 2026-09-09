@@ -6,10 +6,10 @@ import SwiftData
 ///
 /// **C'est un routeur, comme `MeetingView`** : il monte un écran, il n'en
 /// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`), la
-/// recherche dans les CR aussi (lot 3, `ReportSearchView`) et l'écran projet à
-/// six onglets également (lot 4, `ProjectScreen`) ; les deux écrans restants
-/// de la refonte (À risque, réunions et actions de projets) affichent encore
-/// une invite sobre que les lots 5 et 6 remplaceront. Rien d'autre ne change
+/// recherche dans les CR aussi (lot 3, `ReportSearchView`), l'écran projet à
+/// six onglets également (lot 4, `ProjectScreen`) et la vue « À risque »
+/// depuis le lot 5 (`AtRiskView`) ; les deux listes de projets restantes
+/// affichent encore une invite sobre que le lot 6 remplacera. Rien d'autre ne change
 /// de rendu : chaque entrée de la barre latérale retrouve ici exactement la
 /// destination qu'elle avait en `NavigationLink`.
 struct MainDetailView: View {
@@ -41,8 +41,8 @@ struct MainDetailView: View {
         case .portfolio:
             PortfolioView()
         case .atRisk:
-            MainDetailPlaceholder(titre: "À risque",
-                                  detail: "les projets groupés par motif : jalon dépassé, sans réunion depuis 30 j, fiche incomplète")
+            // Lot 5 : les projets groupés par motif (capture 1f).
+            AtRiskView()
         case .projectMeetings:
             MainDetailPlaceholder(titre: "Mes réunions projets",
                                   detail: "les réunions de projet, filtrées depuis la liste existante")

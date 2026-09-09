@@ -46,12 +46,13 @@ struct RefonteTypographieTests {
     /// à vide. À ajouter par le lot qui crée son premier fichier —
     /// `Views/Sidebar/` **au lot 1, fait**, `Views/Portfolio/` **au lot 2,
     /// fait**, `Views/Palette/` et `Views/Search/` **au lot 3, faits**,
-    /// `Views/AtRisk/` au lot 5. Le lot 4 n'ajoute pas de dossier :
+    /// `Views/AtRisk/` **au lot 5, fait**. Le lot 4 n'ajoute pas de dossier :
     /// `Views/Project/` y était depuis le lot 0, et ses deux sous-dossiers
     /// `Pilotage/` et `Tabs/` sont balayés par l'énumérateur.
     private static let perimetres = [
         "OneToOne/Views/Meeting/Spaces",
         "OneToOne/Views/Meeting/MeetingTopChromeBar.swift",
+        "OneToOne/Views/AtRisk",
         "OneToOne/Views/Meeting/Chrome",
         "OneToOne/Views/Navigation",
         "OneToOne/Views/Palette",
@@ -85,7 +86,7 @@ struct RefonteTypographieTests {
 
     // MARK: - Le périmètre est bien celui qu'on croit lire
 
-    @Test("Les neuf périmètres typographiques sont trouvés")
+    @Test("Les dix périmètres typographiques sont trouvés")
     func sourcesAreFound() throws {
         let noms = try sources().map(\.nom)
         // Le routeur de navigation (D0) et l'écran projet (D17).
@@ -122,6 +123,9 @@ struct RefonteTypographieTests {
         #expect(noms.contains("ProjectActionsTab.swift"))
         #expect(noms.contains("ProjectMailsTab.swift"))
         #expect(noms.contains("ProjectDocumentsTab.swift"))
+        // La vue « À risque » (lot 5, D17).
+        #expect(noms.contains("AtRiskView.swift"))
+        #expect(noms.contains("AtRiskGroup.swift"))
         // Si ce test tombe, c'est qu'un dossier a bougé — et alors les deux
         // suivants ne prouveraient plus rien en passant.
         #expect(noms.contains("ActionsRail.swift"))

@@ -39,6 +39,10 @@ struct ProjectScreen: View {
     @State private var confirmerLaSuppression = false
     @State private var confirmerLArchivage = false
     @State private var fileDeMails = false
+    /// Le champ que la vue « À risque » demande d'ouvrir en édition (lot 5),
+    /// une fois **consommé** au routeur. Remis à `nil` par la carte qui l'a
+    /// honoré : une consigne ne vaut qu'une fois.
+    @State private var champActif: ProjectField?
 
     // MARK: - Rendu
 
@@ -50,7 +54,8 @@ struct ProjectScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(One2OneToken.bgCanvas)
         .overlay(alignment: .bottom) { banniere }
-        .onAppear { recharger() }
+        .onAppear { recharger(); consommerLeChamp() }
+        .onChange(of: router.pendingFocusField) { _, _ in consommerLeChamp() }
         .onChange(of: project.persistentModelID) { _, _ in recharger() }
         .onChange(of: meetings.count) { _, _ in recharger() }
         .onChange(of: suggestions.count) { _, _ in recharger() }
@@ -85,7 +90,10 @@ struct ProjectScreen: View {
                           onDemarrerUneReunion: demarrerUneReunion,
                           onArchiver: archiver,
                           onSupprimer: { confirmerLaSuppression = true },
-                          onFicheComplete: { choisir(.fiche) })
+                          onFicheComplete: { choisir(.fiche) },
+                          onStatut: { valeur in editer { $0.statusRaw = valeur } },
+                          champActif: champActif,
+                          onChampConsomme: { champActif = nil })
             ProjectTabs(courant: tab, etat: etat, onChoisir: choisir)
         }
         .padding(.horizontal, PilotageTab.margeH)
@@ -110,7 +118,9 @@ struct ProjectScreen: View {
                         onRisque: { niveau in editer { $0.riskLevelRaw = niveau } },
                         onDescriptionDeRisque: { texte in editer { $0.riskDescription = texte } },
                         onRattacherLesMails: { fileDeMails = true },
-                        onFicheComplete: { choisir(.fiche) })
+                        onFicheComplete: { choisir(.fiche) },
+                        champActif: champActif,
+                        onChampConsomme: { champActif = nil })
         case .meetings:
             ProjectMeetingsTab(lignes: reunionsDuProjet.map(ProjectMeetingRow.init),
                                onOuvrir: { ouvrirLaReunion($0.stableID, id: $0.id) })
@@ -158,6 +168,18 @@ struct ProjectScreen: View {
             table["Architecte technique"] = architecte
         }
         return table
+    }
+
+    /// Prend la consigne d'édition posée par la vue « À risque » et la
+    /// retient jusqu'à ce que la carte concernée l'honore.
+    ///
+    /// **Consommée au routeur tout de suite** : revenir sur cet écran par
+    /// « retour » ne doit pas rouvrir un champ qu'on venait de refermer.
+    /// `.milestone` est consommé sans effet — la « Fiche complète » n'a pas
+    /// d'éditeur de jalons, seul `ProjectCardPanel` en a un (réserve du lot).
+    private func consommerLeChamp() {
+        guard let champ = router.consumePendingFocusField() else { return }
+        champActif = champ
     }
 
     private func recharger() {

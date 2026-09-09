@@ -33,6 +33,10 @@ struct PilotageTab: View {
     let onDescriptionDeRisque: (String) -> Void
     let onRattacherLesMails: () -> Void
     let onFicheComplete: () -> Void
+    /// « Compléter » de la vue « À risque » (lot 5) : le champ à ouvrir en
+    /// édition, et le rappel qui le consomme.
+    var champActif: ProjectField?
+    var onChampConsomme: () -> Void = {}
 
     var body: some View {
         ScrollView {
@@ -47,7 +51,9 @@ struct PilotageTab: View {
                            onRisque: onRisque,
                            onDescriptionDeRisque: onDescriptionDeRisque,
                            onRattacherLesMails: onRattacherLesMails,
-                           onFicheComplete: onFicheComplete)
+                           onFicheComplete: onFicheComplete,
+                           champActif: champActif,
+                           onChampConsomme: onChampConsomme)
             }
             .padding(.horizontal, Self.margeH)
             .padding(.top, Self.margeHaute)

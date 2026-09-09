@@ -59,6 +59,15 @@ struct EditableInPlace<Lecture: View>: View {
         normalise(saisie) != normalise(valeur)
     }
 
+    /// Faut-il ouvrir le champ sur une **demande extérieure** ?
+    ///
+    /// Non s'il est déjà ouvert : « Compléter » de la vue « À risque » peut
+    /// arriver sur un champ que l'utilisateur venait de cliquer, et rouvrir
+    /// perdrait sa saisie en cours.
+    static func doitOuvrir(demande: Bool, enEdition: Bool) -> Bool {
+        demande && !enEdition
+    }
+
     // MARK: - Entrées
 
     /// La valeur brute éditée. C'est elle que le champ reçoit à l'ouverture,
@@ -72,17 +81,26 @@ struct EditableInPlace<Lecture: View>: View {
     let onValider: (String) -> Void
     /// Le rendu en lecture, tel que la carte le dessine.
     let lecture: Lecture
+    /// Ouverture **externe** : quand ce drapeau passe à `true`, le champ
+    /// s'ouvre comme si on avait cliqué la valeur, puis le remet à `false`.
+    ///
+    /// C'est le chemin de « Compléter » de la vue « À risque » (lot 5) : le
+    /// clic reste le geste ordinaire, celui-ci est la consigne venue d'un
+    /// autre écran, consommée une fois.
+    @Binding var ouvrir: Bool
 
     init(valeur: String,
          placeholder: String = "",
          mode: Mode = .ligne,
          fonte: NSFont = .plexSans(13),
+         ouvrir: Binding<Bool> = .constant(false),
          onValider: @escaping (String) -> Void,
          @ViewBuilder lecture: () -> Lecture) {
         self.valeur = valeur
         self.placeholder = placeholder
         self.mode = mode
         self.fonte = fonte
+        self._ouvrir = ouvrir
         self.onValider = onValider
         self.lecture = lecture()
     }
@@ -91,14 +109,26 @@ struct EditableInPlace<Lecture: View>: View {
     @State private var saisie = ""
 
     var body: some View {
-        if enEdition {
-            champ
-        } else {
-            lecture
-                .contentShape(Rectangle())
-                .onTapGesture { commencer() }
-                .help(Self.aide)
+        Group {
+            if enEdition {
+                champ
+            } else {
+                lecture
+                    .contentShape(Rectangle())
+                    .onTapGesture { commencer() }
+                    .help(Self.aide)
+            }
         }
+        .onAppear { ouvrirSiDemande() }
+        .onChange(of: ouvrir) { _, _ in ouvrirSiDemande() }
+    }
+
+    /// Honore la demande extérieure et la consomme — sinon le champ se
+    /// rouvrirait à chaque reconstruction de la carte.
+    private func ouvrirSiDemande() {
+        guard Self.doitOuvrir(demande: ouvrir, enEdition: enEdition) else { return }
+        ouvrir = false
+        commencer()
     }
 
     // MARK: - Le champ actif
