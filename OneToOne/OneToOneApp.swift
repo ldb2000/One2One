@@ -310,6 +310,11 @@ struct ContentView: View {
             let focus = RefonteDemoSeed.seedPortfolio(in: context)
             mainRouter.pendingPaletteQuery = ecran.termeDePalette
             prereplirLesRecents(ecran.codesDeProjetsRecents)
+            // Une capture ne doit pas dépendre de celle qui l'a précédée : les
+            // écrans qui ne photographient pas de vue enregistrée exigent un
+            // Portfolio vierge, quoi qu'une instance laissée ouverte ou un
+            // home réutilisé lui ait laissé.
+            mainRouter.pendingPortfolioReset = ecran.portfolioVierge
             poserLaVueEnregistree(ecran.vueEnregistreeDeRecette)
             mainRouter.open(routeDeRecette(route, focus: focus))
             return

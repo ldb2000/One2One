@@ -178,4 +178,18 @@ final class MainRouter {
         defer { pendingPortfolioSavedView = nil }
         return pendingPortfolioSavedView
     }
+
+    /// Le Portfolio doit-il repartir vierge à sa prochaine apparition ?
+    ///
+    /// Posé par les écrans de recette qui ne photographient **pas** une vue
+    /// enregistrée (`RecetteScreen.portfolioVierge`). Même nature que
+    /// `pendingPortfolioSavedView` : une consigne de recette, consommée une
+    /// fois, qui ne concerne jamais un lancement ordinaire.
+    var pendingPortfolioReset = false
+
+    /// Rend la consigne de remise à zéro et la retire.
+    func consumePendingPortfolioReset() -> Bool {
+        defer { pendingPortfolioReset = false }
+        return pendingPortfolioReset
+    }
 }

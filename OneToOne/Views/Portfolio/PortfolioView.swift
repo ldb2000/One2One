@@ -186,6 +186,13 @@ struct PortfolioView: View {
     /// (`MainRouter.pendingPaletteQuery`) : la recette ne peut pas cliquer, et
     /// une vue enregistrée est un état d'écran que le semis ne pose pas.
     private func appliquerLaVueDeRecette() {
+        // La remise à zéro d'abord : un écran de recette qui ne photographie
+        // pas de vue enregistrée doit montrer un tableau vierge, quel que soit
+        // l'état hérité d'une capture précédente.
+        if router.consumePendingPortfolioReset() {
+            model.reinitialiser()
+            model.recharger(projects: projets, meetings: reunions)
+        }
         guard let id = router.consumePendingPortfolioSavedView(),
               let vue = vues.first(where: { $0.id == id }) else { return }
         model.appliquer(vue)
