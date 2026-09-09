@@ -76,6 +76,14 @@ final class Project {
     /// automatiquement tous les projets où il endosse ce rôle.
     var technicalArchitect: Collaborator?
 
+    /// Projet épinglé dans la section « Projets » de la barre latérale
+    /// (« ÉPINGLÉS » de la capture `2b-sidebar-variante-arbre-replie.png`,
+    /// décision **D4**).
+    ///
+    /// Champ à valeur par défaut : la migration reste **légère**, aucun
+    /// `SchemaV4` (constat §2.23, précédent `Project.scopeText`).
+    var pinned: Bool = false
+
     /// Notes de planning en texte libre. Substituées au token `{{project.planning}}`
     /// dans les templates de rapport (résolu via `meeting.project` par
     /// `ReportTemplating`, cf. templates COPIL/COSUI). Vide → token remplacé
