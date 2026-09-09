@@ -315,9 +315,28 @@ premier essai, sans retoucher le semis.
     blanc compte désormais comme non affecté. Les sept projets « à risque » du semis sont
     inchangés.
 
+### Compléments hors périmètre Portfolio
+
+Cinq commits demandés en cours de lot, tous issus du diagnostic du coordinateur sur la
+recette `p2b` : `0595283` et `c446dc6` (`recette-run.sh` — `-ApplePersistenceIgnoreState
+YES`, effacement du domaine de préférences sous `--reset` derrière un garde-fou sur le
+suffixe `.recette`, témoin de rendu par comptage des gabarits intégrés en lisant le store
+**avec son `-wal`** ; pièges n° 6 et n° 7 documentés, `CLAUDE.md` passe à sept pièges),
+`1dd8c02` (`MainRouterTests` n'écrit plus dans les préférences réelles — 65 fichiers
+retirés), `f7ad875` (collaborateurs du semis en favoris) et `2b8fc70`
+(`MainWindowPlacement.corrige`, six tests : une fenêtre restaurée hors écran est
+recentrée, quelle que soit la clé d'où vient son cadre).
+
 ### Ce qui reste dû
 
-- **La recette `p1a`** : voir le rapport de lot pour son état exact.
+- **La recette `p1a` n'a pas été faite** : un enregistrement de Laurent était en cours
+  (`.wav` qui grossit, garde du dispatch) et l'instance de OneToOne lancée à 06:39 hors
+  bundle — celle qui a coûté trois heures au diagnostic — tournait encore, sans droit de
+  l'arrêter. L'écran n'était pas verrouillé et aucune réunion Teams n'a été détectée.
+  Détail et commande de reprise dans le rapport de lot.
+- **Les deux points non demandés du diagnostic** restent dus : la garde « un seul
+  OneToOne à la fois » (elle supposerait de tuer un processus) et l'identifiant de bundle
+  unique par dossier de sortie de `recette-app.sh`.
 - **Le pied affichera « 15 lignes sur 62 »** et non « 8 lignes sur 62 » (écart n° 2) : si
   Laurent veut la capture au chiffre près, il faut soit huit projets ASP actifs au semis, soit
   une vue enregistrée sur une liste de codes — ce que `PortfolioFilters` ne sait pas exprimer.
