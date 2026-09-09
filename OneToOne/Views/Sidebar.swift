@@ -280,12 +280,18 @@ struct MainSidebarView: View {
     }
 
     /// Applique la décision du garde-fou à un changement de sélection.
+    ///
+    /// Les trois entrées de la règle sont lues **ici**, au moment exact où la
+    /// `List` écrit : `NSApp.currentEvent` n'a de sens que dans la pile
+    /// d'appel de l'événement qu'on cherche à reconnaître.
     private func selectionADeplace(de ancienne: MainRoute?, vers nouvelle: MainRoute?) {
         let stables = SidebarSelectionGuard.lignesStables(
             depuis: dernierChangementDeLignes.map { -$0.timeIntervalSinceNow })
         switch SidebarSelectionGuard.decide(ancienne: ancienne,
                                             nouvelle: nouvelle,
                                             routeCourante: mainRouter.route,
+                                            evenement: EvenementEntree.courant(),
+                                            fenetreActive: EvenementEntree.fenetreActive(),
                                             lignesStables: stables) {
         case .ouvrir(let route):
             mainRouter.open(route)
@@ -360,8 +366,18 @@ struct MainSidebarView: View {
                                     }
                                 )
                             ) {
-                                ForEach(entityProjects) { project in
-                                    projectRow(project)
+                                // Identité préfixée par la sous-section : un
+                                // projet de l'arbre peut aussi être épinglé ou
+                                // récent, et deux lignes de même identité dans
+                                // une `List` rendent n'importe quoi (recette
+                                // `p1f`). L'entité entre dans la clé — un
+                                // projet n'apparaît que sous la sienne, mais
+                                // le nom de section reste ainsi unique.
+                                ForEach(SidebarProjectRow.lignes(
+                                    entityProjects,
+                                    section: "\(SidebarProjectRow.Section.arbre)/\(entity.name)")
+                                ) { ligne in
+                                    projectRow(ligne.projet)
                                 }
 
                                 Button(action: { addProject(to: entity) }) {
@@ -388,8 +404,11 @@ struct MainSidebarView: View {
                     let orphans = filteredOrphanProjects
                     if !orphans.isEmpty || searchText.isEmpty {
                         DisclosureGroup("Sans Entité") {
-                            ForEach(orphans) { project in
-                                projectRow(project)
+                            ForEach(SidebarProjectRow.lignes(
+                                orphans,
+                                section: "\(SidebarProjectRow.Section.arbre)/—")
+                            ) { ligne in
+                                projectRow(ligne.projet)
                             }
                         }
                         .dropDestination(for: String.self) { codes, _ in
@@ -508,8 +527,11 @@ struct MainSidebarView: View {
                 if !filteredArchivedProjects.isEmpty {
                     Section {
                         DisclosureGroup(isExpanded: $archivedProjectsExpanded) {
-                        ForEach(filteredArchivedProjects) { project in
-                            projectRow(project)
+                        ForEach(SidebarProjectRow.lignes(
+                            filteredArchivedProjects,
+                            section: SidebarProjectRow.Section.archives)
+                        ) { ligne in
+                            projectRow(ligne.projet)
                                 .foregroundColor(.secondary)
                         }
                         .onDelete(perform: deleteArchivedProjects)
