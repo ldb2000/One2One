@@ -117,6 +117,33 @@ final class MainRouter {
 
     // MARK: - Palette
 
+    /// Le terme d'ouverture de la palette `⌘K`, ou `nil` quand elle est
+    /// fermée (décision **D1**).
+    ///
+    /// **Ici et non en `@State` d'un écran** : la palette s'ouvre depuis
+    /// n'importe quel écran, et son déclencheur est un item de menu natif
+    /// (`MeetingCommands`), qui n'a accès à aucune hiérarchie de vues. Le
+    /// routeur est le seul objet que le menu et `ContentView` partagent —
+    /// c'est déjà la raison de son singleton (ADR du routeur).
+    ///
+    /// L'état *interne* de la palette (terme frappé, ligne sélectionnée) n'est
+    /// pas ici : il vit dans `PaletteModel`, comme l'état d'écran d'une
+    /// réunion vit dans `MeetingScreenModel`.
+    private(set) var paletteTerme: String?
+
+    /// La palette est-elle affichée ?
+    var paletteOuverte: Bool { paletteTerme != nil }
+
+    /// Ouvre la palette, éventuellement préremplie (recette `p1c`).
+    func ouvrirPalette(terme: String = "") {
+        paletteTerme = terme
+    }
+
+    /// Ferme la palette (`esc`, ou une ligne activée).
+    func fermerPalette() {
+        paletteTerme = nil
+    }
+
     /// Rend le terme en attente et le retire, pour qu'une seconde ouverture de
     /// la palette reparte vide.
     func consumePendingPaletteQuery() -> String? {

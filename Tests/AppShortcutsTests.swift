@@ -3,28 +3,35 @@ import Foundation
 import SwiftUI
 @testable import OneToOne
 
-/// Spec §1.4 : la table des raccourcis est une table. Ce test est le seul
-/// endroit qui la relie au texte de la spec, et le seul qui interdise un
-/// second déclarant silencieux.
-@Suite("Raccourcis de l'écran de réunion (spec §1.4)")
-struct MeetingShortcutsTests {
+/// Spec §1.4 de la refonte réunion, **amendée** par la décision **D1** de la
+/// refonte de la gestion des projets : la table des raccourcis est une table.
+/// Ce test est le seul endroit qui la relie au texte des specs, et le seul qui
+/// interdise un second déclarant silencieux.
+///
+/// La table s'appelle `AppShortcut` depuis D1 : `⌘K` va à la **palette**, qui
+/// s'ouvre depuis n'importe quel écran, et l'assistant de réunion passe à
+/// `⌘⇧K` (ADR `docs/adr/2026-09-09-palette-commande-k.md`).
+@Suite("Raccourcis de l'application")
+struct AppShortcutsTests {
 
-    /// La première colonne de la table §1.4, recopiée à la lettre. `/` en
-    /// début de ligne y figure aussi, mais c'est la palette de commandes de
-    /// note, pas un raccourci clavier : elle n'est pas dans cette liste.
-    private let specJetons = ["⌘K", "⌘M", "⌘⇧A", "⌘⇧S", "⌘⇧N", "⌘⇧V", "⌘⏎", "⌃⌘F"]
+    /// Les jetons attendus : la première colonne de la table §1.4, `⌘K`
+    /// réaffecté à la palette et `⌘⇧K` ajouté pour l'assistant (D1). `/` en
+    /// début de ligne figure aussi dans la spec réunion, mais c'est la palette
+    /// de commandes de note, pas un raccourci clavier : elle n'est pas dans
+    /// cette liste.
+    private let specJetons = ["⌘K", "⌘⇧K", "⌘M", "⌘⇧A", "⌘⇧S", "⌘⇧N", "⌘⇧V", "⌘⏎", "⌃⌘F"]
 
     @Test("chaque raccourci de la spec est déclaré dans la table")
     func tableCouvreLaSpec() {
-        let declares = Set(MeetingShortcut.allCases.map(\.jeton))
+        let declares = Set(AppShortcut.allCases.map(\.jeton))
         for jeton in specJetons {
-            #expect(declares.contains(jeton), "raccourci \(jeton) absent de MeetingShortcut")
+            #expect(declares.contains(jeton), "raccourci \(jeton) absent de AppShortcut")
         }
     }
 
     @Test("la table ne déclare rien que la spec ne demande")
     func tableNAjouteRien() {
-        for raccourci in MeetingShortcut.allCases {
+        for raccourci in AppShortcut.allCases {
             #expect(specJetons.contains(raccourci.jeton),
                     "\(raccourci.jeton) n'est pas dans la table §1.4")
         }
@@ -32,14 +39,14 @@ struct MeetingShortcutsTests {
 
     @Test("aucune combinaison n'est déclarée deux fois dans la table")
     func aucunDoublonDansLaTable() {
-        #expect(MeetingShortcut.doublons().isEmpty,
-                "doublons : \(MeetingShortcut.doublons())")
-        #expect(MeetingShortcut.allCases.count == specJetons.count)
+        #expect(AppShortcut.doublons().isEmpty,
+                "doublons : \(AppShortcut.doublons())")
+        #expect(AppShortcut.allCases.count == specJetons.count)
     }
 
     @Test("chaque raccourci porte un libellé français et un jeton lisible")
     func libellesRenseignes() {
-        for raccourci in MeetingShortcut.allCases {
+        for raccourci in AppShortcut.allCases {
             #expect(!raccourci.libelle.isEmpty)
             #expect(!raccourci.jeton.isEmpty)
         }
@@ -47,7 +54,7 @@ struct MeetingShortcutsTests {
 
     @Test("le jeton se déduit de la touche et des modificateurs, sans les répéter")
     func jetonCoherentAvecLaCombinaison() {
-        for raccourci in MeetingShortcut.allCases {
+        for raccourci in AppShortcut.allCases {
             if raccourci.modifiers.contains(.shift) {
                 #expect(raccourci.jeton.contains("⇧"), "\(raccourci.jeton) porte ⇧")
             } else {
@@ -64,14 +71,15 @@ struct MeetingShortcutsTests {
     func menuDeclareSesRaccourcis() {
         let source = Self.source("OneToOne/Views/Menus/MeetingCommands.swift")
         #expect(!source.isEmpty, "MeetingCommands.swift introuvable")
-        for raccourci in MeetingShortcut.allCases {
+        for raccourci in AppShortcut.allCases {
             guard case .menu = raccourci.surface else { continue }
-            #expect(source.contains("MeetingShortcut.\(raccourci.rawValue)"),
+            #expect(source.contains("AppShortcut.\(raccourci.rawValue)"),
                     "MeetingCommands doit prendre \(raccourci.jeton) dans la table")
         }
         // Plus aucun littéral des raccourcis §1.4 dans le menu : la table est
         // la seule à les épeler.
         #expect(!source.contains("keyboardShortcut(\"k\", modifiers: .command)"))
+        #expect(!source.contains("keyboardShortcut(\"k\", modifiers: [.command, .shift])"))
         #expect(!source.contains("keyboardShortcut(\"m\", modifiers: .command)"))
         #expect(!source.contains("keyboardShortcut(\"v\", modifiers: [.command, .shift])"))
         #expect(!source.contains("keyboardShortcut(\"s\", modifiers: [.command, .shift])"))
@@ -85,11 +93,12 @@ struct MeetingShortcutsTests {
     /// standard du bouton par défaut d'une feuille, et le dépôt en pose une
     /// dizaine. Le conflit réel — « Générer le rapport » dans le menu contre
     /// « valider le composeur » dans la spec — est documenté par
-    /// `MeetingShortcut.note` et renvoyé comme décision produit.
+    /// `AppShortcut.note` et renvoyé comme décision produit.
     @Test("aucun second déclarant hors exceptions nommées")
     func aucunSecondDeclarant() {
         let motifs: [String: String] = [
             "⌘K": "keyboardShortcut(\"k\", modifiers: .command)",
+            "⌘⇧K": "keyboardShortcut(\"k\", modifiers: [.command, .shift])",
             "⌘M": "keyboardShortcut(\"m\", modifiers: .command)",
             "⌘⇧A": "keyboardShortcut(\"a\", modifiers: [.command, .shift])",
             "⌘⇧S": "keyboardShortcut(\"s\", modifiers: [.command, .shift])",
@@ -97,7 +106,7 @@ struct MeetingShortcutsTests {
             "⌘⇧V": "keyboardShortcut(\"v\", modifiers: [.command, .shift])",
             "⌃⌘F": "keyboardShortcut(\"f\", modifiers: [.control, .command])",
         ]
-        // Déclarants légitimes. `Views/Menus/MeetingShortcut.swift` n'y figure
+        // Déclarants légitimes. `Views/Menus/AppShortcut.swift` n'y figure
         // jamais : la table donne `key` et `modifiers`, elle n'appelle pas
         // `keyboardShortcut` avec des littéraux.
         //
@@ -105,8 +114,14 @@ struct MeetingShortcutsTests {
         // **assumés**, chacun commenté dans son fichier : le dossier est tenu
         // par un correctif concurrent (#42) et le lot 19c ne l'ouvre pas.
         // Toute entrée nouvelle dans cette table doit être justifiée en PR.
+        //
+        // `⌘K` n'admet **aucun** second déclarant : la palette est le seul
+        // usage, et elle prend son raccourci dans la table (décision **D1**).
+        // C'est `SessionAssistantPanel` qui porte désormais `⌘⇧K`, le doublon
+        // assumé de l'assistant en mode séance.
         let attendus: [String: Set<String>] = [
-            "⌘K": ["Views/Meeting/Session/SessionAssistantPanel.swift"],
+            "⌘K": [],
+            "⌘⇧K": ["Views/Meeting/Session/SessionAssistantPanel.swift"],
             "⌘M": ["Views/Meeting/Session/TimeRailColumn.swift"],
             "⌘⇧A": ["Views/Meeting/Spaces/Transcript/TranscriptColumn.swift"],
             "⌘⇧S": [],
@@ -121,12 +136,47 @@ struct MeetingShortcutsTests {
         }
     }
 
+    @Test("la palette prend son raccourci dans la table, et le menu l'annonce")
+    func paletteDansLaTable() {
+        let palette = AppShortcut.palette
+        #expect(palette.jeton == "⌘K")
+        #expect(palette.libelle
+            == "Palette — projets et actions, depuis n'importe quel écran")
+        // La palette est un item de menu natif : c'est le seul mécanisme qui
+        // fonctionne « depuis n'importe quel écran », sans vue focalisée.
+        guard case .menu(let item) = palette.surface else {
+            Issue.record("la palette doit être déclarée en surface menu")
+            return
+        }
+        #expect(item == .palette)
+        // L'assistant de réunion a cédé ⌘K et pris ⌘⇧K.
+        #expect(AppShortcut.assistant.jeton == "⌘⇧K")
+
+        let source = Self.source("OneToOne/Views/Menus/MeetingCommands.swift")
+        #expect(source.contains("AppShortcut.palette"))
+        #expect(source.contains("Palette…"))
+        // La palette n'est **pas** grisée quand aucune réunion n'a le focus :
+        // c'est tout l'intérêt du raccourci.
+        #expect(!source.contains("isEnabled(.palette)"))
+    }
+
+    @Test("plus aucune trace du nom MeetingShortcut dans les sources")
+    func plusDeMeetingShortcut() {
+        // D1 interdit un `typealias MeetingShortcut = AppShortcut` à la fin du
+        // lot : tous les appelants sont renommés. Le nom ne subsiste que dans
+        // `MeetingShortcutsSheet`, la feuille d'aide, qui garde le sien.
+        let trouves = Self.fichiersContenant("MeetingShortcut")
+            .filter { !$0.hasSuffix("MeetingShortcutsSheet.swift") }
+            .filter { $0 != "Views/Meeting/MeetingTopChromeBar.swift" }
+        #expect(trouves.isEmpty, "MeetingShortcut subsiste dans \(trouves.sorted())")
+    }
+
     @Test("la feuille d'aide rend la table, elle n'en tient pas une seconde")
     func feuilleLitLaTable() {
         let source = Self.source("OneToOne/Views/Menus/MeetingShortcutsSheet.swift")
         #expect(!source.isEmpty, "MeetingShortcutsSheet.swift introuvable")
-        #expect(source.contains("MeetingShortcut.allCases"))
-        for raccourci in MeetingShortcut.allCases {
+        #expect(source.contains("AppShortcut.allCases"))
+        for raccourci in AppShortcut.allCases {
             #expect(!source.contains("\"\(raccourci.jeton)\""),
                     "la feuille ne doit pas réécrire le jeton \(raccourci.jeton)")
         }

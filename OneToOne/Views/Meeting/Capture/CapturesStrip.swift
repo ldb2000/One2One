@@ -51,7 +51,7 @@ struct CapturesStrip: View {
 
     // Le `⌘⇧S` que cette bande déclarait est parti au lot 19c : la spec §1.4
     // n'en veut qu'une déclaration, et le geste est déjà porté deux fois — par
-    // le menu « Réunion ▸ Capturer l'écran » (`MeetingShortcut.capture`, actif
+    // le menu « Réunion ▸ Capturer l'écran » (`AppShortcut.capture`, actif
     // dès que la réunion a le focus) et par le raccourci système de
     // `CaptureHotkeys`, qui l'emporte de toute façon sur un `keyboardShortcut`
     // de vue quand la case des réglages est cochée. Le badge « ⌘⇧S » de
