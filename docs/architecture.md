@@ -521,7 +521,7 @@ graph TD
 
 ## 8. Couche Views
 
-254 fichiers. Organisation :
+270 fichiers. Organisation :
 
 - **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter` et `MainDetailView` —
   voir « Navigation de la fenêtre principale » ci-dessous. La barre latérale est
@@ -556,7 +556,23 @@ graph TD
   « Chercher « x » dans les CR » (décision **D8**). Il monte la route
   `MainRoute.searchReports(_:)`, groupe par projet, surligne l'extrait et ouvre la réunion par
   `QuickLaunchRouter.pendingToken`. Les règles sont dans `ReportSearch`.
-- **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`),
+- **Écran projet** (`Views/Project/`) : l'écran 1d du handoff — l'écran **par défaut** d'un
+  projet depuis le lot 4, à la place de `ProjectDetailView`. `ProjectScreen` est un routeur :
+  il monte `ProjectHeader` (fil d'Ariane `Portfolio / <entité> / <code>`, nom en 21 pt, pilules
+  de statut, phase, type, entité et alerte de deadline, boutons « Épingler » / « Démarrer une
+  réunion » et menu `···`), `ProjectTabs` (les six `ProjectTab`, badges des actions ouvertes et
+  des mails, soulignement de 2 px) et le contenu de l'onglet actif. Il porte aussi le brouillon
+  et la bannière d'annulation de l'édition in-place (décision **D9**). `Pilotage/` tient les
+  cartes : `KPITiles` (actions ouvertes, dernière réunion, **rythme** — huit barres sur douze
+  semaines, qui remplacent la heatmap de 52 semaines —, charge), `OpenActionsCard`,
+  `RecentMeetingsCard`, `ScopeCard`, `SideColumn` (interlocuteurs, risque, mails liés,
+  identité, 330 pt), plus `MeetingTypeBadgeView` et le châssis commun `PilotageCard`. `Tabs/`
+  tient les quatre onglets secondaires : `ProjectMeetingsTab`, `ProjectActionsTab`,
+  `ProjectMailsTab` et `ProjectDocumentsTab` (les pièces jointes, sorties de
+  `ProjectDetailView`). `ProjectCardPanel` — la fiche de 430 px de la refonte réunion — reste
+  dans le même dossier ; sa réunion est devenue optionnelle.
+- **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`, l'onglet « Fiche complète »
+  de l'écran projet — sans sa heatmap ni sa barre d'outils depuis le lot 4),
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
 - **Réunion** (`Views/Meeting/`) : voir la section dédiée ci-dessous — c'est le chantier de
   la refonte 2026-09, et de loin le plus gros sous-arbre de `Views/`.
@@ -579,7 +595,9 @@ graph TD
   leurs pendants `NSFont`, IBM Plex embarquée avec repli système — décision D2),
   `RiskLevelTint.swift` (teinte d'un niveau de risque, table unique — `MeetingKPI.Level.teinte`),
   `StatusIcon` (pastille de statut d'un projet, taille en paramètre — décision D16),
-  `One2OneTheme`.
+  `EditableInPlace` (lecture d'abord, champ actif au clic, `⏎`/`⌘⏎` valide, `esc` annule le
+  champ — décision D9), `AvatarStack` (diamètre en paramètre : 19 pt partout, 26 sur l'écran
+  projet), `One2OneTheme`.
 
 ### Navigation de la fenêtre principale
 
@@ -642,6 +660,15 @@ ordonne les sept colonnes, `values` alimente les menus, `summary`, `footer` et `
 lot et la création d'un projet, jusqu'ici méthodes privées de `Sidebar.swift`.
 `MeetingStatsScope.lastHeldByProject` est la source unique de « dernière réunion tenue »,
 partagée par le tableau et les compteurs.
+
+L'onglet « Pilotage » de l'écran projet suit le même partage : `ProjectPilotageBuilder.build`
+rend un `ProjectPilotageState` — les quatre tuiles, les quatre actions (les retards d'abord),
+les trois réunions, les trois mails, les interlocuteurs, le risque et les cinq lignes
+d'identité — et aucune vue ne recompte. `MeetingTypeBadge` porte la règle **D10** : un COPIL se
+reconnaît à un thème ou à un titre, un atelier et un 1:1 à leur `kind`, et toute autre réunion
+n'a pas de badge. `ProjectCardDraft` transporte les champs éditables de la fiche, statut
+persisté compris, et son `apply` reste le seul point d'écriture ; `MainRouter.switchTab(_:)`
+change d'onglet sans empiler l'histoire.
 
 ### L'écran de réunion (refonte 2026-09)
 
