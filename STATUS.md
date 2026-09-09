@@ -1,6 +1,82 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-08 CEST
+Dernière mise à jour : 2026-09-09 CEST
+
+## Refonte de la gestion des projets — lots 0 à 6 (2026-09-09)
+
+Handoff `docs/superpowers/specs/gestion-projets-2026-09/handoff/README.md` (sept captures),
+spécification `docs/superpowers/specs/2026-09-09-gestion-projets-design.md` (constats §2,
+décisions **D0–D18** §3), plan `docs/superpowers/plans/2026-09-09-gestion-projets.md`, comptes
+rendus de session `docs/superpowers/specs/gestion-projets-2026-09/journal-des-lots.md`, bilan
+[`docs/adr/2026-09-09-gestion-projets-bilan.md`](docs/adr/2026-09-09-gestion-projets-bilan.md).
+
+**La barre latérale a cessé d'être le catalogue des projets.** Elle dépliait soixante projets
+sur huit entités ; elle est devenue un **point d'accès** (variante 2a du handoff) et le
+portefeuille a désormais ses propres écrans : Portfolio filtrable, palette `⌘K`, écran projet de
+pilotage à six onglets, vue « À risque » groupée par motif. La navigation de la fenêtre
+principale est une **valeur** (`MainRoute`) et non plus des `NavigationLink` inline.
+
+**Une pile de huit branches, une PR par lot**, chacune basée sur la précédente :
+
+| Lot | Branche | PR | Livre |
+| --- | --- | --- | --- |
+| base | `docs/gestion-projets-design` | #53 | spec, plan, handoff |
+| 0 | `feat/projets-lot-0-routeur` | #54 | `MainRoute` / `MainRouter` / `MainDetailView` (D0), jetons D12, enums D14, semis de 62 projets |
+| 1 | `feat/projets-lot-1-sidebar` | #55 | section « Projets », épinglés, récents, `SidebarProjectCounts`, `StatusIcon` (D16) |
+| 2 | `feat/projets-lot-2-portfolio` | #56 | écran Portfolio (1a), `ProjectBatchActions` / `ProjectBatchBar` (D15), suppression de ProjectListView |
+| 3 | `feat/projets-lot-3-palette` | #57 | palette `⌘K` (1c), `ReportSearch` (D8), `AppShortcut` (D1), `SidebarSelectionGuard` |
+| 4 | `feat/projets-lot-4-ecran-projet` | #58 | écran projet à six onglets (1d), édition in-place (D9), `ProjectRelationWriter` |
+| 5 | `feat/projets-lot-5-a-risque` | **à ouvrir** | vue « À risque » (1f), `AtRiskBuilder` (D11) |
+| 6 | `feat/projets-lot-6-bascule-2a` | **à ouvrir** | retrait de l'arbre par entité, en-tête d'entité du Portfolio, documentation et ADR de clôture |
+
+**Tests.** `swift build` propre ; `swift test` complet vert sur la tête du lot 6 : **2 525 Swift
+Testing / 284 suites + 1 057 XCTest (1 ignoré) = 3 582**, exit 0 — soit **+471** sur les 3 111 de
+la section suivante, aucun test retiré (un seul remplacé, celui de la sous-ligne de l'arbre, par
+un test d'absence). `DocumentationTests` et `RefonteTypographieTests` verts à chaque lot.
+
+**Recette visuelle.** Quatre écrans sur six photographiés et **conformes** :
+`p2b` (barre latérale, lot 1), `p1a` (Portfolio, lot 2, après un fix round sur les chips et le
+menu de vue enregistrée), `p1c` (palette, lot 3, après deux fix rounds), `p1d` (écran projet,
+lot 4). Captures sous `docs/superpowers/specs/gestion-projets-2026-09/recette/`. **`p1f` et
+`p2a` restent à faire par le coordinateur** sur le binaire de la pile complète, avec la recette
+finale des six écrans (`recette/finale/`).
+
+**Quatre défauts trouvés en chemin**, aucun dans le périmètre d'un lot, tous corrigés :
+`List(selection: $mainRouter.route)` réécrivait la route quand les lignes bougeaient (l'écran
+s'ouvrait sur une fiche que personne n'avait demandée — observé **trois** fois à la recette, la
+troisième sur un simple redimensionnement de fenêtre ; la garde repose finalement sur
+l'événement d'entrée en cours de traitement, `SidebarSelectionGuard`) ; un projet à la fois
+épinglé et récent apparaissait deux fois dans la même `List` sous la même identité et y perdait
+sa pastille de statut (`SidebarProjectRow` préfixe l'identité par la sous-section) ; réaffecter `Project.entity` puis enregistrer perdait la valeur une
+fois sur trois (`ProjectRelationWriter` relit et répare) ; les préférences du bundle `.recette`
+ne sont pas isolées par `CFFIXED_USER_HOME`, et un cadre de fenêtre hors écran hérité d'une
+session précédente a coûté une demi-journée d'observations fausses (`recette-run.sh` lance
+désormais avec `-ApplePersistenceIgnoreState YES` et purge le domaine sous `--reset`).
+
+**Dettes et observations.** Le coût des écrans sur le store réel n'est pas mesuré (quatre
+`@Query` globales dans `PortfolioView`, trois de plus dans `ProjectScreen`, trois constructeurs
+qui traversent toutes les réunions à chaque rechargement) ; `ReportSearch` balaye les
+transcriptions sans index ; `ProjectCardDraft.apply` requête toute la table à chaque édition ;
+`try? context.save()` avale ses erreurs dans tout `Services/Project/` ; `MilestoneCell.none` est
+un piège de nom (`.aucun` serait plus sûr) ; `sidebar.projectsExpanded` n'a plus de lecteur mais
+reste écrite chez les utilisateurs existants, et `sidebar.projectsSectionExpanded` applique son
+défaut à qui n'a jamais rien exprimé ; `MainRoute.entity` porte un `PersistentIdentifier` et ne
+survit donc pas à un relancement, faute de `stableID` sur `Entity` ; **`Sidebar.swift` reste hors
+du périmètre typographique** — 1 995 lignes dont 59 fontes système, dans `DashboardView`,
+`EntityDetailView` et les vues Gantt qui y cohabitent, si bien que les entrées historiques de la
+barre restent en fonte système à côté d'une section « Projets » en Plex (le handoff les déclare
+« inchangées ») : son découpage est la condition de la bascule ; le hook
+`documentation-apres-pr` n'a déclenché dans aucune session de ce chantier et son test de bout en
+bout dans une session neuve reste dû.
+
+**Décisions produit en attente de Laurent** (détail dans l'ADR de clôture) : le titre « Projets »
+contre « Portfolio » de la capture ; la ligne du semis qui donnerait « il y a 41 j » à NEVIDIS ;
+le chevron de la section « Projets » ; l'ordre des épinglés ; le badge « Mails 12 » sans source ;
+l'ordre alphabétique de `SearchPopover` ; les pilules de l'en-tête de l'écran projet, non
+éditables au clic ; « Démarrer une réunion » et « Planifier », qui ne demandent rien.
+
+**Prochaine action** : fusion des PR dans l'ordre après validation de Laurent ; recette finale
+des six écrans sur le binaire de la pile.
 
 ## Skill documenter-application — documentation développeur gardée par les tests (2026-09-08)
 

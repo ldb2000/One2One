@@ -592,6 +592,30 @@ lot 4 (`faf4538`) — sans conflit. Deux commits : `AtRiskBuilder` d'abord, la v
   (le stub du lot 1 disparaît). `sectionLabel(_:)` accepte une teinte. `Views/AtRisk/` entre au
   périmètre typographique (D17) et au manifeste de documentation.
 
+### Le rebase sur le correctif transverse (`ff88b3b`)
+
+Deux conflits, tous deux attendus.
+
+1. **`Sidebar.swift`.** Le correctif du lot 5 avait migré les `ForEach` de l'arbre
+   (`entityProjects`, `orphans`) vers `SidebarProjectRow.lignes(…, section: "arbre/<entité>")` ;
+   j'avais retiré l'arbre entier. Résolu en gardant **le retrait** : le bloc de l'arbre disparaît
+   avec ses `ForEach` migrés. L'intention du correctif est conservée là où elle a encore un
+   objet — le `ForEach` du groupe « Projets Archivés », qui garde
+   `SidebarProjectRow.Section.archives`, et ceux de `PinnedProjectsList` / `RecentProjectsList`,
+   que je n'ai pas touchés. Les deux appels à `EvenementEntree.courant()` /
+   `.fenetreActive()` dans `selectionADeplace` sont intacts.
+2. **`journal-des-lots.md`.** Les deux entrées gardées, la mienne après celle du lot 5.
+
+`SidebarSelectionGuard.swift`, `Tests/ProjectsSidebarSectionTests.swift` et
+`Tests/SidebarSelectionGuardTests.swift` se sont fusionnés seuls : le correctif ajoute
+`EvenementEntree` et réécrit `decide`, moi je retire deux champs de `SidebarRowsFingerprint` —
+les deux ne se touchent pas. Le test `listesMigrees` du correctif, qui exige
+`!barre.contains("ForEach(entityProjects) {")` et `!barre.contains("ForEach(orphans) {")`, est
+satisfait *a fortiori* par le retrait.
+
+**Conséquence du retrait sur le correctif** : `SidebarProjectRow.Section.arbre` n'a plus
+d'appelant. Retiré, avec la mention de l'arbre dans la documentation du type.
+
 ### Décisions du lot
 
 1. **Le semis n'a pas été touché.** Les comptes 2 / 3 / 2 sortent tels quels, comme le dispatch
@@ -644,3 +668,99 @@ même `List` sous la même identité, ce qui lui faisait perdre sa pastille de s
 `SidebarProjectRow` préfixe désormais l'identité par la sous-section. Détail complet dans
 `lot-3-report.md`, section « Correction 3 » — le défaut vient du lot 3, c'est la pile du lot 5
 qui le porte.
+
+---
+
+## Lot 6 — Bascule de la barre latérale en 2a et clôture (2026-09-09)
+
+Branche `feat/projets-lot-6-bascule-2a`, base `b9765e7` puis **rebasée deux fois** sur la tête du
+lot 5 : d'abord `499fac3` (sans conflit), puis `ff88b3b` après le correctif transverse
+ci-dessus — deux conflits, résolus en gardant les deux intentions (voir « Le rebase sur le
+correctif transverse »). Cinq commits : le retrait de l'arbre, l'en-tête d'entité du Portfolio,
+la documentation, l'ADR de clôture, la présente entrée avec `STATUS.md`. `swift test` complet
+vert : **2 525 Swift Testing / 284 suites + 1 057 XCTest (1 ignoré) = 3 582**, +4 tests nets
+(+5 ajoutés, 1 retiré avec la sous-ligne de l'arbre) sur les 3 578 de la tête du lot 5, aucune
+suite nouvelle. **Recettes `p1f` et `p2a` non faites** : elles sont du coordinateur, sur le
+binaire de la pile complète.
+
+### Ce que le lot livre
+
+- **La variante 2a.** `Views/Sidebar.swift` perd le `Section`/`DisclosureGroup` « Projets par
+  Entité » et sa sous-ligne, la clé `sidebar.projectsExpanded`, `expandedEntityNames`,
+  `filteredEntities`, `filteredProjectsFor(entity:)`, `filteredOrphanProjects`, le groupe
+  « Sans Entité », les deux boutons « Ajouter un projet », `moveProjects(codes:to:)`,
+  `moveProjectsToNone(codes:)`, les deux `.dropDestination`, les deux `.draggable(project.code)`,
+  `nextProjectCode()` devenu sans appelant et l'import `UniformTypeIdentifiers`. **2 136 →
+  1 995 lignes.** Ordre final de la `List` : les sept destinations historiques, la section
+  « Projets » (quatre entrées, ÉPINGLÉS, RÉCENTS), Collaborateurs, Archives, Projets Archivés,
+  `Spacer()`, Paramètres — l'ordre de `2a-sidebar-section-projets.png`.
+- **Les appelants vérifiés avant chaque retrait.** `projectRow` reste : le groupe « Projets
+  Archivés » en rend encore (il perd seulement son `.draggable`). La `@Query` des entités reste :
+  `ProjectBatchBar` la consomme. « Déplacer vers une entité » **était déjà** dans
+  `ProjectBatchBar` (D15, lot 2) — le menu « Entité » remplace le glisser-déposer.
+- **`EntityDetailView` reste atteignable**, et par un chemin neuf : l'en-tête de groupe du mode
+  « Groupé par entité » du Portfolio est désormais un bouton. C'est le **premier appelant** de
+  `MainRoute.entity`, créée au lot 0 sans destination (écart n° 2 du lot 0, refermé).
+  `PortfolioBuilder.entite(nommee:parmi:)` fait le pas qui manquait entre un nom de groupe et
+  une identité, et rend `nil` pour « Sans entité » comme pour un nom inconnu.
+- **`SidebarRowsFingerprint`** perd `entites` et `arbreDeplie` — aucune ligne d'entité n'est plus
+  rendue — et `lignesFixes` passe de 12 à 11 (réserve n° 3 du lot 3, refermée). Les onze lignes
+  fixes sont : les sept destinations du haut, les libellés des deux groupes toujours présents
+  (« Projets » et « Collaborateurs »), le `Spacer` et « Paramètres » ; les en-têtes « Archives »
+  et « Projets Archivés » sont conditionnels, donc hors du compte fixe.
+- **La documentation (D18).** `architecture.md` §8 (273 fichiers, la barre latérale en 2a,
+  ProjectListView notée retirée, `PortfolioGroupedView` désignée comme seul appelant de
+  `MainRoute.entity`) et §13 (les quatre tailles relevées au `wc -l` : `MeetingView` 2 068,
+  `Sidebar.swift` 1 995, `SettingsView` 908, `DetailsViews.swift` 617 — les deux dernières
+  étaient annoncées à 1 200 et 2 670 ; `MailBrowserView` et `MailSuggestionService` sortis du
+  code mort ; une section de dette pour ce chantier). `glossaire.md` gagne cinq termes
+  (Portfolio, Palette, À risque, Épinglé, Récents) ; `documentation.yml` gagne les sept dossiers
+  de `Views/` qui manquaient à `code_documente`.
+- **L'ADR de clôture** `docs/adr/2026-09-09-gestion-projets-bilan.md` : D0–D18 telles
+  qu'appliquées, quatorze écarts assumés, six défauts trouvés en chemin, ce que le chantier
+  laisse. `docs/decisions.md` régénéré (15 décisions).
+
+### Tests
+
+- `ProjectsSidebarSectionTests` : `ordreDeLaBarreLaterale` réduit à « section avant
+  collaborateurs » ; **`arbreParEntiteRetire`** interdit onze marqueurs de l'arbre dans les
+  sources de `Sidebar.swift` (mutation vérifiée : ajouter le seul commentaire
+  `// Projets par Entité` fait tomber le test) ; `deplacementParLaBarreEnLot` tient le libellé
+  de la barre en lot. `sousLigneDeLArbre` disparaît avec la fonction qu'il tenait.
+- `SidebarSelectionGuardTests` : l'empreinte du semis perd deux champs ; la mutation « déplier
+  un groupe » porte désormais sur la section « Projets ».
+- `PortfolioViewTests` : `enTeteDeGroupeCliquable`, `resolutionDeLEntiteDuGroupe` (sur le semis)
+  et `routeEntiteBranchee` (lecture des sources).
+- `SidebarProjectCountsTests`, `RefonteTypographieTests` et `DocumentationTests` restent verts
+  sans modification.
+
+### Décisions du lot
+
+1. **`Sidebar.swift` n'entre pas au périmètre typographique.** Le fichier garde **59** fontes
+   système, réparties dans `DashboardView`, `EntityDetailView` et les vues Gantt qui cohabitent
+   avec la barre latérale ; les entrées historiques (« Tableau de bord », « Actions »…) sont
+   déclarées « inchangées » par le handoff. Le découpage du fichier est la condition de la
+   bascule — consigné comme dette dans `STATUS.md` et `architecture.md` §13.
+2. **Les commentaires de `Sidebar.swift` n'écrivent plus « Projets par Entité ».** Le test
+   d'absence lit les sources sans distinguer code et commentaire ; garder la phrase exacte dans
+   un commentaire aurait obligé à affaiblir la garde. Ils disent « l'arbre par entité ».
+3. **`PortfolioBuilder.sansEntite`** nomme une fois le libellé du groupe des orphelins, que
+   `PortfolioGroupedView` reprenait en dur.
+4. **L'en-tête de groupe reste dessiné à l'identique** (`.buttonStyle(.plain)`) : le lot ne
+   change pas le rendu du Portfolio, il lui ajoute un geste.
+5. **`lignesRendues` de la fixture de test recalculé, 19 → 25.** Le nombre est opaque — seule
+   l'égalité de deux empreintes compte — mais un nombre faux dans une fixture est un piège pour
+   qui la relit. Dérivation écrite en commentaire au-dessus de la fixture : 11 lignes fixes + 7
+   pour la section « Projets » dépliée (quatre entrées, trois épinglés, aucun récent) + 7
+   collaborateurs actifs, les deux groupes d'archives étant repliés.
+
+### Ce qui reste dû
+
+- **Les recettes `p1f` et `p2a`**, et la recette finale des six écrans sur le binaire de la pile
+  complète (`recette/finale/`) — **par le coordinateur**. Points que `p2a` doit vérifier :
+  l'ordre exact de la `List` sans l'arbre, l'absence de trou ou de séparateur orphelin là où le
+  `Section` vivait, le chevron de la section « Projets » (écart assumé, à confirmer), la
+  surbrillance `action` de la ligne sélectionnée, et l'en-tête d'entité du Portfolio en mode
+  groupé — le seul chemin restant vers `EntityDetailView` n'a jamais été cliqué.
+- **Le titre « Projets » contre « Portfolio »** et les autres décisions produit listées dans
+  l'ADR de clôture : elles attendent Laurent, aucune ne bloque la fusion.
