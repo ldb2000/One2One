@@ -172,6 +172,23 @@ extension Font {
             : .system(size: size, weight: weight.systemWeight)
     }
 
+    /// Plex Sans en **italique**, pour les valeurs absentes que la maquette
+    /// penche : « Non affecté » dans la colonne « Chef de projet » du
+    /// Portfolio (capture `1a-portfolio.png`, décision **D3**).
+    ///
+    /// L'italique est **synthétisé** : aucune des cinq fontes embarquées n'est
+    /// une italique (cf. `PlexFont.bundledFileNames`), et en embarquer une
+    /// sixième pour un seul libellé ne se justifie pas.
+    ///
+    /// Ici et non dans les vues : `.italic()` est refusé dans les périmètres
+    /// typographiques par `RefonteTypographieTests` — le modificateur de
+    /// SwiftUI ouvre la porte à `.bold()` et aux styles système, et c'est
+    /// précisément ce que le garde-fou empêche. Une fonte Plex nommée passe la
+    /// règle sans l'affaiblir.
+    static func plexSansItalic(_ size: CGFloat, _ weight: PlexWeight = .regular) -> Font {
+        plexSans(size, weight).italic()
+    }
+
     /// Plex Mono, mêmes règles. Sert aux timecodes et aux libellés de section.
     static func plexMono(_ size: CGFloat, _ weight: PlexWeight = .medium) -> Font {
         PlexFont.isInstalled(weight.monoPostScriptName)

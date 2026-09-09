@@ -5,11 +5,12 @@ import SwiftData
 /// `MainRouter.route` (décision **D0**).
 ///
 /// **C'est un routeur, comme `MeetingView`** : il monte un écran, il n'en
-/// calcule aucun. Les écrans de la refonte (Portfolio, À risque, réunions et
-/// actions de projets, recherche dans les CR) n'existent pas encore ; ils
-/// affichent une invite sobre que les lots 1 à 5 remplaceront, un par un. Rien
-/// d'autre ne change de rendu : chaque entrée de la barre latérale retrouve
-/// ici exactement la destination qu'elle avait en `NavigationLink`.
+/// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`) ; les autres
+/// écrans de la refonte (À risque, réunions et actions de projets, recherche
+/// dans les CR) affichent encore une invite sobre que les lots 3 à 5
+/// remplaceront, un par un. Rien d'autre ne change de rendu : chaque entrée de
+/// la barre latérale retrouve ici exactement la destination qu'elle avait en
+/// `NavigationLink`.
 struct MainDetailView: View {
 
     @Environment(MainRouter.self) private var router
@@ -37,8 +38,7 @@ struct MainDetailView: View {
             SettingsView()
 
         case .portfolio:
-            MainDetailPlaceholder(titre: "Portfolio",
-                                  detail: "le tableau des projets, ses facettes et ses vues enregistrées")
+            PortfolioView()
         case .atRisk:
             MainDetailPlaceholder(titre: "À risque",
                                   detail: "les projets groupés par motif : jalon dépassé, sans réunion depuis 30 j, fiche incomplète")

@@ -293,6 +293,7 @@ struct ContentView: View {
             let focus = RefonteDemoSeed.seedPortfolio(in: context)
             mainRouter.pendingPaletteQuery = ecran.termeDePalette
             prereplirLesRecents(ecran.codesDeProjetsRecents)
+            poserLaVueEnregistree(ecran.vueEnregistreeDeRecette)
             mainRouter.open(routeDeRecette(route, focus: focus))
             return
         }
@@ -360,6 +361,19 @@ struct ContentView: View {
             guard let projet = projets.first(where: { $0.code == code }) else { continue }
             mainRouter.rememberRecentProject(projet.ensuredStableID)
         }
+    }
+
+    /// Enregistre et arme la vue enregistrée que l'écran de recette demande.
+    ///
+    /// La vue est **persistée** (`AppSettings.portfolioSavedViews`) pour que le
+    /// menu « Vue enregistrée : … » la montre, puis son identifiant est posé
+    /// dans le routeur pour que `PortfolioView` l'active à son apparition.
+    /// Idempotent par identifiant : relancer la recette ne crée pas de doublon.
+    @MainActor
+    private func poserLaVueEnregistree(_ vue: PortfolioSavedView?) {
+        guard let vue else { return }
+        PortfolioSavedViewStore.enregistrer(vue, in: context)
+        mainRouter.pendingPortfolioSavedView = vue.id
     }
 
     /// La route à ouvrir, recalée sur le projet **réellement** semé.
