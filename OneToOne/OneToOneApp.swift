@@ -150,6 +150,15 @@ struct ContentView: View {
             MainDetailView()
                 .focusSection()
         }
+        // La palette `⌘K` (décision **D1**) : une couche par-dessus les deux
+        // colonnes, posée **avant** `.environment(_:)` pour que le routeur
+        // qu'elle lit soit celui de la fenêtre — l'ordre des modificateurs
+        // décide de ce qu'une superposition voit.
+        .overlay {
+            if mainRouter.paletteOuverte {
+                CommandPalette(router: mainRouter)
+            }
+        }
         .environment(mainRouter)
         .onAppear {
             // Indispensable quand l'app est lancée via swift run :
@@ -177,6 +186,7 @@ struct ContentView: View {
             maybeRunAutoCleanup()
             runRAGIndexingSweep()
             maybeSeedRefonteDemo()
+            ouvrirLaPaletteDeRecette()
 
             NotificationCenter.default.addObserver(
                 forName: .collaboratorHotkeysChanged,
@@ -341,6 +351,18 @@ struct ContentView: View {
                                   forKey: MeetingScreenModel.modeKey(for: cible.ensuredStableID))
         router.pendingToken = OneToOneLaunchToken(meetingID: cible.ensuredStableID,
                                                   autoStartRecording: false)
+    }
+
+    /// Ouvre la palette si un terme l'attend (écran de recette `p1c`).
+    ///
+    /// Le terme est posé par `ouvrirEcranDeRecette` dans
+    /// `MainRouter.pendingPaletteQuery`, et **consommé** ici : la palette
+    /// n'existe pas au moment du semis, et une seconde ouverture doit repartir
+    /// vide. Rien ne se passe hors recette — `pendingPaletteQuery` est `nil`.
+    @MainActor
+    private func ouvrirLaPaletteDeRecette() {
+        guard let terme = mainRouter.consumePendingPaletteQuery() else { return }
+        mainRouter.ouvrirPalette(terme: terme)
     }
 
     /// Inscrit dans les récents les projets que l'écran de recette demande.
