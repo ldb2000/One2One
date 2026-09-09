@@ -351,9 +351,15 @@ recentrée, quelle que soit la clé d'où vient son cadre).
 
 ## Lot 3 — Palette ⌘K (1c), recherche dans les CR, unification D7 (2026-09-09)
 
-Branche `feat/projets-lot-3-palette`, base `c092442` (tête du lot 2). Rien poussé, arbre
-propre, aucun `git stash`, aucun lancement graphique, aucun build release — la recette `p1c`
-est prise par le coordinateur depuis un autre checkout.
+Branche `feat/projets-lot-3-palette`, **base `88916de`** (tête du lot 2 après ses deux
+commits de correction et de captures ; le lot a démarré sur `c092442` et a été rebasé en fin
+de course, sans conflit). Rien poussé, arbre propre, aucun `git stash`, aucun lancement
+graphique, aucun build release — la recette `p1c` est prise par le coordinateur depuis un
+autre checkout.
+
+`swift test` : **2 345 Swift Testing / 276 suites + 1 057 XCTest (1 ignoré) = 3 402**,
+0 échec, **+56 tests et +3 suites** sur le lot 2. Aucun avertissement nouveau ;
+`DocumentationTests` et `RefonteTypographieTests` verts.
 
 ### Ce que le lot livre
 

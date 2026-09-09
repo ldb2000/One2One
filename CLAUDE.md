@@ -125,8 +125,10 @@ transcription, rail d'actions de 330 px, poste de pilotage), `Session/**` (séan
   traversant plus d'un niveau.
 - Toute règle métier est une **fonction pure testée avant sa vue** : `MeetingSpaceRouting`,
   `MeetingKPIBuilder`, `MeetingKPI.Level.teinte`, `ReminderRules`, `CommitmentsRailModel`…
-- Les raccourcis de réunion sont déclarés **une fois**, dans `Views/Menus/MeetingShortcut.swift` ;
-  `Tests/MeetingShortcutsTests.swift` refuse un second déclarant non nommé.
+- Les raccourcis clavier sont déclarés **une fois**, dans `Views/Menus/AppShortcut.swift` ;
+  `Tests/AppShortcutsTests.swift` refuse un second déclarant non nommé. Depuis le 2026-09-09,
+  `⌘K` ouvre la **palette** et l'assistant de réunion est en `⌘⇧K`
+  (`docs/adr/2026-09-09-palette-commande-k.md`) : la table n'est plus propre à la réunion.
 - Les semis de recette sont des extensions de `RefonteDemoSeed`, **idempotentes** ; la table
   des écrans photographiables est `Services/Debug/RecetteScreen.swift`.
 
