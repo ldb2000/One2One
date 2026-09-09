@@ -106,6 +106,53 @@ struct RecetteScreenTests {
         }
     }
 
+    // MARK: - Le semis ne sort pas du bundle de recette
+
+    /// Racine du dépôt, déduite de `#filePath` (`<racine>/Tests/<fichier>`).
+    private static var racineDuDepot: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private static func source(_ chemin: String) -> String {
+        (try? String(contentsOf: racineDuDepot.appendingPathComponent(chemin),
+                     encoding: .utf8)) ?? ""
+    }
+
+    /// Les **deux** items de menu qui sèment un jeu de démonstration doivent
+    /// être **grisés** hors bundle de recette.
+    ///
+    /// Le semis écrit dans le store du processus qui le montre, et depuis le
+    /// lot 0 de la refonte des projets il y verse aussi soixante-deux projets
+    /// actifs et quatorze archivés : un clic dans l'application de tous les
+    /// jours polluait le store de **production**, sans confirmation ni retour
+    /// en arrière. Une lecture des sources, parce qu'un `Commands` ne
+    /// s'instancie pas depuis un test — et parce qu'une garde retirée ne
+    /// change l'état d'aucun modèle.
+    @Test("Le semis de démonstration est grisé hors bundle de recette")
+    func semisGardeParLEnvironnement() {
+        let source = Self.source("OneToOne/Views/Menus/MeetingCommands.swift")
+        #expect(!source.isEmpty, "MeetingCommands.swift introuvable")
+        // La garde, et la variable exacte qu'elle lit — la même que le semis
+        // automatique de `ContentView.maybeSeedRefonteDemo`.
+        #expect(source.contains("ContentView.seedDemoEnvironmentKey"),
+                "la garde doit lire la variable d'environnement du bundle de recette")
+        // Les deux items : « refonte » (réunions + portefeuille) et
+        // « atelier » (une réunion et ses planches). Le second en verse moins,
+        // pas moins gravement.
+        let gardes = source.components(separatedBy: ".disabled(demoContext == nil || !semisAutorise)")
+            .count - 1
+        #expect(gardes == 2, "les deux items de semis doivent être grisés, pas un seul")
+        // Et la forme nue, qui ne gardait que l'absence de conteneur, a disparu
+        // des deux — `contains` distingue bien les deux formes, la garde
+        // complète n'ayant pas la parenthèse fermante après `nil`.
+        #expect(!source.contains(".disabled(demoContext == nil)"),
+                "un item de semis gardé par le seul conteneur écrirait en production")
+        // Un item grisé sans raison est un défaut, pas une garde.
+        #expect(MeetingCommands.semisReserveALaRecette == "Réservé au bundle de recette")
+        let infobulles = source.components(separatedBy: "Self.semisReserveALaRecette").count - 1
+        #expect(infobulles == 2, "l'infobulle est posée sur les deux items grisés")
+    }
+
     /// Un écran de la fenêtre principale n'ouvre aucune réunion : son mode ne
     /// sert à rien, mais il doit rester une valeur définie — `RecetteScreen.mode`
     /// est total.

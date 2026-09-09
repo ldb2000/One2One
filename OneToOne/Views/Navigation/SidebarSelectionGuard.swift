@@ -100,10 +100,8 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
     var projetsRecents: Int
     var collaborateursActifs: Int
     var collaborateursArchives: Int
-    var entites: Int
     var recherche: String
     var sectionProjetsDepliee: Bool
-    var arbreDeplie: Bool
     var collaborateursDeplies: Bool
     var archivesDepliees: Bool
     var projetsArchivesDeplies: Bool
@@ -132,12 +130,14 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
 /// **tag d'une autre ligne**, que SwiftUI écrit alors dans le binding. La route
 /// change, et l'écran affiché avec elle.
 ///
-/// Observé deux fois à la recette du 2026-09-09 : `p1a` a photographié la fiche
-/// du premier projet archivé au lieu du Portfolio, `p1c` celle de `P25_155`
-/// alors que la route demandée était `.portfolio`. Ce n'est pas un défaut de
-/// recette : tout utilisateur dont les lignes bougent — import xlsx, épinglage
-/// depuis la palette, frappe dans le champ de recherche — est dérouté de la
-/// même façon, sans rien avoir cliqué.
+/// Observé **trois** fois à la recette du 2026-09-09 : `p1a` a photographié la
+/// fiche du premier projet archivé au lieu du Portfolio, `p1c` celle de
+/// `P25_155` alors que la route demandée était `.portfolio`, et `p1f` a ouvert
+/// deux projets sur un simple **redimensionnement** de fenêtre, vingt secondes
+/// après le lancement. Ce n'est pas un défaut de recette : tout utilisateur
+/// dont les lignes bougent — import xlsx, épinglage depuis la palette, frappe
+/// dans le champ de recherche, fenêtre redimensionnée — est dérouté de la même
+/// façon, sans rien avoir cliqué.
 ///
 /// ## La règle
 ///

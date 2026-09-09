@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Les quatre destinations de la section « Projets » de la barre latérale
-/// (capture `2b-sidebar-variante-arbre-replie.png`).
+/// (capture `2a-sidebar-section-projets.png`).
 ///
 /// Un `enum` et non quatre lignes écrites à la main dans la vue : l'ordre, les
 /// libellés, les icônes, les routes et les badges sont ce que la capture fixe,
@@ -75,13 +75,13 @@ enum ProjectsSidebarEntry: String, CaseIterable, Sendable {
     }
 }
 
-/// La section « Projets » de la barre latérale — variante **2b** du handoff :
-/// la section s'ajoute, l'arbre « Projets par Entité » reste, replié.
+/// La section « Projets » de la barre latérale — variante **2a** du handoff,
+/// la structure retenue : la section est **le** point d'accès aux projets.
 ///
 /// **Un point d'accès, pas un catalogue.** Quatre destinations, les projets
-/// épinglés, les derniers ouverts. Retrouver un projet par son nom est
-/// désormais le travail du Portfolio (lot 2) et de la palette `⌘K` (lot 3) ;
-/// l'arbre par entité disparaîtra au lot 6.
+/// épinglés, les derniers ouverts. Retrouver un projet par son nom est le
+/// travail du Portfolio (lot 2) et de la palette `⌘K` (lot 3) ; l'arbre par
+/// entité, conservé replié pendant la variante 2b, a été retiré au lot 6.
 ///
 /// **Rien n'est calculé ici** (décision **D11**) : les compteurs viennent de
 /// `SidebarProjectCounts`, les épinglés de `PinnedProjectsList`, les récents de
@@ -92,8 +92,9 @@ struct ProjectsSidebarSection: View {
     /// Le titre de la section, tel que la capture l'écrit.
     static let titre = "Projets"
 
-    /// La clé de dépliage de **cette** section (décision **D5**). L'arbre par
-    /// entité garde la sienne (`sidebar.projectsExpanded`) et passe à replié.
+    /// La clé de dépliage de la section (décision **D5**). L'arbre par entité
+    /// avait la sienne ; elle est partie avec lui au lot 6, et la valeur
+    /// éventuellement persistée chez un utilisateur n'a plus de lecteur.
     static let expandedKey = "sidebar.projectsSectionExpanded"
 
     /// Dépliée par défaut : c'est la navigation projets, elle ne se cache pas.
@@ -107,17 +108,6 @@ struct ProjectsSidebarSection: View {
     static let tailleIcone: CGFloat = 12
     /// Décalage des lignes de projet sous leur sous-titre.
     static let indentation: CGFloat = 10
-
-    /// La sous-ligne du label de l'arbre par entité, telle que la capture
-    /// l'écrit : « 8 entités · replié par défaut ».
-    ///
-    /// Ici et non dans `Sidebar.swift` : c'est un libellé de la variante 2b, et
-    /// c'est au test de cette section de le tenir au mot près.
-    /// Zéro et un prennent le singulier — « 0 entité », comme le veut l'usage.
-    static func sousLigneArbre(entites: Int) -> String {
-        let nom = entites <= 1 ? "entité" : "entités"
-        return "\(entites) \(nom) · replié par défaut"
-    }
 
     /// Tous les projets — le filtrage vit dans les fonctions pures.
     let projets: [Project]

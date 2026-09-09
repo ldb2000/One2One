@@ -17,3 +17,8 @@
 | Fiche projet | jalons, interlocuteurs, budget, périmètre d'un projet | `Project`, `ProjectMilestone`, `ProjectContact` |
 | Espace / mode | Réunion, Rapport, Ressources × Préparer, En séance, Relire | `MeetingScreenModel` |
 | Séance | le mode « En séance » d'une réunion : prise de notes et capture pendant qu'elle a lieu | `MeetingScreenModel.Mode.live` |
+| Portfolio | l'écran des projets : tableau triable, facettes, vues enregistrées — il a remplacé l'arbre par entité de la barre latérale | `PortfolioView`, `PortfolioRow`, `PortfolioBuilder` |
+| Palette | la fenêtre de commande `⌘K` : projets, actions, recherche dans les comptes rendus | `CommandPalette`, `PaletteModel` |
+| À risque | un projet dont un jalon est dépassé, sans réunion depuis 30 jours, ou dont la fiche est incomplète | `AtRiskView`, `AtRiskBuilder`, `AtRiskItem` |
+| Épinglé | un projet mis en tête de la barre latérale par son porteur | `Project.pinned`, `PinnedProjectsList` |
+| Récents | les derniers projets ouverts, retenus hors du store | `RecentProjects`, `RecentProjectsList` |

@@ -557,7 +557,10 @@ final class MenuBarController: NSObject {
             // faisait rien. `MainRouter.shared` et non l'environnement — un
             // `NSObject` n'en a pas.
             onSelectProject: { [weak self] project in
-                NSApp.activate(ignoringOtherApps: true)
+                // Activer l'application ne suffit pas : la fenêtre principale
+                // peut être derrière une fenêtre de réunion, et la route
+                // s'écrirait sans que rien ne se voie (`MainWindowRegistry`).
+                MainWindowRegistry.remonter()
                 MainRouter.shared.openProject(project)
                 self?.searchPopover.performClose(nil)
             },

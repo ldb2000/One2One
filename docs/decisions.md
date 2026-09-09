@@ -7,6 +7,7 @@
 | --- | --- | --- | --- |
 | 2026-09-09 | Un routeur pour la fenêtre principale | acceptée le 2026-09-09 (décision D0 de la refonte de la gestion des projets, validée par Laurent le 2026-09-09) | `docs/adr/2026-09-09-routeur-de-navigation.md` |
 | 2026-09-09 | ⌘K va à la palette, l'assistant de réunion passe à ⌘⇧K | acceptée le 2026-09-09 (décision D1 de la refonte de la gestion des projets, validée par Laurent le 2026-09-09) | `docs/adr/2026-09-09-palette-commande-k.md` |
+| 2026-09-09 | Refonte de la gestion des projets — bilan des décisions D0 à D18 | accepté, 2026-09-09 | `docs/adr/2026-09-09-gestion-projets-bilan.md` |
 | 2026-09-09 | L'écran projet s'édite champ par champ, au clic, avec annulation | acceptée le 2026-09-09 (décision D9 de la refonte de la gestion des projets) | `docs/adr/2026-09-09-edition-in-place-fiche-projet.md` |
 | 2026-09-08 | Refonte de l'écran de réunion — bilan des décisions D0 à D11 | accepté, 2026-09-08 | `docs/adr/2026-09-08-refonte-ecran-reunion-bilan.md` |
 | 2026-09-07 | Pièces jointes de réunion : copiées, jamais référencées | validée le 2026-09-07 (décision D5 du programme de refonte, acceptée par Laurent le 2026-09-07) | `docs/adr/2026-09-07-pieces-copiees-jamais-referencees.md` |

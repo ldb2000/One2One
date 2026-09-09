@@ -209,8 +209,8 @@ struct SidebarSelectionGuardTests {
         var recherche = base; recherche.recherche = "ged"
         #expect(recherche != base, "une recherche filtre les lignes")
 
-        var arbre = base; arbre.arbreDeplie = true
-        #expect(arbre != base, "déplier un groupe ajoute ses lignes")
+        var section = base; section.sectionProjetsDepliee = false
+        #expect(section != base, "replier la section « Projets » retire ses lignes")
 
         var archives = base; archives.projetsArchivesDeplies = true
         #expect(archives != base, "c'est le groupe de la capture p1a")
@@ -236,13 +236,24 @@ struct SidebarSelectionGuardTests {
     }
 
     /// L'empreinte du portefeuille de démonstration, section « Projets »
-    /// dépliée et arbre replié — l'état de la capture `p1c`.
+    /// dépliée — l'état de la capture `p1c`. Plus de champ d'arbre par entité
+    /// depuis la bascule 2a du lot 6 : aucune ligne d'entité n'est rendue.
+    ///
+    /// **`lignesRendues` = 25**, recalculé sur la formule de
+    /// `MainSidebarView.empreinteDesLignes` dans cet état : 11 lignes fixes
+    /// (les sept destinations du haut, les libellés des deux groupes toujours
+    /// présents — « Projets » et « Collaborateurs » —, le `Spacer` et
+    /// « Paramètres ») + 7 pour la section « Projets » dépliée (ses quatre
+    /// entrées, trois épinglés, aucun récent) + 7 collaborateurs actifs, les
+    /// deux groupes d'archives étant repliés. Le compte n'a pas à être exact
+    /// pour que le garde fonctionne — seule sa stabilité compte —, mais un
+    /// nombre faux dans une fixture est un piège pour qui la relit.
     private static let empreinteDuSemis = SidebarRowsFingerprint(
         projetsActifs: 62, projetsArchives: 14, projetsEpingles: 3,
         projetsRecents: 0, collaborateursActifs: 7, collaborateursArchives: 0,
-        entites: 8, recherche: "", sectionProjetsDepliee: true,
-        arbreDeplie: false, collaborateursDeplies: true, archivesDepliees: false,
-        projetsArchivesDeplies: false, lignesRendues: 19)
+        recherche: "", sectionProjetsDepliee: true,
+        collaborateursDeplies: true, archivesDepliees: false,
+        projetsArchivesDeplies: false, lignesRendues: 25)
 
     // MARK: - Le branchement, par lecture des sources
 
