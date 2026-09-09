@@ -27,7 +27,7 @@ principale est une **valeur** (`MainRoute`) et non plus des `NavigationLink` inl
 | 3 | `feat/projets-lot-3-palette` | #57 | palette `⌘K` (1c), `ReportSearch` (D8), `AppShortcut` (D1), `SidebarSelectionGuard` |
 | 4 | `feat/projets-lot-4-ecran-projet` | #58 | écran projet à six onglets (1d), édition in-place (D9), `ProjectRelationWriter` |
 | 5 | `feat/projets-lot-5-a-risque` | #59 | vue « À risque » (1f), `AtRiskBuilder` (D11), correctif transverse de la sélection |
-| 6 | `feat/projets-lot-6-bascule-2a` | **à ouvrir** | retrait de l'arbre par entité, en-tête d'entité du Portfolio, documentation et ADR de clôture |
+| 6 | `feat/projets-lot-6-bascule-2a` | #60 | retrait de l'arbre par entité, en-tête d'entité du Portfolio, « Mes réunions projets » et « Actions projets » (listes existantes filtrées), documentation et ADR de clôture |
 
 **Tests.** `swift build` propre ; `swift test` complet vert sur la tête du lot 6 : **2 525 Swift
 Testing / 284 suites + 1 057 XCTest (1 ignoré) = 3 582**, exit 0 — soit **+471** sur les 3 111 de

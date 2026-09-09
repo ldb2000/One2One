@@ -35,13 +35,13 @@ assumés avec les captures, les défauts trouvés en chemin, et ce que le chanti
 
 | # | Décision retenue | Ce qu'elle est devenue | Où le vérifier |
 |---|---|---|---|
-| **D0** | Routeur de navigation : la barre latérale sélectionne une **route**, `ContentView` monte l'écran par un `switch` | Tenue. `MainRoute` (18 cas), `MainRouter` (`@Observable`, singleton `.shared` parce que `MenuBarController` est un `NSObject`), `MainDetailView`. Un mécanisme non prévu s'y est ajouté au lot 3 : `SidebarSelectionGuard` (voir « Défauts trouvés ») | `Views/Navigation/**`, ADR `2026-09-09-routeur-de-navigation.md` |
+| **D0** | Routeur de navigation : la barre latérale sélectionne une **route**, `ContentView` monte l'écran par un `switch` | Tenue. `MainRoute` (16 cas), `MainRouter` (`@Observable`, singleton `.shared` parce que `MenuBarController` est un `NSObject`), `MainDetailView`. Les seize routes montent un écran réel : « Mes réunions projets » et « Actions projets » sont `MeetingsListView` et `ActionsListView` filtrées par `projetsSeulement`, comme le §4 de la spec le demande — pas deux écrans de plus. Un mécanisme non prévu s'y est ajouté au lot 3 : `SidebarSelectionGuard` (voir « Défauts trouvés ») | `Views/Navigation/**`, ADR `2026-09-09-routeur-de-navigation.md` |
 | **D1** | `⌘K` va à la palette, l'Assistant passe à `⌘⇧K` | Tenue. `MeetingShortcut` est renommé `AppShortcut` — la table n'est plus « de réunion » mais « de l'application » | `Views/Menus/AppShortcut.swift`, ADR `2026-09-09-palette-commande-k.md` |
 | **D2** | Table de risque unique ; « Faible » reste `ink4`, pas un vert | Tenue. `RiskLevelTint` sert le Portfolio, l'écran projet et la vue « À risque » | `Views/DesignSystem/RiskLevelTint.swift` |
 | **D3** | Chef de projet et architecte : la **relation** fait foi, la chaîne du xlsx ne suffit pas | Tenue. « Non affecté » en italique partout ; `ProjectPeople.suggestedManager` préremplit le sélecteur de l'action « Compléter » | `Services/Project/ProjectPeople.swift` |
 | **D4** | `Project.pinned`, récents en `@AppStorage`, vues enregistrées en JSON sur `AppSettings` — aucun nouveau `@Model` | Tenue. Deux champs à valeur par défaut, aucun `SchemaV4` | `Models/Project.swift`, `Services/Project/RecentProjects.swift`, `PortfolioSavedView.swift` |
 | **D5** | Nouvelle clé `sidebar.projectsSectionExpanded` (défaut `true`) ; l'arbre garde la sienne et passe à replié, puis disparaît au lot 2a | Tenue en deux temps : replié au lot 1 (variante 2b), **retiré au lot 6** avec sa clé, ses boutons et son glisser-déposer | `Views/Sidebar/ProjectsSidebarSection.swift`, `Views/Sidebar.swift` |
-| **D6** | Codes de recette préfixés `p` ; semis de 62 projets actifs sur 8 entités et 14 archivés, dans le home jetable seulement | Tenue. `RefonteDemoSeed+Portfolio` est idempotent par `code` ; quatre recettes sur six faites (voir « Ce que le chantier laisse ») | `Services/Debug/Seed/RefonteDemoSeed+Portfolio.swift`, `Services/Debug/RecetteScreen.swift` |
+| **D6** | Codes de recette préfixés `p` ; semis de 62 projets actifs sur 8 entités et 14 archivés, dans le home jetable seulement | Tenue. `RefonteDemoSeed+Portfolio` est idempotent par `code` ; les six recettes sont faites (voir « Ce que le chantier laisse »), et l'item de menu qui sème à la main est désormais grisé hors bundle de recette | `Services/Debug/Seed/RefonteDemoSeed+Portfolio.swift`, `Services/Debug/RecetteScreen.swift` |
 | **D7** | Une **seule** recherche de projets, partagée par la barre latérale, le Portfolio, la palette et le popover de la barre de menus | Tenue. `ProjectSearch` (correspondance, classement, surlignage) ; `MeetingsProjectFilterPicker` et `SearchPopover` y ont migré | `Services/Project/ProjectSearch.swift` |
 | **D8** | « Chercher « x » dans les CR » : recherche lexicale synchrone dans les comptes rendus, **pas** les mails | Tenue. `ReportSearch` balaye `Meeting.textualContent` des réunions hors notes, groupe par projet, découpe un extrait de ±60 caractères | `Services/Project/ReportSearch.swift`, `Views/Search/` |
 | **D9** | Édition in-place par champ, `⏎` valide, `esc` annule le champ et non l'écran | Tenue. `EditableInPlace`, `ProjectCardDraft` étendu, `UndoBanner` de 5 s ; `ProjectCardPanel` perd sa dépendance obligatoire à `Meeting` | ADR `2026-09-09-edition-in-place-fiche-projet.md` |
@@ -181,9 +181,8 @@ lots ont porté la suite de 3 111 à 3 582 tests (+471), sans en retirer aucun.
 
 **Négatives.** `Sidebar.swift` reste un fichier de 2 004 lignes malgré 154 lignes retirées ;
 trois écrans reconstruisent tout leur contenu à chaque changement de `@Query`, sans mesure sur
-un store réel ; deux des six captures de recette manquent au moment de la clôture ; la fiche
-d'une entité n'a plus qu'un seul chemin depuis la fenêtre principale, et ce chemin n'a pas
-encore été photographié.
+un store réel ; la fiche d'une entité n'a plus qu'un seul chemin depuis la fenêtre principale, et
+si ce chemin est bien **rendu** dans `p1a`, personne ne l'a **cliqué**.
 
 ## Alternatives étudiées
 

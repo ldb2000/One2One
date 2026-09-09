@@ -561,6 +561,13 @@ graph TD
   surlignage `highlight` des occurrences du terme. L'état est dans `PaletteModel`
   (`Services/Project/`), l'ouverture dans `MainRouter` — un item de menu natif n'a accès à
   aucune hiérarchie de vues.
+- **Listes de projets** : « Mes réunions projets » (`MainRoute.projectMeetings`) et « Actions
+  projets » (`.projectActions`) ne sont **pas** des écrans nouveaux — ce sont `MeetingsListView`
+  et `ActionsListView`, montées avec `projetsSeulement: true`, qui ajoute une ligne à leur
+  chaîne de filtres existante (`meeting.project != nil`, `task.project != nil`) et laisse tous
+  les autres filtres, la recherche et les gestes disponibles. `ProjectScopeBanner`
+  (`Views/Navigation/`) dit à l'écran que la liste est restreinte et comment en sortir — un
+  filtre qui vient de la route ne s'efface pas depuis l'écran.
 - **Recherche dans les CR** (`Views/Search/`) : `ReportSearchView`, l'écran de résultats de
   « Chercher « x » dans les CR » (décision **D8**). Il monte la route
   `MainRoute.searchReports(_:)`, groupe par projet, surligne l'extrait et ouvre la réunion par
@@ -638,15 +645,26 @@ des projets).
 - `MainSidebarView` est une liste à sélection sur `MainRoute` ; `MainDetailView` monte l'écran
   par un `switch` total. C'est un routeur, comme `MeetingView` : il ne calcule rien.
 - **La liste ne sélectionne pas la route directement.** Elle sélectionne un état local, et
-  `SidebarSelectionGuard` décide si ce changement mérite d'être porté au routeur : `NSTableView`
-  conserve un **index** de ligne, et quand la composition des lignes change (semis, épinglage,
-  recherche, groupe déplié) SwiftUI le retraduit en tag d'une **autre** ligne, qu'il écrit dans
-  le binding — l'application ouvrait alors une fiche que personne n'avait demandée (relevé deux
-  fois à la recette du 2026-09-09). L'écriture n'est acceptée que si `SidebarRowsFingerprint`
-  n'a pas bougé dans les 300 ms ; sinon la sélection est restaurée depuis la route. Pas de
-  condition de focus : la première version en exigeait une, et elle refusait les sélections
-  faites par l'accessibilité (`AXSelected`, VoiceOver) comme le premier clic depuis un état non
-  focalisé.
+  `SidebarSelectionGuard.decide` dit ce qu'il faut en faire : `NSTableView` conserve un **index**
+  de ligne, et quand il redispose ses lignes SwiftUI retraduit cet index en tag d'une **autre**
+  ligne, qu'il écrit dans le binding — l'application ouvrait alors une fiche que personne n'avait
+  demandée (relevé **trois** fois à la recette du 2026-09-09 : `p1a`, `p1c`, puis `p1f` sur un
+  simple redimensionnement de fenêtre).
+  Le discriminant est l'**événement d'entrée en cours de traitement** : une sélection voulue par
+  un humain arrive dans la pile d'appel d'un `NSEvent`, et `EvenementEntree.courant()` lit
+  `NSApp.currentEvent` — clic ou touche de moins d'une seconde (`EvenementEntree.ageMaximal`). Un
+  remappage d'index, lui, survient pendant une passe de disposition : hors de tout événement, ou
+  sous un événement synthétique (`.appKitDefined`, `.periodic`) ou périmé.
+  `decide` rend trois cas : **ouvrir** la route, **ignorer** (la sélection recopie la route
+  courante, ce que fait toute ouverture par programme — palette `⌘K`, récents, recette),
+  **restaurer** l'état local depuis la route, ce qui remet aussi la surbrillance à sa place.
+  Le chemin **sans** événement reste ouvert, sous deux garde-fous — fenêtre active et
+  `SidebarRowsFingerprint` stable depuis 300 ms : l'accessibilité pose `AXSelected` hors de tout
+  événement d'entrée, et refuser toute écriture sans événement casserait VoiceOver. Deux règles
+  ont cédé avant celle-ci : le focus clavier, qui refusait les sélections de VoiceOver et le
+  premier clic depuis un état non focalisé, puis le seul délai après un changement de lignes, que
+  le redimensionnement de `p1f` a contourné — il remappe les index sans qu'aucune ligne ne naisse
+  ni ne meure.
 - `ContentView` injecte le routeur par `.environment(_:)`, borne la colonne latérale à
   170 / 250 / 320 px et pose la palette en superposition — **avant** l'injection, sinon la
   superposition ne verrait pas le routeur de la fenêtre.
