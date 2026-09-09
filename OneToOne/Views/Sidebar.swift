@@ -208,17 +208,84 @@ struct MainSidebarView: View {
     @ObservedObject private var jobQueue = JobQueue.shared
     @AppStorage("sidebar.jobsExpanded") private var jobsExpanded: Bool = true
 
+    // MARK: - Sélection de la liste
+
+    /// La sélection de la `List`, **locale**, et non la route du routeur.
+    ///
+    /// Le binding a longtemps été `$mainRouter.route` : la barre latérale
+    /// pilotait l'écran directement. C'était un défaut, relevé deux fois à la
+    /// recette du 2026-09-09 — `NSTableView` conserve un **index** de ligne, et
+    /// quand l'ensemble des lignes change (semis, épinglage, recherche, groupe
+    /// déplié) SwiftUI retraduit cet index en tag d'une **autre** ligne et
+    /// l'écrit dans le binding. L'application ouvrait alors une fiche que
+    /// personne n'avait demandée. Voir `SidebarSelectionGuard`.
+    @State private var selectionDeLaListe: MainRoute?
+
+    /// La `List` a-t-elle le focus clavier ? C'est la preuve qu'un humain est
+    /// aux commandes — et la seule qui couvre `↑`/`↓`, dont `NSTableView`
+    /// n'informe aucun `onKeyPress` SwiftUI.
+    @FocusState private var listeFocalisee: Bool
+
+    /// Quand la composition des lignes a changé pour la dernière fois.
+    @State private var dernierChangementDeLignes: Date?
+
+    /// Ce qui fait naître ou mourir une ligne. Comparée par `onChange` : un
+    /// renommage ou une sauvegarde de contexte ne la change pas.
+    private var empreinteDesLignes: SidebarRowsFingerprint {
+        SidebarRowsFingerprint(
+            projetsActifs: projects.filter { !$0.isArchived }.count,
+            projetsArchives: filteredArchivedProjects.count,
+            projetsEpingles: projects.filter { $0.pinned && !$0.isArchived }.count,
+            collaborateursActifs: filteredActiveCollaborators.count,
+            collaborateursArchives: filteredArchivedCollaborators.count,
+            entites: filteredEntities.count,
+            recherche: debouncedSearch,
+            sectionProjetsDepliee: sectionProjetsDepliee,
+            arbreDeplie: projectsExpanded,
+            collaborateursDeplies: collabsExpanded,
+            archivesDepliees: archivesExpanded,
+            projetsArchivesDeplies: archivedProjectsExpanded)
+    }
+
+    /// L'état de dépliage de la section « Projets », lu là où elle l'écrit.
+    private var sectionProjetsDepliee: Bool {
+        UserDefaults.standard.object(forKey: ProjectsSidebarSection.expandedKey) as? Bool
+            ?? ProjectsSidebarSection.deplieParDefaut
+    }
+
+    /// Applique la décision du garde-fou à un changement de sélection.
+    private func selectionADeplace(de ancienne: MainRoute?, vers nouvelle: MainRoute?) {
+        let utilisateur = SidebarSelectionGuard.estUneSelectionUtilisateur(
+            listeFocalisee: listeFocalisee,
+            lignesChangeesIlYA: dernierChangementDeLignes.map { -$0.timeIntervalSinceNow })
+        switch SidebarSelectionGuard.decide(ancienne: ancienne,
+                                            nouvelle: nouvelle,
+                                            routeCourante: mainRouter.route,
+                                            utilisateur: utilisateur) {
+        case .ouvrir(let route):
+            mainRouter.open(route)
+        case .ignorer:
+            break
+        case .restaurer:
+            // Remet aussi la surbrillance sur la ligne de l'écran affiché.
+            // Réécrire `selectionDeLaListe` redéclenche ce même `onChange`,
+            // qui tombera cette fois sur `.ignorer` : pas de boucle.
+            selectionDeLaListe = mainRouter.route
+        }
+    }
+
     var body: some View {
-        // Le routeur vient de l'environnement et il est `@Observable` : c'est
-        // `@Bindable` qui en tire le `Binding` que `List(selection:)` attend.
-        @Bindable var mainRouter = mainRouter
-        return VStack(spacing: 0) {
+        // La `List` sélectionne un `@State` **local**, jamais la route : c'est
+        // `SidebarSelectionGuard` qui décide si une sélection mérite d'être
+        // portée au routeur. Il n'y a plus de `@Bindable` sur le routeur ici,
+        // et un test l'interdit.
+        VStack(spacing: 0) {
             // Multi-select action bar
             if isMultiSelectMode && !selectedProjectIDs.isEmpty {
                 multiSelectBar
             }
 
-            List(selection: $mainRouter.route) {
+            List(selection: $selectionDeLaListe) {
                 Label("Tableau de bord", systemImage: "chart.bar.fill")
                     .tag(MainRoute.dashboard)
 
@@ -450,6 +517,20 @@ struct MainSidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            .focused($listeFocalisee)
+            // Synchronisation **descendante** : la route décide de la
+            // surbrillance, y compris quand elle vient de la palette `⌘K`, du
+            // menu système ou de l'écran de recette.
+            .onAppear { selectionDeLaListe = mainRouter.route }
+            .onChange(of: mainRouter.route) { _, nouvelle in
+                selectionDeLaListe = nouvelle
+            }
+            // Le signal de méfiance : les lignes viennent de bouger.
+            .onChange(of: empreinteDesLignes) { dernierChangementDeLignes = Date() }
+            // Synchronisation **montante**, filtrée.
+            .onChange(of: selectionDeLaListe) { ancienne, nouvelle in
+                selectionADeplace(de: ancienne, vers: nouvelle)
+            }
             .sheet(item: $renamingCollaborator) { collaborator in
                 VStack(spacing: 16) {
                     Text("Renommer le collaborateur")

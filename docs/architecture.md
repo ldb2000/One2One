@@ -600,6 +600,14 @@ des projets).
   c'est lui qui ouvre un projet depuis la recherche du menu système.
 - `MainSidebarView` est une liste à sélection sur `MainRoute` ; `MainDetailView` monte l'écran
   par un `switch` total. C'est un routeur, comme `MeetingView` : il ne calcule rien.
+- **La liste ne sélectionne pas la route directement.** Elle sélectionne un état local, et
+  `SidebarSelectionGuard` décide si ce changement mérite d'être porté au routeur : `NSTableView`
+  conserve un **index** de ligne, et quand la composition des lignes change (semis, épinglage,
+  recherche, groupe déplié) SwiftUI le retraduit en tag d'une **autre** ligne, qu'il écrit dans
+  le binding — l'application ouvrait alors une fiche que personne n'avait demandée (relevé deux
+  fois à la recette du 2026-09-09). L'écriture n'est acceptée que si la liste a le focus **et**
+  que `SidebarRowsFingerprint` n'a pas bougé dans les 300 ms ; sinon la sélection est restaurée
+  depuis la route.
 - `ContentView` injecte le routeur par `.environment(_:)`, borne la colonne latérale à
   170 / 250 / 320 px et pose la palette en superposition — **avant** l'injection, sinon la
   superposition ne verrait pas le routeur de la fenêtre.
