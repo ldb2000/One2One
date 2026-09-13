@@ -50,7 +50,11 @@ enum ProjectBatchActions {
     /// C'est l'opération que le lot 6 exposera sous le libellé « Déplacer vers
     /// une entité », en remplacement du glisser-déposer de l'arbre.
     static func setEntity(_ entity: Entity?, on projects: [Project]) {
-        appliquer(projects) { $0.entity = entity }
+        // Pas `appliquer` : réaffecter `Project.entity` puis enregistrer perd
+        // la valeur une fois sur trois (mesures dans `ProjectRelationWriter`).
+        // C'est la seule des six opérations qui écrive une relation à inverse
+        // déclaré ; les cinq autres écrivent des colonnes.
+        ProjectRelationWriter.setEntity(entity, on: projects)
     }
 
     /// Archive les projets. Ne supprime rien : un projet archivé sort du

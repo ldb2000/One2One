@@ -76,7 +76,13 @@ struct ProjectCardPanel: View {
     // MARK: - Entrées
 
     let project: Project
-    let meeting: Meeting
+    /// La réunion depuis laquelle la fiche est ouverte, **s'il y en a une**.
+    ///
+    /// Optionnelle depuis le lot 4 (décision **D9**) : le panneau n'a besoin
+    /// d'une réunion que pour demander des propositions à l'assistant et pour
+    /// tracer une acceptation. Hors réunion — c'est le cas de l'écran projet —
+    /// il n'y a rien à proposer, et la fiche s'ouvre quand même.
+    let meeting: Meeting?
     /// Toutes les réunions connues : sert à compter celles du projet.
     let meetings: [Meeting]
     let settings: AppSettings
@@ -912,7 +918,11 @@ struct ProjectCardPanel: View {
     /// Une seule demande par ouverture de panneau : les propositions ne se
     /// régénèrent pas à chaque frappe.
     private func askSuggestionsIfNeeded() {
-        guard !didAskSuggestions,
+        // Sans réunion, il n'y a pas de séance à confronter à la fiche :
+        // l'assistant n'est pas sollicité, et la feuille de propositions ne
+        // s'ouvre jamais.
+        guard let meeting,
+              !didAskSuggestions,
               ProjectCardSuggestions.isEndpointConfigured(settings) else { return }
         didAskSuggestions = true
         let carte = card
@@ -934,6 +944,9 @@ struct ProjectCardPanel: View {
     /// garde l'instantané d'avant pour la bannière.
     private func save() {
         let avant = ProjectCardDraft.snapshot(of: project)
+        // Horodate le périmètre s'il a changé — et seulement lui : l'annulation
+        // ci-dessous réapplique `avant` tel quel, donc restaure la date d'avant.
+        draft.stampScopeIfChanged(from: avant)
         draft.apply(to: project, in: context)
         baseline = ProjectCardDraft.snapshot(of: project)
         draft = baseline

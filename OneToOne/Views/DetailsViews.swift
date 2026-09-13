@@ -3,16 +3,33 @@ import SwiftData
 import UniformTypeIdentifiers
 import AppKit
 
+/// La fiche projet complète — le formulaire à plat historique.
+///
+/// Depuis le lot 4 de la refonte des projets, ce n'est plus l'écran par
+/// défaut d'un projet mais son **onglet « Fiche complète »**
+/// (`ProjectScreen`, capture `1d-ecran-projet-pilotage.png`). Deux choses en
+/// sont sorties, et rien n'y est entré :
+///
+/// - la **heatmap de 52 semaines** (`MeetingHeatmapView`), remplacée par la
+///   tuile « RYTHME » de l'onglet Pilotage — huit barres sur douze semaines.
+///   La vue n'est pas supprimée : le tableau de bord l'emploie encore ;
+/// - la **barre d'outils**. « Archiver » et « Supprimer » sont passés dans le
+///   menu `···` de l'en-tête de l'écran projet, avec confirmation pour la
+///   seconde ; « Enregistrer » reste, mais dans le corps de la fiche — une
+///   barre d'outils de fenêtre, sous un écran à six onglets, n'appartenait
+///   plus à ce qu'elle surmontait.
 struct ProjectDetailView: View {
     @Bindable var project: Project
     @Query private var entities: [Entity]
     @Query private var collaborators: [Collaborator]
-    @Query private var allMeetings: [Meeting]
     @Query private var settingsList: [AppSettings]
     @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
     @State private var showingProjectAttachmentImporter = false
     @State private var newProjectAttachmentCategory = "Document"
+
+    /// Le libellé du bouton d'enregistrement, descendu de la barre d'outils
+    /// dans le corps de la fiche (lot 4).
+    static let enregistrer = "Enregistrer"
 
     private let riskLevels = ["", "Faible", "Modéré", "Élevé", "Critique"]
     private let phases = ["Cadrage", "Design", "Build", "Run"]
@@ -23,13 +40,10 @@ struct ProjectDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                GroupBox("Activité réunions") {
-                    MeetingHeatmapView(
-                        meetings: MeetingStatsScope.held(
-                            allMeetings.filter { $0.project?.persistentModelID == project.persistentModelID }
-                        )
-                    )
-                    .padding(.top, 4)
+                HStack {
+                    Spacer()
+                    Button(Self.enregistrer) { saveContext() }
+                        .buttonStyle(.bordered)
                 }
 
                 // Informations Générales
@@ -485,27 +499,6 @@ struct ProjectDetailView: View {
             allowsMultipleSelection: true
         ) { result in
             handleProjectAttachmentImport(result: result)
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button("Enregistrer") {
-                    saveContext()
-                }
-
-                Button(project.isArchived ? "Désarchiver" : "Archiver") {
-                    project.isArchived.toggle()
-                    saveContext()
-                    if project.isArchived {
-                        dismiss()
-                    }
-                }
-
-                Button("Supprimer", role: .destructive) {
-                    context.delete(project)
-                    saveContext()
-                    dismiss()
-                }
-            }
         }
     }
 

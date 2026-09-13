@@ -94,6 +94,17 @@ final class MainRouter {
         pushRecent(id)
     }
 
+    /// Change l'onglet de l'écran projet affiché, **sans** empiler l'histoire.
+    ///
+    /// `open(_:)` empile l'écran quitté : parcourir les six onglets de la
+    /// capture 1d coûterait alors six « retour » pour revenir au Portfolio.
+    /// Un onglet n'est pas un écran quitté, c'est le même écran vu autrement.
+    /// Sans objet hors d'un écran projet.
+    func switchTab(_ tab: ProjectTab) {
+        guard case .project(let id, let courant)? = route, courant != tab else { return }
+        self.route = .project(id, tab)
+    }
+
     /// Les cinq derniers projets ouverts, du plus récent au plus ancien
     /// (décision **D4**, format tenu par `RecentProjects`).
     var recentProjectIDs: [UUID] {
