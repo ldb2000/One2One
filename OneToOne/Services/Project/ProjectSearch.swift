@@ -24,9 +24,9 @@ enum ProjectSearch {
 
     /// Le projet correspond-il au terme ?
     ///
-    /// Champs lus : nom, code, domaine, **sponsor**, **chef de projet**,
-    /// **architecte**, et les notes fournies. Les trois derniers sont l'apport
-    /// de D7 sur l'ancien prédicat de la barre latérale.
+    /// Champs lus : nom, code, domaine, **sponsor**, **entité**, **chef de
+    /// projet**, **architecte**, et les notes fournies. Les quatre derniers
+    /// sont l'apport de D7 sur l'ancien prédicat de la barre latérale.
     ///
     /// - Parameters:
     ///   - notes: les notes à fouiller. Le paramètre existe parce que
@@ -122,11 +122,18 @@ enum ProjectSearch {
     /// relation manque reste donc trouvable par le nom que l'import xlsx a
     /// écrit — c'est le cas `P25_099` du semis, et l'action « Compléter » du
     /// lot 5 est précisément là pour le résoudre.
+    ///
+    /// **L'entité est là depuis le lot 3.** Elle n'était dans aucun des trois
+    /// prédicats que D7 fusionne, sauf celui de `MeetingsProjectFilterPicker`
+    /// — qui y migre au lot 3, et perdrait sinon une capacité que ses
+    /// utilisateurs ont. Une recherche unique doit être l'union de ce qu'elle
+    /// remplace, pas leur intersection.
     private static func champs(of project: Project) -> [String] {
         [project.name,
          project.code,
          project.domain,
          project.sponsor,
+         project.entity?.name ?? "",
          project.projectManager?.name ?? project.chefDeProjet,
          project.technicalArchitect?.name ?? project.architecte]
     }

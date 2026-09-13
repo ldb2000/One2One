@@ -569,17 +569,22 @@ private struct MeetingsProjectFilterPicker: View {
     @State private var query: String = ""
     @FocusState private var queryFocused: Bool
 
+    /// Décision **D7** : une seule recherche de projets dans l'application.
+    ///
+    /// Le prédicat maison lisait code, nom, domaine, chef de projet (par la
+    /// **chaîne** seule), architecte et entité, sans plier les accents.
+    /// `ProjectSearch.matches` lit tout cela plus le sponsor, lit le chef et
+    /// l'architecte par la relation d'abord (**D3**), et plie casse et
+    /// accents. Aucun projet trouvé avant ne se perd.
+    ///
+    /// `matches` et non `rank` : ce sélecteur affiche les projets **dans
+    /// l'ordre que son appelant lui donne** (le nombre de réunions décide), et
+    /// les reclasser par pertinence changerait son rendu — ce que ce lot
+    /// n'a pas mission de faire.
     private var filtered: [Project] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return projects }
-        return projects.filter { p in
-            p.code.localizedCaseInsensitiveContains(q) ||
-            p.name.localizedCaseInsensitiveContains(q) ||
-            p.domain.localizedCaseInsensitiveContains(q) ||
-            p.chefDeProjet.localizedCaseInsensitiveContains(q) ||
-            p.architecte.localizedCaseInsensitiveContains(q) ||
-            (p.entity?.name.localizedCaseInsensitiveContains(q) ?? false)
-        }
+        return projects.filter { ProjectSearch.matches($0, query: q) }
     }
 
     var body: some View {

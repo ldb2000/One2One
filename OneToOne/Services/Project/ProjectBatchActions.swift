@@ -131,12 +131,25 @@ enum ProjectCreation {
     ///
     /// Phase « Cadrage » et statut par défaut : ce sont les valeurs que la
     /// barre latérale posait déjà, et le début d'un projet.
+    ///
+    /// **`nom` vide retombe sur `nomParDefaut`.** C'est le cas du bouton
+    /// « ＋ Nouveau projet » du Portfolio, qui ne sait pas comment le projet
+    /// s'appelle. La palette `⌘K`, elle, le sait : son action promet « Créer
+    /// un projet « ged » », et un projet nommé « Nouveau projet » démentirait
+    /// le libellé.
+    ///
+    /// La valeur par défaut est la chaîne vide et **non** `nomParDefaut` : un
+    /// argument par défaut est évalué hors acteur, et lire là une propriété
+    /// statique de cet `enum` `@MainActor` produit un avertissement de
+    /// concurrence (erreur en Swift 6).
     @discardableResult
     static func creer(among projects: [Project],
                       entity: Entity? = nil,
+                      nom: String = "",
                       in context: ModelContext) -> Project {
+        let net = nom.trimmingCharacters(in: .whitespacesAndNewlines)
         let projet = Project(code: prochainCode(parmi: projects.map(\.code)),
-                             name: nomParDefaut,
+                             name: net.isEmpty ? nomParDefaut : net,
                              domain: entity?.name ?? domaineParDefaut,
                              sponsor: "",
                              projectType: ProjectType.metier.label,

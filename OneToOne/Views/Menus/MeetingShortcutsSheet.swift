@@ -2,16 +2,19 @@ import SwiftUI
 
 /// La feuille « Raccourcis », ouverte depuis le menu `⋯` de la barre du haut.
 ///
-/// Rend la table `MeetingShortcut` : il n'y a donc pas de seconde liste à tenir
+/// Rend la table `AppShortcut` : il n'y a donc pas de seconde liste à tenir
 /// en phase avec les déclarations, et un raccourci ajouté à la table apparaît
-/// ici sans qu'on y touche. `Tests/MeetingShortcutsTests.swift` vérifie que
+/// ici sans qu'on y touche. `Tests/AppShortcutsTests.swift` vérifie que
 /// cette vue ne réécrit aucun jeton en dur.
+///
+/// Le nom de la vue est resté : c'est la feuille du menu `⋯` d'une **réunion**,
+/// et la renommer aurait fait deux changements dans un lot qui n'en veut qu'un.
 struct MeetingShortcutsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     /// La palette de commandes de note, dernière ligne de la table §1.4 : ce
     /// n'est pas un raccourci clavier, donc elle n'est pas dans
-    /// `MeetingShortcut`, mais elle appartient à l'aide.
+    /// `AppShortcut`, mais elle appartient à l'aide.
     private static let paletteTitre = "/ en début de ligne"
     private static let paletteDetail =
         "Palette de commandes de note : /action /décision /risque /citer /privé "
@@ -23,7 +26,7 @@ struct MeetingShortcutsSheet: View {
             Divider().overlay(One2OneToken.hair)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(MeetingShortcut.allCases, id: \.self) { raccourci in
+                    ForEach(AppShortcut.allCases, id: \.self) { raccourci in
                         ligne(jeton: raccourci.jeton,
                               libelle: raccourci.libelle,
                               note: raccourci.note)
@@ -46,7 +49,7 @@ struct MeetingShortcutsSheet: View {
             Text("Raccourcis clavier")
                 .font(.plexSans(15, .semibold))
                 .foregroundStyle(One2OneToken.ink1)
-            Text("Actifs sur la réunion qui a le focus.")
+            Text("Actifs sur la réunion qui a le focus ; la palette l'est partout.")
                 .font(.plexSans(11.5))
                 .foregroundStyle(One2OneToken.inkMuted)
         }

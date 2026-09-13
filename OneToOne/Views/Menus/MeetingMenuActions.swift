@@ -5,8 +5,17 @@ enum MeetingMenuItem {
     case startStopRecording, appendRecording, pause, generateReport, retranscribe,
          customPrompt, importCalendar, importWAV, editAudio, revealWAV, delete,
          exportMarkdown, exportPDF, exportMail, exportOutlook, exportNotes,
-         /// `⌘K` — l'assistant (spec §1.4).
+         /// `⌘⇧K` — l'assistant (spec §1.4, `⌘K` jusqu'au 2026-09-09).
          assistant,
+         /// `⌘K` — la palette de commandes (décision **D1**).
+         ///
+         /// Le seul item de cette table qui ne soit pas une action de la
+         /// réunion focalisée : la palette s'ouvre depuis n'importe quel
+         /// écran. Il est ici parce que `AppShortcut.Surface.menu` désigne le
+         /// mécanisme de déclaration — un item de `MeetingCommands` — et non
+         /// une dépendance à une réunion. `MeetingCommands` ne pose donc
+         /// **aucun** `.disabled` sur cet item.
+         palette,
          /// `⌘M` — un marqueur sur l'axe temps (spec §1.4).
          marker,
          /// `⌃⌘F` — le mode séance plein écran (spec §2.6, lot 4).
@@ -172,6 +181,11 @@ struct MeetingMenuActions {
         // d'écran. À la première utilisation, `⌘⇧S` ouvre le sélecteur plutôt
         // que de capturer au hasard (spec §5.1).
         case .captureNow: return true
+        // La palette n'a pas besoin de réunion. `MeetingCommands` ne
+        // l'interroge pas — un item grisé faute de réunion focalisée
+        // annulerait tout l'intérêt de `⌘K` —, et cette réponse est là pour
+        // que le `switch` reste total.
+        case .palette: return true
         }
     }
 }

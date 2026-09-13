@@ -160,6 +160,26 @@ enum RecetteScreen: String, CaseIterable, Sendable {
                                   sort: .parDefaut)
     }
 
+    /// Le Portfolio doit-il s'afficher **vierge** — sans filtre, sans texte de
+    /// recherche, sans vue active ?
+    ///
+    /// Vrai pour tout écran de la fenêtre principale **sauf** `p1a`, qui est
+    /// justement là pour photographier une vue enregistrée active.
+    ///
+    /// Pourquoi le dire explicitement plutôt que compter sur un état neuf : la
+    /// recette `p1c` du 2026-09-09 a photographié le Portfolio avec « ASP »
+    /// dans son champ de recherche et quinze lignes filtrées, alors qu'aucun
+    /// chemin de code ne l'écrit sur cet écran (`vueEnregistreeDeRecette` rend
+    /// `nil` hors `p1a`, donc `appliquer` n'est jamais appelé, et le champ
+    /// n'est pas persisté). L'état venait donc d'**ailleurs** — instance
+    /// laissée ouverte depuis `p1a`, ou home de recette réutilisé. Une capture
+    /// ne doit pas dépendre de ce qui l'a précédée : l'écran le dit, et le
+    /// Portfolio s'y conforme.
+    var portfolioVierge: Bool {
+        guard case .fenetrePrincipale = cible else { return false }
+        return vueEnregistreeDeRecette == nil
+    }
+
     /// Le mode d'ouverture. Il est **écrit dans les réglages mémorisés** avant
     /// l'ouverture (`MeetingScreenModel.modeKey`) : c'est le seul moyen de
     /// l'imposer sans clic, et le seul qui survive au fait que

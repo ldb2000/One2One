@@ -11,7 +11,7 @@ import SwiftUI
 /// « Portfolio », « À risque », « Mes réunions projets », « Actions projets »,
 /// « ÉPINGLÉS » et « RÉCENTS », dans cet ordre, avec ces icônes-là. Un libellé
 /// réécrit ou une entrée qui mène ailleurs ne change l'état d'aucun modèle : sans
-/// ce test, rien ne bronche — même mécanique que `MeetingShortcutsTests`.
+/// ce test, rien ne bronche — même mécanique que `AppShortcutsTests`.
 @Suite("Section Projets de la barre latérale — 2b")
 @MainActor
 struct ProjectsSidebarSectionTests {

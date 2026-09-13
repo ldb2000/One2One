@@ -7,8 +7,13 @@ import SwiftData
 /// dans un nouveau menu « Réunion ».
 ///
 /// Les raccourcis de la spec §1.4 ne sont **pas** épelés ici : ils viennent de
-/// `MeetingShortcut`, la table unique, via `.meetingShortcut(_:)`. Les autres
+/// `AppShortcut`, la table unique, via `.appShortcut(_:)`. Les autres
 /// (⌘⇧C, ⌘⇧E, ⌘⇧R, ⌘⇧T, ⌘⌫) sont propres à ce menu et restent en littéral.
+///
+/// **La palette est le seul item qui ne dépende pas d'une réunion focalisée**
+/// (décision **D1**) : `⌘K` doit s'ouvrir depuis n'importe quel écran, donc
+/// aucun `.disabled` ne la garde. Elle est rangée en tête du menu, avant le
+/// premier `Divider`, parce qu'elle ne parle pas de la réunion courante.
 struct MeetingCommands: Commands {
     @FocusedValue(\.meetingMenu) private var menu
     /// Contexte partagé, pour la commande de recette qui sème le jeu de
@@ -38,6 +43,13 @@ struct MeetingCommands: Commands {
 
         // Tout le reste → nouveau menu « Réunion ».
         CommandMenu("Réunion") {
+            // Décision **D1** : `⌘K` ouvre la palette de projets et d'actions,
+            // depuis n'importe quel écran. Le routeur porte l'état d'ouverture
+            // ; `ContentView` la présente.
+            Button("Palette…") { MainRouter.shared.ouvrirPalette() }
+                .appShortcut(AppShortcut.palette)
+
+            Divider()
             Button(menu?.isRecording == true ? "Arrêter et transcrire" : "Démarrer l'enregistrement") {
                 if menu?.isRecording == true { menu?.stopRecording() } else { menu?.startRecording() }
             }
@@ -49,29 +61,30 @@ struct MeetingCommands: Commands {
                 .disabled(!isEnabled(.pause))
 
             Divider()
-            // Spec §1.4 : ⌘K ouvre l'assistant sur la réunion courante, ⌘M
-            // pose un marqueur sur l'axe temps à l'instant courant.
+            // Spec §1.4 : l'assistant s'ouvre sur la réunion courante — en
+            // `⌘⇧K` depuis que la palette a pris `⌘K` (décision **D1**) —, et
+            // ⌘M pose un marqueur sur l'axe temps à l'instant courant.
             Button("Assistant…") { menu?.openAssistant() }
-                .meetingShortcut(MeetingShortcut.assistant)
+                .appShortcut(AppShortcut.assistant)
                 .disabled(!isEnabled(.assistant))
             Button("Poser un marqueur") { menu?.addPlayheadMarker() }
-                .meetingShortcut(MeetingShortcut.marqueur)
+                .appShortcut(AppShortcut.marqueur)
                 .disabled(!isEnabled(.marker))
             // Spec §2.6 : le mode séance plein écran s'ouvre depuis la pilule
             // audio ou par `⌃⌘F`. `⌘⌃F` et non `⌘F`, qui reste la recherche.
             Button("Mode séance plein écran") { menu?.toggleSessionFullscreen() }
-                .meetingShortcut(MeetingShortcut.seancePleinEcran)
+                .appShortcut(AppShortcut.seancePleinEcran)
                 .disabled(!isEnabled(.sessionFullscreen))
             // Spec §1.4 : ⌘⇧V colle un lien ou une image dans les ressources.
             Button("Coller dans les ressources") { menu?.pasteResource() }
-                .meetingShortcut(MeetingShortcut.collerRessource)
+                .appShortcut(AppShortcut.collerRessource)
                 .disabled(!isEnabled(.pasteResource))
             Button("Ressources…") { menu?.openResources() }
                 .disabled(!isEnabled(.resources))
             // Spec §1.4 : ⌘⇧S capture la source configurée — le sélecteur à la
             // première utilisation (lot 7, spec §5.1).
             Button("Capturer l'écran") { menu?.captureNow() }
-                .meetingShortcut(MeetingShortcut.capture)
+                .appShortcut(AppShortcut.capture)
                 .disabled(!isEnabled(.captureNow))
 
             Divider()

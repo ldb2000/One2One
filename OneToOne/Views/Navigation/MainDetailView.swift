@@ -5,10 +5,10 @@ import SwiftData
 /// `MainRouter.route` (décision **D0**).
 ///
 /// **C'est un routeur, comme `MeetingView`** : il monte un écran, il n'en
-/// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`) ; les autres
-/// écrans de la refonte (À risque, réunions et actions de projets, recherche
-/// dans les CR) affichent encore une invite sobre que les lots 3 à 5
-/// remplaceront, un par un. Rien d'autre ne change de rendu : chaque entrée de
+/// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`) et la
+/// recherche dans les CR aussi (lot 3, `ReportSearchView`) ; les autres écrans
+/// de la refonte (À risque, réunions et actions de projets) affichent encore
+/// une invite sobre que les lots 4 et 5 remplaceront, un par un. Rien d'autre ne change de rendu : chaque entrée de
 /// la barre latérale retrouve ici exactement la destination qu'elle avait en
 /// `NavigationLink`.
 struct MainDetailView: View {
@@ -49,8 +49,10 @@ struct MainDetailView: View {
             MainDetailPlaceholder(titre: "Actions projets",
                                   detail: "les actions de projet, filtrées depuis la liste existante")
         case .searchReports(let terme):
-            MainDetailPlaceholder(titre: "Recherche dans les CR",
-                                  detail: "les comptes rendus contenant « \(terme) », groupés par projet")
+            // Lot 3 : l'écran de résultats de « Chercher « x » dans les CR »
+            // (décision **D8**). Le terme est dans la route, donc l'écran se
+            // reconstruit quand la palette en propose un autre.
+            ReportSearchView(terme: terme)
 
         case .project(let id, _):
             // Le lot 4 remplacera cette résolution par l'écran à six onglets ;

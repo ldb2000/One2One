@@ -35,6 +35,7 @@ Les décisions validées, de la plus récente à la plus ancienne.
 | Date | Décision | Sujet |
 |---|---|---|
 | 2026-09-09 | [Un routeur pour la fenêtre principale](2026-09-09-routeur-de-navigation.md) | `MainRoute` / `MainRouter` / `MainDetailView` : la barre latérale sélectionne une route (D0) |
+| 2026-09-09 | [⌘K va à la palette, l'assistant passe à ⌘⇧K](2026-09-09-palette-commande-k.md) | `AppShortcut` : la table des raccourcis sort de l'écran de réunion (D1) |
 | 2026-09-08 | [Refonte de l'écran de réunion — bilan des décisions D0 à D11](2026-09-08-refonte-ecran-reunion-bilan.md) | les vingt lots de la refonte : décisions telles qu'appliquées, écarts assumés avec les maquettes, dettes |
 | 2026-09-07 | [Moteur de planches : Excalidraw embarqué](2026-09-07-moteur-de-planches-excalidraw-embarque.md) | `WKWebView` + bundle local inliné plutôt qu'un moteur natif (D6) |
 | 2026-09-07 | [Pièces copiées, jamais référencées](2026-09-07-pieces-copiees-jamais-referencees.md) | politique unique de stockage des fichiers déposés (D5) |

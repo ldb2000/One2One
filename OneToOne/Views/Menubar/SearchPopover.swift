@@ -153,13 +153,23 @@ struct SearchPopover: View {
             .prefix(5)
             .map { $0 }
 
-        var projectDescriptor = FetchDescriptor<Project>(
-            predicate: #Predicate<Project> {
-                !$0.isArchived && ($0.name.localizedStandardContains(q) || $0.code.localizedStandardContains(q))
-            },
+        // Décision **D7** : une seule recherche de projets dans
+        // l'application. Le prédicat maison (nom et code) est remplacé par
+        // `ProjectSearch`, celui de la barre latérale, du Portfolio et de la
+        // palette — il lit en plus le domaine, le sponsor, l'entité, le chef
+        // de projet et l'architecte, et plie casse **et** accents.
+        //
+        // Le filtre ne peut plus être un `#Predicate` : `ProjectSearch` suit
+        // des relations (`projectManager`, `entity`), qu'un prédicat SwiftData
+        // ne sait pas traverser, et il classe par pertinence, ce qu'un
+        // `SortDescriptor` ne sait pas exprimer. Les projets actifs sont donc
+        // chargés puis rangés en mémoire. Ils sont quelques dizaines, et la
+        // recherche est déjà débouncée à 200 ms.
+        let projectDescriptor = FetchDescriptor<Project>(
+            predicate: #Predicate<Project> { !$0.isArchived },
             sortBy: [SortDescriptor(\.name)]
         )
-        projectDescriptor.fetchLimit = 5
-        projects = (try? context.fetch(projectDescriptor)) ?? []
+        let actifs = (try? context.fetch(projectDescriptor)) ?? []
+        projects = Array(ProjectSearch.rank(actifs, query: q).prefix(5))
     }
 }

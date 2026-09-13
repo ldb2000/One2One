@@ -1,7 +1,14 @@
 import SwiftUI
 
-/// Les raccourcis de l'écran de réunion, spec §1.4 — **une** déclaration par
+/// Les raccourcis clavier de l'application — **une** déclaration par
 /// combinaison, et le seul endroit où la combinaison est épelée.
+///
+/// La table s'appelait « raccourcis de l'écran de réunion » et ne couvrait
+/// que la spec §1.4. La décision **D1** de la refonte de la gestion des
+/// projets l'a élargie : `⌘K` va désormais à la **palette**, qui s'ouvre
+/// depuis n'importe quel écran, et l'assistant de réunion passe à `⌘⇧K`
+/// (ADR `docs/adr/2026-09-09-palette-commande-k.md`). Un raccourci de portée
+/// application ne pouvait plus s'appeler « raccourci de réunion ».
 ///
 /// Trois surfaces, parce que trois mécanismes distincts portent ces gestes :
 /// - `.menu` : un item de `MeetingCommands`, qui lit `key` et `modifiers` ici ;
@@ -10,11 +17,15 @@ import SwiftUI
 /// - `.global` : un raccourci système Carbon (`CaptureHotkeys`, lot 8), actif
 ///   même quand l'application n'a pas le focus.
 ///
-/// `Tests/MeetingShortcutsTests.swift` vérifie que la table couvre la spec,
+/// `Tests/AppShortcutsTests.swift` vérifie que la table couvre les specs,
 /// qu'aucune combinaison n'y figure deux fois, que `MeetingCommands` prend bien
 /// ses raccourcis ici, que la feuille d'aide la rend sans en tenir une seconde,
 /// et qu'aucun second déclarant n'apparaît dans les vues sans être nommé.
-enum MeetingShortcut: String, CaseIterable, Sendable {
+enum AppShortcut: String, CaseIterable, Sendable {
+    /// `⌘K` — la palette de commandes (projets et actions), décision **D1**.
+    /// Le seul raccourci de cette table qui n'ait rien à voir avec une
+    /// réunion : il est actif partout, y compris sans réunion ouverte.
+    case palette
     case assistant
     case marqueur
     case actionDepuisSelection
@@ -35,7 +46,8 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
     /// Le jeton affiché : celui de la première colonne de la table §1.4.
     var jeton: String {
         switch self {
-        case .assistant:             return "⌘K"
+        case .palette:               return "⌘K"
+        case .assistant:             return "⌘⇧K"
         case .marqueur:              return "⌘M"
         case .actionDepuisSelection: return "⌘⇧A"
         case .capture:               return "⌘⇧S"
@@ -49,6 +61,8 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
     /// L'effet, dans les mots de la spec §1.4.
     var libelle: String {
         switch self {
+        case .palette:
+            return "Palette — projets et actions, depuis n'importe quel écran"
         case .assistant:
             return "Assistant — barre d'invocation, contexte = réunion courante"
         case .marqueur:
@@ -70,6 +84,7 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
 
     var key: KeyEquivalent {
         switch self {
+        case .palette:               return "k"
         case .assistant:             return "k"
         case .marqueur:              return "m"
         case .actionDepuisSelection: return "a"
@@ -83,9 +98,9 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
 
     var modifiers: EventModifiers {
         switch self {
-        case .assistant, .marqueur, .validerComposeur:
+        case .palette, .marqueur, .validerComposeur:
             return .command
-        case .actionDepuisSelection, .capture, .note, .collerRessource:
+        case .assistant, .actionDepuisSelection, .capture, .note, .collerRessource:
             return [.command, .shift]
         case .seancePleinEcran:
             // `⌃⌘F` et non `⌘F`, qui reste la recherche (spec §2.6).
@@ -95,6 +110,7 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
 
     var surface: Surface {
         switch self {
+        case .palette:          return .menu(.palette)
         case .assistant:        return .menu(.assistant)
         case .marqueur:         return .menu(.marker)
         case .collerRessource:  return .menu(.pasteResource)
@@ -126,7 +142,13 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
                  + "l'emporte : les composeurs interceptent la touche eux-mêmes."
         case .actionDepuisSelection:
             return "Sur la phrase de transcription survolée."
-        case .assistant, .marqueur, .collerRessource, .seancePleinEcran:
+        case .palette:
+            return "Le seul raccourci actif hors réunion : la palette s'ouvre "
+                 + "depuis n'importe quel écran de la fenêtre principale."
+        case .assistant:
+            return "`⌘⇧K` et non `⌘K` depuis le 2026-09-09 : la palette a pris "
+                 + "la combinaison (décision D1 de la refonte des projets)."
+        case .marqueur, .collerRessource, .seancePleinEcran:
             return nil
         }
     }
@@ -143,9 +165,9 @@ enum MeetingShortcut: String, CaseIterable, Sendable {
 }
 
 extension View {
-    /// Pose un raccourci de la table. Le seul chemin autorisé pour les huit
-    /// combinaisons de la spec §1.4.
-    func meetingShortcut(_ raccourci: MeetingShortcut) -> some View {
+    /// Pose un raccourci de la table. Le seul chemin autorisé pour les neuf
+    /// combinaisons qu'elle déclare.
+    func appShortcut(_ raccourci: AppShortcut) -> some View {
         keyboardShortcut(raccourci.key, modifiers: raccourci.modifiers)
     }
 }

@@ -225,6 +225,9 @@ interface AgendaItem {
 
 ### 1.4 Raccourcis clavier (globaux)
 
+> ⌘K réaffecté à la palette le 2026-09-09, l'assistant passe à ⌘⇧K — voir
+> `docs/adr/2026-09-09-palette-commande-k.md`.
+
 | Raccourci | Effet |
 | --- | --- |
 | `⌘K` | Assistant — ouvre la barre d'invocation, contexte = réunion courante |

@@ -192,6 +192,19 @@ final class PortfolioModel {
         vueActive = vue.id
     }
 
+    /// Remet le tableau à son état d'ouverture : aucun filtre, aucun texte,
+    /// aucune vue active, tri par défaut.
+    ///
+    /// La sélection multiple et le mode d'affichage ne sont **pas** touchés :
+    /// ce sont des choix de manipulation, pas un point de vue sur les données.
+    func reinitialiser() {
+        tacheDeRecherche?.cancel()
+        filters = .aucun
+        champDeRecherche = ""
+        vueActive = nil
+        sort = .parDefaut
+    }
+
     /// La vue que « Enregistrer la vue actuelle… » créerait, sous ce nom.
     func vueCourante(nommee nom: String) -> PortfolioSavedView {
         PortfolioSavedView(name: nom, filters: filters, sort: sort)

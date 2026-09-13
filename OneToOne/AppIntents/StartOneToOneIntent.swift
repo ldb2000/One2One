@@ -38,9 +38,17 @@ struct StartOneToOneIntent: AppIntent {
 /// Enregistre les phrases Siri/Spotlight pour `StartOneToOneIntent`.
 /// `\(.applicationName)` est substitué par le nom localisé de l'app ; les
 /// phrases en doublon élargissent la reconnaissance vocale.
+///
+/// **`AppIntents.AppShortcut` est qualifié.** Le dépôt déclare depuis la
+/// décision **D1** son propre `AppShortcut` (`Views/Menus/AppShortcut.swift`,
+/// la table des raccourcis clavier), qui masque le type d'Apple dans tout le
+/// module. Les deux noms sont légitimes et aucun n'est renommable sans
+/// perdre : celui d'Apple appartient au framework, celui du dépôt est le nom
+/// que la décision a arrêté. Le préfixe de module lève l'ambiguïté ici, où
+/// elle se produit — et nulle part ailleurs.
 struct OneToOneShortcuts: AppShortcutsProvider {
-    static var appShortcuts: [AppShortcut] {
-        AppShortcut(
+    static var appShortcuts: [AppIntents.AppShortcut] {
+        AppIntents.AppShortcut(
             intent: StartOneToOneIntent(),
             phrases: [
                 "Démarrer un 1:1 dans \(.applicationName)",
