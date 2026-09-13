@@ -131,6 +131,35 @@ enum RecetteScreen: String, CaseIterable, Sendable {
         self == .sectionProjets ? RefonteDemoSeed.portfolioRecentProjectCodes : []
     }
 
+    /// L'identifiant **constant** de la vue enregistrée de recette.
+    ///
+    /// Constant pour la même raison que `portfolioFocusProjectStableID` : la
+    /// table des écrans est statique, et une vue tirée au sort à chaque
+    /// lancement en créerait une nouvelle à chaque capture.
+    nonisolated static let idVueEnregistree =
+        UUID(uuidString: "7C3A9F20-1A5E-4D33-9E11-000000001A00")!
+
+    /// La vue enregistrée que l'écran doit poser puis activer, ou `nil`.
+    ///
+    /// Seul `p1a` en porte : « Mes projets ASP », que la capture affiche
+    /// active. Ici et non dans le semis : une vue enregistrée est un réglage
+    /// (`AppSettings.portfolioSavedViews`, décision **D4**), pas une donnée du
+    /// portefeuille — même nature que le terme de palette et les récents.
+    ///
+    /// **Le filtre est l'entité seule, alors que la capture montre aussi
+    /// « Risque ≥ Modéré ».** Les deux ensemble ne rendent que cinq lignes sur
+    /// le semis (les quatre projets ASP à risque « — » de la capture sont
+    /// incompatibles avec ce seuil : la maquette affiche une chip qu'elle
+    /// n'applique pas). L'entité seule rend les quinze projets ASP actifs,
+    /// dont les huit que la capture nomme.
+    var vueEnregistreeDeRecette: PortfolioSavedView? {
+        guard self == .portefeuille else { return nil }
+        return PortfolioSavedView(id: Self.idVueEnregistree,
+                                  name: "Mes projets ASP",
+                                  filters: PortfolioFilters(entities: ["ASP"]),
+                                  sort: .parDefaut)
+    }
+
     /// Le mode d'ouverture. Il est **écrit dans les réglages mémorisés** avant
     /// l'ouverture (`MeetingScreenModel.modeKey`) : c'est le seul moyen de
     /// l'imposer sans clic, et le seul qui survive au fait que

@@ -383,4 +383,37 @@ struct RefonteDemoSeedPortfolioTests {
         #expect(asp.summary == "Mon résumé")
         #expect(!asp.projects.isEmpty)
     }
+
+    /// Les sept collaborateurs créés par le semis sont **favoris** : la section
+    /// « Collaborateurs » de la barre latérale ne montre que `pinLevel >= 1`,
+    /// et la capture 2b en affiche trois.
+    @Test("Les collaborateurs créés par le semis sont favoris")
+    func collaborateursFavoris() throws {
+        let contexte = try contexteEnMemoire()
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+        let gens = try contexte.fetch(FetchDescriptor<Collaborator>())
+        let semes = gens.filter { candidat in
+            RefonteDemoSeed.portfolioPeople.contains { $0.nom == candidat.name }
+        }
+        #expect(semes.count == RefonteDemoSeed.portfolioPeople.count)
+        #expect(semes.allSatisfy { $0.pinLevel == 1 })
+    }
+
+    /// Un collaborateur qui existait déjà **garde** son niveau d'épinglage :
+    /// le semis ne réécrit aucune préférence de l'utilisateur.
+    @Test("Un collaborateur homonyme garde son niveau d'épinglage")
+    func collaborateurHomonymeGardeSonEpinglage() throws {
+        let contexte = try contexteEnMemoire()
+        let existant = Collaborator(name: "RIGAUT Manuel", role: "Mon rôle")
+        existant.pinLevel = 0
+        contexte.insert(existant)
+        try contexte.save()
+
+        RefonteDemoSeed.seedPortfolio(in: contexte)
+
+        #expect(existant.pinLevel == 0)
+        #expect(existant.role == "Mon rôle")
+        let gens = try contexte.fetch(FetchDescriptor<Collaborator>())
+        #expect(gens.filter { $0.name == "RIGAUT Manuel" }.count == 1)
+    }
 }

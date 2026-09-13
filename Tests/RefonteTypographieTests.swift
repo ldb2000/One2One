@@ -44,13 +44,14 @@ struct RefonteTypographieTests {
     /// n'existent pas : `sourcesAreFound` ci-dessous vérifie que le périmètre
     /// est bien celui qu'on croit lire, et un dossier absent le rendrait faux
     /// à vide. À ajouter par le lot qui crée son premier fichier —
-    /// `Views/Sidebar/` **au lot 1, fait**, `Views/Portfolio/` au lot 2,
-    /// `Views/Palette/` au lot 3, `Views/AtRisk/` au lot 5.
+    /// `Views/Sidebar/` **au lot 1, fait**, `Views/Portfolio/` **au lot 2,
+    /// fait**, `Views/Palette/` au lot 3, `Views/AtRisk/` au lot 5.
     private static let perimetres = [
         "OneToOne/Views/Meeting/Spaces",
         "OneToOne/Views/Meeting/MeetingTopChromeBar.swift",
         "OneToOne/Views/Meeting/Chrome",
         "OneToOne/Views/Navigation",
+        "OneToOne/Views/Portfolio",
         "OneToOne/Views/Project",
         "OneToOne/Views/Sidebar",
     ]
@@ -79,7 +80,7 @@ struct RefonteTypographieTests {
 
     // MARK: - Le périmètre est bien celui qu'on croit lire
 
-    @Test("Les six périmètres typographiques sont trouvés")
+    @Test("Les sept périmètres typographiques sont trouvés")
     func sourcesAreFound() throws {
         let noms = try sources().map(\.nom)
         // Le routeur de navigation (D0) et l'écran projet (D17).
@@ -89,6 +90,13 @@ struct RefonteTypographieTests {
         #expect(noms.contains("ProjectsSidebarSection.swift"))
         #expect(noms.contains("PinnedProjectsList.swift"))
         #expect(noms.contains("RecentProjectsList.swift"))
+        // L'écran Portfolio (lot 2, D17).
+        #expect(noms.contains("PortfolioView.swift"))
+        #expect(noms.contains("PortfolioTable.swift"))
+        #expect(noms.contains("PortfolioFilterBar.swift"))
+        #expect(noms.contains("PhaseBadge.swift"))
+        #expect(noms.contains("RiskBadge.swift"))
+        #expect(noms.contains("ProjectBatchBar.swift"))
         // Si ce test tombe, c'est qu'un dossier a bougé — et alors les deux
         // suivants ne prouveraient plus rien en passant.
         #expect(noms.contains("ActionsRail.swift"))

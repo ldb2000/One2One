@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// Portée des réunions qui comptent comme « réellement tenues ».
 ///
@@ -23,5 +24,28 @@ enum MeetingStatsScope {
     /// Ne conserve que les réunions réellement tenues, dans l'ordre d'entrée.
     static func held(_ meetings: [Meeting]) -> [Meeting] {
         meetings.filter { $0.kind != .note }
+    }
+
+    /// La date de la dernière réunion **tenue et passée** de chaque projet.
+    ///
+    /// « Tenue » au sens de `held` (une note n'en est pas une) et **passée** :
+    /// une réunion planifiée le mois prochain n'est pas la dernière réunion
+    /// d'un projet, ni pour la colonne « Dernière réu. » du Portfolio, ni pour
+    /// le motif « sans réunion depuis 30 j » de la vue « À risque ».
+    ///
+    /// Ici et non dans chacun de ses deux appelants : `SidebarProjectCounts` et
+    /// `PortfolioBuilder` posaient la même question, et deux réponses qui
+    /// divergent feraient afficher « il y a 3 j » sur un projet compté comme
+    /// sans réunion.
+    static func lastHeldByProject(_ meetings: [Meeting],
+                                  today: Date) -> [PersistentIdentifier: Date] {
+        var resultat: [PersistentIdentifier: Date] = [:]
+        for reunion in held(meetings) {
+            guard reunion.date <= today, let projet = reunion.project else { continue }
+            let id = projet.persistentModelID
+            if let connue = resultat[id], connue >= reunion.date { continue }
+            resultat[id] = reunion.date
+        }
+        return resultat
     }
 }

@@ -293,6 +293,7 @@ struct ContentView: View {
             let focus = RefonteDemoSeed.seedPortfolio(in: context)
             mainRouter.pendingPaletteQuery = ecran.termeDePalette
             prereplirLesRecents(ecran.codesDeProjetsRecents)
+            poserLaVueEnregistree(ecran.vueEnregistreeDeRecette)
             mainRouter.open(routeDeRecette(route, focus: focus))
             return
         }
@@ -360,6 +361,19 @@ struct ContentView: View {
             guard let projet = projets.first(where: { $0.code == code }) else { continue }
             mainRouter.rememberRecentProject(projet.ensuredStableID)
         }
+    }
+
+    /// Enregistre et arme la vue enregistrée que l'écran de recette demande.
+    ///
+    /// La vue est **persistée** (`AppSettings.portfolioSavedViews`) pour que le
+    /// menu « Vue enregistrée : … » la montre, puis son identifiant est posé
+    /// dans le routeur pour que `PortfolioView` l'active à son apparition.
+    /// Idempotent par identifiant : relancer la recette ne crée pas de doublon.
+    @MainActor
+    private func poserLaVueEnregistree(_ vue: PortfolioSavedView?) {
+        guard let vue else { return }
+        PortfolioSavedViewStore.enregistrer(vue, in: context)
+        mainRouter.pendingPortfolioSavedView = vue.id
     }
 
     /// La route à ouvrir, recalée sur le projet **réellement** semé.
@@ -814,6 +828,54 @@ enum MainWindowSizing {
     static let frameKey = "OneToOne.mainWindowFrame"
 }
 
+/// Où poser la fenêtre principale quand le cadre enregistré ne correspond plus
+/// aux écrans branchés (retour de recette du 2026-09-09).
+///
+/// **Pourquoi une fonction pure.** La règle « le cadre doit toucher un écran
+/// visible » vivait dans `MainWindowFrameRestorer.restaurer`, donc dans une
+/// `NSView` privée : intestable, et appliquée à **une seule** des deux sources
+/// de cadre. Car il y en a deux — la nôtre (`MainWindowSizing.frameKey`) et
+/// celle de SwiftUI, dont le nom manglé porte une adresse. Le commentaire de
+/// `MainWindowSizing` affirmait que cette seconde clé était « sans lecteur » :
+/// c'est faux, **SwiftUI la relit**. Le 9 septembre 2026, elle portait un cadre
+/// à `x = 2048`, sur un second écran 1920 × 1050 débranché depuis : la fenêtre
+/// principale a été restaurée entièrement hors de tout écran — aucune surface,
+/// aucun rendu, `onAppear` jamais parti, aucun semis, et trois heures de
+/// diagnostic sur une recette qui photographiait la fenêtre d'un autre
+/// processus.
+///
+/// La règle est donc sortie ici, testée avant sa vue
+/// (`MainWindowPlacementTests`) comme `MeetingSpaceRouting` ou `ReminderRules`,
+/// et appliquée **inconditionnellement** après la restauration — quelle que
+/// soit la clé d'où vient le cadre.
+enum MainWindowPlacement {
+
+    /// Rend `cadre` inchangé s'il touche un écran visible ; sinon un cadre de
+    /// `tailleParDefaut` centré sur le premier écran.
+    ///
+    /// - Parameter ecrans: les `visibleFrame` des écrans branchés. **Vide rend
+    ///   `cadre`** : pendant la veille, `NSScreen.screens` peut l'être, et
+    ///   recentrer sur un écran qu'on ne connaît pas serait pire que de ne rien
+    ///   faire.
+    ///
+    /// On corrige l'invisible, pas le gênant : un cadre qui ne chevauche
+    /// l'écran que d'un coin est laissé tel quel — l'utilisateur peut l'attraper.
+    static func corrige(cadre: CGRect,
+                        ecrans: [CGRect],
+                        tailleParDefaut: CGSize) -> CGRect {
+        guard !ecrans.isEmpty else { return cadre }
+        // `isEmpty` avant `intersects` : un cadre dégénéré (largeur ou hauteur
+        // nulle) n'a pas de surface, donc pas d'écran — et `CGRect.intersects`
+        // n'est pas la bonne question à lui poser.
+        if !cadre.isEmpty, ecrans.contains(where: { $0.intersects(cadre) }) { return cadre }
+        let ecran = ecrans[0]
+        return CGRect(x: ecran.midX - tailleParDefaut.width / 2,
+                      y: ecran.midY - tailleParDefaut.height / 2,
+                      width: tailleParDefaut.width,
+                      height: tailleParDefaut.height)
+    }
+}
+
 /// Enregistre et restaure le cadre de la fenêtre principale, sous une clé de
 /// notre choix.
 ///
@@ -828,8 +890,11 @@ enum MainWindowSizing {
 /// On fait donc le travail nous-mêmes : lecture au moment où la vue rejoint sa
 /// fenêtre, écriture à chaque déplacement et à chaque redimensionnement.
 /// Vingt lignes, une clé constante, aucune dépendance à ce que SwiftUI décide de
-/// nommer. Sa clé instable continue d'être écrite à côté — sans lecteur, elle ne
-/// gêne personne.
+/// nommer. Sa clé instable continue d'être écrite à côté — et, contrairement à
+/// ce que ce commentaire affirmait, **SwiftUI la relit** : elle a donc un
+/// lecteur, et un cadre toxique enregistré sous elle a laissé la fenêtre
+/// principale hors écran le 2026-09-09. C'est `MainWindowPlacement.corrige`,
+/// appliqué à toutes les sources, qui l'empêche désormais.
 ///
 /// L'ordre tient : SwiftUI donne sa taille à la fenêtre à la création — donc la
 /// taille de `defaultSize`, faute de cadre trouvé sous **sa** clé — et
@@ -849,6 +914,11 @@ private struct MainWindowFrameRestorer: NSViewRepresentable {
             observations = []
             guard let window else { return }
             restaurer(window)
+            // Inconditionnel, et **après** `restaurer` : le cadre à corriger
+            // peut venir de notre clé comme de celle que SwiftUI a restaurée de
+            // son côté — c'est cette seconde source qui a laissé la fenêtre
+            // hors écran le 2026-09-09.
+            ramenerSurUnEcran(window)
             for nom in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
                 observations.append(NotificationCenter.default.addObserver(
                     forName: nom, object: window, queue: .main
@@ -864,17 +934,28 @@ private struct MainWindowFrameRestorer: NSViewRepresentable {
             }
         }
 
-        /// Applique le cadre enregistré, borné à l'écran courant : un cadre
-        /// enregistré sur un second écran débranché depuis laisserait la fenêtre
-        /// hors de vue, sans rien pour l'attraper.
+        /// Applique le cadre enregistré. Le bornage à un écran visible n'est
+        /// plus fait ici : `ramenerSurUnEcran`, appelé juste après, s'en charge
+        /// pour **toutes** les sources de cadre — la nôtre et celle de SwiftUI.
         private func restaurer(_ window: NSWindow) {
             guard let chaine = UserDefaults.standard.string(forKey: MainWindowSizing.frameKey)
             else { return }
             let cadre = NSRectFromString(chaine)
             guard cadre.width >= 1, cadre.height >= 1 else { return }
-            let visible = NSScreen.screens.contains { $0.visibleFrame.intersects(cadre) }
-            guard visible else { return }
             window.setFrame(cadre, display: false)
+        }
+
+        /// Ramène la fenêtre sur un écran visible si son cadre n'en touche
+        /// aucun. La règle est dans `MainWindowPlacement.corrige`, fonction
+        /// pure testée.
+        private func ramenerSurUnEcran(_ window: NSWindow) {
+            let corrige = MainWindowPlacement.corrige(
+                cadre: window.frame,
+                ecrans: NSScreen.screens.map(\.visibleFrame),
+                tailleParDefaut: CGSize(width: MainWindowSizing.defaultWidth,
+                                        height: MainWindowSizing.defaultHeight))
+            guard corrige != window.frame else { return }
+            window.setFrame(corrige, display: false)
         }
     }
 }

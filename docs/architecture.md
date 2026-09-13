@@ -521,19 +521,29 @@ graph TD
 
 ## 8. Couche Views
 
-241 fichiers. Organisation :
+250 fichiers. Organisation :
 
 - **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter` et `MainDetailView` —
   voir « Navigation de la fenêtre principale » ci-dessous. La barre latérale est
   `Sidebar.swift` (`MainSidebarView`, `DashboardView`, Gantt, cartes de stats) ; les écrans de
   liste qu'elle atteint sont `MeetingsListView`, `AllCollaboratorsView`, `AllNotesView`,
-  `ActionsListView` (`ProjectListView` est orpheline).
+  `ActionsListView`.
 - **Barre latérale, section « Projets »** (`Views/Sidebar/`) : `ProjectsSidebarSection`
   (les quatre destinations — Portfolio, À risque, Mes réunions projets, Actions projets — et
   leurs compteurs), `PinnedProjectsList` et `RecentProjectsList`. Variante 2b du handoff : la
   section s'ajoute au-dessus de l'arbre « Projets par Entité », qui reste, replié (décision
   **D5**) ; le lot 6 retirera l'arbre. Les compteurs viennent de `SidebarProjectCounts` et la
   recherche de `ProjectSearch` (`Services/Project/`).
+- **Portfolio** (`Views/Portfolio/`) : l'écran 1a du handoff — tableau triable, facettes et
+  vues enregistrées. `PortfolioView` assemble cinq bandes et ne calcule rien (décision
+  **D11**) : `PortfolioHeader` (titre, sous-titre, segmenté « Tableau / Groupé par entité »,
+  « ＋ Nouveau projet »), `PortfolioFilterBar` (champ de 230 px, chips de facettes,
+  `SavedViewMenu` et `SavedViewNameSheet`), `ProjectBatchBar` (la barre en lot, partagée avec
+  la barre latérale — décision **D15**), `PortfolioTable` (huit colonnes, en-tête de 30 px,
+  lignes de 44 px alternées, tri au clic, ⇧-clic pour la sélection multiple) ou
+  `PortfolioGroupedView`, et le pied. `PhaseBadge` et `RiskBadge` portent les couples de
+  teintes ; l'état d'écran est dans `PortfolioModel` (`@Observable`) et les vues enregistrées
+  passent par `PortfolioSavedViewStore`.
 - **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`),
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
 - **Réunion** (`Views/Meeting/`) : voir la section dédiée ci-dessous — c'est le chantier de
@@ -589,6 +599,17 @@ et `PortfolioSort` sont les vues enregistrées du Portfolio, encodées en JSON d
 surlignage — décision **D7**) et `SidebarProjectCounts` les trois compteurs de la barre
 latérale, dont un stub des trois motifs « à risque » que la vue dédiée du lot 5 remplacera
 par son propre constructeur.
+
+Le tableau du Portfolio est construit par `PortfolioBuilder` : `rows` transforme les projets
+actifs en `PortfolioRow` (une valeur par ligne, sa cellule `MilestoneCell` et son libellé
+relatif de dernière réunion), `apply` cumule les facettes de `PortfolioFacet` en ET, `sort`
+ordonne les sept colonnes, `values` alimente les menus, `summary`, `footer` et `groups`
+écrivent les textes et le groupement. `ProjectPeople` lit les rôles — la **relation** fait foi
+(décision **D3**), d'où « Non affecté », et `suggestedManager` préremplira l'action
+« Compléter » du lot 5. `ProjectBatchActions` et `ProjectCreation` portent les opérations en
+lot et la création d'un projet, jusqu'ici méthodes privées de `Sidebar.swift`.
+`MeetingStatsScope.lastHeldByProject` est la source unique de « dernière réunion tenue »,
+partagée par le tableau et les compteurs.
 
 ### L'écran de réunion (refonte 2026-09)
 

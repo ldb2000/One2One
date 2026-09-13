@@ -10,6 +10,7 @@ code_documente:
   - OneToOne/Services/
   - OneToOne/Views/Meeting/
   - OneToOne/Views/Navigation/
+  - OneToOne/Views/Portfolio/
   - OneToOne/Views/Project/
   - OneToOne/Views/Sidebar/
   - OneToOne/Views/DesignSystem/

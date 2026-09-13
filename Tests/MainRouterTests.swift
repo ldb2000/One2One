@@ -10,17 +10,48 @@ import SwiftData
 /// écran par programme, or la palette, les Récents, le fil d'Ariane et
 /// `SearchPopover` en ont tous besoin. Le routeur est un état, pas une vue —
 /// donc il se teste sans en monter aucune, et il se teste **avant** elles.
+/// Un `UserDefaults` **en mémoire**, pour que la suite n'écrive rien dans les
+/// préférences réelles de l'utilisateur.
+///
+/// `UserDefaults(suiteName:)` crée un fichier dans le vrai
+/// `~/Library/Preferences/`. Un nom tiré au sort par test en a laissé
+/// soixante-cinq derrière lui (constaté le 2026-09-09) ; un nom fixe effacé en
+/// fin de test n'y suffit pas non plus, `cfprefsd` réécrivant le fichier après
+/// coup. `MainRouter` ne lit et n'écrit qu'une chaîne : la surcharger est ce
+/// qui garantit qu'aucun octet ne quitte le processus.
+final class ReglagesEnMemoire: UserDefaults {
+
+    private var valeurs: [String: Any] = [:]
+
+    init() { super.init(suiteName: nil)! }
+
+    required init?(coder: NSCoder) { fatalError("inutilisé") }
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        if let value { valeurs[defaultName] = value } else { valeurs.removeValue(forKey: defaultName) }
+    }
+
+    override func object(forKey defaultName: String) -> Any? {
+        valeurs[defaultName]
+    }
+
+    override func string(forKey defaultName: String) -> String? {
+        valeurs[defaultName] as? String
+    }
+
+    override func removeObject(forKey defaultName: String) {
+        valeurs.removeValue(forKey: defaultName)
+    }
+}
+
 @Suite("Routeur de navigation — D0")
 @MainActor
 struct MainRouterTests {
 
-    /// Un `UserDefaults` jetable : les récents s'y écrivent, et deux exécutions
-    /// de la suite ne doivent pas se marcher dessus.
+    /// Un `UserDefaults` jetable : les récents s'y écrivent, et rien n'atteint
+    /// le disque.
     private func reglagesJetables() -> UserDefaults {
-        let nom = "onetoone.tests.router.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: nom)!
-        defaults.removePersistentDomain(forName: nom)
-        return defaults
+        ReglagesEnMemoire()
     }
 
     private func contexteEnMemoire() throws -> ModelContext {

@@ -598,112 +598,32 @@ struct MainSidebarView: View {
 
     // MARK: - Multi-select Action Bar
 
+    /// La barre d'actions en lot, **partagée avec le Portfolio** (décision
+    /// **D15**).
+    ///
+    /// Les six commandes vivaient ici en méthodes privées (`batchSetPhase`,
+    /// `batchArchive`…), non testées et inatteignables depuis un autre écran.
+    /// Elles sont dans `ProjectBatchActions` ; la barre est
+    /// `ProjectBatchBar`, aux jetons `One2OneToken`. Le rendu change (libellés
+    /// accentués, confirmation avant suppression), le comportement non — sauf
+    /// que supprimer demande désormais confirmation.
     private var multiSelectBar: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text("\(selectedProjectIDs.count) projet(s) selectionne(s)")
-                    .font(.caption.bold())
-                Spacer()
-                Button("Tout deselect.") { selectedProjectIDs.removeAll() }
-                    .font(.caption)
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
+        ProjectBatchBar(
+            nombre: selectedProjectIDs.count,
+            entites: entities.sorted { $0.name < $1.name },
+            deselectionner: { selectedProjectIDs.removeAll() },
+            changerPhase: { ProjectBatchActions.setPhase($0, on: selectedProjects) },
+            changerStatut: { ProjectBatchActions.setStatus($0, on: selectedProjects) },
+            changerEntite: { ProjectBatchActions.setEntity($0, on: selectedProjects) },
+            archiverAction: {
+                ProjectBatchActions.archive(selectedProjects)
+                selectedProjectIDs.removeAll()
+            },
+            supprimerAction: {
+                ProjectBatchActions.delete(selectedProjects, in: context)
+                selectedProjectIDs.removeAll()
             }
-
-            HStack(spacing: 8) {
-                // Phase
-                Menu {
-                    ForEach(["Cadrage", "Design", "Build", "Run"], id: \.self) { phase in
-                        Button(phase) { batchSetPhase(phase) }
-                    }
-                } label: {
-                    Label("Phase", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(maxWidth: 80)
-
-                // Status
-                Menu {
-                    ForEach(["Green", "Yellow", "Red", "Unknown"], id: \.self) { status in
-                        Button(status) { batchSetStatus(status) }
-                    }
-                } label: {
-                    Label("Statut", systemImage: "circle.fill")
-                        .font(.caption)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(maxWidth: 80)
-
-                // Entity
-                Menu {
-                    Button("Aucune entite") { batchSetEntity(nil) }
-                    Divider()
-                    ForEach(entities.sorted(by: { $0.name < $1.name })) { entity in
-                        Button(entity.name) { batchSetEntity(entity) }
-                    }
-                } label: {
-                    Label("Entite", systemImage: "building.2")
-                        .font(.caption)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(maxWidth: 80)
-
-                Spacer()
-
-                // Archive
-                Button(action: batchArchive) {
-                    Label("Archiver", systemImage: "archivebox")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .tint(.orange)
-
-                // Delete
-                Button(action: batchDelete) {
-                    Label("Suppr.", systemImage: "trash")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.accentColor.opacity(0.08))
-    }
-
-    // MARK: - Batch Operations
-
-    /// Affecte `value` au `keyPath` de tous les projets sélectionnés puis sauvegarde.
-    /// Helper générique factorisant les opérations de modification en lot.
-    private func batchUpdate<T>(_ keyPath: ReferenceWritableKeyPath<Project, T>, _ value: T) {
-        for project in selectedProjects { project[keyPath: keyPath] = value }
-        try? context.save()
-    }
-
-    private func batchSetPhase(_ phase: String) {
-        batchUpdate(\.phase, phase)
-    }
-
-    private func batchSetStatus(_ status: String) {
-        batchUpdate(\.status, status)
-    }
-
-    private func batchSetEntity(_ entity: Entity?) {
-        batchUpdate(\.entity, entity)
-    }
-
-    private func batchArchive() {
-        for project in selectedProjects { project.isArchived = true }
-        try? context.save()
-        selectedProjectIDs.removeAll()
-    }
-
-    private func batchDelete() {
-        for project in selectedProjects { context.delete(project) }
-        try? context.save()
-        selectedProjectIDs.removeAll()
+        )
     }
 
     // MARK: - Project label with risk indicator
@@ -810,15 +730,10 @@ struct MainSidebarView: View {
         saveContext()
     }
 
+    /// Le prochain code libre — délègue à `ProjectCreation`, que l'en-tête du
+    /// Portfolio appelle aussi (« ＋ Nouveau projet »).
     private func nextProjectCode() -> String {
-        let existingCodes = Set(projects.map(\.code))
-        var index = 1
-        var candidate = "PXX_\(String(format: "%03d", index))"
-        while existingCodes.contains(candidate) {
-            index += 1
-            candidate = "PXX_\(String(format: "%03d", index))"
-        }
-        return candidate
+        ProjectCreation.prochainCode(parmi: projects.map(\.code))
     }
 
     private func saveContext() {
