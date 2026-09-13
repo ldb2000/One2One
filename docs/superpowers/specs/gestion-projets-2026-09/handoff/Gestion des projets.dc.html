@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"><style>body{margin:0;background:#EFEBE3;font-family:'IBM Plex Sans',system-ui,sans-serif}a{color:#2563D9}a:hover{color:#1B4DAD}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px 'IBM Plex Mono',monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 'IBM Plex Sans',sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 'IBM Plex Sans',sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2563D9;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 'IBM Plex Sans',sans-serif;color:rgba(0,0,0,.5)}</style></helmet>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Intégration dans la sidebar réelle (Sidebar.swift, ordre et libellés du code)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a"><div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>La sidebar garde tout ce qu'elle a. « Projets par Entité » disparaît : remplacé par une entrée <b style="font-weight:600">Projets</b> qui ouvre le portfolio, plus une section Épinglés.</div>
+<div class="dv-card" style="width:1240px">
+<div style="display:flex;height:960px;font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:13px;color:#000">
+
+<div style="width:250px;flex:none;background:#EDEDED;border-right:1px solid rgba(0,0,0,.12);display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;padding:10px 12px 8px"><div style="display:flex;gap:8px"><span style="width:12px;height:12px;border-radius:50%;background:#ED6A5E"></span><span style="width:12px;height:12px;border-radius:50%;background:#F4BF50"></span><span style="width:12px;height:12px;border-radius:50%;background:#61C554"></span></div><span style="margin-left:auto;color:#8A8A8E">✓</span><span style="margin-left:12px;color:#8A8A8E">▤</span></div>
+<div style="padding:0 12px 8px"><div style="background:#E3E3E3;border-radius:7px;padding:5px 9px;color:#8A8A8E;font-size:13px;display:flex;align-items:center;gap:6px"><span>⌕</span><span style="flex:1">Rechercher…</span><span style="font:500 10px 'IBM Plex Mono',monospace;background:rgba(0,0,0,.08);border-radius:4px;padding:1px 5px">⌘K</span></div></div>
+<div style="flex:1;overflow:hidden;padding:0 8px">
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">▮</span>Tableau de bord</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">◍</span>Assistant IA</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">☑</span>Actions</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">◎</span>Réunions</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">≡</span>Notes</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">▤</span>Suivi manager</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">⋯</span>Tous les Collaborateurs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:13px 6px 4px;font-weight:600;font-size:12.5px"><span>⌄</span>Projets</div>
+<div style="background:#0A6CFF;color:#fff;border-radius:6px;padding:5px 6px;margin:2px 0;display:flex;align-items:center;gap:9px"><span style="width:16px">▦</span>Portfolio<span style="margin-left:auto;font-size:11px;opacity:.85">62</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#B8544C;width:16px">◈</span>À risque<span style="margin-left:auto;font-size:11px;color:#8F3F38">7</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#8A8A8E;width:16px">◷</span>Mes réunions projets</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#8A8A8E;width:16px">≣</span>Actions projets<span style="margin-left:auto;font-size:11px;color:#8A8A8E">23</span></div>
+<div style="padding:11px 6px 3px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:#8A8A8E">Épinglés</div>
+<div style="display:flex;align-items:center;gap:8px;padding:5px 6px 5px 22px"><span style="width:10px;height:10px;border-radius:50%;background:#FF3B30;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - BLOOM</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:5px 6px 5px 22px"><span style="width:10px;height:10px;border-radius:50%;background:#34C759;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE - Services IO / ALP</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:5px 6px 5px 22px"><span style="width:10px;height:10px;border-radius:50%;background:#FF9F0A;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Installation nouvelle GED</span></div>
+<div style="padding:11px 6px 3px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:#8A8A8E">Récents</div>
+<div style="padding:5px 6px 5px 22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Sécurisation des flux</div>
+<div style="padding:5px 6px 5px 22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Obsolescence VM</div>
+<div style="padding:5px 6px 5px 22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">RH - TIME &amp; APPLI</div>
+
+<div style="display:flex;align-items:center;gap:6px;padding:12px 6px 4px"><span style="font-weight:600;font-size:12.5px">Collaborateurs</span><span style="margin-left:auto;display:flex;gap:2px"><span style="font-size:10px;color:#8A8A8E;border:.5px solid rgba(0,0,0,.25);border-radius:4px;padding:1px 5px">⌖</span><span style="font-size:10px;color:#8A8A8E;border:.5px solid rgba(0,0,0,.25);border-radius:4px;padding:1px 5px">☆</span><span style="font-size:10px;color:#fff;background:#0A6CFF;border-radius:4px;padding:1px 5px">⌗</span></span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>NOMINE Laurent</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#D9D9DE;display:block"></span>ORSET Jean-Baptiste</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>PENVEN Yann</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>RIGAUT Manuel</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px;color:#0A84FF"><span>⊕</span>Ajouter</div>
+<div style="display:flex;align-items:center;gap:7px;padding:12px 6px 5px;font-weight:600;font-size:12.5px"><span>›</span><span style="color:#8A8A8E">▣</span>Archives</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 6px;font-weight:600;font-size:12.5px"><span>›</span><span style="color:#8A8A8E">▣</span>Projets Archivés</div>
+<div style="display:flex;align-items:center;gap:9px;padding:12px 6px 5px"><span style="color:#8A8A8E;width:16px">⚙</span>Paramètres</div>
+</div>
+<div style="border-top:1px solid rgba(0,0,0,.12);padding:8px 12px;display:flex;align-items:center;gap:7px;font-size:12.5px"><span>⌄</span><span style="color:#8A8A8E">▤</span>Jobs<span style="margin-left:auto;color:#8A8A8E;font-size:11.5px">Aucun job</span></div>
+</div>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#FAF8F4;font-family:'IBM Plex Sans',system-ui,sans-serif;color:#2A2723">
+<div style="display:flex;align-items:center;gap:14px;padding:14px 20px 12px;border-bottom:1px solid rgba(0,0,0,.07)">
+<div style="font:600 17px 'IBM Plex Sans';color:#1A1A1A">Projets</div>
+<div style="font-size:12px;color:#7D7768">62 actifs · 8 entités · 14 archivés</div>
+<div style="margin-left:auto;display:flex;gap:8px">
+<div style="display:flex;background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:6px;overflow:hidden;font-size:12px"><span style="padding:5px 11px;background:#2A2723;color:#fff">Tableau</span><span style="padding:5px 11px;color:#4A453D">Groupé par entité</span></div>
+<div style="padding:5px 12px;border-radius:6px;background:#2563D9;color:#fff;font-size:12px;font-weight:500">＋ Nouveau projet</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;padding:11px 20px;border-bottom:1px solid rgba(0,0,0,.07);flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid rgba(0,0,0,.14);border-radius:6px;padding:5px 10px;width:230px;color:#7D7768;font-size:12.5px"><span>⌕</span>Nom, code, sponsor…</div>
+<div style="display:flex;align-items:center;gap:6px;background:#EEF2FD;border:1px solid rgba(37,99,217,.25);color:#1B4DAD;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">Entité : ASP <span style="opacity:.6">✕</span></div>
+<div style="border:1px dashed rgba(0,0,0,.22);color:#6B6659;border-radius:20px;padding:4px 10px;font-size:12px">Phase ⌄</div>
+<div style="border:1px dashed rgba(0,0,0,.22);color:#6B6659;border-radius:20px;padding:4px 10px;font-size:12px">Risque ⌄</div>
+<div style="border:1px dashed rgba(0,0,0,.22);color:#6B6659;border-radius:20px;padding:4px 10px;font-size:12px">Chef de projet ⌄</div>
+<div style="margin-left:auto;font-size:11.5px;color:#7D7768">Sélection multiple <span style="font:500 10.5px 'IBM Plex Mono',monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:1px 5px">⇧</span></div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;padding:8px 20px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659;border-bottom:1px solid rgba(0,0,0,.07);background:#F7F4EE"><div></div><div>Projet ↑</div><div>Entité</div><div>Phase</div><div>Risque</div><div>Chef de projet</div><div>Dern. réu.</div></div>
+<div style="flex:1;overflow:hidden">
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#B8544C"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – BLOOM</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_112 · Métier</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:2px 7px">Build</span></div><div><span style="font-size:11.5px;background:#F9EFE0;color:#8A5A12;border-radius:4px;padding:2px 7px">Modéré</span></div><div style="font-size:12px;color:#4A453D">RIGAUT Manuel</div><div style="font-size:12px;color:#7D7768">il y a 3 j</div></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE – Gestion des services IO pour l'association ALP</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_193 · Métier</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#F4F1F6;color:#5C4180;border-radius:4px;padding:2px 7px">Design</span></div><div><span style="font-size:11.5px;color:#7D7768">—</span></div><div style="font-size:12px;color:#7D7768;font-style:italic">Non affecté</div><div style="font-size:12px;color:#7D7768">hier</div></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#D98324"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Installation nouvelle GED</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_087 · Métier</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:2px 7px">Build</span></div><div><span style="font-size:11.5px;background:#FBECEB;color:#8F3F38;border-radius:4px;padding:2px 7px">Élevé</span></div><div style="font-size:12px;color:#4A453D">PENVEN Yann</div><div style="font-size:12px;color:#7D7768">il y a 8 j</div></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Sécurisation des flux inter-sites</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_140 · Technique</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#EEF2FD;color:#1B4DAD;border-radius:4px;padding:2px 7px">Cadrage</span></div><div><span style="font-size:11.5px;background:#F9EFE0;color:#8A5A12;border-radius:4px;padding:2px 7px">Modéré</span></div><div style="font-size:12px;color:#4A453D">THEDREZ Wilfried</div><div style="font-size:12px;color:#7D7768">2 sem.</div></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#7D7768"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Intégration « NEVIDIS » Filiale</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_155 · Métier</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#F4F1F6;color:#5C4180;border-radius:4px;padding:2px 7px">Design</span></div><div><span style="font-size:11.5px;color:#7D7768">—</span></div><div style="font-size:12px;color:#4A453D">ORSET Jean-Baptiste</div><div style="font-size:12px;color:#7D7768">jamais</div></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Mise en place d'une infrastructure de sauvegarde</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_061 · Technique</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#E8F3EC;color:#2F7D4E;border-radius:4px;padding:2px 7px">Run</span></div><div><span style="font-size:11.5px;color:#7D7768">—</span></div><div style="font-size:12px;color:#4A453D">PAOLI Nicolas</div><div style="font-size:12px;color:#7D7768">il y a 5 j</div></div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 88px 92px 88px 126px 78px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff"><div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#D98324"></span></div><div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Obsolescence de la VM applicative</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_099 · Technique</div></div><div style="font-size:12px;color:#4A453D">ASP</div><div><span style="font-size:11.5px;background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:2px 7px">Build</span></div><div><span style="font-size:11.5px;background:#F9EFE0;color:#8A5A12;border-radius:4px;padding:2px 7px">Modéré</span></div><div style="font-size:12px;color:#4A453D">NOMINE Laurent</div><div style="font-size:12px;color:#7D7768">il y a 4 j</div></div>
+<div style="padding:13px 20px;font-size:11.5px;color:#7D7768">La colonne Entité remplace l'arbre : on filtre au lieu de déplier. Le glisser-déposer entre entités reste possible depuis la sélection multiple.</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2b"><div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Variante prudente : l'arbre par entité reste, mais replié et sous l'entrée Projets — la sidebar cesse d'être le seul chemin sans rien retirer.</div>
+<div class="dv-card" style="width:260px">
+<div style="background:#EDEDED;font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:13px;color:#000;padding:8px">
+<div style="background:#E3E3E3;border-radius:7px;padding:5px 9px;color:#8A8A8E;margin-bottom:8px;display:flex;gap:6px"><span>⌕</span><span style="flex:1">Rechercher…</span><span style="font:500 10px 'IBM Plex Mono',monospace;background:rgba(0,0,0,.08);border-radius:4px;padding:1px 5px">⌘K</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">▮</span>Tableau de bord</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">◍</span>Assistant IA</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">☑</span>Actions</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">◎</span>Réunions</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">≡</span>Notes</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">▤</span>Suivi manager</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#0A6CFF;width:16px">⋯</span>Tous les Collaborateurs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:13px 6px 4px;font-weight:600;font-size:12.5px"><span>⌄</span>Projets</div>
+<div style="background:#0A6CFF;color:#fff;border-radius:6px;padding:5px 6px;margin:2px 0;display:flex;align-items:center;gap:9px"><span style="width:16px">▦</span>Portfolio<span style="margin-left:auto;font-size:11px;opacity:.85">62</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#B8544C;width:16px">◈</span>À risque<span style="margin-left:auto;font-size:11px;color:#8F3F38">7</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#8A8A8E;width:16px">◷</span>Mes réunions projets</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="color:#8A8A8E;width:16px">≣</span>Actions projets<span style="margin-left:auto;font-size:11px;color:#8A8A8E">23</span></div>
+<div style="padding:11px 6px 3px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:#8A8A8E">Épinglés</div>
+<div style="display:flex;align-items:center;gap:8px;padding:5px 6px 5px 22px"><span style="width:10px;height:10px;border-radius:50%;background:#FF3B30;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - BLOOM</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:5px 6px 5px 22px"><span style="width:10px;height:10px;border-radius:50%;background:#34C759;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE - Services IO / ALP</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:5px 6px 5px 22px"><span style="width:10px;height:10px;border-radius:50%;background:#FF9F0A;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Installation nouvelle GED</span></div>
+<div style="padding:11px 6px 3px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:#8A8A8E">Récents</div>
+<div style="padding:5px 6px 5px 22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Sécurisation des flux</div>
+<div style="padding:5px 6px 5px 22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Obsolescence VM</div>
+<div style="padding:5px 6px 5px 22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">RH - TIME &amp; APPLI</div>
+<div style="display:flex;align-items:center;gap:7px;padding:12px 6px 4px;font-weight:600;font-size:12.5px"><span>›</span><span style="color:#0A84FF">▤</span>Projets par Entité</div>
+<div style="padding:2px 6px 6px 26px;font-size:11.5px;color:#8A8A8E">8 entités · replié par défaut</div>
+<div style="display:flex;align-items:center;gap:6px;padding:8px 6px 4px;font-weight:600;font-size:12.5px">Collaborateurs</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>NOMINE Laurent</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#D9D9DE;display:block"></span>ORSET Jean-Baptiste</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>RIGAUT Manuel</div>
+<div style="display:flex;align-items:center;gap:7px;padding:10px 6px 4px;font-weight:600;font-size:12.5px"><span>›</span><span style="color:#8A8A8E">▣</span>Archives</div>
+<div style="display:flex;align-items:center;gap:7px;padding:4px 6px;font-weight:600;font-size:12.5px"><span>›</span><span style="color:#8A8A8E">▣</span>Projets Archivés</div>
+<div style="display:flex;align-items:center;gap:9px;padding:10px 6px 4px"><span style="color:#8A8A8E;width:16px">⚙</span>Paramètres</div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">À essayer : « prends <a class="dv-oid" href="#2a">2a</a> et montre l'état sélection multiple » · « dans <a class="dv-oid" href="#2b">2b</a>, déplie l'entité ASP » · « ajoute les entités en filtre rapide au-dessus du tableau »</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Refonte gestion des projets — navigation, portfolio, écran projet</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Portfolio plein écran — tableau dense + facettes. La sidebar ne porte plus l'arbre : elle porte Épinglés / Récents.</div>
+<div class="dv-card" style="width:1240px">
+<div style="display:flex;height:760px;background:#F7F4EE;font-size:13px;color:#2A2723">
+
+<div style="width:236px;flex:none;background:#F2EEE6;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:8px;padding:12px 12px 10px">
+<div style="display:flex;gap:6px"><span style="width:11px;height:11px;border-radius:50%;background:#ED6A5E"></span><span style="width:11px;height:11px;border-radius:50%;background:#F4BF50"></span><span style="width:11px;height:11px;border-radius:50%;background:#61C554"></span></div>
+</div>
+<div style="padding:0 12px 10px">
+<div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:6px;padding:6px 9px;color:#7D7768;font-size:12.5px"><span>⌕</span><span style="flex:1">Rechercher…</span><span style="font:500 10px 'IBM Plex Mono',monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:2px 5px;color:#6B6659">⌘K</span></div>
+</div>
+<div style="padding:4px 8px 0;display:flex;flex-direction:column;gap:1px">
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;background:#2563D9;color:#fff;font-weight:500"><span style="opacity:.9">▦</span>Portfolio<span style="margin-left:auto;font:500 10.5px 'IBM Plex Mono',monospace;opacity:.75">62</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;color:#2A2723"><span style="color:#B8544C">◈</span>À risque<span style="margin-left:auto;font:500 10.5px 'IBM Plex Mono',monospace;color:#B8544C">7</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;color:#2A2723"><span style="color:#6B6659">◷</span>Mes réunions</div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;color:#2A2723"><span style="color:#6B6659">☰</span>Actions<span style="margin-left:auto;font:500 10.5px 'IBM Plex Mono',monospace;color:#6B6659">23</span></div>
+</div>
+<div style="padding:18px 18px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Épinglés</div>
+<div style="padding:0 8px;display:flex;flex-direction:column;gap:1px">
+<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px"><span style="width:8px;height:8px;border-radius:50%;background:#B8544C;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – BLOOM</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px"><span style="width:8px;height:8px;border-radius:50%;background:#2F9E5F;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE – Services IO / ALP</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D98324;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Nouvelle GED</span></div>
+</div>
+<div style="padding:18px 18px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Récents</div>
+<div style="padding:0 8px;display:flex;flex-direction:column;gap:1px;color:#4A453D">
+<div style="padding:6px 10px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Sécurisation des flux</div>
+<div style="padding:6px 10px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Obsolescence VM</div>
+<div style="padding:6px 10px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">RH – TIME &amp; APPLI</div>
+</div>
+<div style="margin-top:auto;border-top:1px solid rgba(0,0,0,.07);padding:9px 14px;display:flex;align-items:center;gap:8px;color:#7D7768;font-size:11.5px"><span>⌸</span>Aucun job</div>
+</div>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#FAF8F4">
+<div style="display:flex;align-items:center;gap:14px;padding:14px 20px 12px;border-bottom:1px solid rgba(0,0,0,.07)">
+<div style="font:600 17px 'IBM Plex Sans',sans-serif;color:#1A1A1A">Portfolio</div>
+<div style="font:400 12px 'IBM Plex Sans';color:#7D7768">62 projets actifs · 8 entités</div>
+<div style="margin-left:auto;display:flex;gap:8px">
+<div style="display:flex;background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:6px;overflow:hidden;font-size:12px">
+<span style="padding:5px 11px;background:#2A2723;color:#fff">Tableau</span><span style="padding:5px 11px;color:#4A453D">Groupé par entité</span></div>
+<div style="padding:5px 12px;border-radius:6px;background:#2563D9;color:#fff;font-size:12px;font-weight:500">＋ Nouveau projet</div>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:8px;padding:11px 20px;border-bottom:1px solid rgba(0,0,0,.07);flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid rgba(0,0,0,.14);border-radius:6px;padding:5px 10px;width:250px;color:#7D7768;font-size:12.5px"><span>⌕</span>Nom, code, sponsor…</div>
+<div style="display:flex;align-items:center;gap:6px;background:#EEF2FD;border:1px solid rgba(37,99,217,.25);color:#1B4DAD;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">Entité : ASP <span style="opacity:.6">✕</span></div>
+<div style="display:flex;align-items:center;gap:6px;background:#FBECEB;border:1px solid rgba(184,84,76,.25);color:#8F3F38;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">Risque ≥ Modéré <span style="opacity:.6">✕</span></div>
+<div style="display:flex;align-items:center;gap:6px;border:1px dashed rgba(0,0,0,.22);color:#6B6659;border-radius:20px;padding:4px 10px;font-size:12px">Phase ⌄</div>
+<div style="display:flex;align-items:center;gap:6px;border:1px dashed rgba(0,0,0,.22);color:#6B6659;border-radius:20px;padding:4px 10px;font-size:12px">Statut ⌄</div>
+<div style="display:flex;align-items:center;gap:6px;border:1px dashed rgba(0,0,0,.22);color:#6B6659;border-radius:20px;padding:4px 10px;font-size:12px">Chef de projet ⌄</div>
+<div style="margin-left:auto;font-size:11.5px;color:#7D7768">Vue enregistrée : <span style="color:#1B4DAD;font-weight:500">Mes projets ASP ⌄</span></div>
+</div>
+
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;gap:0;align-items:center;padding:8px 20px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659;border-bottom:1px solid rgba(0,0,0,.07);background:#F7F4EE">
+<div></div><div>Projet ↑</div><div>Entité</div><div>Phase</div><div>Risque</div><div>Chef de projet</div><div>Jalon</div><div>Dernière réu.</div></div>
+
+<div style="flex:1;overflow:hidden">
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#B8544C"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – BLOOM</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_112 · Métier</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:2px 7px">Build</span></div>
+<div><span style="font-size:11.5px;background:#F9EFE0;color:#8A5A12;border-radius:4px;padding:2px 7px">Modéré</span></div>
+<div style="font-size:12px;color:#4A453D">RIGAUT Manuel</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#8F3F38">J–4</div>
+<div style="font-size:12px;color:#7D7768">il y a 3 j</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE – Gestion des services IO pour l'association ALP</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_193 · Métier</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#F4F1F6;color:#5C4180;border-radius:4px;padding:2px 7px">Design</span></div>
+<div><span style="font-size:11.5px;color:#7D7768">—</span></div>
+<div style="font-size:12px;color:#7D7768;font-style:italic">Non affecté</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#4A453D">J–21</div>
+<div style="font-size:12px;color:#7D7768">hier</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#D98324"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Installation nouvelle GED</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_087 · Métier</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:2px 7px">Build</span></div>
+<div><span style="font-size:11.5px;background:#FBECEB;color:#8F3F38;border-radius:4px;padding:2px 7px">Élevé</span></div>
+<div style="font-size:12px;color:#4A453D">PENVEN Yann</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#8F3F38">retard</div>
+<div style="font-size:12px;color:#7D7768">il y a 8 j</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Sécurisation des flux inter-sites</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_140 · Technique</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#EEF2FD;color:#1B4DAD;border-radius:4px;padding:2px 7px">Cadrage</span></div>
+<div><span style="font-size:11.5px;background:#F9EFE0;color:#8A5A12;border-radius:4px;padding:2px 7px">Modéré</span></div>
+<div style="font-size:12px;color:#4A453D">THEDREZ Wilfried</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#4A453D">J–35</div>
+<div style="font-size:12px;color:#7D7768">il y a 2 sem.</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#7D7768"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Intégration « NEVIDIS » Filiale</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_155 · Métier</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#F4F1F6;color:#5C4180;border-radius:4px;padding:2px 7px">Design</span></div>
+<div><span style="font-size:11.5px;color:#7D7768">—</span></div>
+<div style="font-size:12px;color:#4A453D">ORSET Jean-Baptiste</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#7D7768">—</div>
+<div style="font-size:12px;color:#7D7768">jamais</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Mise en place d'une infrastructure de sauvegarde</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_061 · Technique</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#E8F3EC;color:#2F7D4E;border-radius:4px;padding:2px 7px">Run</span></div>
+<div><span style="font-size:11.5px;color:#7D7768">—</span></div>
+<div style="font-size:12px;color:#4A453D">PAOLI Nicolas</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#4A453D">J–60</div>
+<div style="font-size:12px;color:#7D7768">il y a 5 j</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#fff">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#D98324"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Obsolescence de la VM applicative</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_099 · Technique</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:2px 7px">Build</span></div>
+<div><span style="font-size:11.5px;background:#F9EFE0;color:#8A5A12;border-radius:4px;padding:2px 7px">Modéré</span></div>
+<div style="font-size:12px;color:#4A453D">NOMINE Laurent</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#4A453D">J–12</div>
+<div style="font-size:12px;color:#7D7768">il y a 4 j</div>
+</div>
+<div style="display:grid;grid-template-columns:22px minmax(0,1fr) 92px 96px 92px 130px 74px 92px;align-items:center;padding:9px 20px;border-bottom:1px solid rgba(0,0,0,.05);background:#FDFCFA">
+<div><span style="display:block;width:9px;height:9px;border-radius:50%;background:#2F9E5F"></span></div>
+<div style="min-width:0"><div style="font-weight:500;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP – Sécurisation IBMi Netserver</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_121 · Technique</div></div>
+<div style="font-size:12px;color:#4A453D">ASP</div>
+<div><span style="font-size:11.5px;background:#E8F3EC;color:#2F7D4E;border-radius:4px;padding:2px 7px">Run</span></div>
+<div><span style="font-size:11.5px;color:#7D7768">—</span></div>
+<div style="font-size:12px;color:#4A453D">ZANNETTINI F.-L.</div>
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#4A453D">J–90</div>
+<div style="font-size:12px;color:#7D7768">il y a 1 mois</div>
+</div>
+<div style="padding:14px 20px;font-size:11.5px;color:#7D7768">8 lignes sur 62 · sélection multiple ⇧-clic pour changer phase, statut ou entité en lot</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Palette ⌘K — code, nom, sponsor, entité. Le vrai remplaçant du scroll dans l'arbre.</div>
+<div class="dv-card" style="width:560px">
+<div style="background:#EFEBE3;padding:26px">
+<div style="background:#fff;border:1px solid rgba(0,0,0,.14);border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.16);overflow:hidden">
+<div style="display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#7D7768">⌕</span><span style="font-size:15px;color:#1A1A1A">ged<span style="display:inline-block;width:1px;height:16px;background:#2563D9;vertical-align:-3px;margin-left:1px"></span></span><span style="margin-left:auto;font:500 10px 'IBM Plex Mono',monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:2px 6px;color:#6B6659">esc</span></div>
+<div style="padding:8px 8px 6px">
+<div style="padding:4px 8px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Projets</div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;background:#EEF2FD">
+<span style="width:9px;height:9px;border-radius:50%;background:#D98324;flex:none"></span>
+<div style="min-width:0;flex:1"><div style="font-size:13.5px;color:#1A1A1A"><span style="background:#FFE9A8">ASP – Installation nouvelle GED</span></div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P25_087 · ASP · Build · PENVEN Yann</div></div>
+<span style="font:500 10px 'IBM Plex Mono',monospace;color:#1B4DAD">↩</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px">
+<span style="width:9px;height:9px;border-radius:50%;background:#2F9E5F;flex:none"></span>
+<div style="min-width:0;flex:1"><div style="font-size:13.5px;color:#1A1A1A">RH – Migration <span style="background:#FFE9A8">GED</span> documentaire</div><div style="font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768">P24_211 · RH · Run</div></div>
+</div>
+<div style="padding:10px 8px 6px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Actions</div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px"><span style="color:#6B6659">＋</span><div style="font-size:13.5px;color:#1A1A1A">Créer un projet « ged »</div></div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px"><span style="color:#6B6659">☰</span><div style="font-size:13.5px;color:#1A1A1A">Chercher « ged » dans les CR et mails</div></div>
+</div>
+<div style="display:flex;gap:14px;padding:9px 15px;border-top:1px solid rgba(0,0,0,.07);background:#FAF8F4;font:500 10.5px 'IBM Plex Mono',monospace;color:#7D7768"><span>↑↓ naviguer</span><span>↩ ouvrir</span><span>⌘↩ épingler</span></div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1d"><div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Écran projet — pilotage en 2 colonnes, lecture d'abord, édition au clic. La heatmap devient une mini-stat.</div>
+<div class="dv-card" style="width:1080px">
+<div style="background:#FAF8F4;min-height:820px">
+
+<div style="padding:16px 22px 0">
+<div style="font:500 11px 'IBM Plex Mono',monospace;color:#7D7768;display:flex;gap:6px;align-items:center"><span style="color:#1B4DAD">Portfolio</span><span>/</span><span style="color:#1B4DAD">ASP</span><span>/</span><span>P25_193</span></div>
+<div style="display:flex;align-items:flex-start;gap:14px;margin-top:8px">
+<div style="min-width:0;flex:1">
+<div style="font:600 21px/1.25 'IBM Plex Sans';color:#1A1A1A">AE – Gestion des services IO pour l'association ALP</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:6px;background:#E8F3EC;color:#2F7D4E;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:500"><span style="width:8px;height:8px;border-radius:50%;background:#2F9E5F"></span>Au vert</span>
+<span style="background:#F4F1F6;color:#5C4180;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:500">Phase Design</span>
+<span style="background:#F7F4EE;color:#4A453D;border:1px solid rgba(0,0,0,.09);border-radius:20px;padding:3px 10px;font-size:12px">Métier</span>
+<span style="background:#F7F4EE;color:#4A453D;border:1px solid rgba(0,0,0,.09);border-radius:20px;padding:3px 10px;font-size:12px">ASP</span>
+<span style="color:#8F3F38;font-size:12px;font-weight:500">⚑ Deadline design 09/09/2026 — J–0</span>
+</div>
+</div>
+<div style="display:flex;gap:8px;align-items:center">
+<span style="padding:6px 12px;border:1px solid rgba(0,0,0,.14);border-radius:6px;background:#fff;font-size:12.5px;color:#2A2723">☆ Épingler</span>
+<span style="padding:6px 12px;border-radius:6px;background:#2563D9;color:#fff;font-size:12.5px;font-weight:500">Démarrer une réunion</span>
+<span style="padding:6px 10px;border:1px solid rgba(0,0,0,.14);border-radius:6px;background:#fff;font-size:12.5px;color:#4A453D">···</span>
+</div>
+</div>
+<div style="display:flex;gap:22px;margin-top:16px;border-bottom:1px solid rgba(0,0,0,.09);font-size:13px">
+<span style="padding:0 0 9px;color:#1A1A1A;font-weight:500;box-shadow:inset 0 -2px 0 #2563D9">Pilotage</span>
+<span style="padding:0 0 9px;color:#6B6659">Réunions &amp; CR</span>
+<span style="padding:0 0 9px;color:#6B6659">Actions <span style="font:500 10.5px 'IBM Plex Mono',monospace;background:#EEF2FD;color:#1B4DAD;border-radius:9px;padding:1px 6px">6</span></span>
+<span style="padding:0 0 9px;color:#6B6659">Mails <span style="font:500 10.5px 'IBM Plex Mono',monospace;background:rgba(0,0,0,.06);color:#6B6659;border-radius:9px;padding:1px 6px">12</span></span>
+<span style="padding:0 0 9px;color:#6B6659">Documents</span>
+<span style="padding:0 0 9px;color:#6B6659">Fiche complète</span>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;padding:16px 22px 22px">
+
+<div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+
+<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:11px 12px"><div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Actions ouvertes</div><div style="font:600 22px 'IBM Plex Sans';color:#1A1A1A;margin-top:5px">6</div><div style="font-size:11.5px;color:#8F3F38">2 en retard</div></div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:11px 12px"><div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Dernière réunion</div><div style="font:600 22px 'IBM Plex Sans';color:#1A1A1A;margin-top:5px">hier</div><div style="font-size:11.5px;color:#7D7768">COPIL · 45 min</div></div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:11px 12px"><div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Rythme</div><div style="display:flex;align-items:flex-end;gap:3px;height:26px;margin-top:7px"><span style="width:7px;height:8px;background:#E8F3EC;display:block"></span><span style="width:7px;height:14px;background:#BFE3CC;display:block"></span><span style="width:7px;height:6px;background:#E8F3EC;display:block"></span><span style="width:7px;height:20px;background:#7FC79C;display:block"></span><span style="width:7px;height:11px;background:#BFE3CC;display:block"></span><span style="width:7px;height:24px;background:#2F9E5F;display:block"></span><span style="width:7px;height:9px;background:#BFE3CC;display:block"></span><span style="width:7px;height:16px;background:#7FC79C;display:block"></span></div><div style="font-size:11.5px;color:#7D7768;margin-top:4px">9 réunions / 12 sem.</div></div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:11px 12px"><div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Charge</div><div style="font:600 22px 'IBM Plex Sans';color:#1A1A1A;margin-top:5px">48 <span style="font-size:12px;color:#7D7768;font-weight:400">/ 60 j</span></div><div style="height:4px;background:#EFEBE3;border-radius:2px;margin-top:6px"><div style="width:80%;height:4px;background:#2F9E5F;border-radius:2px"></div></div></div>
+</div>
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px">
+<div style="display:flex;align-items:center;gap:8px;padding:11px 13px 9px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Actions en cours</span><span style="margin-left:auto;font-size:11.5px;color:#1B4DAD">Tout voir</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid rgba(0,0,0,.05)"><span style="width:14px;height:14px;border:1.5px solid #B8544C;border-radius:4px;flex:none"></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:#1A1A1A">Valider le périmètre IO avec l'ALP</div><div style="font-size:11.5px;color:#7D7768">RIGAUT Manuel · issue du COPIL du 08/09</div></div><span style="font:500 11px 'IBM Plex Mono',monospace;color:#8F3F38">retard 3 j</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid rgba(0,0,0,.05)"><span style="width:14px;height:14px;border:1.5px solid #B8544C;border-radius:4px;flex:none"></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:#1A1A1A">Chiffrer la reprise de données</div><div style="font-size:11.5px;color:#7D7768">PENVEN Yann</div></div><span style="font:500 11px 'IBM Plex Mono',monospace;color:#8F3F38">retard 1 j</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid rgba(0,0,0,.05)"><span style="width:14px;height:14px;border:1.5px solid rgba(0,0,0,.24);border-radius:4px;flex:none"></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:#1A1A1A">Rédiger le DAT</div><div style="font-size:11.5px;color:#7D7768">THEDREZ Wilfried</div></div><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A453D">14/09</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:9px 13px"><span style="width:14px;height:14px;border:1.5px solid rgba(0,0,0,.24);border-radius:4px;flex:none"></span><div style="flex:1;min-width:0"><div style="font-size:13px;color:#1A1A1A">Planifier l'atelier sécurité</div><div style="font-size:11.5px;color:#7D7768">Non affecté</div></div><span style="font:500 11px 'IBM Plex Mono',monospace;color:#7D7768">—</span></div>
+</div>
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px">
+<div style="display:flex;align-items:center;gap:8px;padding:11px 13px 9px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Dernières réunions</span><span style="margin-left:auto;font-size:11.5px;color:#1B4DAD">Historique</span></div>
+<div style="display:flex;gap:12px;padding:11px 13px;border-bottom:1px solid rgba(0,0,0,.05)"><div style="width:44px;flex:none;font:500 11px 'IBM Plex Mono',monospace;color:#6B6659">08/09</div><div style="min-width:0"><div style="font-size:13px;color:#1A1A1A"><span style="background:#FBECEB;color:#8F3F38;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:500;margin-right:6px">COPIL</span>Arbitrage périmètre IO</div><div style="font-size:12px;color:#4A453D;margin-top:4px;line-height:1.45">Décision : le lot « annuaire » sort du périmètre v1. 3 actions créées, CR envoyé au sponsor.</div></div></div>
+<div style="display:flex;gap:12px;padding:11px 13px;border-bottom:1px solid rgba(0,0,0,.05)"><div style="width:44px;flex:none;font:500 11px 'IBM Plex Mono',monospace;color:#6B6659">01/09</div><div style="min-width:0"><div style="font-size:13px;color:#1A1A1A"><span style="background:#F2F8F7;color:#1F6B6B;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:500;margin-right:6px">Atelier</span>Cadrage technique avec l'ALP</div><div style="font-size:12px;color:#4A453D;margin-top:4px;line-height:1.45">Choix d'architecture retenu : passerelle IO mutualisée.</div></div></div>
+<div style="display:flex;gap:12px;padding:11px 13px"><div style="width:44px;flex:none;font:500 11px 'IBM Plex Mono',monospace;color:#6B6659">21/08</div><div style="min-width:0"><div style="font-size:13px;color:#1A1A1A"><span style="background:#F4F1F6;color:#5C4180;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:500;margin-right:6px">1:1</span>Point d'avancement — PENVEN Yann</div></div></div>
+</div>
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:12px 13px">
+<div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659;margin-bottom:8px">Périmètre &amp; contexte</div>
+<div style="font-size:13px;line-height:1.55;color:#2A2723;text-wrap:pretty">Reprise des services IO historiquement hébergés chez l'association ALP : annuaire, échanges de fichiers, supervision. Le lot annuaire est sorti du périmètre v1 (COPIL 08/09). Dépendance forte au chantier « Sécurisation des flux inter-sites ».</div>
+<div style="margin-top:10px;font-size:11.5px;color:#7D7768;border-top:1px dashed rgba(0,0,0,.12);padding-top:9px">Cliquer pour éditer · dernière mise à jour par RIGAUT Manuel, hier</div>
+</div>
+
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:12px 13px">
+<div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659;margin-bottom:10px">Interlocuteurs</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:50%;background:#DDD7CC;display:block;flex:none"></span><div style="min-width:0"><div style="font-size:12.5px;color:#1A1A1A">RIGAUT Manuel</div><div style="font-size:11px;color:#7D7768">Chef de projet</div></div><span style="margin-left:auto;font-size:11px;color:#1B4DAD">1:1 ▸</span></div>
+<div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:50%;background:#DDD7CC;display:block;flex:none"></span><div style="min-width:0"><div style="font-size:12.5px;color:#1A1A1A">THEDREZ Wilfried</div><div style="font-size:11px;color:#7D7768">Architecte technique</div></div><span style="margin-left:auto;font-size:11px;color:#1B4DAD">1:1 ▸</span></div>
+<div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;border-radius:50%;border:1px dashed rgba(0,0,0,.22);display:block;flex:none"></span><div style="min-width:0"><div style="font-size:12.5px;color:#7D7768;font-style:italic">Sponsor à renseigner</div><div style="font-size:11px;color:#7D7768">Sponsor</div></div><span style="margin-left:auto;font-size:11px;color:#1B4DAD">＋</span></div>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:12px 13px">
+<div style="display:flex;align-items:center;margin-bottom:9px"><span style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Risque</span><span style="margin-left:auto;font-size:11px;color:#1B4DAD">Modifier</span></div>
+<div style="display:flex;align-items:center;gap:7px;font-size:13px;color:#8A5A12;font-weight:500"><span style="width:9px;height:9px;border-radius:50%;background:#D98324"></span>Modéré</div>
+<div style="font-size:12.5px;line-height:1.5;color:#2A2723;margin-top:7px">Disponibilité de l'équipe ALP en octobre non confirmée — impact possible sur la fin de design.</div>
+</div>
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:12px 13px">
+<div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659;margin-bottom:9px">Mails liés</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<div><div style="font-size:12.5px;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">RE : périmètre v1 — annuaire</div><div style="font-size:11px;color:#7D7768">ALP · hier</div></div>
+<div><div style="font-size:12.5px;color:#1A1A1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Planning atelier sécurité</div><div style="font-size:11px;color:#7D7768">THEDREZ W. · 04/09</div></div>
+<div style="display:flex;align-items:center;gap:7px;background:#EEF2FD;border-radius:6px;padding:7px 9px"><span style="color:#1B4DAD">✦</span><div style="font-size:11.5px;color:#1B4DAD">3 mails à rattacher à ce projet</div></div>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;padding:12px 13px">
+<div style="font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659;margin-bottom:9px">Identité</div>
+<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:12.5px;color:#2A2723;align-items:baseline">
+<span style="color:#6B6659">Code</span><span style="font:500 12px 'IBM Plex Mono',monospace">P25_193</span>
+<span style="color:#6B6659">Domaine</span><span>ASP</span>
+<span style="color:#6B6659">Jours</span><span>60</span>
+<span style="color:#6B6659">Fin design</span><span>09/09/2026</span>
+<span style="color:#6B6659">DAT / DIT</span><span style="color:#7D7768">— / —</span>
+</div>
+<div style="margin-top:10px;font-size:11.5px;color:#1B4DAD">Voir la fiche complète ▸</div>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1f"><div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Vue « À risque » — la liste de ce qui doit bouger cette semaine, groupée par motif.</div>
+<div class="dv-card" style="width:640px">
+<div style="background:#FAF8F4;padding:16px 18px 20px">
+<div style="font:600 16px 'IBM Plex Sans';color:#1A1A1A">À risque</div>
+<div style="font-size:12px;color:#7D7768;margin-top:3px">7 projets demandent une décision · mis à jour ce matin</div>
+
+<div style="margin-top:14px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#8F3F38">Jalon dépassé — 2</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;margin-top:7px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.05);border-left:3px solid #B8544C"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">ASP – Installation nouvelle GED</div><div style="font-size:11.5px;color:#7D7768">Recette utilisateurs · échue depuis 6 j · PENVEN Yann</div></div><span style="font-size:11.5px;color:#1B4DAD">Replanifier</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-left:3px solid #B8544C"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">RH – TIME &amp; APPLI</div><div style="font-size:11.5px;color:#7D7768">Livraison prod · échue depuis 2 j · NOMINE Laurent</div></div><span style="font-size:11.5px;color:#1B4DAD">Replanifier</span></div>
+</div>
+
+<div style="margin-top:14px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#8A5A12">Sans réunion depuis 30 j — 3</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;margin-top:7px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.05);border-left:3px solid #D98324"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">ASP – Sécurisation IBMi Netserver</div><div style="font-size:11.5px;color:#7D7768">Dernière réunion il y a 34 j</div></div><span style="font-size:11.5px;color:#1B4DAD">Planifier</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.05);border-left:3px solid #D98324"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">FIN – Refonte facturation fournisseurs</div><div style="font-size:11.5px;color:#7D7768">Aucune réunion enregistrée</div></div><span style="font-size:11.5px;color:#1B4DAD">Planifier</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-left:3px solid #D98324"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">ASP – Intégration « NEVIDIS » Filiale</div><div style="font-size:11.5px;color:#7D7768">Dernière réunion il y a 41 j</div></div><span style="font-size:11.5px;color:#1B4DAD">Planifier</span></div>
+</div>
+
+<div style="margin-top:14px;font:600 9.5px 'IBM Plex Mono',monospace;letter-spacing:.07em;text-transform:uppercase;color:#6B6659">Fiche incomplète — 2</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:7px;margin-top:7px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.05);border-left:3px solid #DDD7CC"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">AE – Gestion des services IO pour l'ALP</div><div style="font-size:11.5px;color:#7D7768">Sponsor non renseigné</div></div><span style="font-size:11.5px;color:#1B4DAD">Compléter</span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-left:3px solid #DDD7CC"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;color:#1A1A1A">ASP – Obsolescence de la VM applicative</div><div style="font-size:11.5px;color:#7D7768">Pas de chef de projet · statut inconnu</div></div><span style="font-size:11.5px;color:#1B4DAD">Compléter</span></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">À essayer : « détaille l'onglet Réunions &amp; CR de <a class="dv-oid" href="#1d">1d</a> » · « montre <a class="dv-oid" href="#1a">1a</a> en mode sélection multiple »</p>
+</section>
+
+<section class="dv-turn" id="t0">
+<div class="dv-thd"><a class="dv-tid" href="#t0">0</a><span class="dv-tname">Existant, recréé depuis le code (Sidebar.swift + DetailsViews.swift) — point de départ</span></div>
+<div class="dv-opts">
+<div class="dv-opt" id="0a"><div class="dv-olabel"><a class="dv-oid" href="#0a">0a</a>Aujourd'hui : arbre collaborateurs + projets par entité dans la sidebar, écran projet = formulaire à plat.</div>
+<div class="dv-card" style="width:1240px">
+<div style="display:flex;height:700px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:13px;color:#000">
+
+<div style="width:250px;flex:none;background:#EDEDED;border-right:1px solid rgba(0,0,0,.12);display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;padding:10px 12px 8px"><div style="display:flex;gap:8px"><span style="width:12px;height:12px;border-radius:50%;background:#ED6A5E"></span><span style="width:12px;height:12px;border-radius:50%;background:#F4BF50"></span><span style="width:12px;height:12px;border-radius:50%;background:#61C554"></span></div><span style="margin-left:auto;color:#8A8A8E">✓</span><span style="margin-left:12px;color:#8A8A8E">▤</span></div>
+<div style="padding:0 12px 8px"><div style="background:#E3E3E3;border-radius:7px;padding:5px 9px;color:#8A8A8E;font-size:13px">⌕ Rechercher…</div></div>
+<div style="flex:1;overflow:hidden;padding:0 8px">
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>NOMINE Laurent</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#D9D9DE;display:block"></span>ORSET Jean-Baptiste</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#D9D9DE;display:block"></span>PAOLI Nicolas</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>PENVEN Yann</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>RIGAUT Manuel</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>THEDREZ Wilfried</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px"><span style="width:22px;height:22px;border-radius:50%;background:#C9C4BC;display:block"></span>ZANNETTINI Francois Louis</div>
+<div style="display:flex;align-items:center;gap:9px;padding:5px 6px;color:#0A84FF"><span>⊕</span>Ajouter</div>
+<div style="display:flex;align-items:center;gap:7px;padding:12px 6px 5px;font-weight:600;font-size:12.5px"><span>⌄</span><span style="color:#0A84FF">🗀</span>Projets par Entité</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 6px 5px 18px"><span>⌄</span><span style="color:#8A8A8E">▥</span>ASP<span style="margin-left:auto;font-size:11px;color:#8A8A8E">12</span></div>
+<div style="background:#0A6CFF;color:#fff;border-radius:6px;padding:6px 9px;margin:2px 0"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE - Gestion des services IO po…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px"><span style="font-weight:600">Métier</span><span style="opacity:.85">Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP -  Installation nouvelle GED…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP -  Sécurisation des flux de…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#FF3B30;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - BLOOM</span><span style="margin-left:auto;font-size:11px;color:#8A5A12;background:#FFF3CD;border-radius:4px;padding:1px 6px">Modéré</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Integration "NEVIDIS" Fili…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Mise en place d'une infra…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Obsolescence de la VM -…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+<div style="padding:6px 9px"><div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:50%;background:#C9C9CE;display:block;flex:none"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ASP - Sécurisation IBMi Netserv…</span></div><div style="display:flex;gap:9px;font-size:11px;margin-top:2px;padding-left:19px;color:#8A8A8E"><span style="font-weight:600;color:#3C3C43">Métier</span><span>Sponsor: Non renseigné</span></div></div>
+</div>
+<div style="border-top:1px solid rgba(0,0,0,.12);padding:8px 12px;display:flex;align-items:center;gap:7px;font-size:12.5px"><span>⌄</span><span style="color:#8A8A8E">▤</span>Jobs</div>
+<div style="padding:14px 12px 18px;text-align:center;color:#8A8A8E;font-size:12px">◵<div style="margin-top:6px">Aucun job</div></div>
+</div>
+
+<div style="flex:1;min-width:0;background:#F5F5F5;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(0,0,0,.1)">
+<span style="color:#8A8A8E">▤</span>
+<div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE - Gestion des services IO pour l'association ALP</div>
+<div style="margin-left:auto;display:flex;gap:8px;flex:none"><span style="padding:4px 11px;background:#fff;border:1px solid rgba(0,0,0,.14);border-radius:6px;font-size:12.5px">Enregistrer</span><span style="padding:4px 11px;background:#fff;border:1px solid rgba(0,0,0,.14);border-radius:6px;font-size:12.5px">Archiver</span><span style="padding:4px 11px;background:#fff;border:1px solid rgba(0,0,0,.14);border-radius:6px;font-size:12.5px">Supprimer</span></div>
+</div>
+<div style="flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:14px">
+
+<div><div style="font-size:12.5px;color:#3C3C43;margin-bottom:5px">Activité réunions</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:10px 12px">
+<div style="display:flex;justify-content:flex-end;gap:0;margin-bottom:6px"><span style="padding:2px 10px;background:#E9E9EB;border-radius:5px 0 0 5px;font-size:11.5px">Nombre</span><span style="padding:2px 10px;background:#0A6CFF;color:#fff;border-radius:0 5px 5px 0;font-size:11.5px">Minutes</span></div>
+<div style="display:flex;gap:6px"><div style="display:flex;flex-direction:column;gap:2px;font-size:9px;color:#8A8A8E;padding-top:12px"><span>L</span><span>M</span><span>V</span><span>D</span></div>
+<div style="flex:1"><div style="display:flex;justify-content:space-between;font-size:9px;color:#8A8A8E;margin-bottom:3px"><span>Sept</span><span>Nov</span><span>Janv</span><span>Mars</span><span>Mai</span><span>Juil</span><span>Sept</span></div>
+<div style="display:grid;grid-template-columns:repeat(52,1fr);grid-template-rows:repeat(4,9px);gap:2px">
+<span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span>
+<span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span>
+<span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span>
+<span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span><span style="background:#E5E5E7"></span>
+</div>
+<div style="display:flex;margin-top:5px;font-size:10.5px;color:#8A8A8E"><span>0.0 h sur 52 semaines</span><span style="margin-left:auto;display:flex;align-items:center;gap:3px">Moins<span style="width:9px;height:9px;background:#E5E5E7;display:block"></span><span style="width:9px;height:9px;background:#B7E4C7;display:block"></span><span style="width:9px;height:9px;background:#74C69D;display:block"></span><span style="width:9px;height:9px;background:#40916C;display:block"></span><span style="width:9px;height:9px;background:#1B7F4B;display:block"></span>Plus</span></div>
+</div></div>
+</div></div>
+
+<div><div style="font-size:12.5px;color:#3C3C43;margin-bottom:5px">Informations Générales</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:11px 12px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none;text-align:left">Code</span><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;background:#fff">P25_193</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Nom</span><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;background:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">AE - Gestion des services IO pour l'association ALP</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Domaine</span><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;background:#fff">ASP</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Sponsor</span><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;background:#fff;color:#8A8A8E">Sponsor</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Chef de projet</span><span style="color:#0A6CFF">⊙ Aucun ⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Architecte technique</span><span style="color:#0A6CFF">⊙ Aucun ⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Type</span><span style="background:#E9E9EB;border-radius:5px;padding:3px 9px">Métier ⌃⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Entité</span><span style="background:#E9E9EB;border-radius:5px;padding:3px 9px">ASP ⌃⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Phase</span><span style="background:#E9E9EB;border-radius:5px;padding:3px 22px">⌃⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Statut</span><span style="background:#E9E9EB;border-radius:5px;padding:3px 9px">Unknown ⌃⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Nombre de jours</span><span style="border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;background:#fff;width:110px">0</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Deadline fin de design</span><span style="background:#E9E9EB;border-radius:5px;padding:3px 9px">09/09/2026 ⌃⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Informations complémentaires</span><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;background:#fff;color:#8A8A8E">Contexte, dépendances, arbitrages...</span></div>
+</div></div>
+
+<div><div style="font-size:12.5px;color:#3C3C43;margin-bottom:5px">Risques</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:11px 12px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Niveau de risque</span><span style="background:#E9E9EB;border-radius:5px;padding:3px 9px">Aucun ⌃⌄</span></div>
+<div style="display:flex;align-items:center;gap:12px"><span style="width:150px;flex:none">Description du risque</span><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;color:#8A8A8E">Décrivez le risque principal...</span></div>
+</div></div>
+
+<div><div style="font-size:12.5px;color:#3C3C43;margin-bottom:5px">Points Clés</div>
+<div style="background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:6px;padding:11px 12px;display:flex;align-items:center;gap:9px"><span style="flex:1;border:1px solid rgba(0,0,0,.16);border-radius:5px;padding:3px 7px;color:#8A8A8E">Ajouter un point clé...</span><span style="color:#0A6CFF">⊕</span></div></div>
+
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p class="dv-next">Écrans lus : <code style="font:500 11px 'IBM Plex Mono',monospace">Views/Sidebar.swift</code> (arbre, jobs, multi-sélection) · <code style="font:500 11px 'IBM Plex Mono',monospace">Views/DetailsViews.swift</code> (ProjectDetailView) · <code style="font:500 11px 'IBM Plex Mono',monospace">Views/Project/ProjectCardPanel.swift</code> · <code style="font:500 11px 'IBM Plex Mono',monospace">DesignSystem/One2OneTokens.swift</code></p>
+</section>
+</x-dc>
+</body>
+</html>
