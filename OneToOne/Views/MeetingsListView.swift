@@ -28,6 +28,22 @@ struct MeetingsListView: View {
     @State private var agendaInspectorOpen: Bool = false
     @Query private var allAppSettings: [AppSettings]
 
+    /// Restreindre la liste aux réunions **rattachées à un projet**.
+    ///
+    /// C'est ce que monte la route `MainRoute.projectMeetings` (« Mes réunions
+    /// projets » de la barre latérale) : la liste existante, filtrée, et non un
+    /// second écran de réunions — §4 de la spec de la refonte des projets.
+    /// Distinct de `filterProject`, qui vise **un** projet : ici, n'importe
+    /// lequel, mais pas « aucun ».
+    ///
+    /// Le filtre vient de la route : il n'est pas effaçable depuis l'écran, et
+    /// `ProjectScopeBanner` le dit.
+    private let projetsSeulement: Bool
+
+    init(projetsSeulement: Bool = false) {
+        self.projetsSeulement = projetsSeulement
+    }
+
     /// Projets ayant au moins une réunion en base. C'est la liste qu'on
     /// propose dans le filtre "Projet" : pas de bruit avec les projets
     /// importés mais sans réunion attachée.
@@ -121,6 +137,10 @@ struct MeetingsListView: View {
             }
         }
 
+        if projetsSeulement {
+            result = result.filter { $0.project != nil }
+        }
+
         if let project = filterProject {
             result = result.filter { $0.project?.persistentModelID == project.persistentModelID }
         }
@@ -154,6 +174,9 @@ struct MeetingsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if projetsSeulement {
+                ProjectScopeBanner(libelle: ProjectScopeBanner.reunions)
+            }
             // Filters — chips harmonisées : Type (menu), Projet et Collaborateur
             // (popovers avec recherche). Une chip active est teintée accent.
             HStack(spacing: 8) {

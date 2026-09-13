@@ -9,14 +9,21 @@ code_documente:
   - OneToOne/Models/
   - OneToOne/Services/
   - OneToOne/Views/AtRisk/
+  - OneToOne/Views/Capture/
+  - OneToOne/Views/Collaborator/
+  - OneToOne/Views/DesignSystem/
+  - OneToOne/Views/Layouts/
   - OneToOne/Views/Meeting/
+  - OneToOne/Views/Menubar/
+  - OneToOne/Views/Menus/
   - OneToOne/Views/Navigation/
   - OneToOne/Views/Palette/
   - OneToOne/Views/Portfolio/
   - OneToOne/Views/Project/
   - OneToOne/Views/Search/
+  - OneToOne/Views/Settings/
+  - OneToOne/Views/Shared/
   - OneToOne/Views/Sidebar/
-  - OneToOne/Views/DesignSystem/
   - OneToOne/Markdown/
   - OneToOne/OneToOneApp.swift
   - OneToOne/AppDelegate.swift

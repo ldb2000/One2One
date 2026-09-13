@@ -53,16 +53,16 @@ struct AvatarStack: View {
         self.initiales = initiales
     }
 
-    /// Répartition entre pastilles affichées et surplus compté.
-    ///
-    /// Fonction pure, testée : c'est elle qui porte la règle « max 6 puis +n »,
-    /// et une pile de 6 exactement ne doit **pas** afficher « +0 ».
     /// La taille des initiales, proportionnelle au diamètre : 8,5 pt à 19 pt,
     /// donc 11,6 pt à 26 pt. Un glyphe de 8,5 pt dans un disque de 26 flotte.
     static func tailleDesInitiales(_ diametre: CGFloat) -> CGFloat {
         8.5 * diametre / Self.diametre
     }
 
+    /// Répartition entre pastilles affichées et surplus compté.
+    ///
+    /// Fonction pure, testée : c'est elle qui porte la règle « max 6 puis +n »,
+    /// et une pile de 6 exactement ne doit **pas** afficher « +0 ».
     static func layout(noms: [String], maxVisibles: Int) -> (visibles: [String], surplus: Int) {
         guard maxVisibles > 0 else { return ([], noms.count) }
         guard noms.count > maxVisibles else { return (noms, 0) }

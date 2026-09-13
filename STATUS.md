@@ -1,6 +1,126 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-08 CEST
+Dernière mise à jour : 2026-09-09 CEST
+
+## Refonte de la gestion des projets — lots 0 à 6 (2026-09-09)
+
+Handoff `docs/superpowers/specs/gestion-projets-2026-09/handoff/README.md` (sept captures),
+spécification `docs/superpowers/specs/2026-09-09-gestion-projets-design.md` (constats §2,
+décisions **D0–D18** §3), plan `docs/superpowers/plans/2026-09-09-gestion-projets.md`, comptes
+rendus de session `docs/superpowers/specs/gestion-projets-2026-09/journal-des-lots.md`, bilan
+[`docs/adr/2026-09-09-gestion-projets-bilan.md`](docs/adr/2026-09-09-gestion-projets-bilan.md).
+
+**La barre latérale a cessé d'être le catalogue des projets.** Elle dépliait soixante projets
+sur huit entités ; elle est devenue un **point d'accès** (variante 2a du handoff) et le
+portefeuille a désormais ses propres écrans : Portfolio filtrable, palette `⌘K`, écran projet de
+pilotage à six onglets, vue « À risque » groupée par motif. La navigation de la fenêtre
+principale est une **valeur** (`MainRoute`) et non plus des `NavigationLink` inline.
+
+**Une pile de huit branches, une PR par lot**, chacune basée sur la précédente :
+
+| Lot | Branche | PR | Livre |
+| --- | --- | --- | --- |
+| base | `docs/gestion-projets-design` | #53 | spec, plan, handoff |
+| 0 | `feat/projets-lot-0-routeur` | #54 | `MainRoute` / `MainRouter` / `MainDetailView` (D0), jetons D12, enums D14, semis de 62 projets |
+| 1 | `feat/projets-lot-1-sidebar` | #55 | section « Projets », épinglés, récents, `SidebarProjectCounts`, `StatusIcon` (D16) |
+| 2 | `feat/projets-lot-2-portfolio` | #56 | écran Portfolio (1a), `ProjectBatchActions` / `ProjectBatchBar` (D15), suppression de ProjectListView |
+| 3 | `feat/projets-lot-3-palette` | #57 | palette `⌘K` (1c), `ReportSearch` (D8), `AppShortcut` (D1), `SidebarSelectionGuard` |
+| 4 | `feat/projets-lot-4-ecran-projet` | #58 | écran projet à six onglets (1d), édition in-place (D9), `ProjectRelationWriter` |
+| 5 | `feat/projets-lot-5-a-risque` | #59 | vue « À risque » (1f), `AtRiskBuilder` (D11), correctif transverse de la sélection |
+| 6 | `feat/projets-lot-6-bascule-2a` | #60 | retrait de l'arbre par entité, en-tête d'entité du Portfolio, « Mes réunions projets » et « Actions projets » (listes existantes filtrées), documentation et ADR de clôture |
+
+**Tests.** `swift build` propre ; `swift test` complet vert sur la tête de la pile : **2 542
+Swift Testing / 287 suites + 1 057 XCTest (1 ignoré) = 3 599**, exit 0 — soit **+488** sur les
+3 111 de la section suivante, aucun test retiré (un seul remplacé, celui de la sous-ligne de
+l'arbre, par un test d'absence). `DocumentationTests` et `RefonteTypographieTests` verts à
+chaque lot.
+
+**Recette visuelle : les six écrans, faits et conformes.** Chacun a d'abord été photographié
+dans son lot — `p2b` (barre latérale, lot 1), `p1a` (Portfolio, lot 2, après un fix round sur
+les chips et le menu de vue enregistrée), `p1c` (palette, lot 3, après deux fix rounds), `p1d`
+(écran projet, lot 4), `p1f` (À risque, lot 5, qui a révélé deux défauts de sélection) —, puis
+tous **repris ensemble sur le binaire de la pile complète** : c'est cette seconde série qui fait
+foi. Captures sous `docs/superpowers/specs/gestion-projets-2026-09/recette/` (par lot) et
+`recette/finale/` (les six). `p2a`, le seul écran que le chantier n'avait jamais vu, est
+conforme : arbre absent, chevron devant « Projets » comme la maquette le dessine, aucun trou
+entre « RÉCENTS » et « Collaborateurs » là où le `Section` a été retiré, pastilles de statut
+présentes, route stable après redimensionnement.
+
+**Six défauts trouvés en chemin**, aucun dans le périmètre d'un lot, tous corrigés :
+`List(selection: $mainRouter.route)` réécrivait la route quand les lignes bougeaient (l'écran
+s'ouvrait sur une fiche que personne n'avait demandée — observé **trois** fois à la recette, la
+troisième sur un simple redimensionnement de fenêtre ; la garde repose finalement sur
+l'événement d'entrée en cours de traitement, `SidebarSelectionGuard`) ; un projet à la fois
+épinglé et récent apparaissait deux fois dans la même `List` sous la même identité et y perdait
+sa pastille de statut (`SidebarProjectRow` préfixe l'identité par la sous-section) ; réaffecter `Project.entity` puis enregistrer perdait la valeur une
+fois sur trois (`ProjectRelationWriter` relit et répare) ; les préférences du bundle `.recette`
+ne sont pas isolées par `CFFIXED_USER_HOME`, et un cadre de fenêtre hors écran hérité d'une
+session précédente a coûté une demi-journée d'observations fausses (`recette-run.sh` lance
+désormais avec `-ApplePersistenceIgnoreState YES` et purge le domaine sous `--reset`) ;
+`.menuStyle(.borderlessButton)` **jette** l'étiquette SwiftUI qu'on lui donne — AppKit en extrait
+un titre et une image et les redessine, d'où les chips en tirets invisibles du Portfolio, les
+deux redessinées à la main ; `MainRouterTests` écrivait une soixantaine de plists
+`onetoone.tests.router.*` dans les préférences **réelles** du poste, faute d'un
+`removePersistentDomain` en sortie. L'ADR de clôture les détaille tous les six.
+
+**Dettes et observations.** Le coût des écrans sur le store réel n'est pas mesuré (quatre
+`@Query` globales dans `PortfolioView`, trois de plus dans `ProjectScreen`, trois constructeurs
+qui traversent toutes les réunions à chaque rechargement) ; `ReportSearch` balaye les
+transcriptions sans index ; `ProjectCardDraft.apply` requête toute la table à chaque édition ;
+`try? context.save()` avale ses erreurs dans tout `Services/Project/` ; `MilestoneCell.none` est
+un piège de nom (`.aucun` serait plus sûr) ; `sidebar.projectsExpanded` n'a plus de lecteur mais
+reste écrite chez les utilisateurs existants, et `sidebar.projectsSectionExpanded` applique son
+défaut à qui n'a jamais rien exprimé ; `MainRoute.entity` porte un `PersistentIdentifier` et ne
+survit donc pas à un relancement, faute de `stableID` sur `Entity` ; **`Sidebar.swift` reste hors
+du périmètre typographique** — 2 004 lignes dont 59 fontes système, dans `DashboardView`,
+`EntityDetailView` et les vues Gantt qui y cohabitent, si bien que les entrées historiques de la
+barre restent en fonte système à côté d'une section « Projets » en Plex (le handoff les déclare
+« inchangées ») : son découpage est la condition de la bascule ; le hook
+`documentation-apres-pr` n'a déclenché dans aucune session de ce chantier et son test de bout en
+bout dans une session neuve reste dû.
+
+**Décisions produit en attente de Laurent** (détail dans l'ADR de clôture) : le titre « Projets »
+contre « Portfolio » de la capture ; la ligne du semis qui donnerait « il y a 41 j » à NEVIDIS ;
+l'ordre des épinglés ; le badge « Mails 12 » sans source ;
+l'ordre alphabétique de `SearchPopover` ; les pilules de l'en-tête de l'écran projet, non
+éditables au clic ; « Démarrer une réunion » et « Planifier », qui ne demandent rien.
+
+**La relecture transversale de la pile** (0 critique) a produit une dernière vague de huit
+corrections, toutes sur la tête du lot 6 : l'item de menu « Charger le jeu de démonstration »
+versait 76 projets dans le store de **production** d'un clic — il est grisé hors bundle de
+recette ; `AtRiskViewTests` laissait des plists dans `~/Library/Preferences` ; le paragraphe de
+`architecture.md` sur la garde de sélection décrivait la règle d'avant ; « Mes réunions
+projets » et « Actions projets » montaient encore l'invite « Bientôt » du lot 0 — ce sont
+désormais `MeetingsListView` et `ActionsListView` filtrées sur `project != nil`, avec
+`ProjectScopeBanner` pour le dire ; la sauvegarde ignorait `Project.pinned`, `scopeText`,
+`scopeUpdatedAt` et `AppSettings.portfolioSavedViewsJSON` ; `⌘K` et la recherche du menu système
+posaient leur état sans remonter la fenêtre principale (`MainWindowRegistry`). Le reste est
+textuel.
+
+**Trois dettes antérieures relevées en chemin, aucune traitée, toutes consignées à l'ADR.**
+
+- **La sauvegarde ignore neuf champs de `Project` (`entity` est restauré par son nom)** — `isArchived`, `chefDeProjet`, `architecte`,
+  `planningText`, `standingPrepNotes`/`standingPrepUpdatedAt`, `tagsJSON`, et les relations
+  `entity`, `projectManager`, `technicalArchitect` (que **D3** déclare faisant foi). Une
+  restauration rend donc **un projet archivé actif** et son chef de projet « Non affecté ». Le
+  lot 6 n'a ajouté que les quatre champs de la refonte (`pinned`, `scopeText`, `scopeUpdatedAt`,
+  `portfolioSavedViewsJSON`) ; le reste est mécanique mais demande un test par champ.
+- **`swift test` plante par intermittence** *après* que toute la suite soit passée (2 fois sur 4,
+  puis 1 sur 3, zéro test rouge) : `EXC_BREAKPOINT` dans SwiftData sur un `__NSFireTimer` —
+  l'autosauvegarde d'un contexte qui tire après la libération de son conteneur en mémoire. La
+  même signature est dans les rapports de plantage de 14:04, 14:28, 18:48 et 19:34, donc pendant
+  les lots 2 à 5. Remède : `autosaveEnabled = false` dans chaque helper de test qui crée un
+  conteneur, soit plusieurs dizaines de fichiers.
+- **~2 000 plists `MeetingScreenModelTests.<uuid>.plist`** dans `~/Library/Preferences`, un par
+  exécution depuis des mois. Douze suites passent encore un `UserDefaults(suiteName:)` à
+  `MeetingScreenModel` ; elles sont inscrites comme exceptions nommées dans `MainRouterTests`, si
+  bien qu'aucune **nouvelle** ne peut s'ajouter. **Les fichiers ne sont pas supprimés** : à la
+  décision de Laurent.
+
+**Prochaine action** : fusion des PR **#53 → #60** dans l'ordre de la pile, après validation de
+Laurent. Puis les deux vérifications que le chantier n'a pas pu faire : le hook de documentation,
+à éprouver de bout en bout dans une session Claude Code neuve, et le Portfolio sur le store réel
+(le coût des `@Query` n'a été mesuré que sur le semis de 76 projets).
 
 ## Skill documenter-application — documentation développeur gardée par les tests (2026-09-08)
 

@@ -4,15 +4,19 @@ import SwiftData
 import SwiftUI
 @testable import OneToOne
 
-/// La section « Projets » de la barre latérale, variante **2b** du handoff.
+/// La section « Projets » de la barre latérale, variante **2a** du handoff.
 ///
 /// Ce qui se teste d'une section de navigation, ce sont ses **mots** et ses
-/// **destinations** : la capture `2b-sidebar-variante-arbre-replie.png` écrit
+/// **destinations** : la capture `2a-sidebar-section-projets.png` écrit
 /// « Portfolio », « À risque », « Mes réunions projets », « Actions projets »,
 /// « ÉPINGLÉS » et « RÉCENTS », dans cet ordre, avec ces icônes-là. Un libellé
 /// réécrit ou une entrée qui mène ailleurs ne change l'état d'aucun modèle : sans
 /// ce test, rien ne bronche — même mécanique que `AppShortcutsTests`.
-@Suite("Section Projets de la barre latérale — 2b")
+///
+/// Depuis le lot 6, la suite tient aussi **l'absence** de l'arbre « Projets par
+/// Entité » : la variante 2b n'était qu'un filet de sécurité pour la première
+/// livraison, et la structure retenue est 2a.
+@Suite("Section Projets de la barre latérale — 2a")
 @MainActor
 struct ProjectsSidebarSectionTests {
 
@@ -89,35 +93,61 @@ struct ProjectsSidebarSectionTests {
         #expect(ProjectsSidebarSection.deplieParDefaut)
     }
 
-    @Test("La sous-ligne de l'arbre par entité est celle de la capture")
-    func sousLigneDeLArbre() {
-        #expect(ProjectsSidebarSection.sousLigneArbre(entites: 8) == "8 entités · replié par défaut")
-        #expect(ProjectsSidebarSection.sousLigneArbre(entites: 1) == "1 entité · replié par défaut")
-        #expect(ProjectsSidebarSection.sousLigneArbre(entites: 0) == "0 entité · replié par défaut")
-    }
+    // MARK: - La place de la section dans la barre, et ce qui n'y est plus
 
-    // MARK: - La place de la section dans la barre
-
-    @Test("La section précède l'arbre par entité, qui précède les collaborateurs")
-    func ordreDeLaBarreLaterale() throws {
-        // Lecture des sources : l'ordre des lignes d'une `List` ne s'observe
-        // pas depuis un test, et c'est pourtant lui que la capture 2b fixe —
-        // section « Projets », **puis** l'arbre par entité (« conservé sous la
-        // section Projets »), **puis** « Collaborateurs ». La relecture du
-        // lot 1 a relevé l'arbre resté à sa place historique ; ce test le
-        // tient. Même approche que `RefonteTypographieTests`.
+    /// `Sidebar.swift`, lu comme un texte.
+    private func sourceDeLaBarre() throws -> String {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("OneToOne/Views/Sidebar.swift")
-        let texte = try String(contentsOf: source, encoding: .utf8)
+        return try String(contentsOf: source, encoding: .utf8)
+    }
+
+    @Test("La section « Projets » précède les collaborateurs")
+    func ordreDeLaBarreLaterale() throws {
+        // Lecture des sources : l'ordre des lignes d'une `List` ne s'observe
+        // pas depuis un test, et c'est pourtant lui que la capture 2a fixe —
+        // section « Projets », **puis** « Collaborateurs ». Le lot 1 tenait
+        // aussi la place de l'arbre par entité entre les deux ; le lot 6 l'a
+        // retiré, et c'est `arbreParEntiteRetire` qui le tient désormais.
+        let texte = try sourceDeLaBarre()
         let section = try #require(texte.range(of: "ProjectsSidebarSection("))
-        let arbre = try #require(texte.range(of: "isExpanded: $projectsExpanded"))
         let collaborateurs = try #require(texte.range(of: "isExpanded: $collabsExpanded"))
-        #expect(section.lowerBound < arbre.lowerBound,
-                "l'arbre par entité doit venir sous la section « Projets »")
-        #expect(arbre.lowerBound < collaborateurs.lowerBound,
-                "l'arbre par entité doit venir avant la section « Collaborateurs »")
+        #expect(section.lowerBound < collaborateurs.lowerBound,
+                "la section « Projets » doit venir avant la section « Collaborateurs »")
+    }
+
+    @Test("L'arbre « Projets par Entité » n'existe plus dans la barre latérale")
+    func arbreParEntiteRetire() throws {
+        // La bascule en 2a est une **suppression** : ce qui la prouve, c'est
+        // l'absence. Un test de lecture des sources, comme
+        // `ordreDeLaBarreLaterale`, parce qu'aucun modèle ne change d'état
+        // quand l'arbre revient — il reviendrait en silence.
+        let texte = try sourceDeLaBarre()
+        for interdit in ["Projets par Entité",
+                         "sidebar.projectsExpanded",
+                         "$projectsExpanded",
+                         "expandedEntityNames",
+                         "filteredProjectsFor(",
+                         "filteredOrphanProjects",
+                         "Sans Entité",
+                         "moveProjects(",
+                         "moveProjectsToNone(",
+                         ".draggable(",
+                         ".dropDestination("] {
+            #expect(!texte.contains(interdit),
+                    "« \(interdit) » appartient à l'arbre par entité, retiré au lot 6")
+        }
+    }
+
+    @Test("Déplacer un projet vers une entité est une action en lot, plus un glisser-déposer")
+    func deplacementParLaBarreEnLot() {
+        // Le glisser-déposer projet → entité vivait dans l'arbre. Le handoff
+        // §2a le reporte sur la sélection multiple : `ProjectBatchBar` porte
+        // « Déplacer vers une entité », et la barre latérale comme le
+        // Portfolio la montent (décision **D15**).
+        #expect(ProjectBatchBar.deplacerVersEntite == "Déplacer vers une entité")
     }
 
     // MARK: - Épinglés
@@ -210,13 +240,18 @@ struct ProjectsSidebarSectionTests {
                 == ["P25_001", "P25_002", "P25_003"])
     }
 
-    // MARK: - Les récents de la recette `p2b`
+    // MARK: - Les récents des recettes `p2b` et `p2a`
 
-    @Test("L'écran `p2b` est le seul à préremplir les récents, dans l'ordre de la capture")
+    /// Les **deux** écrans de barre latérale préremplissent les récents : la
+    /// capture `2a-sidebar-section-projets.png` montre la sous-section comme
+    /// `2b`, et depuis le retrait de l'arbre au lot 6 c'est le même écran.
+    @Test("Les deux écrans de barre latérale préremplissent les récents, dans l'ordre de la capture")
     func recentsDeRecette() {
-        #expect(RecetteScreen.sectionProjets.codesDeProjetsRecents
-                == ["P25_140", "P25_099", "P25_204"])
-        for ecran in RecetteScreen.allCases where ecran != .sectionProjets {
+        let attendus = ["P25_140", "P25_099", "P25_204"]
+        #expect(RecetteScreen.sectionProjets.codesDeProjetsRecents == attendus)
+        #expect(RecetteScreen.sectionProjetsFinale.codesDeProjetsRecents == attendus)
+        for ecran in RecetteScreen.allCases
+        where ecran != .sectionProjets && ecran != .sectionProjetsFinale {
             #expect(ecran.codesDeProjetsRecents.isEmpty,
                     "\(ecran.rawValue) prérempli des récents")
         }

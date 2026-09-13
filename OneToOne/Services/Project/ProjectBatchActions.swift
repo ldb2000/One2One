@@ -6,10 +6,10 @@ import SwiftData
 /// **Pourquoi un service.** Ces six opérations vivaient en méthodes privées de
 /// `Sidebar.swift` (`batchSetPhase`, `batchSetStatus`, `batchSetEntity`,
 /// `batchArchive`, `batchDelete`), inatteignables depuis ailleurs et non
-/// testées. Le Portfolio a la même sélection multiple, et le lot 6 y ajoutera
-/// « Déplacer vers une entité » — c'est-à-dire exactement `setEntity`, à la
-/// place du glisser-déposer par `code` qui disparaît. Une seule
-/// implémentation, deux appelants.
+/// testées. Le Portfolio a la même sélection multiple, et « Déplacer vers une
+/// entité » — c'est-à-dire `setEntity` — y a remplacé au lot 6 le
+/// glisser-déposer par `code` de l'arbre par entité. Une seule implémentation,
+/// deux appelants.
 ///
 /// **L'identité est le `PersistentIdentifier`** : c'est ce qu'une sélection
 /// SwiftUI retient, et le seul identifiant qu'un `Project` porte à coup sûr
@@ -33,7 +33,7 @@ enum ProjectBatchActions {
         projects.filter { ids.contains($0.persistentModelID) }
     }
 
-    // MARK: - Les cinq opérations
+    // MARK: - Les six opérations
 
     /// Affecte la phase (valeur persistée telle quelle, décision **D14**).
     static func setPhase(_ raw: String, on projects: [Project]) {
@@ -47,8 +47,9 @@ enum ProjectBatchActions {
 
     /// Rattache (ou détache, avec `nil`) les projets à une entité.
     ///
-    /// C'est l'opération que le lot 6 exposera sous le libellé « Déplacer vers
-    /// une entité », en remplacement du glisser-déposer de l'arbre.
+    /// C'est l'opération que `ProjectBatchBar` expose sous le libellé
+    /// « Déplacer vers une entité », depuis que le lot 6 a retiré le
+    /// glisser-déposer de l'arbre.
     static func setEntity(_ entity: Entity?, on projects: [Project]) {
         // Pas `appliquer` : réaffecter `Project.entity` puis enregistrer perd
         // la valeur une fois sur trois (mesures dans `ProjectRelationWriter`).

@@ -35,6 +35,25 @@ struct ActionsListView: View {
     /// l'application, via `CollaboratorPreference.partition`.
     @AppStorage(CollaboratorPreference.appStorageKey) private var collabsFilter: String = "both"
 
+    /// Restreindre la liste aux actions **portées par un projet**.
+    ///
+    /// C'est ce que monte la route `MainRoute.projectActions` (« Actions
+    /// projets » de la barre latérale) : la liste existante, filtrée, et non un
+    /// second écran d'actions — §4 de la spec de la refonte des projets.
+    /// Distinct de `filterProject` et de `filterEntity`, qui visent **un**
+    /// projet ou **une** entité : ici, n'importe lequel, mais pas « aucun ».
+    /// C'est aussi la définition du badge « Actions projets » de la barre
+    /// latérale (`SidebarProjectCounts.openProjectActions`), aux actions closes
+    /// près.
+    ///
+    /// Le filtre vient de la route : il n'est pas effaçable depuis l'écran, et
+    /// `ProjectScopeBanner` le dit.
+    private let projetsSeulement: Bool
+
+    init(projetsSeulement: Bool = false) {
+        self.projetsSeulement = projetsSeulement
+    }
+
     enum FilterStatus: String, CaseIterable {
         case pending = "En cours"
         case completed = "Terminées"
@@ -97,6 +116,10 @@ struct ActionsListView: View {
             tasks = tasks.filter { $0.isCompleted || Portee.contient($0.dueDate, portee: portee, maintenant: maintenant) }
         }
 
+        if projetsSeulement {
+            tasks = tasks.filter { $0.project != nil }
+        }
+
         if let project = filterProject {
             tasks = tasks.filter { $0.project?.persistentModelID == project.persistentModelID }
         } else if let entity = filterEntity {
@@ -155,6 +178,9 @@ struct ActionsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if projetsSeulement {
+                ProjectScopeBanner(libelle: ProjectScopeBanner.actions)
+            }
             // Filters bar
             HStack(spacing: 12) {
                 // Filtre principal de la capture 3 : trois pilules de portée

@@ -7,11 +7,13 @@ import SwiftData
 /// **C'est un routeur, comme `MeetingView`** : il monte un écran, il n'en
 /// calcule aucun. Le Portfolio est livré (lot 2, `PortfolioView`), la
 /// recherche dans les CR aussi (lot 3, `ReportSearchView`), l'écran projet à
-/// six onglets également (lot 4, `ProjectScreen`) et la vue « À risque »
-/// depuis le lot 5 (`AtRiskView`) ; les deux listes de projets restantes
-/// affichent encore une invite sobre que le lot 6 remplacera. Rien d'autre ne change
-/// de rendu : chaque entrée de la barre latérale retrouve ici exactement la
-/// destination qu'elle avait en `NavigationLink`.
+/// six onglets également (lot 4, `ProjectScreen`), la vue « À risque » depuis
+/// le lot 5 (`AtRiskView`) et, depuis le lot 6, les deux listes de projets —
+/// `MeetingsListView` et `ActionsListView` montées avec `projetsSeulement`,
+/// c'est-à-dire les listes **existantes filtrées** (§4 de la spec), et non
+/// deux écrans de plus. Rien d'autre ne change de rendu : chaque entrée de la
+/// barre latérale retrouve ici exactement la destination qu'elle avait en
+/// `NavigationLink`.
 struct MainDetailView: View {
 
     @Environment(MainRouter.self) private var router
@@ -44,11 +46,14 @@ struct MainDetailView: View {
             // Lot 5 : les projets groupés par motif (capture 1f).
             AtRiskView()
         case .projectMeetings:
-            MainDetailPlaceholder(titre: "Mes réunions projets",
-                                  detail: "les réunions de projet, filtrées depuis la liste existante")
+            // Lot 6 : la liste des réunions, restreinte à celles qui portent un
+            // projet (§4 de la spec — « listes existantes filtrées »). Pas un
+            // second écran : les filtres, la recherche et les gestes de
+            // `MeetingsListView` restent tous disponibles.
+            MeetingsListView(projetsSeulement: true)
         case .projectActions:
-            MainDetailPlaceholder(titre: "Actions projets",
-                                  detail: "les actions de projet, filtrées depuis la liste existante")
+            // Idem pour les actions portées par un projet.
+            ActionsListView(projetsSeulement: true)
         case .searchReports(let terme):
             // Lot 3 : l'écran de résultats de « Chercher « x » dans les CR »
             // (décision **D8**). Le terme est dans la route, donc l'écran se
@@ -79,32 +84,6 @@ struct MainDetailView: View {
                 MainDetailIntrouvable(quoi: "Cette entité")
             }
         }
-    }
-}
-
-/// L'invite d'un écran que la refonte livrera plus tard.
-///
-/// Sobre exprès : elle n'a pas à ressembler à un écran vide de l'application,
-/// et elle disparaîtra lot par lot. Aux jetons `One2OneToken` et à la fonte
-/// Plex, comme tout ce qui vit sous `Views/Navigation/` (décision **D17**).
-private struct MainDetailPlaceholder: View {
-    let titre: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(titre)
-                .font(.plexSans(17, .semibold))
-                .foregroundStyle(One2OneToken.ink1)
-            Text("Bientôt : \(detail).")
-                .font(.plexSans(12.5))
-                .foregroundStyle(One2OneToken.ink4)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: 420, alignment: .leading)
-        .padding(One2OneToken.cardPaddingMax)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(One2OneToken.bgApp)
     }
 }
 

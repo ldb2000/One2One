@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
 
 /// Couleur associée à un niveau de risque projet ("Critique", "Élevé", "Modéré",
 /// sinon vert par défaut). Factorise le mapping partagé entre plusieurs vues.
@@ -14,9 +13,17 @@ private func riskLevelColor(_ level: String) -> Color {
 }
 
 /// Barre latérale principale de l'app : navigation (tableau de bord, assistant,
-/// actions, réunions, notes…), arborescence collaborateurs / projets par entité,
-/// recherche globale, sélection multiple de projets (opérations en lot),
-/// drag & drop de projets entre entités et pied de page de la file de jobs.
+/// actions, réunions, notes…), section « Projets » (`ProjectsSidebarSection`),
+/// arborescence des collaborateurs, archives, recherche globale, sélection
+/// multiple de projets (opérations en lot) et pied de page de la file de jobs.
+///
+/// **Variante 2a du handoff depuis le lot 6** : la barre latérale n'est plus un
+/// catalogue de projets. L'arbre des projets par entité — et avec lui le
+/// glisser-déposer d'un projet vers une entité — a été retiré ; on trouve un
+/// projet par le Portfolio (`PortfolioView`) ou la palette `⌘K`, et on change
+/// l'entité d'une sélection par le menu « Entité » de `ProjectBatchBar`
+/// (décision **D15**). La fiche d'une entité s'ouvre depuis l'en-tête de groupe
+/// du mode « Groupé par entité » du Portfolio.
 struct MainSidebarView: View {
     @Query private var projects: [Project]
     @Query private var collaborators: [Collaborator]
@@ -46,18 +53,11 @@ struct MainSidebarView: View {
     /// `searchText` → un seul scan après la frappe, pas un par caractère.
     @State private var debouncedSearch: String = ""
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var expandedEntityNames: Set<String> = []
     @State private var selectedProjectIDs: Set<PersistentIdentifier> = []
     @State private var isMultiSelectMode = false
     @State private var renamingCollaborator: Collaborator?
     @State private var renamingName: String = ""
     @AppStorage("sidebar.collabsExpanded") private var collabsExpanded: Bool = true
-    /// L'arbre « Projets par Entité ». **Replié par défaut** depuis la
-    /// variante 2b (décision **D5**) : la navigation projets passe par la
-    /// section « Projets », et l'arbre n'est plus qu'un filet de sécurité —
-    /// le lot 6 le retire. La valeur d'un utilisateur qui l'a déjà déplié est
-    /// respectée : `@AppStorage` ne réécrit pas une clé existante.
-    @AppStorage("sidebar.projectsExpanded") private var projectsExpanded: Bool = false
     @AppStorage("sidebar.archivesExpanded") private var archivesExpanded: Bool = false
     @AppStorage("sidebar.archivedProjectsExpanded") private var archivedProjectsExpanded: Bool = false
 
@@ -68,17 +68,6 @@ struct MainSidebarView: View {
     @AppStorage(CollaboratorPreference.appStorageKey) private var collabsFilter: String = "both"
 
     // MARK: - Filtered data
-
-    private var filteredEntities: [Entity] {
-        guard !debouncedSearch.isEmpty else { return entities }
-        // Inclure une entité si son nom matche OU si elle contient au moins
-        // un projet qui matche — sinon une recherche sur un nom de projet
-        // cache TOUS les projets de l'entité.
-        return entities.filter { entity in
-            if entity.name.localizedCaseInsensitiveContains(debouncedSearch) { return true }
-            return entity.projects.contains { projectMatches($0, debouncedSearch) }
-        }
-    }
 
     /// Sidebar : filtre `pinned` / `favourites` / `both` selon `collabsFilter`.
     /// La recherche reste un raccourci global : si l'utilisateur tape un nom,
@@ -137,18 +126,6 @@ struct MainSidebarView: View {
         return archived.filter { collabMatches($0, debouncedSearch) }
     }
 
-    private func filteredProjectsFor(entity: Entity) -> [Project] {
-        let entityProjects = entity.projects.filter { !$0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !debouncedSearch.isEmpty else { return entityProjects }
-        return entityProjects.filter { projectMatches($0, debouncedSearch) }
-    }
-
-    private var filteredOrphanProjects: [Project] {
-        let orphans = projects.filter { $0.entity == nil && !$0.isArchived }.sorted(by: { $0.name < $1.name })
-        guard !debouncedSearch.isEmpty else { return orphans }
-        return orphans.filter { projectMatches($0, debouncedSearch) }
-    }
-
     private var filteredArchivedProjects: [Project] {
         let archived = projects.filter { $0.isArchived }.sorted(by: { $0.name < $1.name })
         guard !debouncedSearch.isEmpty else { return archived }
@@ -196,8 +173,8 @@ struct MainSidebarView: View {
     ///
     /// Calculés par la fonction pure `SidebarProjectCounts.compute` (décision
     /// **D11**) : la barre latérale ne compte rien elle-même, elle passe ce
-    /// qu'elle a déjà chargé. Même nature que `filteredEntities` ou
-    /// `filteredActiveCollaborators` juste au-dessus.
+    /// qu'elle a déjà chargé. Même nature que `filteredActiveCollaborators`
+    /// juste au-dessus.
     private var comptesProjets: SidebarProjectCounts {
         SidebarProjectCounts.compute(projects: projects,
                                      meetings: heldMeetings,
@@ -213,12 +190,12 @@ struct MainSidebarView: View {
     /// La sélection de la `List`, **locale**, et non la route du routeur.
     ///
     /// Le binding a longtemps été `$mainRouter.route` : la barre latérale
-    /// pilotait l'écran directement. C'était un défaut, relevé deux fois à la
-    /// recette du 2026-09-09 — `NSTableView` conserve un **index** de ligne, et
-    /// quand l'ensemble des lignes change (semis, épinglage, recherche, groupe
-    /// déplié) SwiftUI retraduit cet index en tag d'une **autre** ligne et
-    /// l'écrit dans le binding. L'application ouvrait alors une fiche que
-    /// personne n'avait demandée. Voir `SidebarSelectionGuard`.
+    /// pilotait l'écran directement. C'était un défaut, relevé **trois** fois à
+    /// la recette du 2026-09-09 — `NSTableView` conserve un **index** de ligne,
+    /// et quand il redispose ses lignes (semis, épinglage, recherche, groupe
+    /// déplié, fenêtre redimensionnée) SwiftUI retraduit cet index en tag d'une
+    /// **autre** ligne et l'écrit dans le binding. L'application ouvrait alors
+    /// une fiche que personne n'avait demandée. Voir `SidebarSelectionGuard`.
     @State private var selectionDeLaListe: MainRoute?
 
     /// Quand la composition des lignes a changé pour la dernière fois.
@@ -242,7 +219,6 @@ struct MainSidebarView: View {
         let archives = filteredArchivedProjects.count
         let collabsActifs = filteredActiveCollaborators.count
         let collabsArchives = filteredArchivedCollaborators.count
-        let entitesVisibles = filteredEntities.count
         return SidebarRowsFingerprint(
             projetsActifs: projects.filter { !$0.isArchived }.count,
             projetsArchives: archives,
@@ -250,10 +226,8 @@ struct MainSidebarView: View {
             projetsRecents: recents,
             collaborateursActifs: collabsActifs,
             collaborateursArchives: collabsArchives,
-            entites: entitesVisibles,
             recherche: debouncedSearch,
             sectionProjetsDepliee: sectionProjetsDepliee,
-            arbreDeplie: projectsExpanded,
             collaborateursDeplies: collabsExpanded,
             archivesDepliees: archivesExpanded,
             projetsArchivesDeplies: archivedProjectsExpanded,
@@ -261,17 +235,17 @@ struct MainSidebarView: View {
                 + (sectionProjetsDepliee
                     ? ProjectsSidebarEntry.allCases.count + epingles + recents
                     : 0)
-                + (projectsExpanded ? entitesVisibles : 0)
                 + (collabsExpanded ? collabsActifs : 0)
                 + (archivesExpanded ? collabsArchives : 0)
                 + (archivedProjectsExpanded ? archives : 0))
     }
 
     /// Les entrées qui sont toujours là : les sept destinations du haut, les
-    /// en-têtes de section et « Paramètres ». Le compte exact n'a pas
+    /// en-têtes de section restants et « Paramètres ». Le compte exact n'a pas
     /// d'importance — seule sa **stabilité** en a : c'est un décalage qu'on
-    /// cherche à détecter, pas un inventaire.
-    private static let lignesFixes = 12
+    /// cherche à détecter, pas un inventaire. Un de moins depuis le lot 6 :
+    /// l'en-tête de l'arbre par entité a disparu avec lui.
+    private static let lignesFixes = 11
 
     /// L'état de dépliage de la section « Projets », lu là où elle l'écrit.
     private var sectionProjetsDepliee: Bool {
@@ -338,8 +312,9 @@ struct MainSidebarView: View {
                 Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
                     .tag(MainRoute.collaborators)
 
-                // La section « Projets » de la variante 2b du handoff. Elle ne
-                // remplace rien ici : l'arbre par entité la suit, replié.
+                // La section « Projets », variante **2a** du handoff (lot 6) :
+                // la barre latérale est un point d'accès, plus un catalogue.
+                // L'arbre par entité qui la suivait a été retiré.
                 ProjectsSidebarSection(
                     projets: projects,
                     comptes: comptesProjets,
@@ -348,92 +323,6 @@ struct MainSidebarView: View {
                     notesDuProjet: { notes(ofProject: $0) },
                     ouvrir: { mainRouter.openProject($0) }
                 )
-
-                Section {
-                    DisclosureGroup(isExpanded: $projectsExpanded) {
-                    ForEach(filteredEntities.sorted(by: { $0.name < $1.name })) { entity in
-                        let entityProjects = filteredProjectsFor(entity: entity)
-                        if !entityProjects.isEmpty || searchText.isEmpty {
-                            DisclosureGroup(
-                                isExpanded: Binding(
-                                    get: { expandedEntityNames.contains(entity.name) || !searchText.isEmpty },
-                                    set: { isExpanded in
-                                        if isExpanded {
-                                            expandedEntityNames.insert(entity.name)
-                                        } else {
-                                            expandedEntityNames.remove(entity.name)
-                                        }
-                                    }
-                                )
-                            ) {
-                                // Identité préfixée par la sous-section : un
-                                // projet de l'arbre peut aussi être épinglé ou
-                                // récent, et deux lignes de même identité dans
-                                // une `List` rendent n'importe quoi (recette
-                                // `p1f`). L'entité entre dans la clé — un
-                                // projet n'apparaît que sous la sienne, mais
-                                // le nom de section reste ainsi unique.
-                                ForEach(SidebarProjectRow.lignes(
-                                    entityProjects,
-                                    section: "\(SidebarProjectRow.Section.arbre)/\(entity.name)")
-                                ) { ligne in
-                                    projectRow(ligne.projet)
-                                }
-
-                                Button(action: { addProject(to: entity) }) {
-                                    Label("Ajouter un projet", systemImage: "plus.circle")
-                                        .foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.plain)
-                            } label: {
-                                HStack {
-                                    Label(entity.name, systemImage: "building.2")
-                                    Spacer()
-                                    Text("\(entityProjects.count)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .dropDestination(for: String.self) { codes, _ in
-                                moveProjects(codes: codes, to: entity)
-                                return true
-                            }
-                        }
-                    }
-
-                    let orphans = filteredOrphanProjects
-                    if !orphans.isEmpty || searchText.isEmpty {
-                        DisclosureGroup("Sans Entité") {
-                            ForEach(SidebarProjectRow.lignes(
-                                orphans,
-                                section: "\(SidebarProjectRow.Section.arbre)/—")
-                            ) { ligne in
-                                projectRow(ligne.projet)
-                            }
-                        }
-                        .dropDestination(for: String.self) { codes, _ in
-                            moveProjectsToNone(codes: codes)
-                            return true
-                        }
-                    }
-
-                    Button(action: addProject) {
-                        Label("Ajouter Projet", systemImage: "plus.circle")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Label("Projets par Entité", systemImage: "folder.fill")
-                                .font(.subheadline.weight(.semibold))
-                            // La sous-ligne de la capture 2b : ce que l'arbre
-                            // contient, et le fait qu'il ne s'ouvre plus seul.
-                            Text(ProjectsSidebarSection.sousLigneArbre(entites: entities.count))
-                                .font(.plexMono(11))
-                                .foregroundStyle(One2OneToken.inkMuted)
-                        }
-                    }
-                }
 
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
@@ -669,8 +558,12 @@ struct MainSidebarView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    // MARK: - Project Row (selectable in multi-select mode)
+    // MARK: - Ligne de projet (groupe « Projets Archivés »)
 
+    /// La ligne d'un projet dans la barre latérale. Depuis le retrait de
+    /// l'arbre par entité (lot 6), le seul groupe qui en rende est « Projets
+    /// Archivés » ; elle n'est plus « déplaçable » — changer l'entité d'un
+    /// projet passe par le menu « Entité » de `ProjectBatchBar`.
     @ViewBuilder
     private func projectRow(_ project: Project) -> some View {
         if isMultiSelectMode {
@@ -686,18 +579,13 @@ struct MainSidebarView: View {
             .buttonStyle(.plain)
         } else if let id = project.stableID {
             projectLabel(for: project)
-                // Le lot 4 remplacera `ProjectDetailView` par l'écran à six
-                // onglets ; jusque-là `.pilotage` y mène, et le rendu de la
-                // ligne ne change pas.
                 .tag(MainRoute.project(id, .pilotage))
-                .draggable(project.code)
         } else {
             // `repairStoreIfNeeded()` backfille tous les `stableID` au
             // lancement : ce cas n'arrive pas en pratique. On l'affiche sans le
             // rendre sélectionnable plutôt que d'écrire dans le store depuis
             // `body`.
             projectLabel(for: project)
-                .draggable(project.code)
         }
     }
 
@@ -803,47 +691,11 @@ struct MainSidebarView: View {
             .cornerRadius(4)
     }
 
-    // MARK: - Drag & Drop
-
-    private func moveProjects(codes: [String], to entity: Entity) {
-        for code in codes {
-            if let project = projects.first(where: { $0.code == code }) {
-                project.entity = entity
-                print("[Sidebar] Moved '\(project.name)' -> entity '\(entity.name)'")
-            }
-        }
-        saveContext()
-    }
-
-    private func moveProjectsToNone(codes: [String]) {
-        for code in codes {
-            if let project = projects.first(where: { $0.code == code }) {
-                project.entity = nil
-                print("[Sidebar] Moved '\(project.name)' -> Sans Entité")
-            }
-        }
-        saveContext()
-    }
-
     // MARK: - CRUD
 
     private func addCollaborator() {
         let newCollab = Collaborator(name: "Nouveau Collaborateur")
         context.insert(newCollab)
-        saveContext()
-    }
-
-    private func addProject() {
-        let newProject = Project(code: nextProjectCode(), name: "Nouveau Projet", domain: "General", sponsor: "", projectType: "Métier", phase: "Cadrage")
-        context.insert(newProject)
-        saveContext()
-    }
-
-    private func addProject(to entity: Entity) {
-        let newProject = Project(code: nextProjectCode(), name: "Nouveau Projet", domain: entity.name, sponsor: "", projectType: "Métier", phase: "Cadrage")
-        newProject.entity = entity
-        context.insert(newProject)
-        expandedEntityNames.insert(entity.name)
         saveContext()
     }
 
@@ -861,12 +713,6 @@ struct MainSidebarView: View {
             context.delete(archivedProjects[index])
         }
         saveContext()
-    }
-
-    /// Le prochain code libre — délègue à `ProjectCreation`, que l'en-tête du
-    /// Portfolio appelle aussi (« ＋ Nouveau projet »).
-    private func nextProjectCode() -> String {
-        ProjectCreation.prochainCode(parmi: projects.map(\.code))
     }
 
     private func saveContext() {

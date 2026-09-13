@@ -36,9 +36,10 @@ final class MainRouter {
     private(set) var history: [MainRoute] = []
 
     /// Terme que la palette doit afficher à sa prochaine ouverture, posé par
-    /// l'écran de recette `p1c` (« ged ») et consommé par le lot 3. Ici parce
-    /// que la palette n'existe pas encore et que le routeur est le seul objet
-    /// que la recette peut atteindre avant elle.
+    /// l'écran de recette `p1c` (« ged ») et consommé par `CommandPalette`.
+    /// Ici parce que la recette ne sait pas cliquer et que le routeur est le
+    /// seul objet que le point d'entrée de l'application et la palette
+    /// partagent — même motif que `pendingPortfolioSavedView`.
     var pendingPaletteQuery: String?
 
     /// Vue enregistrée que le Portfolio doit activer à sa prochaine

@@ -935,6 +935,10 @@ private struct MainWindowFrameRestorer: NSViewRepresentable {
             observations.forEach(NotificationCenter.default.removeObserver)
             observations = []
             guard let window else { return }
+            // Le seul endroit du code qui tient la fenêtre principale : les
+            // raccourcis posés depuis un menu natif ou la barre de menus en ont
+            // besoin pour la remonter (cf. `MainWindowRegistry`).
+            MainWindowRegistry.enregistrer(window)
             restaurer(window)
             // Inconditionnel, et **après** `restaurer` : le cadre à corriger
             // peut venir de notre clé comme de celle que SwiftUI a restaurée de

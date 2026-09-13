@@ -8,9 +8,9 @@ import SwiftData
 ///
 /// Un même projet apparaît à plusieurs endroits de la **même** `List` : il
 /// peut être à la fois épinglé (« ÉPINGLÉS »), récemment ouvert (« RÉCENTS »)
-/// et listé sous son entité dans l'arbre. Les trois `ForEach` l'identifiaient
-/// par son `persistentModelID` — donc par **la même valeur**, trois fois, dans
-/// un seul conteneur.
+/// et — jusqu'au lot 6 — listé sous son entité dans l'arbre. Les `ForEach`
+/// l'identifiaient par son `persistentModelID` — donc par **la même valeur**,
+/// plusieurs fois, dans un seul conteneur.
 ///
 /// SwiftUI exige des identités uniques par conteneur ; quand elles ne le sont
 /// pas, le rendu est indéfini. À la recette `p1f` du 2026-09-09, les deux
@@ -27,9 +27,9 @@ import SwiftData
 /// réutilisation), mais deux lignes de sous-sections différentes ne se
 /// confondent plus.
 struct SidebarProjectRowID: Hashable, Sendable {
-    /// La sous-section, en un mot stable — `ÉPINGLÉS`, `RÉCENTS`, `arbre`,
-    /// `archivés`. Ce sont les libellés déjà exposés par les vues, pour que le
-    /// nom de la section n'existe qu'une fois.
+    /// La sous-section, en un mot stable — `ÉPINGLÉS`, `RÉCENTS`, `archivés`.
+    /// Ce sont les libellés déjà exposés par les vues, pour que le nom de la
+    /// section n'existe qu'une fois.
     let section: String
     let projet: PersistentIdentifier
 }
@@ -48,11 +48,14 @@ struct SidebarProjectRow: Identifiable {
         }
     }
 
-    /// Les sections de la barre latérale qui listent des projets. Nommées ici
-    /// pour que deux vues ne puissent pas choisir le même mot par accident —
-    /// ce serait la collision qu'on vient de corriger.
+    /// Les sections de la barre latérale qui listent des projets et qui ne
+    /// portent pas déjà un libellé exposé. Nommées ici pour que deux vues ne
+    /// puissent pas choisir le même mot par accident — ce serait la collision
+    /// qu'on vient de corriger.
+    ///
+    /// `arbre` a disparu avec l'arbre par entité (lot 6, variante 2a) : plus
+    /// aucun `ForEach` de `Sidebar.swift` ne le nommait.
     enum Section {
-        static let arbre = "arbre"
         static let archives = "archivés"
     }
 }

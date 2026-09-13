@@ -51,6 +51,11 @@ enum RecetteScreen: String, CaseIterable, Sendable {
 
     /// `2b-sidebar-variante-arbre-replie.png` — la barre latérale avec la
     /// section « Projets » et l'arbre par entité replié.
+    ///
+    /// **Alias de `p2a` depuis le lot 6.** L'arbre a été retiré : les deux
+    /// codes ouvrent désormais exactement le même écran. Le cas est conservé
+    /// parce que la capture `2b` existe et que `recette/lot-1-p2b.png` s'y
+    /// compare — le supprimer rendrait un pan du journal irreproductible.
     case sectionProjets = "p2b"
     /// `1a-portfolio.png` — le tableau du portefeuille.
     case portefeuille = "p1a"
@@ -122,13 +127,18 @@ enum RecetteScreen: String, CaseIterable, Sendable {
     /// Les projets à inscrire dans les récents avant la capture, par leur
     /// `Project.code`.
     ///
-    /// Seul `p2b` en porte : la sous-section « RÉCENTS » de sa capture est un
-    /// état de session (`@AppStorage`, décision **D4**) que le semis ne pose
-    /// pas, et une sous-section vide ne se compare à rien. `p2a`, la bascule
-    /// finale du chantier, réglera la sienne au lot 6 — la variante n'existe
-    /// pas encore.
+    /// Les **deux** écrans de barre latérale en portent : la sous-section
+    /// « RÉCENTS » est un état de session (`@AppStorage`, décision **D4**) que
+    /// le semis ne pose pas, et une sous-section vide ne se compare à rien.
+    /// `2a-sidebar-section-projets.png` la montre comme `2b` — c'est le même
+    /// écran depuis que le lot 6 a retiré l'arbre.
     var codesDeProjetsRecents: [String] {
-        self == .sectionProjets ? RefonteDemoSeed.portfolioRecentProjectCodes : []
+        switch self {
+        case .sectionProjets, .sectionProjetsFinale:
+            return RefonteDemoSeed.portfolioRecentProjectCodes
+        default:
+            return []
+        }
     }
 
     /// L'identifiant **constant** de la vue enregistrée de recette.

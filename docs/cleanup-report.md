@@ -157,5 +157,5 @@ Présence / Actions / Résumé.
 | `EngagementLedger` vs `Commitment` | 2 mécanismes | double vérité assumée : les nouveaux fils n'écrivent que la table, l'ancien reste **lu** en Historique — convertir compterait deux fois |
 | `ReportOptionalBlocks.escape` | 1 fonction | duplique `ReportHTMLBuilder.escape` |
 | `Views/Shared/ProjectStatusPalette` | 1 fichier | mal rangé (ce sont des jetons, ils iraient dans `DesignSystem/`) ; le déplacer serait une seconde intention |
-| trois doublons de raccourci | 3 lignes | `⌘K`, `⌘M`, `⌃⌘F` sont redéclarés dans `Views/Meeting/Session/**`, chacun avec son commentaire justificatif ; inscrits comme exceptions nommées dans `MeetingShortcutsTests`, donc toute occurrence **nouvelle** casse le test |
+| trois doublons de raccourci | 3 lignes | `⌘K`, `⌘M`, `⌃⌘F` sont redéclarés dans `Views/Meeting/Session/**`, chacun avec son commentaire justificatif ; inscrits comme exceptions nommées dans `AppShortcutsTests`, donc toute occurrence **nouvelle** casse le test |
 
