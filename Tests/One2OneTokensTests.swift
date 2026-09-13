@@ -141,6 +141,31 @@ struct One2OneTokensTests {
         #expect(One2OneToken.panelShadow == Color.black.opacity(0.07))
     }
 
+    /// Les trois jetons de la refonte des projets (décision **D12**). Le
+    /// handoff disait « ne rien ajouter » ; il n'avait pas nommé ses trois
+    /// propres valeurs — l'ombre de la palette, le surlignage, le tireté.
+    @Test("Les trois jetons de la refonte des projets valent ce que la maquette écrit")
+    func jetonsDeLaRefonteProjets() {
+        // `0 18px 40px rgba(0,0,0,.16)` — capture `1c-palette-cmdk.png`.
+        #expect(One2OneToken.paletteShadow == Color.black.opacity(0.16))
+        #expect(One2OneToken.paletteShadowRadius == 40)
+        // `rgba(0,0,0,.22)` — le tireté est plus appuyé que `strongBorder`.
+        #expect(One2OneToken.dashedBorder == Color.black.opacity(0.22))
+        #expect(One2OneToken.dashedBorder != One2OneToken.strongBorder)
+    }
+
+    /// Le surlignage `#FFE9A8` est un **fond**, pas une encre : c'est `ink1`
+    /// qui s'écrit dessus, et la paire doit tenir le seuil de 4,5:1 — un
+    /// résultat de recherche surligné se lit à 12 px ou moins.
+    @Test("Le surlignage de la palette porte ink/1 à plus de 4,5:1")
+    func surlignageLisible() throws {
+        let ratio = try #require(ContrastRatio.ratio(One2OneToken.ink1, One2OneToken.highlight))
+        #expect(ratio >= 4.5, "ink/1 sur highlight : \(String(format: "%.2f", ratio)):1")
+        // Et il reste distinct de `warnBg`, le fond chaud le plus proche de la
+        // table : sinon il n'y avait pas de jeton à ajouter.
+        #expect(One2OneToken.highlight != One2OneToken.warnBg)
+    }
+
     /// La colonne principale passe à 55 % d'opacité quand la fiche projet
     /// s'ouvre (spec §4.3). Elle reste **consultable** : le dépoli est visuel,
     /// jamais un `allowsHitTesting(false)`.

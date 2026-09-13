@@ -552,7 +552,15 @@ final class MenuBarController: NSObject {
         let host = hostingController(SearchPopover(
             onSelectMeeting: { [weak self] meeting in self?.openMeeting(meeting) },
             onSelectCollaborator: { _ in /* future: deep-link to CollaboratorDetail */ },
-            onSelectProject: { _ in /* future: deep-link to ProjectDetail */ },
+            // Le routeur (D0) donne enfin une destination à cette entrée :
+            // jusqu'ici, choisir un projet dans la recherche du menu système ne
+            // faisait rien. `MainRouter.shared` et non l'environnement — un
+            // `NSObject` n'en a pas.
+            onSelectProject: { [weak self] project in
+                NSApp.activate(ignoringOtherApps: true)
+                MainRouter.shared.openProject(project)
+                self?.searchPopover.performClose(nil)
+            },
             onDismiss: { [weak self] in self?.searchPopover.performClose(nil) }
         ))
         show(searchPopover, content: host)

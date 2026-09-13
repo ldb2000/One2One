@@ -186,14 +186,25 @@ struct RefonteVague5IntegrationTests {
         }
     }
 
-    // MARK: - Le crochet de recette : un seul, et douze codes
+    // MARK: - Le crochet de recette : un seul, et douze codes de réunion
 
-    @Test("Les douze codes d'écran désignent une réunion et un mode")
+    @Test("Les douze codes d'écran de réunion désignent une réunion et un mode")
     func codesDeRecette() {
         // Dix depuis le lot 13 (`5a`, l'entretien subi), onze depuis le lot 14
         // (`5b`, sa préparation), douze depuis le lot 18 (`6b`, la planche de
         // séance) — le même atelier que `6a`, en Relire.
-        #expect(RecetteScreen.allCases.count == 12)
+        //
+        // La refonte de la gestion des projets (décision **D6**) a ajouté six
+        // écrans qui ouvrent la **fenêtre principale** et aucune réunion
+        // (`RecetteScreen.Cible.fenetrePrincipale`, codes préfixés `p`). Ils ne
+        // relèvent pas de ce test : ce qu'il tient, c'est que les écrans **de
+        // réunion** sont exactement les douze de la table ci-dessous. Leur
+        // propre table est `Tests/RecetteScreenTests.swift`.
+        let deReunion = RecetteScreen.allCases.filter {
+            if case .fenetrePrincipale = $0.cible { return false }
+            return true
+        }
+        #expect(deReunion.count == 12)
         #expect(RecetteScreen.from(environment: nil) == nil)
         #expect(RecetteScreen.from(environment: "") == nil)
         #expect(RecetteScreen.from(environment: "1to1") == nil)
@@ -213,7 +224,7 @@ struct RefonteVague5IntegrationTests {
             ("6a", .atelier, .live),
             ("6b", .atelier, .review)
         ]
-        #expect(attendu.count == RecetteScreen.allCases.count)
+        #expect(attendu.count == deReunion.count)
         for (code, cible, mode) in attendu {
             let ecran = RecetteScreen.from(environment: code)
             #expect(ecran?.rawValue == code)

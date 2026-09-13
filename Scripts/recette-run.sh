@@ -78,7 +78,10 @@
 #      → douze codes listés
 #   2. sed -n 's/^ *case [a-zA-Z]* = "\([0-9a-z]*\)"/\1/p' \
 #        OneToOne/Services/Debug/RecetteScreen.swift | tr '\n' ' '
-#      → la même liste que celle que le script accepte
+#      → la même liste que celle que le script accepte : douze codes de réunion
+#        plus les six écrans préfixés `p` de la refonte de la gestion des
+#        projets (`p2b p1a p1c p1d p1f p2a`), qui ouvrent la fenêtre
+#        principale et non une réunion
 #   3. ioreg -n Root -d1 -r | grep -c 'CGSSessionScreenIsLocked"=Yes'
 #      → 1 écran verrouillé (le script doit refuser), 0 déverrouillé
 #   4. Scripts/recette-run.sh --screen 9z --app … → « Code d'écran inconnu »
@@ -115,7 +118,7 @@ if [ -f "${RECETTE_SCREEN_SWIFT}" ]; then
 fi
 if [ -z "${SCREENS}" ]; then
     # Repli : le script s'utilise aussi hors du dépôt, à côté du seul bundle.
-    SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a 6b "
+    SCREENS="1a 1b 1c 2a 2b 3a 3b 4a 5a 5b 6a 6b p2b p1a p1c p1d p1f p2a "
     echo "⚠️  ${RECETTE_SCREEN_SWIFT} illisible — liste de codes par défaut."
 fi
 

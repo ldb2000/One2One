@@ -42,6 +42,11 @@ struct SchemaV3MigrationTests {
             .isSubset(of: Set(CurrentSchema.models.map { "\($0)" })))
         #expect(OneToOneMigrationPlan.schemas.count == 3)
         #expect(OneToOneMigrationPlan.stages.isEmpty)
+        // La refonte des projets n'ajoute aucun modèle : `PortfolioSavedView`
+        // est une structure `Codable` rangée dans une colonne JSON
+        // d'`AppSettings` (D4), pas un `@Model`.
+        #expect(!Set(Schema(CurrentSchema.models).entities.map(\.name))
+            .contains("PortfolioSavedView"))
     }
 
     @Test("Une réunion, une action et une pièce jointe traversent la réouverture en V3")
@@ -144,6 +149,10 @@ struct SchemaV3MigrationTests {
         #expect(capture.trigger == .manual)
         #expect(projet.scopeText.isEmpty)
         #expect(projet.tags.isEmpty)
+        // Lot 0 de la refonte des projets (D4) : `pinned` est une colonne à
+        // valeur par défaut, donc **pas** de `SchemaV4`. Le défaut est ici pour
+        // qu'un futur `SchemaV4` ne passe pas inaperçu.
+        #expect(projet.pinned == false)
 
         projet.tags = ["migration", "budget"]
         #expect(projet.tags == ["migration", "budget"])

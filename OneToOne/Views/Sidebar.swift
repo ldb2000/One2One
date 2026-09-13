@@ -28,6 +28,10 @@ struct MainSidebarView: View {
     private var allNotes: [Meeting]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var router: QuickLaunchRouter
+    /// Le routeur de la fenêtre principale (décision **D0**). La barre latérale
+    /// ne fabrique plus de destination : elle **sélectionne** une route, et
+    /// `MainDetailView` monte l'écran correspondant.
+    @Environment(MainRouter.self) private var mainRouter
     @State private var searchText: String = ""
     /// Version debouncée de `searchText`. Les filtres lourds (scan des corps
     /// de notes pour chaque projet/collab/entité) lisent ceci au lieu de
@@ -178,66 +182,41 @@ struct MainSidebarView: View {
     @AppStorage("sidebar.jobsExpanded") private var jobsExpanded: Bool = true
 
     var body: some View {
-        VStack(spacing: 0) {
+        // Le routeur vient de l'environnement et il est `@Observable` : c'est
+        // `@Bindable` qui en tire le `Binding` que `List(selection:)` attend.
+        @Bindable var mainRouter = mainRouter
+        return VStack(spacing: 0) {
             // Multi-select action bar
             if isMultiSelectMode && !selectedProjectIDs.isEmpty {
                 multiSelectBar
             }
 
-            List {
-                NavigationLink {
-                    DashboardView()
-                } label: {
-                    Label("Tableau de bord", systemImage: "chart.bar.fill")
-                }
+            List(selection: $mainRouter.route) {
+                Label("Tableau de bord", systemImage: "chart.bar.fill")
+                    .tag(MainRoute.dashboard)
 
-                NavigationLink {
-                    ChatbotView()
-                } label: {
-                    Label("Assistant IA", systemImage: "bubble.left.and.text.bubble.right.fill")
-                }
+                Label("Assistant IA", systemImage: "bubble.left.and.text.bubble.right.fill")
+                    .tag(MainRoute.assistant)
 
-                NavigationLink {
-                    ActionsListView()
-                } label: {
-                    Label("Actions", systemImage: "checklist")
-                }
+                Label("Actions", systemImage: "checklist")
+                    .tag(MainRoute.actions)
 
-                NavigationLink {
-                    MeetingsListView()
-                } label: {
-                    Label("Réunions", systemImage: "person.3")
-                }
+                Label("Réunions", systemImage: "person.3")
+                    .tag(MainRoute.meetings)
 
-                NavigationLink {
-                    AllNotesView()
-                } label: {
-                    Label("Notes", systemImage: "note.text")
-                }
+                Label("Notes", systemImage: "note.text")
+                    .tag(MainRoute.notes)
 
-                NavigationLink {
-                    ManagerTrackingView()
-                } label: {
-                    Label("Suivi manager", systemImage: "person.crop.square.filled.and.at.rectangle")
-                }
+                Label("Suivi manager", systemImage: "person.crop.square.filled.and.at.rectangle")
+                    .tag(MainRoute.manager)
 
-                NavigationLink {
-                    AllCollaboratorsView()
-                } label: {
-                    Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
-                }
+                Label("Tous les Collaborateurs", systemImage: "person.3.sequence")
+                    .tag(MainRoute.collaborators)
 
                 Section {
                     DisclosureGroup(isExpanded: $collabsExpanded) {
                     ForEach(filteredActiveCollaborators) { collaborator in
-                        NavigationLink {
-                            CollaboratorFicheView(collaborator: collaborator)
-                        } label: {
-                            HStack(spacing: 8) {
-                                SidebarCollaboratorAvatar(collaborator: collaborator)
-                                Text(collaborator.name)
-                            }
-                        }
+                        collaboratorRow(collaborator)
                         .contextMenu {
                             Button {
                                 router.startOneToOne(collaborator: collaborator,
@@ -297,15 +276,8 @@ struct MainSidebarView: View {
                     Section {
                         DisclosureGroup(isExpanded: $archivesExpanded) {
                         ForEach(filteredArchivedCollaborators) { collaborator in
-                            NavigationLink {
-                            CollaboratorFicheView(collaborator: collaborator)
-                        } label: {
-                                HStack(spacing: 8) {
-                                    SidebarCollaboratorAvatar(collaborator: collaborator)
-                                    Text(collaborator.name)
-                                }
+                            collaboratorRow(collaborator)
                                 .foregroundColor(.secondary)
-                            }
                             .contextMenu {
                                 Button("Renommer") {
                                     renamingName = collaborator.name
@@ -414,11 +386,8 @@ struct MainSidebarView: View {
                 Spacer()
 
                 Section {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Label("Paramètres", systemImage: "gear")
-                    }
+                    Label("Paramètres", systemImage: "gear")
+                        .tag(MainRoute.settings)
                 }
             }
             .searchable(text: $searchText, placement: .sidebar, prompt: "Rechercher...")
@@ -537,13 +506,39 @@ struct MainSidebarView: View {
                 }
             }
             .buttonStyle(.plain)
+        } else if let id = project.stableID {
+            projectLabel(for: project)
+                // Le lot 4 remplacera `ProjectDetailView` par l'écran à six
+                // onglets ; jusque-là `.pilotage` y mène, et le rendu de la
+                // ligne ne change pas.
+                .tag(MainRoute.project(id, .pilotage))
+                .draggable(project.code)
         } else {
-            NavigationLink {
-                ProjectDetailView(project: project)
-            } label: {
-                projectLabel(for: project)
-            }
-            .draggable(project.code)
+            // `repairStoreIfNeeded()` backfille tous les `stableID` au
+            // lancement : ce cas n'arrive pas en pratique. On l'affiche sans le
+            // rendre sélectionnable plutôt que d'écrire dans le store depuis
+            // `body`.
+            projectLabel(for: project)
+                .draggable(project.code)
+        }
+    }
+
+    // MARK: - Ligne de collaborateur
+
+    /// La ligne d'un collaborateur, taguée sur sa route. Même contenu qu'avant
+    /// le routeur (avatar + nom) : seule la destination a changé de mécanisme.
+    @ViewBuilder
+    private func collaboratorRow(_ collaborator: Collaborator) -> some View {
+        let contenu = HStack(spacing: 8) {
+            SidebarCollaboratorAvatar(collaborator: collaborator)
+            Text(collaborator.name)
+        }
+        if let id = collaborator.stableID {
+            contenu.tag(MainRoute.collaborator(id))
+        } else {
+            // Même raison que pour un projet sans `stableID` : `body` n'écrit
+            // pas dans le store.
+            contenu
         }
     }
 

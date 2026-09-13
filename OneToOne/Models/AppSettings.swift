@@ -143,6 +143,14 @@ final class AppSettings {
     /// du CR manager (cf. ManagerCRGenerator).
     var managerReportPrompt: String = AppSettings.defaultManagerReportPrompt
 
+    /// Vues enregistrées du Portfolio (nom + facettes + tri), encodées en JSON.
+    /// Motif de `managerCategoriesJSON` : c'est le seul disponible pour une
+    /// structure persistée, `AppSettings` étant un singleton `@Model` et
+    /// `@AppStorage` ne sachant pas stocker un tableau de structures
+    /// (décision **D4**). Colonne à valeur par défaut, donc migration légère —
+    /// aucun `SchemaV4`.
+    var portfolioSavedViewsJSON: String = "[]"
+
     // MARK: - Calendar & Menubar Integration
 
     /// Email de l'utilisateur (pour filtrage attendees et détection manager).
@@ -385,6 +393,21 @@ final class AppSettings {
         set {
             managerCategoriesJSON = (try? String(data: JSONEncoder().encode(newValue),
                 encoding: .utf8)) ?? Self.defaultManagerCategoriesJSON
+        }
+    }
+
+    /// Vues enregistrées décodées. Repli sur un tableau **vide** si la colonne
+    /// est corrompue : une vue enregistrée illisible ne doit pas empêcher
+    /// l'ouverture du Portfolio. Écrire un tableau vide réécrit `"[]"`, jamais
+    /// une chaîne vide — la colonne reste du JSON valide.
+    var portfolioSavedViews: [PortfolioSavedView] {
+        get {
+            (try? JSONDecoder().decode([PortfolioSavedView].self,
+                from: Data(portfolioSavedViewsJSON.utf8))) ?? []
+        }
+        set {
+            portfolioSavedViewsJSON = (try? String(data: JSONEncoder().encode(newValue),
+                encoding: .utf8)) ?? "[]"
         }
     }
 

@@ -9,6 +9,7 @@ code_documente:
   - OneToOne/Models/
   - OneToOne/Services/
   - OneToOne/Views/Meeting/
+  - OneToOne/Views/Navigation/
   - OneToOne/Views/Project/
   - OneToOne/Views/DesignSystem/
   - OneToOne/Markdown/
@@ -23,6 +24,7 @@ symboles_externes:
   - ModelContainer
   - WindowGroup
   - NavigationSplitView
+  - PersistentIdentifier
   - String
   - Array
   - DateFormatter

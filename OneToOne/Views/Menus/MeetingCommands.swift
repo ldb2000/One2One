@@ -135,6 +135,13 @@ struct MeetingCommands: Commands {
                 _ = RefonteDemoSeed.seedLot11(in: demoContext)
                 _ = RefonteDemoSeed.seedLot12(in: demoContext)
                 _ = RefonteDemoSeed.seedLot13(in: demoContext)
+                // Refonte de la gestion des projets (D6) : le portefeuille de
+                // 62 projets actifs et 14 archivés des captures 1a, 1d et 1f.
+                // Le commentaire d'`OneToOneApp.ouvrirEcranDeRecette` vaut ici
+                // aussi — les **deux** points d'entrée doivent semer la même
+                // chose, sinon la recette et le menu ne montrent pas le même
+                // jeu. Idempotent par `Project.code`.
+                _ = RefonteDemoSeed.seedPortfolio(in: demoContext)
                 QuickLaunchRouter.shared.pendingToken = OneToOneLaunchToken(
                     meetingID: reunion.ensuredStableID,
                     autoStartRecording: false
