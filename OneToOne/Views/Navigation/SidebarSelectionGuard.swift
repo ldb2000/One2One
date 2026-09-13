@@ -1,4 +1,86 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
+
+/// L'événement que l'application traite au moment où la `List` écrit sa
+/// sélection — le discriminant de `SidebarSelectionGuard`.
+///
+/// Une valeur, et non un `NSEvent` : la règle doit se tester sans fenêtre ni
+/// boucle d'événements. L'adaptateur `courant()` est le seul point de contact
+/// avec AppKit, et il tient en dix lignes sans branche métier.
+struct EvenementEntree: Equatable, Sendable {
+
+    /// Ce que l'événement est, du seul point de vue qui compte ici : est-ce un
+    /// geste de l'utilisateur ?
+    enum Nature: Equatable, Sendable {
+        /// Clic — `leftMouseDown`, `leftMouseUp`, `rightMouseDown`,
+        /// `otherMouseDown`.
+        case souris
+        /// Touche — `keyDown` (les flèches et `⏎` de la navigation de liste).
+        case clavier
+        /// Tout le reste : `appKitDefined`, `periodic`, `systemDefined`,
+        /// mouvements de souris… Un remappage de lignes survient sous ceux-là,
+        /// jamais sous un clic.
+        case autre
+    }
+
+    /// Âge maximal d'un événement pour qu'une sélection lui soit imputée.
+    ///
+    /// `NSApp.currentEvent` **retient le dernier événement traité** quand la
+    /// pile d'appel n'en traite plus aucun : sans borne d'âge, un clic vieux
+    /// de vingt secondes autoriserait le remappage qu'a produit le
+    /// redimensionnement de la recette `p1f`. Une seconde est large pour une
+    /// sélection provoquée par un clic, et courte devant ce délai-là.
+    static let ageMaximal: TimeInterval = 1
+
+    var nature: Nature
+    /// Secondes écoulées depuis l'événement.
+    var age: TimeInterval
+
+    /// Un geste d'utilisateur, et récent.
+    var estUneEntreeRecente: Bool {
+        guard nature != .autre else { return false }
+        // Un âge négatif (horloge qui recule, horodatage futur) est refusé :
+        // dans le doute, on n'écrit pas la route.
+        return age >= 0 && age <= Self.ageMaximal
+    }
+}
+
+#if canImport(AppKit)
+extension EvenementEntree {
+
+    /// L'événement que l'application traite à cet instant, ou `nil`.
+    ///
+    /// Adaptateur, sans décision : la règle est dans
+    /// `SidebarSelectionGuard.decide`. `NSEvent.timestamp` se compare à
+    /// `ProcessInfo.systemUptime` — les deux comptent depuis le démarrage de
+    /// la machine, ce que `Date()` ne fait pas.
+    @MainActor
+    static func courant(_ application: NSApplication = .shared) -> EvenementEntree? {
+        guard let evenement = application.currentEvent else { return nil }
+        let nature: Nature
+        switch evenement.type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .otherMouseDown:
+            nature = .souris
+        case .keyDown:
+            nature = .clavier
+        default:
+            nature = .autre
+        }
+        return EvenementEntree(
+            nature: nature,
+            age: ProcessInfo.processInfo.systemUptime - evenement.timestamp)
+    }
+
+    /// L'application est-elle au premier plan, avec une fenêtre à la clé ?
+    /// Seconde barrière du chemin sans événement (accessibilité).
+    @MainActor
+    static func fenetreActive(_ application: NSApplication = .shared) -> Bool {
+        application.isActive && application.keyWindow != nil
+    }
+}
+#endif
 
 /// Ce qui, dans la barre latérale, fait apparaître ou disparaître une ligne.
 ///
@@ -60,29 +142,56 @@ struct SidebarRowsFingerprint: Equatable, Sendable {
 /// ## La règle
 ///
 /// La `List` sélectionne un `@State` **local** ; la route n'est écrite que si
-/// les lignes n'ont pas bougé dans les 300 ms qui précèdent. Sinon le `@State`
-/// est **restauré** depuis la route, ce qui remet aussi la surbrillance à sa
-/// place.
+/// la sélection survient **pendant le traitement d'un événement d'entrée de
+/// l'utilisateur** — un clic ou une touche, vieux de moins d'une seconde.
+/// Sinon le `@State` est **restauré** depuis la route, ce qui remet aussi la
+/// surbrillance à sa place.
 ///
-/// **Une liste noire, pas une liste blanche.** La première version exigeait
-/// aussi que la `List` ait le focus clavier, au motif que c'était la preuve
-/// qu'un humain était aux commandes. La recette du 2026-09-09 l'a réfutée à
-/// l'écran : une ligne sélectionnée par l'**accessibilité** (`AXSelected` sur
-/// une `AXRow`, ce que fait VoiceOver) était refusée, la garde restaurant
-/// l'écran précédent — et un premier clic depuis un état non focalisé subit le
-/// même sort chaque fois que le focus s'établit après l'`onChange`. Une
-/// sélection légitime refusée est un défaut pire que celui qu'on corrige :
-/// l'utilisateur clique et rien ne se passe.
+/// ## Deux règles essayées avant celle-ci, et pourquoi elles ont cédé
 ///
-/// Reste donc la seule condition qui décrive **le défaut** plutôt que
-/// l'intention : les lignes viennent-elles de changer ? C'est le remappage
-/// d'index qui produit l'écriture parasite, et rien d'autre. Un humain ne
-/// clique pas une ligne dans les trois dixièmes de seconde qui suivent son
-/// apparition ; s'il y arrive, sa sélection est ignorée une fois.
+/// **Le focus clavier** (première version). Réfutée à la recette du
+/// 2026-09-09 : une ligne sélectionnée par l'accessibilité (`AXSelected` sur
+/// une `AXRow`, ce que fait VoiceOver) était refusée, et un premier clic
+/// depuis un état non focalisé subissait le même sort dès que le focus
+/// s'établissait après l'`onChange`. Une sélection légitime refusée est pire
+/// que le défaut : l'utilisateur clique et rien ne se passe.
+///
+/// **Le délai après un changement de lignes** (deuxième version). Réfutée à la
+/// recette `p1f` : vingt secondes après le lancement, un **redimensionnement**
+/// de la fenêtre a fait ouvrir deux projets — les deux premières lignes
+/// « ÉPINGLÉS » — sans que rien ne soit cliqué. `NSTableView` remappe ses
+/// index quand il redispose ses lignes, pas seulement quand leur nombre
+/// change : une liste noire temporelle ne peut pas couvrir un événement qui
+/// survient à n'importe quel moment de la vie de la fenêtre.
+///
+/// ## Le discriminant : l'événement en cours de traitement
+///
+/// Une sélection voulue par un humain arrive **dans** la pile d'appel d'un
+/// `NSEvent` : `NSApp.currentEvent` porte alors le clic ou la touche qui la
+/// provoque. Un remappage d'index, lui, survient pendant une passe de
+/// disposition — hors de tout événement d'entrée, ou sous un événement
+/// synthétique (`.appKitDefined`, `.periodic`, `.systemDefined`) ou périmé.
+/// C'est une propriété du **défaut**, pas une supposition sur l'intention, et
+/// elle ne dépend ni du focus ni de l'horloge des données.
+///
+/// **Le chemin sans événement reste ouvert, sous condition.** L'accessibilité
+/// pose `AXSelected` hors de tout événement d'entrée, et SwiftUI n'expose pas
+/// l'origine d'une sélection : refuser toute écriture sans événement casserait
+/// VoiceOver. Une écriture sans événement est donc acceptée quand la fenêtre
+/// est active **et** que les lignes n'ont pas bougé depuis 300 ms — la
+/// deuxième version, conservée comme seconde barrière pour ce seul cas. Elle
+/// ne couvre pas le remappage au redimensionnement, mais celui-ci porte un
+/// `currentEvent` non nul : c'est le premier chemin qui le refuse.
+///
+/// **L'ouverture par programme n'est jamais concernée.** La palette `⌘K`, la
+/// recette et les sous-sections « ÉPINGLÉS » / « RÉCENTS » appellent
+/// `MainRouter.open`/`openProject` directement ; la `List` ne fait alors que
+/// recopier la route dans sa sélection, ce que `decide` reconnaît (`.ignorer`).
+
 enum SidebarSelectionGuard {
 
-    /// Délai pendant lequel une écriture de sélection est refusée après un
-    /// changement de la composition des lignes.
+    /// Délai pendant lequel une écriture de sélection **sans événement** est
+    /// refusée après un changement de la composition des lignes.
     static let delaiApresChangementDeLignes: TimeInterval = 0.3
 
     /// Ce que la vue doit faire d'un changement de sélection.
@@ -107,11 +216,17 @@ enum SidebarSelectionGuard {
     ///   - ancienne: la sélection d'avant, pour reconnaître un non-changement.
     ///   - nouvelle: ce que la `List` vient d'écrire. `nil` = désélection.
     ///   - routeCourante: ce que le routeur affiche à cet instant.
-    ///   - lignesStables: le résultat de `lignesStables(depuis:)`. Aucune
-    ///     condition de focus : voir la note de l'`enum`.
+    ///   - evenement: l'événement que l'application traite à cet instant
+    ///     (`EvenementEntree.courant()`), ou `nil` s'il n'y en a aucun.
+    ///   - fenetreActive: l'application est au premier plan et sa fenêtre a la
+    ///     clé. Ne sert qu'au chemin sans événement.
+    ///   - lignesStables: le résultat de `lignesStables(depuis:)`. Ne sert,
+    ///     lui aussi, qu'au chemin sans événement.
     static func decide(ancienne: MainRoute?,
                        nouvelle: MainRoute?,
                        routeCourante: MainRoute?,
+                       evenement: EvenementEntree?,
+                       fenetreActive: Bool,
                        lignesStables: Bool) -> Decision {
         // Rien n'a bougé : le cas ne devrait pas arriver (`onChange` compare
         // avant d'appeler), mais un appel redondant ne doit rien casser.
@@ -126,7 +241,16 @@ enum SidebarSelectionGuard {
         // à restaurer non plus.
         if nouvelle == routeCourante { return .ignorer }
 
-        return lignesStables ? .ouvrir(nouvelle) : .restaurer
+        // Le chemin nominal : un clic ou une touche est en cours de
+        // traitement. C'est la seule preuve directe qu'un humain a agi.
+        if let evenement {
+            return evenement.estUneEntreeRecente ? .ouvrir(nouvelle) : .restaurer
+        }
+
+        // Le chemin sans événement : l'accessibilité. Deux garde-fous, parce
+        // qu'on n'a plus de preuve directe — la fenêtre doit être celle avec
+        // laquelle on interagit, et les lignes doivent être posées.
+        return fenetreActive && lignesStables ? .ouvrir(nouvelle) : .restaurer
     }
 
     /// Les lignes sont-elles posées depuis assez longtemps pour qu'une

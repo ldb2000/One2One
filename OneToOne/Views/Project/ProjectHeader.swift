@@ -34,6 +34,7 @@ struct ProjectHeader: View {
     static let detailDeLaSuppression = "Le projet, ses jalons, ses actions et ses pièces "
                                      + "jointes seront supprimés."
     static let sansEntite = "Sans entité"
+    static let changerLeStatut = "Changer le statut du projet"
     static let drapeau = "⚑"
 
     static let tailleFilDAriane: CGFloat = 11
@@ -53,6 +54,16 @@ struct ProjectHeader: View {
     let onArchiver: () -> Void
     let onSupprimer: () -> Void
     let onFicheComplete: () -> Void
+    /// Le statut choisi dans le menu de la pilule — la valeur **persistée**
+    /// (`Green`, `Yellow`, `Red`, `Unknown`), pas son libellé français.
+    var onStatut: (String) -> Void = { _ in }
+    /// « Compléter » de la vue « À risque » (lot 5) : le champ à ouvrir, et
+    /// le rappel qui le consomme. Seul `.status` concerne cet en-tête.
+    var champActif: ProjectField?
+    var onChampConsomme: () -> Void = {}
+
+    /// Le menu de statut est-il déplié ?
+    @State private var menuDeStatut = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -70,6 +81,15 @@ struct ProjectHeader: View {
                 commandes
             }
         }
+        .onAppear { honorer(champActif) }
+        .onChange(of: champActif) { _, nouveau in honorer(nouveau) }
+    }
+
+    /// Honore la consigne venue de la vue « À risque » et la consomme.
+    private func honorer(_ champ: ProjectField?) {
+        guard champ == .status else { return }
+        menuDeStatut = true
+        onChampConsomme()
     }
 
     // MARK: - Fil d'Ariane
@@ -145,15 +165,29 @@ struct ProjectHeader: View {
     /// `ProjectStatus.displayLabel`, posé au lot 0 pour cette rangée.
     private var piluleDeStatut: some View {
         let statut = ProjectStatus(raw: project.status)
-        return HStack(spacing: 6) {
-            StatusIcon(status: project.status, size: Self.taillePastilleStatut)
-            Text(statut?.displayLabel ?? project.status)
-                .font(.plexSans(Self.taillePilule, .medium))
+        return Button { menuDeStatut = true } label: {
+            HStack(spacing: 6) {
+                StatusIcon(status: project.status, size: Self.taillePastilleStatut)
+                Text(statut?.displayLabel ?? project.status)
+                    .font(.plexSans(Self.taillePilule, .medium))
+            }
+            .foregroundStyle(Self.encreDeStatut(statut))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Self.fondDeStatut(statut)))
+            .contentShape(Capsule())
         }
-        .foregroundStyle(Self.encreDeStatut(statut))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Self.fondDeStatut(statut)))
+        .buttonStyle(.plain)
+        .help(Self.changerLeStatut)
+        // Un `popover` et non un `Menu` : « Compléter » de la vue « À risque »
+        // (lot 5) doit pouvoir l'ouvrir **par programme**, ce qu'un menu ne
+        // permet pas.
+        .popover(isPresented: $menuDeStatut, arrowEdge: .bottom) {
+            StatusPicker(courant: project.status) { valeur in
+                menuDeStatut = false
+                onStatut(valeur)
+            }
+        }
     }
 
     /// Le fond de la pilule de statut : `okBg` / `warnBg` / `reportBg`
@@ -285,5 +319,68 @@ struct ProjectHeader: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+}
+
+// MARK: - Sélecteur de statut
+
+/// Le menu de la pilule de statut : les quatre valeurs de `ProjectStatus`,
+/// avec leur pastille et leur libellé français.
+///
+/// **La valeur rendue est celle qui se persiste** (`Green`, `Yellow`, `Red`,
+/// `Unknown`) : `Project.status` reste une `String` libre (contrainte
+/// globale), et l'énumération D14 n'est qu'une lecture.
+///
+/// Un `popover` et non un `Menu`, pour que « Compléter » de la vue
+/// « À risque » (lot 5) puisse l'ouvrir sans clic.
+struct StatusPicker: View {
+
+    static let titre = "STATUT"
+    static let largeur: CGFloat = 200
+    static let taillePastille: CGFloat = 9
+    static let tailleLibelle: CGFloat = 12.5
+
+    /// La valeur persistée courante, pour marquer la ligne active.
+    let courant: String
+    let onChoisir: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Self.titre).sectionLabel()
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(ProjectStatus.allCases, id: \.self) { statut in
+                    ligne(statut)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.bottom, 8)
+        }
+        .frame(width: Self.largeur)
+        .background(One2OneToken.surface)
+    }
+
+    private func ligne(_ statut: ProjectStatus) -> some View {
+        let actif = ProjectStatus(raw: courant) == statut
+        return Button { onChoisir(statut.label) } label: {
+            HStack(spacing: 8) {
+                StatusIcon(status: statut.label, size: Self.taillePastille)
+                Text(statut.displayLabel)
+                    .font(.plexSans(Self.tailleLibelle))
+                    .foregroundStyle(One2OneToken.ink1)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                    .fill(actif ? One2OneToken.actionBg : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

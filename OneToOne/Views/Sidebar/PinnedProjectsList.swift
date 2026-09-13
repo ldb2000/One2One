@@ -49,7 +49,13 @@ struct PinnedProjectsList: View {
             if !projets.isEmpty {
                 Text(Self.libelle)
                     .sectionLabel()
-                ForEach(projets, id: \.persistentModelID) { projet in
+                // Identité **préfixée par la sous-section**
+                // (`SidebarProjectRow`) : un projet à la fois épinglé et
+                // récent apparaît deux fois dans la même `List`, et deux
+                // lignes de même identité y rendent n'importe quoi — c'est ce
+                // qui a fait disparaître deux pastilles à la recette `p1f`.
+                ForEach(SidebarProjectRow.lignes(projets, section: Self.libelle)) { ligne in
+                    let projet = ligne.projet
                     Button {
                         ouvrir(projet)
                     } label: {

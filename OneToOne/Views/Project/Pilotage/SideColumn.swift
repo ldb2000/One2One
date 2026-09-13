@@ -25,6 +25,10 @@ struct SideColumn: View {
     let onDescriptionDeRisque: (String) -> Void
     let onRattacherLesMails: () -> Void
     let onFicheComplete: () -> Void
+    /// Le champ qu'une action distante demande d'ouvrir (« Compléter » de la
+    /// vue « À risque », lot 5), et le rappel qui le consomme.
+    let champActif: ProjectField?
+    let onChampConsomme: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: PilotageMetrics.ecartCartes) {
@@ -33,7 +37,9 @@ struct SideColumn: View {
                               suggestions: suggestions,
                               onOuvrirCollaborateur: onOuvrirCollaborateur,
                               onAffecter: onAffecter,
-                              onSponsor: onSponsor)
+                              onSponsor: onSponsor,
+                              champActif: champActif,
+                              onChampConsomme: onChampConsomme)
             RiskCard(niveau: etat.risk,
                      brut: etat.riskRaw,
                      description: etat.riskDescription,
@@ -73,12 +79,25 @@ struct InterlocutorsCard: View {
     static let tailleRole: CGFloat = 11
     static let tailleLien: CGFloat = 11
 
+    /// Les deux rôles reliés, tels que `ProjectPilotageBuilder` les nomme.
+    static let roleChef = "Chef de projet"
+    static let roleSponsor = "Sponsor"
+
     let personnes: [ProjectPilotageState.PersonRow]
     let collaborateurs: [Collaborator]
     let suggestions: [String: Collaborator]
     let onOuvrirCollaborateur: (UUID) -> Void
     let onAffecter: (String, Collaborator?) -> Void
     let onSponsor: (String) -> Void
+    /// « Compléter » de la vue « À risque » (lot 5) : le champ à ouvrir, et
+    /// le rappel qui le consomme.
+    var champActif: ProjectField?
+    var onChampConsomme: () -> Void = {}
+
+    /// Le champ sponsor doit-il s'ouvrir de lui-même ?
+    @State private var ouvrirLeSponsor = false
+    /// Le sélecteur de chef de projet est-il affiché ?
+    @State private var selecteurDeChef = false
 
     var body: some View {
         PilotageCard {
@@ -89,6 +108,22 @@ struct InterlocutorsCard: View {
                     row(personne)
                 }
             }
+        }
+        .onAppear { honorer(champActif) }
+        .onChange(of: champActif) { _, nouveau in honorer(nouveau) }
+    }
+
+    /// Honore la consigne venue de la vue « À risque » et la consomme.
+    private func honorer(_ champ: ProjectField?) {
+        switch champ {
+        case .sponsor?:
+            ouvrirLeSponsor = true
+            onChampConsomme()
+        case .manager?:
+            selecteurDeChef = true
+            onChampConsomme()
+        default:
+            break
         }
     }
 
@@ -110,6 +145,21 @@ struct InterlocutorsCard: View {
             Spacer(minLength: 8)
             action(personne)
         }
+        .popover(isPresented: popoverDuChef(personne),
+                 attachmentAnchor: .rect(.bounds),
+                 arrowEdge: .trailing) {
+            ManagerPicker(suggestion: suggestions[Self.roleChef],
+                          collaborateurs: collaborateurs) { choisi in
+                selecteurDeChef = false
+                onAffecter(Self.roleChef, choisi)
+            }
+        }
+    }
+
+    /// Le sélecteur ne s'ancre que sur la ligne du chef de projet.
+    private func popoverDuChef(_ personne: ProjectPilotageState.PersonRow) -> Binding<Bool> {
+        Binding(get: { selecteurDeChef && personne.role == Self.roleChef },
+                set: { selecteurDeChef = $0 })
     }
 
     @ViewBuilder
@@ -134,10 +184,11 @@ struct InterlocutorsCard: View {
             }
             .buttonStyle(.plain)
             .help("Ouvrir la fiche de \(personne.nom)")
-        } else if personne.aRenseigner, personne.role == "Sponsor" {
+        } else if personne.aRenseigner, personne.role == Self.roleSponsor {
             EditableInPlace(valeur: "",
                             placeholder: Self.placeholderSponsor,
                             fonte: .plexSans(Self.tailleNom),
+                            ouvrir: $ouvrirLeSponsor,
                             onValider: onSponsor) {
                 Text(Self.ajouter)
                     .font(.plexSans(Self.tailleLien))
@@ -165,6 +216,96 @@ struct InterlocutorsCard: View {
             .fixedSize()
             .help("Affecter un \(personne.role.lowercased())")
         }
+    }
+}
+
+// MARK: - Sélecteur de chef de projet
+
+/// Le sélecteur de collaborateur que « Compléter » ouvre sur un projet sans
+/// chef de projet lié (capture `1f-vue-a-risque.png`, décision **D3**).
+///
+/// **Prérempli, pas préaffecté.** `ProjectPeople.suggestedManager` désigne le
+/// collaborateur dont le nom correspond à la chaîne libre du xlsx : il est en
+/// tête, marqué « Suggéré » et déjà surligné, pour que la mise en conformité
+/// des soixante-deux fiches soit un clic par projet. Rien n'est écrit tant
+/// qu'on n'a pas cliqué — la suggestion peut être fausse.
+///
+/// Un `popover` et non un `Menu` : un menu ne s'ouvre pas par programme, et
+/// c'est précisément ce que « Compléter » demande.
+struct ManagerPicker: View {
+
+    static let titre = "Affecter un chef de projet"
+    static let suggere = "Suggéré"
+    static let aucun = "Aucun collaborateur dans l’annuaire"
+    static let largeur: CGFloat = 260
+    static let hauteurMax: CGFloat = 300
+    static let tailleTitre: CGFloat = 11.5
+    static let tailleNom: CGFloat = 12.5
+    static let tailleMention: CGFloat = 11
+
+    let suggestion: Collaborator?
+    let collaborateurs: [Collaborator]
+    let onChoisir: (Collaborator?) -> Void
+
+    /// La suggestion d'abord, puis les autres — sans doublon.
+    var ordonnes: [Collaborator] {
+        guard let suggestion else { return collaborateurs }
+        return [suggestion] + collaborateurs.filter { $0.id != suggestion.id }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Self.titre).sectionLabel()
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+            if ordonnes.isEmpty {
+                Text(Self.aucun)
+                    .font(.plexSans(Self.tailleMention))
+                    .foregroundStyle(One2OneToken.inkMuted)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 10)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(ordonnes) { collaborateur in
+                            ligne(collaborateur)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 8)
+                }
+                .frame(maxHeight: Self.hauteurMax)
+            }
+        }
+        .frame(width: Self.largeur)
+        .background(One2OneToken.surface)
+    }
+
+    private func ligne(_ collaborateur: Collaborator) -> some View {
+        let suggere = collaborateur.id == suggestion?.id
+        return Button { onChoisir(collaborateur) } label: {
+            HStack(spacing: 8) {
+                Text(collaborateur.name)
+                    .font(.plexSans(Self.tailleNom))
+                    .foregroundStyle(One2OneToken.ink1)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                if suggere {
+                    Text(Self.suggere)
+                        .font(.plexSans(Self.tailleMention))
+                        .foregroundStyle(One2OneToken.actionInk)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: One2OneToken.radiusButton, style: .continuous)
+                    .fill(suggere ? One2OneToken.actionBg : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

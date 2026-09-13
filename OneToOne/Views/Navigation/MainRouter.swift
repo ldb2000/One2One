@@ -88,10 +88,30 @@ final class MainRouter {
     /// `ensuredStableID` et non `stableID` : les projets créés avant l'ajout de
     /// la colonne en portent `nil`, et une route ne peut pas désigner un projet
     /// sans identifiant.
-    func openProject(_ project: Project, tab: ProjectTab = .pilotage) {
+    func openProject(_ project: Project,
+                     tab: ProjectTab = .pilotage,
+                     focus: ProjectField? = nil) {
         let id = project.ensuredStableID
+        // Posé **avant** la route : `ProjectScreen` consomme le champ à son
+        // apparition, et l'écran peut déjà être monté sur un autre projet.
+        pendingFocusField = focus
         open(.project(id, tab))
         pushRecent(id)
+    }
+
+    /// Le champ que l'écran projet doit mettre en édition dès son affichage,
+    /// posé par les actions « Replanifier » et « Compléter » de la vue
+    /// « À risque » (lot 5).
+    ///
+    /// Même nature que `pendingPaletteQuery` : une consigne à sens unique,
+    /// portée par le seul objet que l'écran émetteur et l'écran cible
+    /// partagent, et **consommée une fois**.
+    var pendingFocusField: ProjectField?
+
+    /// Rend le champ en attente et le retire.
+    func consumePendingFocusField() -> ProjectField? {
+        defer { pendingFocusField = nil }
+        return pendingFocusField
     }
 
     /// Change l'onglet de l'écran projet affiché, **sans** empiler l'histoire.

@@ -79,3 +79,30 @@ enum MainRoute: Hashable, Sendable {
     /// La fiche d'une entité (`EntityDetailView`).
     case entity(PersistentIdentifier)
 }
+
+/// Le champ de l'écran projet qu'une action distante demande d'ouvrir en
+/// édition (lot 5, actions « Replanifier » et « Compléter » de la capture
+/// `1f-vue-a-risque.png`).
+///
+/// **Pourquoi il ne suffit pas d'ouvrir l'écran.** « Compléter » promet de
+/// combler un vide précis : ouvrir la fiche et laisser l'utilisateur chercher
+/// le champ manquant, c'est lui rendre le travail qu'il venait de déléguer.
+/// La route dit *quel écran* ; ce type dit *quoi y faire*, et il est
+/// **consommé une fois** (`MainRouter.consumePendingFocusField`) pour qu'un
+/// retour sur l'écran ne rouvre pas un champ qu'on vient de refermer.
+enum ProjectField: Hashable, Sendable {
+    /// Le jalon à replanifier, par son `ProjectMilestone.stableID`.
+    case milestone(UUID)
+    case sponsor
+    case manager
+    case status
+
+    /// Le champ que « Compléter » vient renseigner (décision **D3**).
+    init(_ champ: IncompleteField) {
+        switch champ {
+        case .sponsor: self = .sponsor
+        case .manager: self = .manager
+        case .status:  self = .status
+        }
+    }
+}

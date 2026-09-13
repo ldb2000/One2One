@@ -229,6 +229,17 @@ extension View {
     func sectionLabel() -> some View {
         modifier(SectionLabelModifier())
     }
+
+    /// Le même libellé, **teinté du motif** : les trois titres de la vue
+    /// « À risque » (`JALON DÉPASSÉ`, `SANS RÉUNION DEPUIS 30 J`,
+    /// `FICHE INCOMPLÈTE`) portent la couleur de leur groupe.
+    ///
+    /// Un paramètre et non un `.foregroundStyle()` posé par-dessus :
+    /// `SectionLabelModifier` peint le texte lui-même, et une teinte ajoutée
+    /// à l'extérieur ne l'atteindrait pas.
+    func sectionLabel(_ teinte: Color) -> some View {
+        modifier(SectionLabelModifier(teinte: teinte))
+    }
 }
 
 /// Le libellé de section, en encre de libellé mono **du thème courant**.
@@ -241,11 +252,14 @@ extension View {
 private struct SectionLabelModifier: ViewModifier {
     @Environment(\.one2OneTheme) private var theme
 
+    /// La teinte imposée, ou `nil` pour l'encre de libellé du thème.
+    var teinte: Color?
+
     func body(content: Content) -> some View {
         content
             .font(.plexMono(9.5, .semibold))
             .tracking(9.5 * 0.07)
             .textCase(.uppercase)
-            .foregroundStyle(theme.colors.ink4)
+            .foregroundStyle(teinte ?? theme.colors.ink4)
     }
 }
