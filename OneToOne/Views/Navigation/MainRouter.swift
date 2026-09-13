@@ -91,6 +91,16 @@ final class MainRouter {
         RecentProjects.ids(from: defaults.string(forKey: RecentProjects.key) ?? "")
     }
 
+    /// Inscrit un projet dans les récents **sans** l'ouvrir.
+    ///
+    /// Le seul appelant est l'écran de recette `p2b` : la sous-section
+    /// « RÉCENTS » est un état de session que le semis ne pose pas, et la
+    /// photographier demande de la préremplir sans changer la route (la
+    /// capture montre « Portfolio » sélectionné).
+    func rememberRecentProject(_ id: UUID) {
+        pushRecent(id)
+    }
+
     private func pushRecent(_ id: UUID) {
         let brut = defaults.string(forKey: RecentProjects.key) ?? ""
         defaults.set(RecentProjects.push(id, into: brut), forKey: RecentProjects.key)

@@ -11,6 +11,7 @@ code_documente:
   - OneToOne/Views/Meeting/
   - OneToOne/Views/Navigation/
   - OneToOne/Views/Project/
+  - OneToOne/Views/Sidebar/
   - OneToOne/Views/DesignSystem/
   - OneToOne/Markdown/
   - OneToOne/OneToOneApp.swift

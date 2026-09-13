@@ -67,7 +67,7 @@ réutilisable indépendant.
 
 ```mermaid
 graph TD
-    subgraph UI["Couche UI — Views (225 fichiers)"]
+    subgraph UI["Couche UI — Views (241 fichiers)"]
         SIDEBAR[Sidebar / Dashboard]
         MEETING["Écran de réunion : 3 espaces x 3 modes<br/>MeetingScreenModel + Views/Meeting/**"]
         TOKENS[DesignSystem: One2OneToken / Typography]
@@ -521,13 +521,19 @@ graph TD
 
 ## 8. Couche Views
 
-225 fichiers. Organisation :
+241 fichiers. Organisation :
 
 - **Navigation racine** (`Views/Navigation/`) : `MainRoute`, `MainRouter` et `MainDetailView` —
   voir « Navigation de la fenêtre principale » ci-dessous. La barre latérale est
   `Sidebar.swift` (`MainSidebarView`, `DashboardView`, Gantt, cartes de stats) ; les écrans de
   liste qu'elle atteint sont `MeetingsListView`, `AllCollaboratorsView`, `AllNotesView`,
   `ActionsListView` (`ProjectListView` est orpheline).
+- **Barre latérale, section « Projets »** (`Views/Sidebar/`) : `ProjectsSidebarSection`
+  (les quatre destinations — Portfolio, À risque, Mes réunions projets, Actions projets — et
+  leurs compteurs), `PinnedProjectsList` et `RecentProjectsList`. Variante 2b du handoff : la
+  section s'ajoute au-dessus de l'arbre « Projets par Entité », qui reste, replié (décision
+  **D5**) ; le lot 6 retirera l'arbre. Les compteurs viennent de `SidebarProjectCounts` et la
+  recherche de `ProjectSearch` (`Services/Project/`).
 - **Détails entités** : `DetailsViews.swift` (`ProjectDetailView`),
   `Views/Collaborator/` (`CollaboratorFicheView`, `CollaboratorEditSheet`).
 - **Réunion** (`Views/Meeting/`) : voir la section dédiée ci-dessous — c'est le chantier de
@@ -550,6 +556,7 @@ graph TD
   couleurs, de rayons et de largeurs), `One2OneTypography.swift` (`Font.plexSans` / `plexMono` et
   leurs pendants `NSFont`, IBM Plex embarquée avec repli système — décision D2),
   `RiskLevelTint.swift` (teinte d'un niveau de risque, table unique — `MeetingKPI.Level.teinte`),
+  `StatusIcon` (pastille de statut d'un projet, taille en paramètre — décision D16),
   `One2OneTheme`.
 
 ### Navigation de la fenêtre principale
@@ -577,7 +584,11 @@ Le vocabulaire de valeurs d'un projet vit dans `Services/Project/` : `ProjectPha
 `ProjectStatus`, `ProjectType` et `RiskLevel` interprètent les colonnes — restées des chaînes
 libres — et rendent `nil` pour une valeur hors table ; `PortfolioSavedView`, `PortfolioFilters`
 et `PortfolioSort` sont les vues enregistrées du Portfolio, encodées en JSON dans
-`AppSettings.portfolioSavedViewsJSON`.
+`AppSettings.portfolioSavedViewsJSON`. `ProjectSearch` est la **seule** recherche de projets
+(nom, code, domaine, sponsor, chef de projet, architecte, notes ; correspondance, classement,
+surlignage — décision **D7**) et `SidebarProjectCounts` les trois compteurs de la barre
+latérale, dont un stub des trois motifs « à risque » que la vue dédiée du lot 5 remplacera
+par son propre constructeur.
 
 ### L'écran de réunion (refonte 2026-09)
 

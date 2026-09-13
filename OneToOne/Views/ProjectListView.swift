@@ -38,7 +38,7 @@ struct ProjectListView: View {
                                 .foregroundColor(.secondary)
                         }
                         Spacer()
-                        StatusIcon(status: project.status)
+                        StatusIcon(status: project.status, size: 12)
                     }
                 }
             }
@@ -56,7 +56,7 @@ struct ProjectListView: View {
                                         .foregroundColor(.secondary)
                                 }
                                 Spacer()
-                                StatusIcon(status: project.status)
+                                StatusIcon(status: project.status, size: 12)
                             }
                             .foregroundColor(.secondary)
                         }
@@ -66,26 +66,5 @@ struct ProjectListView: View {
         }
         .searchable(text: $searchText)
         .navigationTitle("Projets")
-    }
-}
-
-/// Pastille colorée reflétant le statut d'un projet :
-/// "green" → vert, "yellow" → jaune, "red" → rouge, sinon gris (casse ignorée).
-struct StatusIcon: View {
-    let status: String
-    
-    var body: some View {
-        Circle()
-            .fill(colorForStatus(status))
-            .frame(width: 12, height: 12)
-    }
-    
-    private func colorForStatus(_ status: String) -> Color {
-        switch status.lowercased() {
-        case "green": return .green
-        case "yellow": return .yellow
-        case "red": return .red
-        default: return .gray
-        }
     }
 }

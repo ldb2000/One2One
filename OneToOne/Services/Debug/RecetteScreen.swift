@@ -119,6 +119,18 @@ enum RecetteScreen: String, CaseIterable, Sendable {
         self == .palette ? RefonteDemoSeed.portfolioPaletteQuery : nil
     }
 
+    /// Les projets à inscrire dans les récents avant la capture, par leur
+    /// `Project.code`.
+    ///
+    /// Seul `p2b` en porte : la sous-section « RÉCENTS » de sa capture est un
+    /// état de session (`@AppStorage`, décision **D4**) que le semis ne pose
+    /// pas, et une sous-section vide ne se compare à rien. `p2a`, la bascule
+    /// finale du chantier, réglera la sienne au lot 6 — la variante n'existe
+    /// pas encore.
+    var codesDeProjetsRecents: [String] {
+        self == .sectionProjets ? RefonteDemoSeed.portfolioRecentProjectCodes : []
+    }
+
     /// Le mode d'ouverture. Il est **écrit dans les réglages mémorisés** avant
     /// l'ouverture (`MeetingScreenModel.modeKey`) : c'est le seul moyen de
     /// l'imposer sans clic, et le seul qui survive au fait que

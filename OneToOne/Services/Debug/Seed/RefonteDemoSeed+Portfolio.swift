@@ -78,6 +78,17 @@ extension RefonteDemoSeed {
     /// `RecetteScreen.termeDePalette` la lit hors de l'acteur principal.
     nonisolated static let portfolioPaletteQuery = "ged"
 
+    /// Les trois projets que la sous-section « RÉCENTS » de la capture
+    /// `2b-sidebar-variante-arbre-replie.png` liste, **dans l'ordre de la
+    /// capture** (du plus récemment ouvert au plus ancien).
+    ///
+    /// Ici et non dans le semis lui-même : les récents sont un état de session
+    /// (`@AppStorage`, décision **D4**), pas une donnée du store. Le semis ne
+    /// les pose pas ; l'écran de recette `p2b` les inscrit par ces codes.
+    /// `nonisolated` pour la même raison que `portfolioPaletteQuery` :
+    /// `RecetteScreen` les lit hors de l'acteur principal.
+    nonisolated static let portfolioRecentProjectCodes = ["P25_140", "P25_099", "P25_204"]
+
     // MARK: - Les gens de la maquette
 
     /// Les sept collaborateurs que les captures nomment.
