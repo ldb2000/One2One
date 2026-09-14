@@ -521,12 +521,34 @@ final class TapSink: @unchecked Sendable {
     /// Appelée une fois, au démarrage réussi de la capture système.
     func engageSystemTrack(startedAt: Date) { queue.sync { systemTrackStartedAt = startedAt } }
 
+    /// Vide ce que le convertisseur retient encore (amorce du resampler, ~70 ms
+    /// à 48 → 16 kHz) dans le segment qui se ferme : sans cela chaque bascule
+    /// d'entrée perdrait une syllabe. Le convertisseur est finalisé par
+    /// `.endOfStream`, ce qui est sans conséquence : il est remplacé juste après.
+    private func drainConverter() {
+        guard capturing else { return }
+        guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) else { return }
+        var err: NSError?
+        let status = converter.convert(to: outBuf, error: &err) { _, outStatus in
+            outStatus.pointee = .endOfStream
+            return nil
+        }
+        guard err == nil, status != .error, outBuf.frameLength > 0,
+              outBuf.floatChannelData?[0] != nil else { return }
+        let ptr = outBuf.floatChannelData![0]
+        let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
+        publish(micSamples: samples, converted: outBuf)
+    }
+
     /// Change de fichier et de convertisseur **sans** toucher à la continuation
     /// ni à l'horloge du flux : c'est le cœur du fallback par segment (spec D1).
-    /// L'ancien `AVAudioFile` est relâché ici, ce qui finalise son en-tête WAV ;
-    /// `publishedSampleCount` continue de courir, le flux live ne voit rien.
+    /// L'amorce encore détenue par l'ancien convertisseur est d'abord vidée et
+    /// publiée dans le segment qui se ferme (`drainConverter`), puis l'ancien
+    /// `AVAudioFile` est relâché, ce qui finalise son en-tête WAV ;
+    /// `publishedSampleCount` continue de courir sans interruption.
     func rotate(file: AVAudioFile, converter: AVAudioConverter) {
         queue.sync {
+            drainConverter()
             self.file = file
             self.converter = converter
         }
