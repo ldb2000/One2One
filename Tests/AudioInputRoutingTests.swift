@@ -16,10 +16,17 @@ struct AudioInputRoutingTests {
 
     // MARK: - Démarrage
 
-    @Test("Réglage « par défaut du système » → on laisse macOS choisir")
-    func systemDefaultUsesNil() {
+    @Test("Réglage « par défaut du système » → l'UID concret du défaut, jamais nil")
+    func systemDefaultResolvesToConcreteUID() {
         let verdict = AudioInputRouting.resolveStart(preferredUID: AudioInputRouting.systemDefaultUID,
                                                      devices: [macBook, iphone])
+        #expect(verdict == .use(uid: iphone.uid))
+    }
+
+    @Test("Aucun périphérique marqué défaut → nil, on laisse macOS choisir")
+    func noDeviceFlaggedDefaultUsesNil() {
+        let verdict = AudioInputRouting.resolveStart(preferredUID: AudioInputRouting.systemDefaultUID,
+                                                     devices: [macBook, usb])
         #expect(verdict == .use(uid: nil))
     }
 
@@ -49,6 +56,9 @@ struct AudioInputRoutingTests {
         #expect(verdict == .ignore)
     }
 
+    // `currentUID == nil` ne survient plus que lorsque **aucune** entrée n'est
+    // marquée défaut au démarrage (`resolveStart` rend sinon un UID concret) :
+    // l'engine n'est alors épinglé sur rien et macOS reroute lui-même.
     @Test("Entrée en cours = défaut système (nil) → ignore, macOS reroute lui-même")
     func systemDefaultRemovalIsIgnored() {
         let verdict = AudioInputRouting.fallback(removedUID: iphone.uid, currentUID: nil, devices: [macBook])

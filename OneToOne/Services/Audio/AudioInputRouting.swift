@@ -10,7 +10,7 @@ enum AudioInputRouting {
     static let systemDefaultUID = ""
 
     enum StartVerdict: Equatable, Sendable {
-        /// `nil` : on laisse macOS choisir l'entrée par défaut.
+        /// `nil` : aucune entrée n'est marquée défaut, on laisse macOS choisir.
         case use(uid: String?)
         /// Le préféré manque, d'autres entrées existent : la feuille de choix.
         case askUser(candidates: [AudioInputDevice], missingPreferredUID: String)
@@ -18,9 +18,17 @@ enum AudioInputRouting {
         case noInput
     }
 
+    /// « Par défaut du système » est résolu en **UID concret** plutôt que rendu
+    /// `nil` : sans lui `currentInputUID` resterait vide, `fallback` répondrait
+    /// `.ignore` au retrait et la notification « Bascule sur le micro … » ne
+    /// partirait jamais — soit le cas de toutes les installations existantes,
+    /// qui n'ont pas de micro préféré. `nil` n'est rendu que si aucune entrée
+    /// n'est marquée défaut ; l'engine n'est alors épinglé sur rien.
     static func resolveStart(preferredUID: String, devices: [AudioInputDevice]) -> StartVerdict {
         guard !devices.isEmpty else { return .noInput }
-        guard preferredUID != systemDefaultUID else { return .use(uid: nil) }
+        guard preferredUID != systemDefaultUID else {
+            return .use(uid: devices.first(where: \.isSystemDefault)?.uid)
+        }
         if devices.contains(where: { $0.uid == preferredUID }) { return .use(uid: preferredUID) }
         return .askUser(candidates: devices, missingPreferredUID: preferredUID)
     }
