@@ -53,6 +53,23 @@ final class AudioRecorderService: NSObject, ObservableObject {
     /// continue en micro seul.
     @Published private(set) var systemAudioUnavailable = false
 
+    /// UID de l'entrée forcée sur l'engine, `nil` = défaut système. Sert au
+    /// coordinateur pour savoir si un périphérique retiré était le nôtre.
+    private(set) var currentInputUID: String?
+
+    /// URLs des segments **clos** de l'enregistrement en cours (fallback par
+    /// segment, spec D1). Le segment courant est `currentFileURL`.
+    private var segmentURLs: [URL] = []
+
+    /// Bascules d'entrée survenues pendant l'enregistrement, pour le rapport.
+    /// Vidée au prochain `start()`, comme `provenanceTimeline`.
+    private(set) var inputSwitches: [InputSwitchMark] = []
+
+    /// Posé par `MeetingRecordingCoordinator` pendant qu'il surveille : la
+    /// notification `AVAudioEngineConfigurationChange` lui est alors remise au
+    /// lieu de stopper l'enregistrement. `nil` = comportement historique.
+    var onInputInterrupted: (@MainActor () -> Void)?
+
     // MARK: - Propriété de l'enregistrement
     //
     // Le service est un singleton observé par **toutes** les fenêtres réunion :
@@ -123,19 +140,57 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     // MARK: - Storage (inchangé)
-    static func concatenateWAVs(first: URL, second: URL, output: URL) throws {
-        let f1 = try AVAudioFile(forReading: first)
-        let f2 = try AVAudioFile(forReading: second)
-        let outFile = try AVAudioFile(
-            forWriting: output,
-            settings: f1.fileFormat.settings,
-            commonFormat: f1.processingFormat.commonFormat,
-            interleaved: f1.processingFormat.isInterleaved)
-        try copyAudio(from: f1, to: outFile)
-        try copyAudio(from: f2, to: outFile)
+
+    /// Format du fichier : PCM 16 bits, 16 kHz, mono. Partagé par le démarrage
+    /// et par chaque rotation de segment — deux segments de formats différents
+    /// ne se concatèneraient pas.
+    nonisolated static let wavSettings: [String: Any] = [
+        AVFormatIDKey: Int(kAudioFormatLinearPCM),
+        AVSampleRateKey: sampleRate,
+        AVNumberOfChannelsKey: channels,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false
+    ]
+
+    /// Recolle les segments d'un enregistrement à bascules (spec D1). Un seul
+    /// segment : rendu tel quel. Plusieurs : concaténés dans un nouveau fichier
+    /// de `recordingsDirectory`, puis les segments sont supprimés — seulement
+    /// si la fusion a réussi, pour qu'un échec ne perde jamais d'audio.
+    nonisolated static func mergeSegments(_ urls: [URL]) throws -> URL {
+        guard let premier = urls.first else { throw AudioError.startFailed }
+        guard urls.count > 1 else { return premier }
+        let output = recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
+        do {
+            try concatenateWAVs(urls, output: output)
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            throw error
+        }
+        for url in urls { try? FileManager.default.removeItem(at: url) }
+        return output
     }
 
-    private static func copyAudio(from input: AVAudioFile, to output: AVAudioFile) throws {
+    /// Concaténation de N fichiers de même format dans `output`.
+    nonisolated static func concatenateWAVs(_ urls: [URL], output: URL) throws {
+        guard let premier = urls.first else { throw AudioError.startFailed }
+        let modele = try AVAudioFile(forReading: premier)
+        let outFile = try AVAudioFile(
+            forWriting: output,
+            settings: modele.fileFormat.settings,
+            commonFormat: modele.processingFormat.commonFormat,
+            interleaved: modele.processingFormat.isInterleaved)
+        for url in urls {
+            let input = try AVAudioFile(forReading: url)
+            try copyAudio(from: input, to: outFile)
+        }
+    }
+
+    nonisolated static func concatenateWAVs(first: URL, second: URL, output: URL) throws {
+        try concatenateWAVs([first, second], output: output)
+    }
+
+    private nonisolated static func copyAudio(from input: AVAudioFile, to output: AVAudioFile) throws {
         let format = input.processingFormat
         let bufferSize: AVAudioFrameCount = 4096
         while input.framePosition < input.length {
@@ -148,7 +203,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
         }
     }
 
-    static var recordingsDirectory: URL {
+    nonisolated static var recordingsDirectory: URL {
         let base = URL.applicationSupportDirectory
             .appending(path: "OneToOne", directoryHint: .isDirectory)
             .appending(path: "recordings", directoryHint: .isDirectory)
@@ -167,33 +222,53 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     // MARK: - Lifecycle
+
+    /// Force l'entrée de l'engine sur `uid` (`nil` = l'entrée par défaut du
+    /// système). Doit être appelée engine **arrêté**, avant de lire
+    /// `inputNode.outputFormat(forBus:)` : le format dépend du périphérique.
+    private func bindInput(uid: String?) throws {
+        let deviceID: AudioDeviceID?
+        if let uid { deviceID = AudioInputDeviceService.deviceID(forUID: uid) }
+        else { deviceID = AudioInputDeviceService.defaultInputDeviceID() }
+        guard var id = deviceID, let unit = engine.inputNode.audioUnit else {
+            throw AudioError.inputUnavailable
+        }
+        let status = AudioUnitSetProperty(unit,
+                                          kAudioOutputUnitProperty_CurrentDevice,
+                                          kAudioUnitScope_Global, 0,
+                                          &id, UInt32(MemoryLayout<AudioDeviceID>.size))
+        guard status == noErr else {
+            audioLog.error("AudioRecorder: bind input \(uid ?? "default", privacy: .public) failed \(status)")
+            throw AudioError.inputUnavailable
+        }
+    }
+
     /// `captureMode` vaut `.microOnly` par défaut : l'enregistrement classique
     /// d'une réunion OneToOne est strictement inchangé. Seul le parcours Teams
     /// demande `.microAndSystem`.
     @discardableResult
     func start(meetingID: UUID? = nil,
-               captureMode: TeamsAudioCaptureMode = .microOnly) async throws -> URL {
+               captureMode: TeamsAudioCaptureMode = .microOnly,
+               inputUID: String? = nil) async throws -> URL {
         guard !isRecording else { throw AudioError.alreadyRecording }
         let granted = await requestMicrophonePermission()
         guard granted else { throw AudioError.permissionDenied }
 
         provenanceTimeline = []
         systemAudioUnavailable = false
+        segmentURLs = []
+        inputSwitches = []
 
         let fileURL = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatLinearPCM),
-            AVSampleRateKey: Self.sampleRate,
-            AVNumberOfChannelsKey: Self.channels,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
-        ]
+        let settings = Self.wavSettings
 
         do {
             // AVAudioFile Int16 sur disque ; processingFormat = Float32 16 kHz mono.
             let file = try AVAudioFile(forWriting: fileURL, settings: settings)
             let targetFormat = file.processingFormat
+            // L'entrée est liée avant de lire le format : un iPhone en
+            // Continuité tourne à 48 kHz, le micro intégré à 44,1 ou 48 kHz.
+            try bindInput(uid: inputUID)
             let inputNode = engine.inputNode
             let inputFormat = inputNode.outputFormat(forBus: 0)
             guard let conv = AVAudioConverter(from: inputFormat, to: targetFormat) else {
@@ -225,6 +300,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
                 name: .AVAudioEngineConfigurationChange, object: engine)
 
             isRecording = true
+            currentInputUID = inputUID
             isPaused = false
             elapsedSeconds = 0
             pausedAccumulated = 0
@@ -253,7 +329,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
             audioLog.error("AudioRecorder(engine): start failed \(error.localizedDescription, privacy: .public)")
             teardownEngine()
             try? FileManager.default.removeItem(at: fileURL)
-            throw AudioError.startFailed
+            throw (error as? AudioError) ?? AudioError.startFailed
         }
     }
 
@@ -340,20 +416,85 @@ final class AudioRecorderService: NSObject, ObservableObject {
         audioLog.info("AudioRecorder(engine): resume")
     }
 
+    // MARK: - Bascule d'entrée (fallback par segment, spec D1)
+
+    /// Ferme le segment courant, en ouvre un nouveau sur `device` (`nil` =
+    /// défaut système) et rouvre le tap sur le **même** `TapSink` : le flux live
+    /// ne voit aucune coupure, seul le fichier est découpé. Une pause en cours
+    /// est conservée (`setCapturing` reste faux). Si une étape échoue,
+    /// l'enregistrement est arrêté proprement (`stopForInputLoss`) avant de
+    /// relancer l'erreur : le recorder ne reste jamais moteur arrêté avec
+    /// `isRecording` vrai.
+    func switchInput(to device: AudioInputDevice?) throws {
+        guard isRecording, let sink else { return }
+        do {
+            let node = engine.inputNode
+            node.removeTap(onBus: 0)
+            engine.stop()
+            engine.reset()
+            try bindInput(uid: device?.uid)
+            let inputFormat = node.outputFormat(forBus: 0)
+            guard let conv = AVAudioConverter(from: inputFormat, to: sink.targetFormat) else {
+                throw AudioError.startFailed
+            }
+            let url = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
+            let file = try AVAudioFile(forWriting: url, settings: Self.wavSettings)
+            if let clos = currentFileURL { segmentURLs.append(clos) }
+            sink.rotate(file: file, converter: conv)
+            currentFileURL = url
+            node.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                guard let samples = sink.process(buffer) else { return }
+                Task { @MainActor [weak self] in self?.publishMetersThrottled(from: samples) }
+            }
+            engine.prepare()
+            try engine.start()
+            currentInputUID = device?.uid
+            inputSwitches.append(InputSwitchMark(time: elapsedSeconds,
+                                                 deviceName: device?.name ?? "Entrée par défaut"))
+            audioLog.info("AudioRecorder(engine): switch input → \(device?.name ?? "default", privacy: .public) segment=\(url.lastPathComponent, privacy: .public)")
+        } catch {
+            stopForInputLoss()
+            throw error
+        }
+    }
+
+    /// Arrêt quand plus aucune entrée n'existe : le message historique, et le
+    /// nettoyage de la session live que `MeetingView` ne fera pas (ce chemin ne
+    /// passe pas par elle).
+    func stopForInputLoss() {
+        guard isRecording else { return }
+        lastError = "Périphérique audio modifié — enregistrement interrompu. Vérifie l'entrée micro."
+        audioLog.error("AudioRecorder(engine): input lost → stop")
+        _ = stop()
+        LiveTranscriptionService.shared.abort()
+    }
+
     @discardableResult
     func stop() -> (url: URL, duration: TimeInterval)? {
         guard isRecording, let url = currentFileURL else { return nil }
         let duration = elapsedSeconds
+        let segments = segmentURLs + [url]
         finalizeAndTeardown()
-        audioLog.info("AudioRecorder(engine): stop duration=\(duration, format: .fixed(precision: 1), privacy: .public)s")
-        return (url, duration)
+        // `finalizeAndTeardown` a clos le dernier fichier (`sink.finish()`), les
+        // précédents l'ont été à chaque `rotate` : tout est relisible ici.
+        let finalURL: URL
+        do { finalURL = try Self.mergeSegments(segments) }
+        catch {
+            audioLog.error("AudioRecorder(engine): merge segments failed \(error.localizedDescription, privacy: .public) — dernier segment conservé")
+            finalURL = url
+        }
+        audioLog.info("AudioRecorder(engine): stop duration=\(duration, format: .fixed(precision: 1), privacy: .public)s segments=\(segments.count, privacy: .public)")
+        return (finalURL, duration)
     }
 
     func cancel() {
         guard isRecording else { resetState(); return }
         let url = currentFileURL
+        let segments = segmentURLs + [url].compactMap { $0 }
         finalizeAndTeardown()
-        if let url { try? FileManager.default.removeItem(at: url) }
+        for segment in segments {
+            try? FileManager.default.removeItem(at: segment)
+        }
         audioLog.info("AudioRecorder(engine): cancel")
     }
 
@@ -372,18 +513,14 @@ final class AudioRecorderService: NSObject, ObservableObject {
     @objc private nonisolated func handleConfigurationChange(_ note: Notification) {
         Task { @MainActor [weak self] in
             guard let self, self.isRecording else { return }
-            self.lastError = "Périphérique audio modifié — enregistrement interrompu. Vérifie l'entrée micro."
-            audioLog.error("AudioRecorder(engine): configuration change → stop")
-            _ = self.stop()
-            // Ce chemin (notification système) contourne MeetingView, donc
-            // LiveTranscriptionService.end()/abort() ne sont jamais appelés côté UI.
-            // Sans ce nettoyage, une session live reste bloquée (isLive=true, modèle
-            // Voxtral résident, consumeTask non annulée) et begin() ressort ensuite en
-            // silence (guard !isLive) : la transcription live est morte jusqu'au
-            // redémarrage de l'app. abort() est idempotent (no-op si aucune session
-            // n'était active), d'où ce couplage assumé entre les deux singletons
-            // @MainActor du module pour nettoyer la session live à la source.
-            LiveTranscriptionService.shared.abort()
+            if let onInputInterrupted {
+                // Le coordinateur surveille : c'est lui qui rebranche ou arrête.
+                audioLog.info("AudioRecorder(engine): configuration change → coordinateur")
+                onInputInterrupted()
+                return
+            }
+            // Comportement historique, sans coordinateur.
+            self.stopForInputLoss()
         }
     }
 
@@ -416,6 +553,8 @@ final class AudioRecorderService: NSObject, ObservableObject {
         // qu'on attribue les segments transcrits. Elle n'est vidée qu'au
         // prochain `start()`.
         currentFileURL = nil
+        segmentURLs = []
+        currentInputUID = nil
         isRecording = false
         isPaused = false
         activeMeetingID = nil
@@ -475,8 +614,9 @@ final class AudioRecorderService: NSObject, ObservableObject {
 /// n'importe quel thread.
 final class TapSink: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.onetoone.audio.write")
-    private let converter: AVAudioConverter
-    private let targetFormat: AVAudioFormat
+    /// `var` : remplacé à chaque rotation de segment, sous `queue`.
+    private var converter: AVAudioConverter
+    let targetFormat: AVAudioFormat
     private var file: AVAudioFile?
     private let continuation: AsyncStream<[Float]>.Continuation?
     /// Remonte l'énergie des deux pistes au service (main actor), un appel par
@@ -519,6 +659,59 @@ final class TapSink: @unchecked Sendable {
     /// marquer l'engagement (« la seconde piste tourne ») ; il ne date rien.
     /// Appelée une fois, au démarrage réussi de la capture système.
     func engageSystemTrack(startedAt: Date) { queue.sync { systemTrackStartedAt = startedAt } }
+
+    /// Vide ce que le convertisseur retient encore (amorce du resampler, ~70 ms
+    /// à 48 → 16 kHz) dans le segment qui se ferme : sans cela chaque bascule
+    /// d'entrée perdrait une syllabe. Le convertisseur est finalisé par
+    /// `.endOfStream`, ce qui est sans conséquence : il est remplacé juste après.
+    /// Drainé même en pause (pas de `guard capturing`, à la différence de
+    /// `process()`) : l'amorce a été captée **avant** la pause, la perdre serait
+    /// incorrect ; en double piste, `publish` la mixera avec le reliquat système
+    /// du moment (vidé par la pause, donc silence), ce qui reste correct.
+    /// Boucle jusqu'à `.endOfStream` (ou `.error`) : un seul appel à `convert`
+    /// ne garantit pas de vider toute l'amorce en un buffer ; `tours` est un
+    /// garde-fou (8 × 8 192 frames, largement au-delà de toute amorce possible)
+    /// au cas où le convertisseur ne signalerait jamais la fin.
+    private func drainConverter() {
+        var tours = 0
+        while tours < 8 {
+            tours += 1
+            guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) else { return }
+            var err: NSError?
+            let status = converter.convert(to: outBuf, error: &err) { _, outStatus in
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            guard err == nil, status != .error, outBuf.frameLength > 0,
+                  let ptr = outBuf.floatChannelData?[0] else { return }
+            let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
+            publish(micSamples: samples, converted: outBuf)
+            if status == .endOfStream { return }
+        }
+    }
+
+    /// Change de fichier et de convertisseur **sans** toucher à la continuation
+    /// ni à l'horloge du flux : c'est le cœur du fallback par segment (spec D1).
+    /// L'amorce encore détenue par l'ancien convertisseur est d'abord vidée et
+    /// publiée dans le segment qui se ferme (`drainConverter`), puis l'ancien
+    /// `AVAudioFile` est relâché, ce qui finalise son en-tête WAV ;
+    /// `publishedSampleCount` continue de courir sans interruption.
+    func rotate(file: AVAudioFile, converter: AVAudioConverter) {
+        queue.sync {
+            drainConverter()
+            // Le reliquat système accumulé pendant la bascule est jeté, comme
+            // il l'est en pause : l'engine est arrêté 100 à 500 ms pendant que
+            // `SystemAudioCapture` continue d'alimenter le tampon. Perdre
+            // l'audio distant de ce trou est inévitable ; le garder décalerait
+            // toute la suite de l'enregistrement — `takeAligned` plafonne le
+            // reliquat à 2 s sans jamais le drainer, et la voix distante serait
+            // écrite avec ce retard jusqu'à l'arrêt.
+            pendingSystemSamples.removeAll(keepingCapacity: true)
+            didReportPendingOverflow = false
+            self.file = file
+            self.converter = converter
+        }
+    }
 
     /// Dépose des échantillons système dans le tampon du prochain bloc micro.
     /// `async` et non `sync` : appelée pour chaque buffer capturé, directement
@@ -642,10 +835,18 @@ final class TapSink: @unchecked Sendable {
 }
 
 // MARK: - Errors
+
+/// Une bascule d'entrée, datée sur l'horloge de l'enregistrement.
+struct InputSwitchMark: Equatable, Sendable {
+    let time: TimeInterval
+    let deviceName: String
+}
+
 enum AudioError: LocalizedError {
     case permissionDenied
     case alreadyRecording
     case startFailed
+    case inputUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -655,6 +856,8 @@ enum AudioError: LocalizedError {
             return "Un enregistrement est déjà en cours."
         case .startFailed:
             return "Impossible de démarrer l'enregistrement audio."
+        case .inputUnavailable:
+            return "L'entrée audio choisie n'est pas disponible."
         }
     }
 }

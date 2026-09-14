@@ -76,6 +76,7 @@ struct MeetingView: View {
     /// d'actions — tous deux retirés au lot 19. Cf. `MeetingScreenModel`.
     /// Rattaché à la réunion dans `.onAppear`.
     @State private var screen = MeetingScreenModel()
+    @State private var recordingCoordinator = MeetingRecordingCoordinator.makeLive()
     @State private var showDetailsSheet = false
     /// L'assistant est ouvert (barre d'invocation ou `⌘K`, spec §1.4).
     @State private var showAssistant = false
@@ -271,6 +272,19 @@ struct MeetingView: View {
                 importCalendarEvent(event)
             }
         }
+        .modifier(RecordingPromptSheets(
+            screen: screen,
+            onUseDevice: { device, asAppend in
+                Task {
+                    if asAppend { await startAppendRecording(chosenInputUID: device.uid) }
+                    else { await startRecording(chosenInputUID: device.uid) }
+                }
+            },
+            onCancelChoice: {
+                if !recorder.isRecording(for: meeting.ensuredStableID) {
+                    TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
+                }
+            }))
         .sheet(item: $pendingMgrSelection) { pending in
             ManagerClassificationSheet(
                 snippet: pending.snippet,
@@ -1035,20 +1049,39 @@ struct MeetingView: View {
         }
     }
 
-    /// Seule une réunion liée à un événement Teams demande la seconde piste :
-    /// une réunion en présentiel n'a pas d'audio distant à capter, et le mode
-    /// classique reste strictement inchangé. Partagé par les deux démarrages —
-    /// une reprise d'enregistrement doit capter les mêmes pistes que le premier.
-    private var captureMode: TeamsAudioCaptureMode {
-        (meeting.teamsJoinURL?.isEmpty == false) ? settings.teamsAudioCaptureMode : .microOnly
+    /// Préflight commun aux deux démarrages (spec §4.4) : permission micro,
+    /// entrée, mode de capture. `nil` = rien ne démarre — une feuille est
+    /// affichée, ou l'erreur est posée et le coordinateur Teams prévenu.
+    private func prepareRecordingStart(chosenInputUID: String?, isAppend: Bool) async -> RecordingStartPlan? {
+        screen.recordingPrompts.restartAsAppend = isAppend
+        let outcome = await recordingCoordinator.prepareStart(
+            preferredUID: settings.preferredAudioInputUID,
+            chosenUID: chosenInputUID,
+            hasTeamsLink: meeting.teamsJoinURL?.isEmpty == false,
+            requestedMode: settings.teamsAudioCaptureMode,
+            screen: screen)
+        guard case .proceed(let plan) = outcome else {
+            if outcome == .blocked, screen.recordingPrompts.permissionHelp == nil {
+                recorder.lastError = AudioError.inputUnavailable.errorDescription
+            }
+            if outcome == .blocked, !recorder.isRecording(for: meeting.ensuredStableID) {
+                TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
+            }
+            return nil
+        }
+        return plan
     }
 
-    private func startRecording() async {
+    /// `chosenInputUID` : le choix fait dans `AudioInputChoiceSheet`, `nil` au
+    /// premier passage. Le préflight (permission, entrée, Teams) est dans
+    /// `MeetingRecordingCoordinator` ; ici, le câblage recorder / live / playhead.
+    private func startRecording(chosenInputUID: String? = nil) async {
         if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
             recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
             TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
             return
         }
+        guard let plan = await prepareRecordingStart(chosenInputUID: chosenInputUID, isAppend: false) else { return }
         // Ouvre le flux live AVANT de démarrer le recorder (la continuation doit
         // exister dès le 1er tap pour que start() puisse construire le TapSink),
         // mais on ne lance sa consommation (begin) qu'APRÈS le succès de start() :
@@ -1059,7 +1092,9 @@ struct MeetingView: View {
             ? recorder.makeAudioStream() : nil
         do {
             let url = try await recorder.start(meetingID: meeting.ensuredStableID,
-                                               captureMode: captureMode)
+                                               captureMode: plan.captureMode,
+                                               inputUID: plan.inputUID)
+            recordingCoordinator.beginMonitoring()
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {
@@ -1102,15 +1137,16 @@ struct MeetingView: View {
     /// Démarre un enregistrement complémentaire qui sera concaténé au WAV
     /// existant lors du `stop()`. Le WAV courant est conservé et fusionné
     /// avec le nouveau pour produire un fichier unique.
-    private func startAppendRecording() async {
+    private func startAppendRecording(chosenInputUID: String? = nil) async {
         guard let existing = meeting.wavFileURL, fileExists(existing) else {
-            await startRecording()
+            await startRecording(chosenInputUID: chosenInputUID)
             return
         }
         if recorder.isRecording {
             recorder.lastError = "Un enregistrement est déjà en cours."
             return
         }
+        guard let plan = await prepareRecordingStart(chosenInputUID: chosenInputUID, isAppend: true) else { return }
         pendingAppendBaseURL = existing
         // Même câblage que startRecording() : le flux live est préparé avant
         // start() mais sa consommation (begin) n'est lancée qu'après succès,
@@ -1119,7 +1155,9 @@ struct MeetingView: View {
             ? recorder.makeAudioStream() : nil
         do {
             let url = try await recorder.start(meetingID: meeting.ensuredStableID,
-                                               captureMode: captureMode)
+                                               captureMode: plan.captureMode,
+                                               inputUID: plan.inputUID)
+            recordingCoordinator.beginMonitoring()
             // start() a réussi : on peut maintenant démarrer la transcription live.
             if let liveStream {
                 Task {
@@ -1208,6 +1246,7 @@ struct MeetingView: View {
             return
         }
         guard let stopped = recorder.stop() else { return }
+        recordingCoordinator.endMonitoring()
 
         // Le flux audio est terminé par recorder.stop() (continuation.finish()),
         // donc end() peut drainer et se terminer sans bloquer. Les segments

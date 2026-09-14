@@ -5,6 +5,7 @@
 
 | Date | Décision | Statut | Fichier |
 | --- | --- | --- | --- |
+| 2026-09-14 | Sources audio : fallback par segment et notifications système | accepté le 2026-09-14 | `docs/adr/2026-09-14-sources-audio-fallback-par-segment.md` |
 | 2026-09-09 | Un routeur pour la fenêtre principale | acceptée le 2026-09-09 (décision D0 de la refonte de la gestion des projets, validée par Laurent le 2026-09-09) | `docs/adr/2026-09-09-routeur-de-navigation.md` |
 | 2026-09-09 | ⌘K va à la palette, l'assistant de réunion passe à ⌘⇧K | acceptée le 2026-09-09 (décision D1 de la refonte de la gestion des projets, validée par Laurent le 2026-09-09) | `docs/adr/2026-09-09-palette-commande-k.md` |
 | 2026-09-09 | Refonte de la gestion des projets — bilan des décisions D0 à D18 | accepté, 2026-09-09 | `docs/adr/2026-09-09-gestion-projets-bilan.md` |

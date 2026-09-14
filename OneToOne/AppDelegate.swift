@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Parcours Teams auto-record : trois déclencheurs, une machine à états.
         TeamsAutoRecordCoordinator.shared.start(container: container)
 
+        // Écoute des branchements de micros (spec sources audio §4.2) : le
+        // service doit connaître la liste avant le premier enregistrement.
+        AudioInputDeviceService.shared.startObserving()
+
         // Re-arm pending notifs on launch (reboot resilience)
         let context = container.mainContext
         if let settings = (try? context.fetch(FetchDescriptor<AppSettings>()))?.first {

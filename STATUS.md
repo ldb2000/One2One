@@ -1,6 +1,75 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-09 CEST
+Dernière mise à jour : 2026-09-14 CEST
+
+## Sources audio et cas d'erreur de capture (2026-09-14)
+
+Spec `docs/superpowers/specs/2026-09-14-sources-audio-erreurs-design.md`, plan
+`docs/superpowers/plans/2026-09-14-sources-audio-erreurs.md`, ADR
+`docs/adr/2026-09-14-sources-audio-fallback-par-segment.md`. Branche `feat/sources-audio-erreurs`.
+
+**Livré.** Micro préféré global (Réglages → Entrée audio) ; feuille de choix quand il manque au
+démarrage ; feuille d'aide quand le micro est refusé ; Teams fermé → notification et micro seul ;
+iPhone déconnecté en séance → bascule par segment sur le micro intégré, notification système,
+fusion des segments à l'arrêt, flux live ininterrompu. `MeetingView` a perdu `captureMode` et
+délègue le préflight à `MeetingRecordingCoordinator`. Revue finale : six corrections — reliquat
+système vidé à la bascule, « défaut du système » résolu en UID concret, une seule bascule par
+déconnexion, choix de micro respectant l'enregistrement complémentaire, clause morte du bandeau
+retirée, init privé et troncature de la liste CoreAudio.
+
+**Tests.** `swift test` complet, après la revue finale (six correctifs, ADR « Revue finale ») :
+**2 581 Swift Testing / 290 suites + 1 064 XCTest (1 ignoré) = 3 645**, soit **+3** sur les
+3 642 d'avant la revue (les cas ajoutés à `AudioInputRoutingTests` par la résolution de l'UID
+par défaut), aucun test retiré. Exit 1, pour la seule raison suivante : le test préexistant et
+sans rapport avec ce chantier `RefonteDemoSeedPortfolioTests.swift:202` (« Le projet 1d a trois
+réunions nommées ») compare un delta de jours à une date de semis « hier », une assertion
+dépendante de l'heure d'exécution — c'est le seul test rouge. Note d'exécution : sur cette
+machine, `swift test` complet a échoué deux fois de suite avant ce résultat avec
+`swiftpm-testing-helper … exited with unexpected signal code 5` (`EXC_BREAKPOINT`/`SIGTRAP`),
+un piège de main thread dans SwiftData déclenché depuis un `NSTimer` (`.ips` dans
+`~/Library/Logs/DiagnosticReports/`) — sans rapport identifié avec ce chantier (aucun symbole
+du dépôt dans la pile), non reproduit à la troisième tentative ; à surveiller si ça persiste
+ailleurs. Suites de ce chantier, toutes vertes : `AudioInputRoutingTests`,
+`AudioPermissionHelpTests`, `TapSinkRotationTests`, `AudioRecorderSegmentsTests`,
+`MeetingRecordingCoordinatorTests`.
+
+**Recette manuelle** : à faire par Laurent sur le binaire de cette branche
+(`Scripts/bump-and-build.sh dev`) — cinq scénarios :
+
+1. Réglages → Entrée audio → choisir l'iPhone. Débrancher. Ouvrir une réunion, démarrer : la
+   feuille « Micro indisponible » liste le micro intégré ; « Utiliser » démarre ; le réglage
+   reste sur l'iPhone. → ☐
+2. Rebrancher l'iPhone, démarrer une réunion (préféré présent) : pas de feuille. Débrancher en
+   cours : notification « Bascule sur le micro Microphone MacBook Pro », le vumètre continue,
+   la transcription live continue. Arrêter : un seul WAV, durée cumulée, `recordings/` ne
+   garde pas les segments. → ☐
+3. Réunion avec lien Teams, Teams fermé, permission écran accordée : notification « Aucun flux
+   Teams détecté », pas de bandeau jaune, enregistrement micro seul. → ☐
+4. Réglages Système → Confidentialité → Microphone : décocher OneToOne. Démarrer : feuille
+   d'aide micro, bouton « Ouvrir les Réglages Système… » ouvre le volet Microphone. → ☐
+5. Débrancher **toutes** les entrées externes puis, en séance sur l'iPhone, débrancher
+   l'iPhone sur un Mac de bureau sans micro intégré (ou simuler en posant `devices: []` dans un
+   test) : arrêt propre avec le message « Périphérique audio modifié ». → ☐
+
+**Dettes.** `AudioInputDeviceService` n'est pas testé unitairement. Le retour de l'iPhone ne
+rebascule pas (D6). `AudioInputDeviceService` : un échec partiel d'enregistrement des écouteurs
+CoreAudio laisse le premier posé ; `deleteMeeting()` arrête le recorder sans `endMonitoring()`
+(sans effet grâce aux gardes). `stopForInputLoss()` jette l'URL du fichier fusionné (`_ = stop()`) :
+après une perte totale d'entrée, un échec de liaison ou de bascule, l'audio est sur disque dans
+`recordings/` mais non rattaché à la réunion ; récupérable par l'import d'un WAV orphelin ; piste :
+publier `abandonedRecordingURL`. `inputSwitches` n'a pas encore de consommateur (comme
+`provenanceTimeline` à sa création). `teamsFlowMissing` n'a plus de lecteur hors tests depuis le
+retrait de la clause du bandeau ; conservé parce qu'il documente la décision D3 et la teste.
+`prepareRecordingStart` (`MeetingView`) appartiendrait au coordinateur — déplacement différé, avec
+`startRecording`/`startAppendRecording`/`stopRecordingAndTranscribe`.
+
+**Hook de documentation.** Le hook `documentation-apres-pr` a déclenché pour la première fois de
+bout en bout sur cette PR (#61) : il se déclenche à chaque commande `gh pr` (création **et**
+commentaire), le skill `documenter-application` a réaligné `docs/architecture.md` §8–§10 et le
+glossaire, `DocumentationTests` vert.
+
+**Prochaine action.** PR `feat/sources-audio-erreurs` → `master`, puis décider du choix de micro
+par réunion (D2, alternative) selon l'usage.
 
 ## Refonte de la gestion des projets — lots 0 à 6 (2026-09-09)
 

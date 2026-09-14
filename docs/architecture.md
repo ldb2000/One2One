@@ -398,6 +398,18 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
 - **`AudioWaveform`** — extraction de pics décimés pour la visualisation.
 - **Maintenance audio** : `AudioCompressionService` (WAV → AAC-LC M4A 32 kbps),
   `WavRetentionService` (planifie compression/suppression selon rétention configurée).
+- **`AudioInputDeviceService`** (singleton `@MainActor`, `@Observable`) — énumère les entrées
+  audio CoreAudio (UID, nom, transport, défaut système), observe les branchements et publie un
+  flux `AudioInputEvent`. Il ne décide rien.
+- **`AudioInputRouting`** (enum pure) — verdict de démarrage (préféré présent / absent / aucune
+  entrée) et verdict de repli à la déconnexion (micro intégré par type de transport, défaut
+  système, première restante, arrêt). Spec `docs/superpowers/specs/2026-09-14-sources-audio-erreurs-design.md`.
+- **`AudioPermissionKind` / `MicrophoneSettingsLink`** — quel volet des Réglages Système ouvrir
+  quand le micro ou l'audio système est refusé ; pendant micro de `ScreenRecordingSettingsLink`.
+- **Fallback par segment** : `AudioRecorderService.switchInput(to:)` clôt le WAV courant, en
+  ouvre un second sur la nouvelle entrée et garde le même `TapSink` (le flux live ne voit rien) ;
+  `stop()` fusionne les segments (`mergeSegments`). ADR
+  `docs/adr/2026-09-14-sources-audio-fallback-par-segment.md`.
 
 ### 6.5 Calendrier, Teams, notifications
 
@@ -411,6 +423,11 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
   app native (`msteams://`) avec fallback navigateur.
 - **`MeetingNotificationService`** (singleton, `UNUserNotificationCenterDelegate`) — rappels
   pré-réunion, notifications de début/fin, routage des actions (join / snooze / ouvrir).
+- **`MeetingRecordingCoordinator`** (`Services/Meeting/`, un par fenêtre de réunion) — préflight
+  du démarrage d'enregistrement (permission micro → feuille d'aide, entrée → feuille de choix,
+  Teams fermé → notification et micro seul) et surveillance des entrées en séance (retrait ou
+  interruption de l'engine → bascule par segment et notification, arrêt s'il ne reste rien).
+  `MeetingView` garde le câblage recorder / live / playhead.
 
 ### 6.6 Lancement rapide, menubar, raccourcis, intégrations
 
@@ -612,7 +629,9 @@ graph TD
   `MailBrowserView`, `AgendaInspectorPanel`, `WeekStripView`.
 - **Capture écran** : `CaptureSourcePopover`, `RegionSelectorWindow`.
 - **Réglages** (`SettingsView` + `Views/Settings/`) : maintenance, éditeur/liste de templates,
-  section hotkeys.
+  section hotkeys, section « Entrée audio » (`AudioInputSettingsSection` : micro préféré
+  global, persisté dans `AppSettings.preferredAudioInputUID`, chaîne vide = défaut système ;
+  liste fournie par `AudioInputDeviceService`, voir §6.4).
 - **Menubar** (`Views/Menubar/`) : popovers recherche / note / action / urgent.
 - **Partagé** (`Views/Shared/`, `Views/Layouts/`) : `AddCollaboratorSheet`, `OwnerPickerMenu`,
   `ProjectStatusPalette`, `FlowLayout`, `ColorHex.swift`, `MeetingHeatmapView`.
@@ -746,7 +765,12 @@ s'ajoute dans `MeetingView.swift`, on en retire**.
 - `Resources/**` — tiroir de 396 px, zone « À l'écran », épinglage, annotations, aperçu de
   document (spec §4.1–4.2).
 - `Capture/**` — sélecteur de source, état visible, bande de captures (spec §5.1–5.3) ; la
-  pastille flottante du mode séance vit dans `Views/Capture/Pill/**`.
+  pastille flottante du mode séance vit dans `Views/Capture/Pill/**`. Y vivent aussi les deux
+  feuilles du démarrage d'enregistrement : `AudioInputChoiceSheet` (le micro préféré manque,
+  choisir une autre source) et `AudioPermissionHelpSheet` (micro ou audio système refusé),
+  présentées par le modificateur `RecordingPromptSheets` depuis l'état `RecordingPromptState`
+  porté par `MeetingScreenModel.recordingPrompts` ; la décision qui les ouvre est dans
+  `MeetingRecordingCoordinator` (voir §6.5).
 - `OneOnOne/**` — les deux rôles du 1:1 (D4) : `Manager/` et `ManagerPrep/` (écrans 2a et
   2b), `Collaborator/` et `CollaboratorPrep/` (5a et 5b), `Shared/` pour ce que les deux
   côtés partagent (cartes de personne, composeur, échelle d'humeur, ancienneté).
@@ -770,7 +794,10 @@ personnalisable et la barre latérale droite configurable que la refonte a rempl
 
 **A. Réunion → rapport**
 1. Création/ouverture d'un `Meeting` (manuel, import calendrier, hotkey 1:1, AppIntent).
-2. Enregistrement audio (`AudioRecorderService` → WAV 16 kHz) ou import d'un fichier existant.
+2. Préflight du démarrage (`MeetingRecordingCoordinator`, voir §6.5 : permission micro,
+   entrée audio, mode de capture Teams) puis enregistrement audio (`AudioRecorderService` →
+   WAV 16 kHz ; un fichier par segment d'entrée, fusionnés à l'arrêt, voir §6.4) ou import d'un
+   fichier existant.
 3. Transcription (`TranscriptionService`) : mode `diarizeFirst` → `PyannoteDiarizer` +
    `TurnMerger` + `STTEngine`, puis `SpeakerMatcher` attribue les locuteurs ; persistance en
    `TranscriptSegment`.
@@ -844,7 +871,9 @@ publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec
 | Rappels | EventKit | `RemindersService` (actions → rappels) |
 | Contacts | Contacts | Synchro photos collaborateurs |
 | Notifications | UserNotifications | Rappels de réunion, actions |
-| Capture d'écran | ScreenCaptureKit | Capture de slides |
+| Capture d'écran | ScreenCaptureKit | Capture de slides, audio système des réunions Teams |
+| Microphone | AVFoundation | Permission micro ; refus → `AudioPermissionHelpSheet` (volet Microphone via `MicrophoneSettingsLink`) |
+| Entrées audio | CoreAudio | `AudioInputDeviceService` : énumération des micros, écoute des branchements, liaison de l'entrée sur l'engine |
 | OCR | Vision | Texte des slides |
 | Recherche | CoreSpotlight | Indexation projets/collaborateurs |
 | Raccourcis globaux | Carbon | Hotkeys hors focus |

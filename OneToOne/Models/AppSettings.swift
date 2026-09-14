@@ -209,6 +209,13 @@ final class AppSettings {
         set { teamsAudioCaptureModeRaw = newValue.rawValue }
     }
 
+    /// UID CoreAudio du micro préféré (spec §5). Chaîne vide =
+    /// `AudioInputRouting.systemDefaultUID`, « par défaut du système ». Le nom
+    /// du périphérique n'est jamais stocké : il est relu depuis
+    /// `AudioInputDeviceService` à chaque affichage. Ajout à valeur par défaut →
+    /// migration légère automatique dans `SchemaV3`.
+    var preferredAudioInputUID: String = ""
+
     /// Seuil de confiance pour l'importation automatique (0.0 à 1.0).
     var autoImportThreshold: Double = 0.9
 
