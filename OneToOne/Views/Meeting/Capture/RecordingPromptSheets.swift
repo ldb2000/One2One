@@ -5,7 +5,9 @@ import SwiftUI
 /// vue de réunion reste un routeur.
 struct RecordingPromptSheets: ViewModifier {
     let screen: MeetingScreenModel
-    let onUseDevice: (AudioInputDevice) -> Void
+    /// Le second paramètre est `restartAsAppend` : la vue de réunion route
+    /// vers le démarrage complémentaire plutôt que vers un démarrage neuf.
+    let onUseDevice: (AudioInputDevice, Bool) -> Void
     let onCancelChoice: () -> Void
 
     func body(content: Content) -> some View {
@@ -15,7 +17,11 @@ struct RecordingPromptSheets: ViewModifier {
                 set: { screen.recordingPrompts.audioInputChoice = $0 }
             )) { request in
                 AudioInputChoiceSheet(request: request,
-                                      onUse: { screen.recordingPrompts.audioInputChoice = nil; onUseDevice($0) },
+                                      onUse: { device in
+                                          let asAppend = screen.recordingPrompts.restartAsAppend
+                                          screen.recordingPrompts.audioInputChoice = nil
+                                          onUseDevice(device, asAppend)
+                                      },
                                       onCancel: { screen.recordingPrompts.audioInputChoice = nil; onCancelChoice() })
             }
             .sheet(item: Binding(

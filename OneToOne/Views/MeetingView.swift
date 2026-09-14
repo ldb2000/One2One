@@ -274,7 +274,12 @@ struct MeetingView: View {
         }
         .modifier(RecordingPromptSheets(
             screen: screen,
-            onUseDevice: { device in Task { await startRecording(chosenInputUID: device.uid) } },
+            onUseDevice: { device, asAppend in
+                Task {
+                    if asAppend { await startAppendRecording(chosenInputUID: device.uid) }
+                    else { await startRecording(chosenInputUID: device.uid) }
+                }
+            },
             onCancelChoice: {
                 if !recorder.isRecording(for: meeting.ensuredStableID) {
                     TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
@@ -1047,7 +1052,8 @@ struct MeetingView: View {
     /// Préflight commun aux deux démarrages (spec §4.4) : permission micro,
     /// entrée, mode de capture. `nil` = rien ne démarre — une feuille est
     /// affichée, ou l'erreur est posée et le coordinateur Teams prévenu.
-    private func prepareRecordingStart(chosenInputUID: String?) async -> RecordingStartPlan? {
+    private func prepareRecordingStart(chosenInputUID: String?, isAppend: Bool) async -> RecordingStartPlan? {
+        screen.recordingPrompts.restartAsAppend = isAppend
         let outcome = await recordingCoordinator.prepareStart(
             preferredUID: settings.preferredAudioInputUID,
             chosenUID: chosenInputUID,
@@ -1075,7 +1081,7 @@ struct MeetingView: View {
             TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
             return
         }
-        guard let plan = await prepareRecordingStart(chosenInputUID: chosenInputUID) else { return }
+        guard let plan = await prepareRecordingStart(chosenInputUID: chosenInputUID, isAppend: false) else { return }
         // Ouvre le flux live AVANT de démarrer le recorder (la continuation doit
         // exister dès le 1er tap pour que start() puisse construire le TapSink),
         // mais on ne lance sa consommation (begin) qu'APRÈS le succès de start() :
@@ -1131,16 +1137,16 @@ struct MeetingView: View {
     /// Démarre un enregistrement complémentaire qui sera concaténé au WAV
     /// existant lors du `stop()`. Le WAV courant est conservé et fusionné
     /// avec le nouveau pour produire un fichier unique.
-    private func startAppendRecording() async {
+    private func startAppendRecording(chosenInputUID: String? = nil) async {
         guard let existing = meeting.wavFileURL, fileExists(existing) else {
-            await startRecording()
+            await startRecording(chosenInputUID: chosenInputUID)
             return
         }
         if recorder.isRecording {
             recorder.lastError = "Un enregistrement est déjà en cours."
             return
         }
-        guard let plan = await prepareRecordingStart(chosenInputUID: nil) else { return }
+        guard let plan = await prepareRecordingStart(chosenInputUID: chosenInputUID, isAppend: true) else { return }
         pendingAppendBaseURL = existing
         // Même câblage que startRecording() : le flux live est préparé avant
         // start() mais sa consommation (begin) n'est lancée qu'après succès,

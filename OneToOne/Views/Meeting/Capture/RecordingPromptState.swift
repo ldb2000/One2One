@@ -20,4 +20,10 @@ struct AudioInputChoiceRequest: Identifiable, Equatable, Sendable {
 struct RecordingPromptState: Equatable, Sendable {
     var audioInputChoice: AudioInputChoiceRequest?
     var permissionHelp: AudioPermissionKind?
+    /// Le démarrage qui a ouvert la feuille de choix était-il un enregistrement
+    /// **complémentaire** ? Sans cette mémoire, le « Utiliser » de la feuille
+    /// repartait toujours sur un démarrage neuf : le nouveau WAV remplaçait
+    /// `meeting.wavFilePath` et l'enregistrement précédent restait orphelin
+    /// sur le disque.
+    var restartAsAppend = false
 }
