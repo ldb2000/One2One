@@ -31,7 +31,9 @@ final class AudioInputDeviceService: AudioInputDeviceProviding {
     @ObservationIgnored private var continuations: [UUID: AsyncStream<AudioInputEvent>.Continuation] = [:]
     @ObservationIgnored private var isObserving = false
 
-    init() {
+    /// Privé : le bloc d'écoute CoreAudio réveille `.shared` en dur, une
+    /// seconde instance observerait donc le singleton et non elle-même.
+    private init() {
         refresh()
     }
 
@@ -132,6 +134,10 @@ final class AudioInputDeviceService: AudioInputDeviceProviding {
         let count = Int(size) / MemoryLayout<AudioDeviceID>.size
         var ids = [AudioDeviceID](repeating: 0, count: count)
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return [] }
+        // CoreAudio réécrit `size` avec ce qu'il a réellement rendu : un
+        // périphérique débranché entre les deux appels laisserait sinon des
+        // identifiants nuls en queue de tableau.
+        ids = Array(ids.prefix(Int(size) / MemoryLayout<AudioDeviceID>.size))
         return ids
     }
 
