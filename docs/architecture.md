@@ -398,6 +398,18 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
 - **`AudioWaveform`** — extraction de pics décimés pour la visualisation.
 - **Maintenance audio** : `AudioCompressionService` (WAV → AAC-LC M4A 32 kbps),
   `WavRetentionService` (planifie compression/suppression selon rétention configurée).
+- **`AudioInputDeviceService`** (singleton `@MainActor`, `@Observable`) — énumère les entrées
+  audio CoreAudio (UID, nom, transport, défaut système), observe les branchements et publie un
+  flux `AudioInputEvent`. Il ne décide rien.
+- **`AudioInputRouting`** (enum pure) — verdict de démarrage (préféré présent / absent / aucune
+  entrée) et verdict de repli à la déconnexion (micro intégré par type de transport, défaut
+  système, première restante, arrêt). Spec `docs/superpowers/specs/2026-09-14-sources-audio-erreurs-design.md`.
+- **`AudioPermissionKind` / `MicrophoneSettingsLink`** — quel volet des Réglages Système ouvrir
+  quand le micro ou l'audio système est refusé ; pendant micro de `ScreenRecordingSettingsLink`.
+- **Fallback par segment** : `AudioRecorderService.switchInput(to:)` clôt le WAV courant, en
+  ouvre un second sur la nouvelle entrée et garde le même `TapSink` (le flux live ne voit rien) ;
+  `stop()` fusionne les segments (`mergeSegments`). ADR
+  `docs/adr/2026-09-14-sources-audio-fallback-par-segment.md`.
 
 ### 6.5 Calendrier, Teams, notifications
 
@@ -411,6 +423,11 @@ diarisé, `speaker != nil` = résolu vers un `Collaborator`.
   app native (`msteams://`) avec fallback navigateur.
 - **`MeetingNotificationService`** (singleton, `UNUserNotificationCenterDelegate`) — rappels
   pré-réunion, notifications de début/fin, routage des actions (join / snooze / ouvrir).
+- **`MeetingRecordingCoordinator`** (`Services/Meeting/`, un par fenêtre de réunion) — préflight
+  du démarrage d'enregistrement (permission micro → feuille d'aide, entrée → feuille de choix,
+  Teams fermé → notification et micro seul) et surveillance des entrées en séance (retrait ou
+  interruption de l'engine → bascule par segment et notification, arrêt s'il ne reste rien).
+  `MeetingView` garde le câblage recorder / live / playhead.
 
 ### 6.6 Lancement rapide, menubar, raccourcis, intégrations
 

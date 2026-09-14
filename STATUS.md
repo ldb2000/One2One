@@ -1,6 +1,57 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-09 CEST
+Dernière mise à jour : 2026-09-14 CEST
+
+## Sources audio et cas d'erreur de capture (2026-09-14)
+
+Spec `docs/superpowers/specs/2026-09-14-sources-audio-erreurs-design.md`, plan
+`docs/superpowers/plans/2026-09-14-sources-audio-erreurs.md`, ADR
+`docs/adr/2026-09-14-sources-audio-fallback-par-segment.md`. Branche `feat/sources-audio-erreurs`.
+
+**Livré.** Micro préféré global (Réglages → Entrée audio) ; feuille de choix quand il manque au
+démarrage ; feuille d'aide quand le micro est refusé ; Teams fermé → notification et micro seul ;
+iPhone déconnecté en séance → bascule par segment sur le micro intégré, notification système,
+fusion des segments à l'arrêt, flux live ininterrompu. `MeetingView` a perdu `captureMode` et
+délègue le préflight à `MeetingRecordingCoordinator`.
+
+**Tests.** `swift test` complet : **2 578 Swift Testing / 290 suites + 1 064 XCTest
+(1 ignoré) = 3 642**, soit **+43** sur les 3 599 de la base, aucun test retiré. Deux échecs
+préexistants, sans rapport avec ce chantier (à traiter séparément) : le test de date de
+`RefonteDemoSeedPortfolioTests` (« Le projet 1d a trois réunions nommées ») dépend de l'heure
+d'exécution ; le garde-fou `MainRouterTests.aucuneSuiteDePreferencesNommee` signale que
+`Tests/MeetingRecordingCoordinatorTests.swift` ouvre une suite `UserDefaults(suiteName:)`
+nommée au lieu de `ReglagesEnMemoire`. Nouvelles suites de ce chantier, toutes vertes :
+`AudioInputRoutingTests`, `AudioPermissionHelpTests`, `TapSinkRotationTests`,
+`AudioRecorderSegmentsTests`, `MeetingRecordingCoordinatorTests`.
+
+**Recette manuelle** : à faire par Laurent sur le binaire de cette branche
+(`Scripts/bump-and-build.sh dev`) — cinq scénarios :
+
+1. Réglages → Entrée audio → choisir l'iPhone. Débrancher. Ouvrir une réunion, démarrer : la
+   feuille « Micro indisponible » liste le micro intégré ; « Utiliser » démarre ; le réglage
+   reste sur l'iPhone. → ☐
+2. Rebrancher l'iPhone, démarrer une réunion (préféré présent) : pas de feuille. Débrancher en
+   cours : notification « Bascule sur le micro Microphone MacBook Pro », le vumètre continue,
+   la transcription live continue. Arrêter : un seul WAV, durée cumulée, `recordings/` ne
+   garde pas les segments. → ☐
+3. Réunion avec lien Teams, Teams fermé, permission écran accordée : notification « Aucun flux
+   Teams détecté », pas de bandeau jaune, enregistrement micro seul. → ☐
+4. Réglages Système → Confidentialité → Microphone : décocher OneToOne. Démarrer : feuille
+   d'aide micro, bouton « Ouvrir les Réglages Système… » ouvre le volet Microphone. → ☐
+5. Débrancher **toutes** les entrées externes puis, en séance sur l'iPhone, débrancher
+   l'iPhone sur un Mac de bureau sans micro intégré (ou simuler en posant `devices: []` dans un
+   test) : arrêt propre avec le message « Périphérique audio modifié ». → ☐
+
+**Dettes.** En mode « ajouter un enregistrement », si le micro préféré manque, la feuille de choix
+relance `startRecording` et non `startAppendRecording` : l'enregistrement remplace au lieu
+d'ajouter. `AudioInputDeviceService` n'est pas testé unitairement. Le retour de l'iPhone ne
+rebascule pas (D6). `AudioInputDeviceService` : un échec partiel d'enregistrement des écouteurs
+CoreAudio laisse le premier posé ; `deleteMeeting()` arrête le recorder sans `endMonitoring()`
+(sans effet grâce aux gardes) ; `teamsFlowMissing` n'est pas observé par SwiftUI (correct par
+ordre d'exécution).
+
+**Prochaine action.** PR `feat/sources-audio-erreurs` → `master`, puis décider du choix de micro
+par réunion (D2, alternative) selon l'usage.
 
 ## Refonte de la gestion des projets — lots 0 à 6 (2026-09-09)
 
