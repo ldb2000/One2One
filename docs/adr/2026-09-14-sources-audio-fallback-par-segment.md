@@ -62,7 +62,7 @@ les relie et porte la surveillance.
   assumé : le préflight et la surveillance portent un état propre à une fenêtre de réunion
   donnée, qu'un singleton partagerait entre fenêtres à tort.
 - Le câblage recorder / transcription live / playhead reste dans `MeetingView`, qui a
-  **grossi** de +43/−10 lignes malgré la règle « rien ne s'ajoute » ; la décision est dans le
+  **grossi** de +50/−11 lignes malgré la règle « rien ne s'ajoute » ; la décision est dans le
   coordinateur, la colle dans la vue. Dette : sortir `startRecording`, `startAppendRecording`,
   `stopRecordingAndTranscribe` de `MeetingView`.
 - À la rotation de segment, `TapSink.rotate` **draine** l'ancien convertisseur jusqu'à

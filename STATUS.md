@@ -51,9 +51,7 @@ ailleurs. Suites de ce chantier, toutes vertes : `AudioInputRoutingTests`,
    l'iPhone sur un Mac de bureau sans micro intégré (ou simuler en posant `devices: []` dans un
    test) : arrêt propre avec le message « Périphérique audio modifié ». → ☐
 
-**Dettes.** En mode « ajouter un enregistrement », si le micro préféré manque, la feuille de choix
-relance `startRecording` et non `startAppendRecording` : l'enregistrement remplace au lieu
-d'ajouter. `AudioInputDeviceService` n'est pas testé unitairement. Le retour de l'iPhone ne
+**Dettes.** `AudioInputDeviceService` n'est pas testé unitairement. Le retour de l'iPhone ne
 rebascule pas (D6). `AudioInputDeviceService` : un échec partiel d'enregistrement des écouteurs
 CoreAudio laisse le premier posé ; `deleteMeeting()` arrête le recorder sans `endMonitoring()`
 (sans effet grâce aux gardes). `stopForInputLoss()` jette l'URL du fichier fusionné (`_ = stop()`) :
