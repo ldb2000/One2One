@@ -475,8 +475,9 @@ final class AudioRecorderService: NSObject, ObservableObject {
 /// n'importe quel thread.
 final class TapSink: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.onetoone.audio.write")
-    private let converter: AVAudioConverter
-    private let targetFormat: AVAudioFormat
+    /// `var` : remplacé à chaque rotation de segment, sous `queue`.
+    private var converter: AVAudioConverter
+    let targetFormat: AVAudioFormat
     private var file: AVAudioFile?
     private let continuation: AsyncStream<[Float]>.Continuation?
     /// Remonte l'énergie des deux pistes au service (main actor), un appel par
@@ -519,6 +520,17 @@ final class TapSink: @unchecked Sendable {
     /// marquer l'engagement (« la seconde piste tourne ») ; il ne date rien.
     /// Appelée une fois, au démarrage réussi de la capture système.
     func engageSystemTrack(startedAt: Date) { queue.sync { systemTrackStartedAt = startedAt } }
+
+    /// Change de fichier et de convertisseur **sans** toucher à la continuation
+    /// ni à l'horloge du flux : c'est le cœur du fallback par segment (spec D1).
+    /// L'ancien `AVAudioFile` est relâché ici, ce qui finalise son en-tête WAV ;
+    /// `publishedSampleCount` continue de courir, le flux live ne voit rien.
+    func rotate(file: AVAudioFile, converter: AVAudioConverter) {
+        queue.sync {
+            self.file = file
+            self.converter = converter
+        }
+    }
 
     /// Dépose des échantillons système dans le tampon du prochain bloc micro.
     /// `async` et non `sync` : appelée pour chaque buffer capturé, directement
