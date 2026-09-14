@@ -60,7 +60,6 @@ final class AudioInputDeviceService: AudioInputDeviceProviding {
     /// (`AppDelegate`) ; un second appel est sans effet.
     func startObserving() {
         guard !isObserving else { return }
-        isObserving = true
         var devicesAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -73,8 +72,18 @@ final class AudioInputDeviceService: AudioInputDeviceProviding {
             Task { @MainActor in AudioInputDeviceService.shared.refresh() }
         }
         let systemObject = AudioObjectID(kAudioObjectSystemObject)
-        AudioObjectAddPropertyListenerBlock(systemObject, &devicesAddress, DispatchQueue.main, block)
-        AudioObjectAddPropertyListenerBlock(systemObject, &defaultAddress, DispatchQueue.main, block)
+        let devicesStatus = AudioObjectAddPropertyListenerBlock(systemObject, &devicesAddress, DispatchQueue.main, block)
+        let defaultStatus = AudioObjectAddPropertyListenerBlock(systemObject, &defaultAddress, DispatchQueue.main, block)
+        guard devicesStatus == noErr, defaultStatus == noErr else {
+            if devicesStatus != noErr {
+                inputLog.error("AudioInput: échec de l'écouteur kAudioHardwarePropertyDevices, statut \(devicesStatus, privacy: .public)")
+            }
+            if defaultStatus != noErr {
+                inputLog.error("AudioInput: échec de l'écouteur kAudioHardwarePropertyDefaultInputDevice, statut \(defaultStatus, privacy: .public)")
+            }
+            return
+        }
+        isObserving = true
     }
 
     private func broadcast(_ event: AudioInputEvent) {
