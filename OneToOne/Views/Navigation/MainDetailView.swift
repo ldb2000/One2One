@@ -14,6 +14,14 @@ import SwiftData
 /// deux écrans de plus. Rien d'autre ne change de rendu : chaque entrée de la
 /// barre latérale retrouve ici exactement la destination qu'elle avait en
 /// `NavigationLink`.
+///
+/// **Une `NavigationStack` propre, identifiée par la route.** La colonne détail
+/// d'un `NavigationSplitView` a une pile implicite, et plusieurs écrans y
+/// poussent une vue (`MeetingsListView` → `MeetingView`, la fiche d'un
+/// collaborateur → ses réunions). Changer la route ne remplaçait que la racine
+/// de cette pile : la réunion poussée restait par-dessus, et la barre latérale
+/// semblait morte. `.id(pileDeDetail)` recrée la pile à chaque route, donc la
+/// vide — sauf entre deux onglets d'un même projet (`MainRoute.pileDeDetail`).
 struct MainDetailView: View {
 
     @Environment(MainRouter.self) private var router
@@ -22,6 +30,14 @@ struct MainDetailView: View {
     @Query private var entities: [Entity]
 
     var body: some View {
+        NavigationStack {
+            ecran
+        }
+        .id((router.route ?? .dashboard).pileDeDetail)
+    }
+
+    @ViewBuilder
+    private var ecran: some View {
         switch router.route ?? .dashboard {
         case .dashboard:
             DashboardView()

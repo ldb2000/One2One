@@ -1,6 +1,20 @@
 # État du projet
 
-Dernière mise à jour : 2026-09-09 CEST
+Dernière mise à jour : 2026-09-14 CEST
+
+## Navigation — la barre latérale ne répondait plus après l'ouverture d'une réunion (2026-09-14)
+
+Branche `fix/navigation-pile-detail`. **Symptôme** : après un clic sur une réunion dans la liste,
+aucune entrée de la barre latérale ne changeait l'écran. **Cause** : `MeetingsListView` pousse
+`MeetingView` par un `NavigationLink` inline dans la pile **implicite** de la colonne détail ;
+depuis le routeur (D0), la colonne est un `switch` sur la route, qui ne remplace que la **racine**
+de cette pile — l'écran demandé se montait sous la réunion, invisible. Reproduit hors application
+(projet SwiftUI minimal, macOS 26.5) puis dans le bundle de recette (`recette-run.sh --screen p2a`,
+clics réels Réunions → réunion → Notes). **Correctif** : `MainDetailView` porte sa propre
+`NavigationStack`, identifiée par la fonction pure `MainRoute.pileDeDetail` (les onglets d'un
+même projet partagent l'identité, `switchTab` ne recrée rien). Tests : `Tests/MainDetailStackTests.swift`.
+Effet de bord visible : la réunion ouverte depuis la liste affiche désormais le chevron de retour
+natif de la pile dans la barre de titre.
 
 ## Refonte de la gestion des projets — lots 0 à 6 (2026-09-09)
 

@@ -78,6 +78,27 @@ enum MainRoute: Hashable, Sendable {
     case collaborator(UUID)
     /// La fiche d'une entité (`EntityDetailView`).
     case entity(PersistentIdentifier)
+
+    // MARK: Pile de la colonne détail
+
+    /// L'identité de la `NavigationStack` de la colonne détail
+    /// (`MainDetailView`).
+    ///
+    /// **Pourquoi la colonne a besoin d'une identité.** Plusieurs écrans
+    /// poussent une vue dans la pile de la colonne — la liste des réunions
+    /// pousse `MeetingView`, la fiche d'un collaborateur aussi. Le routeur ne
+    /// remplace que la **racine** de cette pile : ce qui a été poussé
+    /// par-dessus y reste, et l'écran demandé se monte sous la réunion,
+    /// invisible. La barre latérale semblait morte (constaté le 2026-09-14).
+    /// Une pile dont l'identité change à chaque route est recréée, donc vidée.
+    ///
+    /// **Les onglets d'un projet partagent une identité.** Changer d'onglet
+    /// n'est pas quitter l'écran (`MainRouter.switchTab` n'empile rien) ; recréer
+    /// la pile à chaque onglet détruirait l'état de `ProjectScreen`.
+    var pileDeDetail: MainRoute {
+        if case .project(let id, _) = self { return .project(id, .pilotage) }
+        return self
+    }
 }
 
 /// Le champ de l'écran projet qu'une action distante demande d'ouvrir en
