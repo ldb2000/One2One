@@ -12,18 +12,26 @@ Spec `docs/superpowers/specs/2026-09-14-sources-audio-erreurs-design.md`, plan
 démarrage ; feuille d'aide quand le micro est refusé ; Teams fermé → notification et micro seul ;
 iPhone déconnecté en séance → bascule par segment sur le micro intégré, notification système,
 fusion des segments à l'arrêt, flux live ininterrompu. `MeetingView` a perdu `captureMode` et
-délègue le préflight à `MeetingRecordingCoordinator`.
+délègue le préflight à `MeetingRecordingCoordinator`. Revue finale : six corrections — reliquat
+système vidé à la bascule, « défaut du système » résolu en UID concret, une seule bascule par
+déconnexion, choix de micro respectant l'enregistrement complémentaire, clause morte du bandeau
+retirée, init privé et troncature de la liste CoreAudio.
 
-**Tests.** `swift test` complet : **2 578 Swift Testing / 290 suites + 1 064 XCTest
-(1 ignoré) = 3 642**, soit **+43** sur les 3 599 de la base, aucun test retiré. `MainRouterTests`
-était rouge une première fois (`Tests/MeetingRecordingCoordinatorTests.swift` ouvrait une suite
-`UserDefaults(suiteName:)` nommée au lieu de `ReglagesEnMemoire`) : corrigé, la suite est de
-nouveau verte. Le seul test rouge de la suite complète, désormais, est préexistant et sans
-rapport avec ce chantier : `RefonteDemoSeedPortfolioTests.swift:202` (« Le projet 1d a trois
+**Tests.** `swift test` complet, après la revue finale (six correctifs, ADR « Revue finale ») :
+**2 581 Swift Testing / 290 suites + 1 064 XCTest (1 ignoré) = 3 645**, soit **+3** sur les
+3 642 d'avant la revue (les cas ajoutés à `AudioInputRoutingTests` par la résolution de l'UID
+par défaut), aucun test retiré. Exit 1, pour la seule raison suivante : le test préexistant et
+sans rapport avec ce chantier `RefonteDemoSeedPortfolioTests.swift:202` (« Le projet 1d a trois
 réunions nommées ») compare un delta de jours à une date de semis « hier », une assertion
-dépendante de l'heure d'exécution. Nouvelles suites de ce chantier, toutes vertes :
-`AudioInputRoutingTests`, `AudioPermissionHelpTests`, `TapSinkRotationTests`,
-`AudioRecorderSegmentsTests`, `MeetingRecordingCoordinatorTests`.
+dépendante de l'heure d'exécution — c'est le seul test rouge. Note d'exécution : sur cette
+machine, `swift test` complet a échoué deux fois de suite avant ce résultat avec
+`swiftpm-testing-helper … exited with unexpected signal code 5` (`EXC_BREAKPOINT`/`SIGTRAP`),
+un piège de main thread dans SwiftData déclenché depuis un `NSTimer` (`.ips` dans
+`~/Library/Logs/DiagnosticReports/`) — sans rapport identifié avec ce chantier (aucun symbole
+du dépôt dans la pile), non reproduit à la troisième tentative ; à surveiller si ça persiste
+ailleurs. Suites de ce chantier, toutes vertes : `AudioInputRoutingTests`,
+`AudioPermissionHelpTests`, `TapSinkRotationTests`, `AudioRecorderSegmentsTests`,
+`MeetingRecordingCoordinatorTests`.
 
 **Recette manuelle** : à faire par Laurent sur le binaire de cette branche
 (`Scripts/bump-and-build.sh dev`) — cinq scénarios :
@@ -48,8 +56,14 @@ relance `startRecording` et non `startAppendRecording` : l'enregistrement rempla
 d'ajouter. `AudioInputDeviceService` n'est pas testé unitairement. Le retour de l'iPhone ne
 rebascule pas (D6). `AudioInputDeviceService` : un échec partiel d'enregistrement des écouteurs
 CoreAudio laisse le premier posé ; `deleteMeeting()` arrête le recorder sans `endMonitoring()`
-(sans effet grâce aux gardes) ; `teamsFlowMissing` n'est pas observé par SwiftUI (correct par
-ordre d'exécution).
+(sans effet grâce aux gardes). `stopForInputLoss()` jette l'URL du fichier fusionné (`_ = stop()`) :
+après une perte totale d'entrée, un échec de liaison ou de bascule, l'audio est sur disque dans
+`recordings/` mais non rattaché à la réunion ; récupérable par l'import d'un WAV orphelin ; piste :
+publier `abandonedRecordingURL`. `inputSwitches` n'a pas encore de consommateur (comme
+`provenanceTimeline` à sa création). `teamsFlowMissing` n'a plus de lecteur hors tests depuis le
+retrait de la clause du bandeau ; conservé parce qu'il documente la décision D3 et la teste.
+`prepareRecordingStart` (`MeetingView`) appartiendrait au coordinateur — déplacement différé, avec
+`startRecording`/`startAppendRecording`/`stopRecordingAndTranscribe`.
 
 **Prochaine action.** PR `feat/sources-audio-erreurs` → `master`, puis décider du choix de micro
 par réunion (D2, alternative) selon l'usage.
