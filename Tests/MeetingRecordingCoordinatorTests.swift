@@ -223,4 +223,18 @@ struct MeetingRecordingCoordinatorTests {
         #expect(h.recorder.switchedTo == [macBook])
         h.coordinator.endMonitoring()
     }
+
+    @Test("Un coordinateur libéré pendant la surveillance annule sa tâche et libère la continuation")
+    func deinitCancelsMonitoring() async throws {
+        let h = makeHarness(devices: [macBook])
+        var coordinator: MeetingRecordingCoordinator? = MeetingRecordingCoordinator(
+            devices: h.devices, recorder: h.recorder, notifier: h.notifier,
+            isTeamsRunning: { true }, hasScreenPermission: { true }, microphonePermission: { .granted })
+        coordinator?.beginMonitoring()
+        coordinator = nil
+        for _ in 0..<50 where h.devices.terminatedCount == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(h.devices.terminatedCount == 1)
+    }
 }

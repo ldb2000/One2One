@@ -63,7 +63,10 @@ final class MeetingRecordingCoordinator {
     /// parlerait d'autre chose (spec §4.4, point 3).
     private(set) var teamsFlowMissing = false
 
-    private var monitoringTask: Task<Void, Never>?
+    // `nonisolated(unsafe)` : seule `deinit` (nonisolated sur une classe
+    // `@MainActor`) y accède hors du main actor, et uniquement pour annuler —
+    // `Task.cancel()` est thread-safe.
+    nonisolated(unsafe) private var monitoringTask: Task<Void, Never>?
 
     init(devices: any AudioInputDeviceProviding,
          recorder: any RecordingInputSwitching,
@@ -77,6 +80,15 @@ final class MeetingRecordingCoordinator {
         self.isTeamsRunning = isTeamsRunning
         self.hasScreenPermission = hasScreenPermission
         self.microphonePermission = microphonePermission
+    }
+
+    deinit {
+        // Le coordinateur meurt avec sa fenêtre : sans cette annulation la
+        // tâche de surveillance garderait une continuation enregistrée dans
+        // `AudioInputDeviceService` jusqu'au prochain événement. Le crochet du
+        // recorder (`onInputInterrupted`) capture `self` faiblement et devient
+        // un no-op ; `endMonitoring()` reste le chemin nominal depuis la vue.
+        monitoringTask?.cancel()
     }
 
     /// Le coordinateur de production, sur les singletons.

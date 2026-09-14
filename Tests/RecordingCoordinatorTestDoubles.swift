@@ -7,6 +7,7 @@ import Foundation
 final class FakeAudioInputDevices: AudioInputDeviceProviding {
     var devices: [AudioInputDevice]
     var refreshCount = 0
+    var terminatedCount = 0
     private var continuations: [AsyncStream<AudioInputEvent>.Continuation] = []
 
     init(devices: [AudioInputDevice]) { self.devices = devices }
@@ -14,7 +15,12 @@ final class FakeAudioInputDevices: AudioInputDeviceProviding {
     func refresh() { refreshCount += 1 }
 
     func events() -> AsyncStream<AudioInputEvent> {
-        AsyncStream { self.continuations.append($0) }
+        AsyncStream { continuation in
+            self.continuations.append(continuation)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.terminatedCount += 1 }
+            }
+        }
     }
 
     func emit(_ event: AudioInputEvent) { continuations.forEach { $0.yield(event) } }
