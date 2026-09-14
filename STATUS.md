@@ -63,6 +63,11 @@ retrait de la clause du bandeau ; conservé parce qu'il documente la décision D
 `prepareRecordingStart` (`MeetingView`) appartiendrait au coordinateur — déplacement différé, avec
 `startRecording`/`startAppendRecording`/`stopRecordingAndTranscribe`.
 
+**Hook de documentation.** Le hook `documentation-apres-pr` a déclenché pour la première fois de
+bout en bout sur cette PR (#61) : il se déclenche à chaque commande `gh pr` (création **et**
+commentaire), le skill `documenter-application` a réaligné `docs/architecture.md` §8–§10 et le
+glossaire, `DocumentationTests` vert.
+
 **Prochaine action.** PR `feat/sources-audio-erreurs` → `master`, puis décider du choix de micro
 par réunion (D2, alternative) selon l'usage.
 
