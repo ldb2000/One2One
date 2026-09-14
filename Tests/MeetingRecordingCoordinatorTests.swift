@@ -27,10 +27,7 @@ struct MeetingRecordingCoordinatorTests {
         let fakeDevices = FakeAudioInputDevices(devices: devices)
         let recorder = FakeRecorder()
         let notifier = FakeNotifier()
-        let suite = "MeetingRecordingCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let screen = MeetingScreenModel(defaults: defaults)
+        let screen = MeetingScreenModel(defaults: ReglagesEnMemoire())
         let coordinator = MeetingRecordingCoordinator(
             devices: fakeDevices, recorder: recorder, notifier: notifier,
             isTeamsRunning: { teamsRunning },

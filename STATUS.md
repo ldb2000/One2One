@@ -15,12 +15,13 @@ fusion des segments à l'arrêt, flux live ininterrompu. `MeetingView` a perdu `
 délègue le préflight à `MeetingRecordingCoordinator`.
 
 **Tests.** `swift test` complet : **2 578 Swift Testing / 290 suites + 1 064 XCTest
-(1 ignoré) = 3 642**, soit **+43** sur les 3 599 de la base, aucun test retiré. Deux échecs
-préexistants, sans rapport avec ce chantier (à traiter séparément) : le test de date de
-`RefonteDemoSeedPortfolioTests` (« Le projet 1d a trois réunions nommées ») dépend de l'heure
-d'exécution ; le garde-fou `MainRouterTests.aucuneSuiteDePreferencesNommee` signale que
-`Tests/MeetingRecordingCoordinatorTests.swift` ouvre une suite `UserDefaults(suiteName:)`
-nommée au lieu de `ReglagesEnMemoire`. Nouvelles suites de ce chantier, toutes vertes :
+(1 ignoré) = 3 642**, soit **+43** sur les 3 599 de la base, aucun test retiré. `MainRouterTests`
+était rouge une première fois (`Tests/MeetingRecordingCoordinatorTests.swift` ouvrait une suite
+`UserDefaults(suiteName:)` nommée au lieu de `ReglagesEnMemoire`) : corrigé, la suite est de
+nouveau verte. Le seul test rouge de la suite complète, désormais, est préexistant et sans
+rapport avec ce chantier : `RefonteDemoSeedPortfolioTests.swift:202` (« Le projet 1d a trois
+réunions nommées ») compare un delta de jours à une date de semis « hier », une assertion
+dépendante de l'heure d'exécution. Nouvelles suites de ce chantier, toutes vertes :
 `AudioInputRoutingTests`, `AudioPermissionHelpTests`, `TapSinkRotationTests`,
 `AudioRecorderSegmentsTests`, `MeetingRecordingCoordinatorTests`.
 
