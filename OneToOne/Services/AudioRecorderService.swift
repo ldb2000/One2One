@@ -699,6 +699,15 @@ final class TapSink: @unchecked Sendable {
     func rotate(file: AVAudioFile, converter: AVAudioConverter) {
         queue.sync {
             drainConverter()
+            // Le reliquat système accumulé pendant la bascule est jeté, comme
+            // il l'est en pause : l'engine est arrêté 100 à 500 ms pendant que
+            // `SystemAudioCapture` continue d'alimenter le tampon. Perdre
+            // l'audio distant de ce trou est inévitable ; le garder décalerait
+            // toute la suite de l'enregistrement — `takeAligned` plafonne le
+            // reliquat à 2 s sans jamais le drainer, et la voix distante serait
+            // écrite avec ce retard jusqu'à l'arrêt.
+            pendingSystemSamples.removeAll(keepingCapacity: true)
+            didReportPendingOverflow = false
             self.file = file
             self.converter = converter
         }
