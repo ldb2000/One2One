@@ -51,12 +51,22 @@ final class AudioRecorderSegmentsTests: XCTestCase {
         XCTAssertEqual(Double(merged.length) / merged.processingFormat.sampleRate, 3, accuracy: 0.01)
     }
 
+    /// Nombre de `.wav` dans `recordingsDirectory`, pour vérifier qu'une fusion
+    /// ratée n'y laisse aucun fichier de sortie orphelin.
+    private func wavCountInRecordingsDirectory() throws -> Int {
+        try FileManager.default.contentsOfDirectory(
+            at: AudioRecorderService.recordingsDirectory, includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "wav" }.count
+    }
+
     func testMissingSegmentFailsWithoutDeletingOthers() throws {
         let a = try writeWav(seconds: 1)
         defer { try? FileManager.default.removeItem(at: a) }
         let absent = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).wav")
+        let before = try wavCountInRecordingsDirectory()
         XCTAssertThrowsError(try AudioRecorderService.mergeSegments([a, absent]))
         XCTAssertTrue(FileManager.default.fileExists(atPath: a.path), "rien n'est supprimé si la fusion échoue")
+        XCTAssertEqual(try wavCountInRecordingsDirectory(), before, "aucun fichier de sortie orphelin dans recordingsDirectory")
     }
 
     func testEmptyListThrows() {

@@ -161,7 +161,12 @@ final class AudioRecorderService: NSObject, ObservableObject {
         guard let premier = urls.first else { throw AudioError.startFailed }
         guard urls.count > 1 else { return premier }
         let output = recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
-        try concatenateWAVs(urls, output: output)
+        do {
+            try concatenateWAVs(urls, output: output)
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            throw error
+        }
         for url in urls { try? FileManager.default.removeItem(at: url) }
         return output
     }
@@ -236,7 +241,6 @@ final class AudioRecorderService: NSObject, ObservableObject {
             audioLog.error("AudioRecorder: bind input \(uid ?? "default", privacy: .public) failed \(status)")
             throw AudioError.inputUnavailable
         }
-        currentInputUID = uid
     }
 
     /// `captureMode` vaut `.microOnly` par défaut : l'enregistrement classique
@@ -296,6 +300,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
                 name: .AVAudioEngineConfigurationChange, object: engine)
 
             isRecording = true
+            currentInputUID = inputUID
             isPaused = false
             elapsedSeconds = 0
             pausedAccumulated = 0
@@ -416,32 +421,41 @@ final class AudioRecorderService: NSObject, ObservableObject {
     /// Ferme le segment courant, en ouvre un nouveau sur `device` (`nil` =
     /// défaut système) et rouvre le tap sur le **même** `TapSink` : le flux live
     /// ne voit aucune coupure, seul le fichier est découpé. Une pause en cours
-    /// est conservée (`setCapturing` reste faux).
+    /// est conservée (`setCapturing` reste faux). Si une étape échoue,
+    /// l'enregistrement est arrêté proprement (`stopForInputLoss`) avant de
+    /// relancer l'erreur : le recorder ne reste jamais moteur arrêté avec
+    /// `isRecording` vrai.
     func switchInput(to device: AudioInputDevice?) throws {
         guard isRecording, let sink else { return }
-        let node = engine.inputNode
-        node.removeTap(onBus: 0)
-        engine.stop()
-        engine.reset()
-        try bindInput(uid: device?.uid)
-        let inputFormat = node.outputFormat(forBus: 0)
-        guard let conv = AVAudioConverter(from: inputFormat, to: sink.targetFormat) else {
-            throw AudioError.startFailed
+        do {
+            let node = engine.inputNode
+            node.removeTap(onBus: 0)
+            engine.stop()
+            engine.reset()
+            try bindInput(uid: device?.uid)
+            let inputFormat = node.outputFormat(forBus: 0)
+            guard let conv = AVAudioConverter(from: inputFormat, to: sink.targetFormat) else {
+                throw AudioError.startFailed
+            }
+            let url = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
+            let file = try AVAudioFile(forWriting: url, settings: Self.wavSettings)
+            if let clos = currentFileURL { segmentURLs.append(clos) }
+            sink.rotate(file: file, converter: conv)
+            currentFileURL = url
+            node.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                guard let samples = sink.process(buffer) else { return }
+                Task { @MainActor [weak self] in self?.publishMetersThrottled(from: samples) }
+            }
+            engine.prepare()
+            try engine.start()
+            currentInputUID = device?.uid
+            inputSwitches.append(InputSwitchMark(time: elapsedSeconds,
+                                                 deviceName: device?.name ?? "Entrée par défaut"))
+            audioLog.info("AudioRecorder(engine): switch input → \(device?.name ?? "default", privacy: .public) segment=\(url.lastPathComponent, privacy: .public)")
+        } catch {
+            stopForInputLoss()
+            throw error
         }
-        let url = Self.recordingsDirectory.appending(path: "\(UUID().uuidString).wav")
-        let file = try AVAudioFile(forWriting: url, settings: Self.wavSettings)
-        if let clos = currentFileURL { segmentURLs.append(clos) }
-        sink.rotate(file: file, converter: conv)
-        currentFileURL = url
-        node.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            guard let samples = sink.process(buffer) else { return }
-            Task { @MainActor [weak self] in self?.publishMetersThrottled(from: samples) }
-        }
-        engine.prepare()
-        try engine.start()
-        inputSwitches.append(InputSwitchMark(time: elapsedSeconds,
-                                             deviceName: device?.name ?? "Entrée par défaut"))
-        audioLog.info("AudioRecorder(engine): switch input → \(device?.name ?? "default", privacy: .public) segment=\(url.lastPathComponent, privacy: .public)")
     }
 
     /// Arrêt quand plus aucune entrée n'existe : le message historique, et le
@@ -481,7 +495,6 @@ final class AudioRecorderService: NSObject, ObservableObject {
         for segment in segments {
             try? FileManager.default.removeItem(at: segment)
         }
-        segmentURLs = []
         audioLog.info("AudioRecorder(engine): cancel")
     }
 
