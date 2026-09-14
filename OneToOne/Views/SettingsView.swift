@@ -401,6 +401,8 @@ struct SettingsView: View {
                     .padding(8)
                 }
 
+                AudioInputSettingsSection(settings: settings, onSave: saveSettings)
+
                 GroupBox("Reconnaissance vocale") {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Mode de transcription", selection: Binding(
