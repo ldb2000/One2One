@@ -22,3 +22,6 @@
 | À risque | un projet dont un jalon est dépassé, sans réunion depuis 30 jours, ou dont la fiche est incomplète | `AtRiskView`, `AtRiskBuilder`, `AtRiskItem` |
 | Épinglé | un projet mis en tête de la barre latérale par son porteur | `Project.pinned`, `PinnedProjectsList` |
 | Récents | les derniers projets ouverts, retenus hors du store | `RecentProjects`, `RecentProjectsList` |
+| Micro préféré | l'entrée audio choisie dans les Réglages pour tous les enregistrements ; vide = défaut système | `AppSettings.preferredAudioInputUID`, `AudioInputRouting` |
+| Bascule par segment | à la disparition du micro en cours, le WAV est clos et un second s'ouvre sur l'entrée de repli, les segments sont fusionnés à l'arrêt ; le flux live ne s'interrompt pas | `AudioRecorderService.switchInput`, `TapSink.rotate`, `mergeSegments` |
+| Source audio | un micro détecté par CoreAudio : identifiant stable, nom, intégré ou non, défaut système ou non | `AudioInputDevice`, `AudioInputDeviceService` |
