@@ -23,7 +23,8 @@ struct MeetingRecordingCoordinatorTests {
     private func makeHarness(devices: [AudioInputDevice],
                              teamsRunning: Bool = true,
                              screenPermission: Bool = true,
-                             micro: MicrophonePermissionStatus = .granted) -> Harness {
+                             micro: MicrophonePermissionStatus = .granted,
+                             interruptionSuppression: TimeInterval = 1.0) -> Harness {
         let fakeDevices = FakeAudioInputDevices(devices: devices)
         let recorder = FakeRecorder()
         let notifier = FakeNotifier()
@@ -32,7 +33,8 @@ struct MeetingRecordingCoordinatorTests {
             devices: fakeDevices, recorder: recorder, notifier: notifier,
             isTeamsRunning: { teamsRunning },
             hasScreenPermission: { screenPermission },
-            microphonePermission: { micro })
+            microphonePermission: { micro },
+            interruptionSuppression: interruptionSuppression)
         return Harness(devices: fakeDevices, recorder: recorder, notifier: notifier, screen: screen, coordinator: coordinator)
     }
 
@@ -195,6 +197,30 @@ struct MeetingRecordingCoordinatorTests {
         h.coordinator.handleInterruption()
         #expect(h.recorder.switchedTo == [nil])
         #expect(h.notifier.fallbackNames.isEmpty)
+    }
+
+    @Test("Un retrait puis l'interruption de l'engine pour la même déconnexion → une seule bascule, une seule notification")
+    func removalThenInterruptionSwitchesOnce() {
+        let h = makeHarness(devices: [macBook])
+        h.recorder.currentInputUID = iphone.uid
+        h.coordinator.beginMonitoring()
+        // Une seule déconnexion, deux signaux : l'événement CoreAudio de liste
+        // de périphériques, puis `AVAudioEngineConfigurationChange`.
+        h.coordinator.handleRemoval(uid: iphone.uid)
+        h.coordinator.handleInterruption()
+        #expect(h.recorder.switchedTo == [macBook])
+        #expect(h.notifier.fallbackNames == [macBook.name])
+    }
+
+    @Test("L'interruption après la fenêtre de suppression rebranche à nouveau")
+    func interruptionAfterSuppressionWindowRebinds() {
+        let h = makeHarness(devices: [macBook], interruptionSuppression: 0)
+        h.recorder.currentInputUID = iphone.uid
+        h.coordinator.beginMonitoring()
+        h.coordinator.handleRemoval(uid: iphone.uid)
+        h.coordinator.handleInterruption()
+        #expect(h.recorder.switchedTo == [macBook, macBook])
+        #expect(h.notifier.fallbackNames == [macBook.name])
     }
 
     @Test("beginMonitoring pose le crochet du recorder, endMonitoring le retire")

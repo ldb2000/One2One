@@ -57,6 +57,9 @@ final class MeetingRecordingCoordinator {
     private let isTeamsRunning: @MainActor () -> Bool
     private let hasScreenPermission: @MainActor () -> Bool
     private let microphonePermission: @MainActor () async -> MicrophonePermissionStatus
+    /// Durée pendant laquelle les changements de configuration de l'engine sont
+    /// ignorés après une bascule. Injectable pour les tests seulement.
+    private let interruptionSuppression: TimeInterval
 
     /// Vrai depuis le dernier démarrage où Teams était fermé : `MeetingView`
     /// s'en sert pour **ne pas** afficher le bandeau « permission écran », qui
@@ -68,18 +71,32 @@ final class MeetingRecordingCoordinator {
     // `Task.cancel()` est thread-safe.
     nonisolated(unsafe) private var monitoringTask: Task<Void, Never>?
 
+    /// Vrai le temps d'une bascule. Une seule déconnexion produit deux signaux
+    /// — l'événement CoreAudio de liste de périphériques et
+    /// `AVAudioEngineConfigurationChange` — qui arrivent dans un ordre non
+    /// garanti : sans ce verrou, le second rouvre un segment de plus et
+    /// creuse un second trou de capture pour le même débranchement.
+    private var isSwitching = false
+    /// Les changements de configuration reçus avant cette date sont ignorés :
+    /// c'est la bascule elle-même (arrêt de l'engine, pose du périphérique,
+    /// redémarrage) qui les provoque. Sans cette fenêtre, chaque bascule peut
+    /// en déclencher une autre — un WAV de plus à chaque tour.
+    private var suppressInterruptionsUntil: Date = .distantPast
+
     init(devices: any AudioInputDeviceProviding,
          recorder: any RecordingInputSwitching,
          notifier: any RecordingNotifying,
          isTeamsRunning: @escaping @MainActor () -> Bool,
          hasScreenPermission: @escaping @MainActor () -> Bool,
-         microphonePermission: @escaping @MainActor () async -> MicrophonePermissionStatus) {
+         microphonePermission: @escaping @MainActor () async -> MicrophonePermissionStatus,
+         interruptionSuppression: TimeInterval = 1.0) {
         self.devices = devices
         self.recorder = recorder
         self.notifier = notifier
         self.isTeamsRunning = isTeamsRunning
         self.hasScreenPermission = hasScreenPermission
         self.microphonePermission = microphonePermission
+        self.interruptionSuppression = interruptionSuppression
     }
 
     deinit {
@@ -183,7 +200,7 @@ final class MeetingRecordingCoordinator {
     /// Un périphérique a disparu. Interne (pas `private`) pour être appelée
     /// directement par les tests, sans passer par le flux.
     func handleRemoval(uid: String) {
-        guard recorder.isRecording else { return }
+        guard recorder.isRecording, !isSwitching else { return }
         let verdict = AudioInputRouting.fallback(removedUID: uid,
                                                  currentUID: recorder.currentInputUID,
                                                  devices: devices.devices)
@@ -194,8 +211,11 @@ final class MeetingRecordingCoordinator {
             coordLog.error("Entrée \(uid, privacy: .public) retirée, aucune autre entrée → arrêt")
             recorder.stopForInputLoss()
         case .switchTo(let device):
+            isSwitching = true
+            defer { isSwitching = false }
             do {
                 try recorder.switchInput(to: device)
+                suppressInterruptionsUntil = Date().addingTimeInterval(interruptionSuppression)
                 notifier.notifyAudioInputFallback(deviceName: device.name)
                 coordLog.info("Bascule sur \(device.name, privacy: .public)")
             } catch {
@@ -210,7 +230,11 @@ final class MeetingRecordingCoordinator {
     /// retrait ; elle est toujours là (changement de fréquence, reroutage du
     /// défaut) → on la rebranche en silence, nouveau segment, aucune notification.
     func handleInterruption() {
-        guard recorder.isRecording else { return }
+        guard recorder.isRecording, !isSwitching else { return }
+        // La bascule elle-même provoque des changements de configuration : on
+        // ignore l'écho pendant une seconde. Un vrai second retrait passe, lui,
+        // par `handleRemoval`, que cette fenêtre ne bâillonne pas.
+        guard Date() >= suppressInterruptionsUntil else { return }
         devices.refresh()
         if let current = recorder.currentInputUID,
            !devices.devices.contains(where: { $0.uid == current }) {
@@ -218,8 +242,11 @@ final class MeetingRecordingCoordinator {
             return
         }
         let same = recorder.currentInputUID.flatMap { uid in devices.devices.first { $0.uid == uid } }
+        isSwitching = true
+        defer { isSwitching = false }
         do {
             try recorder.switchInput(to: same)
+            suppressInterruptionsUntil = Date().addingTimeInterval(interruptionSuppression)
             coordLog.info("Interruption engine, rebranchement sur \(same?.name ?? "défaut système", privacy: .public)")
         } catch {
             coordLog.error("Rebranchement échoué \(error.localizedDescription, privacy: .public) → arrêt")
