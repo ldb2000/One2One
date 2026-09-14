@@ -1,4 +1,4 @@
-# ADR 2026-09-14 — Sources audio : fallback par segment et notifications système
+# Sources audio : fallback par segment et notifications système
 
 **Statut :** accepté le 2026-09-14.
 **Portée :** `AudioInputDeviceService`, `AudioInputRouting`, `AudioPermissionKind`,
@@ -72,3 +72,27 @@ les relie et porte la surveillance.
 - `switchInput` se répare seul : en cas d'échec à mi-chemin il appelle `stopForInputLoss()`
   puis relance l'erreur.
 - Le coordinateur annule sa tâche de surveillance dans `deinit`.
+
+**Revue finale (2026-09-14) — six corrections :**
+
+- `rotate` vide aussi le reliquat de `pendingSystemSamples` accumulé pendant l'arrêt de
+  l'engine (100 à 500 ms) : sans ce vidage, la voix distante prenait jusqu'à deux secondes de
+  retard sur le reste de l'enregistrement, `AudioTrackMixer.takeAligned` plafonnant le tampon
+  sans jamais le drainer.
+- Le réglage « par défaut du système » (`inputUID: nil`) résout désormais vers l'UID du
+  périphérique marqué défaut : sans cet UID concret, `fallback` répondait `.ignore` à son
+  retrait et la notification de bascule ne partait jamais pour aucune installation existante.
+- Une fenêtre de suppression d'une seconde (`suppressInterruptionsUntil`) et une garde de
+  réentrance (`isSwitching`) empêchent qu'un seul débranchement ne déclenche deux bascules :
+  l'événement CoreAudio de retrait et l'écho de `AVAudioEngineConfigurationChange` que
+  `switchInput` provoque lui-même en arrêtant puis relançant l'engine.
+- La feuille de choix de micro affichée avant le démarrage reprend désormais un ajout
+  d'enregistrement comme un ajout (`RecordingPromptState.restartAsAppend`), et non comme un
+  nouvel enregistrement qui remplaçait le précédent sur le disque sans le signaler.
+- `stopForInputLoss()` jette l'URL du fichier fusionné (`_ = stop()`) : après une perte totale
+  d'entrée, un échec de liaison ou de bascule, l'audio reste sur disque dans `recordings/` mais
+  non rattaché à la réunion ; récupérable par l'import d'un WAV orphelin ; piste : publier
+  `abandonedRecordingURL`.
+- `inputSwitches` n'a pas encore de consommateur (comme `provenanceTimeline` à sa création).
+- `teamsFlowMissing` n'a plus de lecteur hors tests depuis le retrait de la clause du bandeau ;
+  conservé parce qu'il documente la décision D3 et la teste.
