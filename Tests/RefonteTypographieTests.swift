@@ -54,6 +54,7 @@ struct RefonteTypographieTests {
         "OneToOne/Views/Meeting/MeetingTopChromeBar.swift",
         "OneToOne/Views/AtRisk",
         "OneToOne/Views/Meeting/Chrome",
+        "OneToOne/Views/Meeting/Capture",
         "OneToOne/Views/Navigation",
         "OneToOne/Views/Palette",
         "OneToOne/Views/Portfolio",
