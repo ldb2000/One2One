@@ -629,7 +629,9 @@ graph TD
   `MailBrowserView`, `AgendaInspectorPanel`, `WeekStripView`.
 - **Capture écran** : `CaptureSourcePopover`, `RegionSelectorWindow`.
 - **Réglages** (`SettingsView` + `Views/Settings/`) : maintenance, éditeur/liste de templates,
-  section hotkeys.
+  section hotkeys, section « Entrée audio » (`AudioInputSettingsSection` : micro préféré
+  global, persisté dans `AppSettings.preferredAudioInputUID`, chaîne vide = défaut système ;
+  liste fournie par `AudioInputDeviceService`, voir §6.4).
 - **Menubar** (`Views/Menubar/`) : popovers recherche / note / action / urgent.
 - **Partagé** (`Views/Shared/`, `Views/Layouts/`) : `AddCollaboratorSheet`, `OwnerPickerMenu`,
   `ProjectStatusPalette`, `FlowLayout`, `ColorHex.swift`, `MeetingHeatmapView`.
@@ -763,7 +765,12 @@ s'ajoute dans `MeetingView.swift`, on en retire**.
 - `Resources/**` — tiroir de 396 px, zone « À l'écran », épinglage, annotations, aperçu de
   document (spec §4.1–4.2).
 - `Capture/**` — sélecteur de source, état visible, bande de captures (spec §5.1–5.3) ; la
-  pastille flottante du mode séance vit dans `Views/Capture/Pill/**`.
+  pastille flottante du mode séance vit dans `Views/Capture/Pill/**`. Y vivent aussi les deux
+  feuilles du démarrage d'enregistrement : `AudioInputChoiceSheet` (le micro préféré manque,
+  choisir une autre source) et `AudioPermissionHelpSheet` (micro ou audio système refusé),
+  présentées par le modificateur `RecordingPromptSheets` depuis l'état `RecordingPromptState`
+  porté par `MeetingScreenModel.recordingPrompts` ; la décision qui les ouvre est dans
+  `MeetingRecordingCoordinator` (voir §6.5).
 - `OneOnOne/**` — les deux rôles du 1:1 (D4) : `Manager/` et `ManagerPrep/` (écrans 2a et
   2b), `Collaborator/` et `CollaboratorPrep/` (5a et 5b), `Shared/` pour ce que les deux
   côtés partagent (cartes de personne, composeur, échelle d'humeur, ancienneté).
@@ -787,7 +794,10 @@ personnalisable et la barre latérale droite configurable que la refonte a rempl
 
 **A. Réunion → rapport**
 1. Création/ouverture d'un `Meeting` (manuel, import calendrier, hotkey 1:1, AppIntent).
-2. Enregistrement audio (`AudioRecorderService` → WAV 16 kHz) ou import d'un fichier existant.
+2. Préflight du démarrage (`MeetingRecordingCoordinator`, voir §6.5 : permission micro,
+   entrée audio, mode de capture Teams) puis enregistrement audio (`AudioRecorderService` →
+   WAV 16 kHz ; un fichier par segment d'entrée, fusionnés à l'arrêt, voir §6.4) ou import d'un
+   fichier existant.
 3. Transcription (`TranscriptionService`) : mode `diarizeFirst` → `PyannoteDiarizer` +
    `TurnMerger` + `STTEngine`, puis `SpeakerMatcher` attribue les locuteurs ; persistance en
    `TranscriptSegment`.
@@ -861,7 +871,9 @@ publie un `OneToOneLaunchToken` → ouverture de la fenêtre `1to1-meeting` avec
 | Rappels | EventKit | `RemindersService` (actions → rappels) |
 | Contacts | Contacts | Synchro photos collaborateurs |
 | Notifications | UserNotifications | Rappels de réunion, actions |
-| Capture d'écran | ScreenCaptureKit | Capture de slides |
+| Capture d'écran | ScreenCaptureKit | Capture de slides, audio système des réunions Teams |
+| Microphone | AVFoundation | Permission micro ; refus → `AudioPermissionHelpSheet` (volet Microphone via `MicrophoneSettingsLink`) |
+| Entrées audio | CoreAudio | `AudioInputDeviceService` : énumération des micros, écoute des branchements, liaison de l'entrée sur l'engine |
 | OCR | Vision | Texte des slides |
 | Recherche | CoreSpotlight | Indexation projets/collaborateurs |
 | Raccourcis globaux | Carbon | Hotkeys hors focus |
