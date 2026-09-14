@@ -1044,15 +1044,10 @@ struct MeetingView: View {
         }
     }
 
-    /// `chosenInputUID` : le choix fait dans `AudioInputChoiceSheet`, `nil` au
-    /// premier passage. Le préflight (permission, entrée, Teams) est dans
-    /// `MeetingRecordingCoordinator` ; ici, le câblage recorder / live / playhead.
-    private func startRecording(chosenInputUID: String? = nil) async {
-        if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
-            recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
-            TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
-            return
-        }
+    /// Préflight commun aux deux démarrages (spec §4.4) : permission micro,
+    /// entrée, mode de capture. `nil` = rien ne démarre — une feuille est
+    /// affichée, ou l'erreur est posée et le coordinateur Teams prévenu.
+    private func prepareRecordingStart(chosenInputUID: String?) async -> RecordingStartPlan? {
         let outcome = await recordingCoordinator.prepareStart(
             preferredUID: settings.preferredAudioInputUID,
             chosenUID: chosenInputUID,
@@ -1063,13 +1058,24 @@ struct MeetingView: View {
             if outcome == .blocked, screen.recordingPrompts.permissionHelp == nil {
                 recorder.lastError = AudioError.inputUnavailable.errorDescription
             }
-            // Le coordinateur Teams attend un enregistrement : sans feuille en
-            // attente, on lui dit qu'il n'aura pas lieu.
             if outcome == .blocked, !recorder.isRecording(for: meeting.ensuredStableID) {
                 TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
             }
+            return nil
+        }
+        return plan
+    }
+
+    /// `chosenInputUID` : le choix fait dans `AudioInputChoiceSheet`, `nil` au
+    /// premier passage. Le préflight (permission, entrée, Teams) est dans
+    /// `MeetingRecordingCoordinator` ; ici, le câblage recorder / live / playhead.
+    private func startRecording(chosenInputUID: String? = nil) async {
+        if recorder.isRecording && recorder.activeMeetingID != meeting.stableID {
+            recorder.lastError = "Un enregistrement est déjà en cours pour une autre réunion."
+            TeamsAutoRecordCoordinator.shared.recordingDidFail(meetingID: meeting.ensuredStableID)
             return
         }
+        guard let plan = await prepareRecordingStart(chosenInputUID: chosenInputUID) else { return }
         // Ouvre le flux live AVANT de démarrer le recorder (la continuation doit
         // exister dès le 1er tap pour que start() puisse construire le TapSink),
         // mais on ne lance sa consommation (begin) qu'APRÈS le succès de start() :
@@ -1134,18 +1140,7 @@ struct MeetingView: View {
             recorder.lastError = "Un enregistrement est déjà en cours."
             return
         }
-        let outcome = await recordingCoordinator.prepareStart(
-            preferredUID: settings.preferredAudioInputUID,
-            chosenUID: nil,
-            hasTeamsLink: meeting.teamsJoinURL?.isEmpty == false,
-            requestedMode: settings.teamsAudioCaptureMode,
-            screen: screen)
-        guard case .proceed(let plan) = outcome else {
-            if outcome == .blocked, screen.recordingPrompts.permissionHelp == nil {
-                recorder.lastError = AudioError.inputUnavailable.errorDescription
-            }
-            return
-        }
+        guard let plan = await prepareRecordingStart(chosenInputUID: nil) else { return }
         pendingAppendBaseURL = existing
         // Même câblage que startRecording() : le flux live est préparé avant
         // start() mais sa consommation (begin) n'est lancée qu'après succès,
