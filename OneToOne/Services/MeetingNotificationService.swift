@@ -314,6 +314,38 @@ final class MeetingNotificationService: NSObject, UNUserNotificationCenterDelega
                  interruptionLevel: .timeSensitive)
     }
 
+    /// « Bascule sur le micro MacBook » (spec §4.6) : l'entrée en cours a
+    /// disparu, l'enregistrement continue sur `deviceName`. Notification
+    /// système et non bandeau : décision D4.
+    func notifyAudioInputFallback(deviceName: String) {
+        postSimple(title: "Bascule sur le micro \(deviceName)",
+                   body: "L'entrée audio précédente a été déconnectée. L'enregistrement continue.",
+                   suffix: "audio.input-fallback")
+    }
+
+    /// « Aucun flux Teams détecté » : la réunion porte un lien Teams mais Teams
+    /// n'est pas lancé au démarrage. L'enregistrement part en micro seul (D3).
+    func notifyTeamsFlowMissing() {
+        postSimple(title: "Aucun flux Teams détecté",
+                   body: "Capture micro globale activée.",
+                   suffix: "audio.teams-missing")
+    }
+
+    /// Bannière immédiate sans action, catégorie `recording`.
+    private func postSimple(title: String, body: String, suffix: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.categoryIdentifier = Category.recording
+        content.interruptionLevel = .active
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false)
+        let request = UNNotificationRequest(identifier: "\(suffix).\(UUID().uuidString)", content: content, trigger: trigger)
+        center?.add(request) { error in
+            if let error { print("[MeetingNotificationService] \(suffix): \(error)") }
+        }
+    }
+
     /// Bannière immédiate "Enregistrement en cours". Auto-dismiss, sans action.
     func notifyRecordingStarted(meetingTitle: String) {
         let content = UNMutableNotificationContent()

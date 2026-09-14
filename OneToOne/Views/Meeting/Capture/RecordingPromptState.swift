@@ -1,0 +1,23 @@
+import Foundation
+
+/// Le pop-up de pré-réunion : le micro préféré manque, voici les sources
+/// détectées (spec §1, ligne 1). `Identifiable` pour `.sheet(item:)`.
+struct AudioInputChoiceRequest: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let missingPreferredUID: String
+    let candidates: [AudioInputDevice]
+
+    init(id: UUID = UUID(), missingPreferredUID: String, candidates: [AudioInputDevice]) {
+        self.id = id
+        self.missingPreferredUID = missingPreferredUID
+        self.candidates = candidates
+    }
+}
+
+/// Les deux feuilles que le démarrage d'enregistrement peut demander. Une
+/// ligne dans `MeetingScreenModel`, tout le reste ici (même règle que
+/// `CaptureState`).
+struct RecordingPromptState: Equatable, Sendable {
+    var audioInputChoice: AudioInputChoiceRequest?
+    var permissionHelp: AudioPermissionKind?
+}

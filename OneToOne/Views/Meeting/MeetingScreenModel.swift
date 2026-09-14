@@ -372,6 +372,12 @@ final class MeetingScreenModel {
     /// reste là-bas.
     var capture = CaptureState()
 
+    // MARK: - Sources audio et cas d'erreur (2026-09-14)
+
+    /// Les feuilles du démarrage d'enregistrement : choix d'un autre micro,
+    /// aide autorisations (`Views/Meeting/Capture/RecordingPromptState.swift`).
+    var recordingPrompts = RecordingPromptState()
+
     // MARK: - Lot 10 : domaine 1:1
 
     /// L'état d'écran du 1:1 (filtre d'engagements, confirmation d'escalade).
