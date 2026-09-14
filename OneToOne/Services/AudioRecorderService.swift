@@ -525,19 +525,30 @@ final class TapSink: @unchecked Sendable {
     /// à 48 → 16 kHz) dans le segment qui se ferme : sans cela chaque bascule
     /// d'entrée perdrait une syllabe. Le convertisseur est finalisé par
     /// `.endOfStream`, ce qui est sans conséquence : il est remplacé juste après.
+    /// Drainé même en pause (pas de `guard capturing`, à la différence de
+    /// `process()`) : l'amorce a été captée **avant** la pause, la perdre serait
+    /// incorrect ; en double piste, `publish` la mixera avec le reliquat système
+    /// du moment (vidé par la pause, donc silence), ce qui reste correct.
+    /// Boucle jusqu'à `.endOfStream` (ou `.error`) : un seul appel à `convert`
+    /// ne garantit pas de vider toute l'amorce en un buffer ; `tours` est un
+    /// garde-fou (8 × 8 192 frames, largement au-delà de toute amorce possible)
+    /// au cas où le convertisseur ne signalerait jamais la fin.
     private func drainConverter() {
-        guard capturing else { return }
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) else { return }
-        var err: NSError?
-        let status = converter.convert(to: outBuf, error: &err) { _, outStatus in
-            outStatus.pointee = .endOfStream
-            return nil
+        var tours = 0
+        while tours < 8 {
+            tours += 1
+            guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) else { return }
+            var err: NSError?
+            let status = converter.convert(to: outBuf, error: &err) { _, outStatus in
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            guard err == nil, status != .error, outBuf.frameLength > 0,
+                  let ptr = outBuf.floatChannelData?[0] else { return }
+            let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
+            publish(micSamples: samples, converted: outBuf)
+            if status == .endOfStream { return }
         }
-        guard err == nil, status != .error, outBuf.frameLength > 0,
-              outBuf.floatChannelData?[0] != nil else { return }
-        let ptr = outBuf.floatChannelData![0]
-        let samples = Array(UnsafeBufferPointer(start: ptr, count: Int(outBuf.frameLength)))
-        publish(micSamples: samples, converted: outBuf)
     }
 
     /// Change de fichier et de convertisseur **sans** toucher à la continuation

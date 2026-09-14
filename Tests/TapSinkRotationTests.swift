@@ -67,6 +67,51 @@ final class TapSinkRotationTests: XCTestCase {
         XCTAssertGreaterThan(received, 14_000, "le flux live a reçu les deux segments sans coupure")
     }
 
+    /// Une rotation pendant une pause ne doit pas perdre l'amorce déjà captée par
+    /// l'ancien convertisseur : elle a été captée **avant** la pause, la vider
+    /// dans le segment qui se ferme reste correct (spec D1, ruling coordinateur).
+    func testRotationWhilePausedStillDrainsPrimedAudio() throws {
+        let url1 = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).wav")
+        let url2 = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url1); try? FileManager.default.removeItem(at: url2) }
+
+        var received = 0
+        var continuation: AsyncStream<[Float]>.Continuation!
+        let stream = AsyncStream<[Float]> { continuation = $0 }
+        let consumer = Task { for await block in stream { received += block.count } }
+
+        // Premier segment : entrée 48 kHz (un iPhone en Continuité, par exemple).
+        let sink: TapSink
+        do {
+            let file1 = try AVAudioFile(forWriting: url1, settings: Self.wavSettings)
+            let target = file1.processingFormat
+            let input48 = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+            let conv1 = AVAudioConverter(from: input48, to: target)!
+            sink = TapSink(converter: conv1, targetFormat: target, file: file1, continuation: continuation)
+        }
+        for _ in 0..<5 { XCTAssertNotNil(sink.process(Self.makeSine(sampleRate: 48_000, frames: 4800))) }
+
+        // Pause, puis rotation pendant la pause : entrée 44,1 kHz, nouveau fichier.
+        sink.setCapturing(false)
+        do {
+            let file2 = try AVAudioFile(forWriting: url2, settings: Self.wavSettings)
+            let input44 = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+            let conv2 = AVAudioConverter(from: input44, to: sink.targetFormat)!
+            sink.rotate(file: file2, converter: conv2)
+        }
+        sink.setCapturing(true)
+        for _ in 0..<5 { XCTAssertNotNil(sink.process(Self.makeSine(sampleRate: 44_100, frames: 4410))) }
+
+        sink.finish()
+        _ = try? awaitTask(consumer)
+
+        let f1 = try AVAudioFile(forReading: url1)
+        let f2 = try AVAudioFile(forReading: url2)
+        XCTAssertGreaterThanOrEqual(f1.length, 8_000 - 16,
+                                    "l'amorce drainée reste dans le segment 1 malgré la pause")
+        XCTAssertGreaterThan(f2.length, 7_000, "le second segment est clos et relisible")
+    }
+
     /// Attend la fin d'une `Task` depuis un test XCTest synchrone.
     private func awaitTask(_ task: Task<Void, Never>) throws {
         let done = expectation(description: "flux live terminé")
